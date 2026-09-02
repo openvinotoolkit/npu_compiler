@@ -17,6 +17,9 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/odu_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/scf/scf_analysis_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/scf/scf_multicluster_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/singleton_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
@@ -26,11 +29,27 @@
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
 
 #include <vpu/layer.h>
+#include <vpu_cost_model.h>
 #include <vpu_layer_strategy.h>
 
 using namespace vpux;
+
+vpux::VPU::ScopedProfilingForAutoHint::ScopedProfilingForAutoHint(const std::shared_ptr<VPUNN::VPUCostModel>& costModel)
+        : _costModel(costModel) {
+    if (_costModel != nullptr) {
+        _prevEnabled = _costModel->isProfilingEnabledForAutoHint();
+        _costModel->setProfilingEnabledForAutoHint(true);
+    }
+}
+
+vpux::VPU::ScopedProfilingForAutoHint::~ScopedProfilingForAutoHint() {
+    if (_costModel != nullptr) {
+        _costModel->setProfilingEnabledForAutoHint(_prevEnabled);
+    }
+}
 
 std::shared_ptr<VPUNN::VPUCostModel> vpux::VPU::CostModelConfig::createCostModel(mlir::MLIRContext* context) {
     const auto& costModelFactory = getCostModelFactory(context);
@@ -617,6 +636,11 @@ std::vector<VPUNN::DPULayer> vpux::VPU::getPerClusterDPULayers(VPU::NCEOpInterfa
 
         for (auto index : irange(numClusters)) {
             TileInfo outputTile(outputPerClusterShapes[index], outputPerClusterOffsets[index], numTilesShape);
+            auto result = VPU::invertODUScaling(getODUScaling(nceOp.getOperation()), outputTile, nceOp->getLoc());
+            // We should never generate a tile that cannot be inverted to pre-ODU tile
+            VPUX_THROW_WHEN(mlir::failed(result), "Failed to invert to pre-ODU tile at cluster {0}, op '{1}' at '{2}'",
+                            index, nceOp->getName(), nceOp.getLoc());
+            outputTile = result.value();
             auto padsTileConf = backInferPadsTile(outputTile, params.fullInputShape, params.padInfo, ArrayRef({KY, KX}),
                                                   ArrayRef({SY, SX}));
             outputPerClusterPaddings[index] = padsTileConf;
@@ -737,6 +761,9 @@ std::vector<VPUNN::DPULayer> vpux::VPU::getPerClusterDPULayers(VPU::NCEOpInterfa
 std::vector<VPUNN::SHAVEWorkload> vpux::VPU::getPerClusterShaveWorkloads(
         VPU::SWOpInterface swOp, const VPUIP::ShaveWorkloadCostParams& params, Logger log,
         std::vector<std::pair<NDTypeInterface, TensorDistributionMap>> tileTypes) {
+    VPUX_THROW_WHEN(tileTypes.empty(), "getPerClusterShaveWorkloads: tileTypes can't be empty for op '{0}' at '{1}'",
+                    swOp->getName(), swOp->getLoc());
+
     const auto numClusters = params.numTiles;
 
     const auto getPerClusterShape = [&](const VPU::DistributionInfo& distributedInfo, size_t inputIndex = 0,
@@ -768,7 +795,6 @@ std::vector<VPUNN::SHAVEWorkload> vpux::VPU::getPerClusterShaveWorkloads(
         if (tileTypeIdx < tileTypes.size() - 1) {
             // input shapes
             if (tileType.second.empty()) {
-                // TODO E#216175: detect how many cluster used by op
                 const auto shape = Shape(tileType.first.getShape().raw());
                 inputsPerClusterShapes.push_back(SmallVector(numClusters, shape));
             } else {
@@ -1249,6 +1275,177 @@ VPUIP::WorkloadCostParams vpux::VPU::getWorkloadCostParam(VPU::NCEOpInterface nc
     return params;
 }
 
+namespace {
+
+// Infer the multi-cluster strategy for the SCF workload-cost computation.
+// Derived from the enclosing scf.forall loop structure (analyzes which output dim's offset in
+// parallel_insert_slice depends on the forall IV).
+// Throws an error when the op is multiclustered but strategy could not be inferred.
+void fillInMCParams(VPUIP::WorkloadCostParams& params, VPU::NCEOpInterface nceOp, vpux::Logger log) {
+    params.numTiles = 1;
+    auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(nceOp.getOperation());
+    if (!clusteredOp) {
+        params.numTiles = 1;
+        log.nest().trace("Op is not a ClusteredOpInterface, filling in single cluster params.");
+        return;
+    }
+
+    auto forallOp = nceOp->getParentOfType<mlir::scf::ForallOp>();
+    if (!forallOp) {
+        params.numTiles = 1;
+        log.trace("Op is not multiclustered. No scf.forall parent found.");
+        return;
+    }
+
+    auto analysis = VPU::OpChainAnalysis(log.nest());
+    const auto numTiles = computeNumTilesForDistribution(analysis, nceOp->getResult(0));
+    const auto tilingAxes = VPU::getNonOneDimInds(numTiles);
+    VPUX_THROW_WHEN(tilingAxes.size() != 1, "Currently only supporting strategies with single multiclustering axis");
+
+    params.numTiles = numTiles[tilingAxes.front()];
+
+    const auto strategy = VPU::getMulticlusteringStrategy(nceOp.getOperation(), tilingAxes.front());
+
+    // SplitOverBatch → each cluster processes a different batch element independently. For DPU
+    // workload cost estimation this is equivalent to Clustering (no inter-cluster communication)
+    // and not supported by the ISI strategy mapping in getDPUWorkload, so remap.
+    if (strategy == VPU::MultiClusterStrategy::SplitOverBatch) {
+        log.trace("Inferred multiclustering strategy SplitOverBatch. Remapping to Clustering");
+        params.layerStrategy = VPU::MultiClusterStrategy::Clustering;
+        return;
+    }
+
+    params.layerStrategy = strategy;
+    log.trace("Inferred multiclustering strategy={0}", strategy);
+}
+
+}  // namespace
+
+VPUIP::WorkloadCostParams vpux::VPU::getWorkloadCostParamForSCF(VPU::NCEOpInterface nceOp, config::ArchKind arch,
+                                                                int64_t numDPU, ShapeRef inputShape,
+                                                                ShapeRef outputShape, Logger log) {
+    // Populate WorkloadCostParams directly from the provided shapes
+    // rather than reading them from the op's types/attributes. This avoids the need to
+    // temporarily mutate the op's types in the SCF workload pass.
+    //
+    // Differences from getWorkloadCostParam:
+    //   - Shapes: taken from parameters (pre-computed static shapes for the current tile)
+    //   - Pads: derived from the op's pad attribute, with consistency check vs. tensor.pad
+    //     on the activation (SCF tiling sets op pad to [0,0,0,0] when tensor.pad is present)
+    //   - MC strategy: derived from the enclosing scf.forall structure (with fallback to the
+    //     op's MultiClusterStrategy attribute when not inside scf.forall)
+    //   - SEP info: skipped (not supported in SCF flow yet — see #E218003)
+    //   - Task type: same as existing getWorkloadCostParam
+
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(nceOp->getOperand(0).getType());
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(nceOp->getResult(0).getType());
+    const auto inElemType = inputType.getElementType();
+    const auto outElemType = outputType.getElementType();
+
+    const auto inputOrder = inputType.getDimsOrder();
+    const auto outputOrder = outputType.getDimsOrder();
+
+    const auto vpuDevice = getVPUDeviceType(nceOp.getOperation());
+
+    VPUIP::WorkloadCostParams params = {};
+    params.inDataType = inElemType;
+    params.outDataType = outElemType;
+    if (nceOp.getWeightsOperand() != nullptr) {
+        params.weightsDataType =
+                mlir::cast<vpux::NDTypeInterface>(nceOp.getWeightsOperand().getType()).getElementType();
+    }
+    params.inOrder = inputOrder;
+    params.outOrder = outputOrder;
+    params.numDPU = numDPU;
+
+    params.arch = arch;
+    params.vpuDevice = vpuDevice;
+
+    // Use explicitly provided shapes (pre-computed for the current SCF tile)
+    params.fullInputShape = Shape(inputShape.raw());
+    params.inputShape = Shape(inputShape.raw());
+    params.outputShape = Shape(outputShape.raw());
+    // In the SCF flow, ops with active ODU transforms are not supported (excluded upstream).
+    // preODUShape equals outputShape when no ODU transform is active.
+    params.preODUShape = Shape(outputShape.raw());
+
+    // Derive pad info from the op itself. In the SCF tiling flow, when tensor.pad
+    // handles boundary padding, the NCE op's pad attribute is [0,0,0,0] and the actual
+    // padding is in the input data. Enforce that invariant here.
+    if (nceOp->getOperand(0).getDefiningOp<mlir::tensor::PadOp>() != nullptr) {
+        auto nceOpPad = VPU::toPadInfo(nceOp.getPad());
+        VPUX_THROW_WHEN(nceOpPad.enabled(),
+                        "NCE op at '{0}' has tensor.pad on activation but non-zero pad attribute {1}. "
+                        "The SCF tiling infrastructure should set pad to [0,0,0,0] when tensor.pad is present.",
+                        nceOp->getLoc(), nceOpPad);
+    }
+    params.padInfo = VPU::toPadInfo(nceOp.getPad());
+
+    params.kernelSize = nceOp.getKernelSizeVal();
+    params.kernelStride = nceOp.getStridesVal();
+    params.weightsSparsityRatio = 0;
+    params.isWeightsSparsityEnabled = false;
+
+    // PPE and MPE engine from op
+    params.ppeAttr = nceOp.getPPE();
+    params.mpeEngine = nceOp.getMpeEngine();
+
+    // SEP info: skipped in SCF flow (no SparseTensor support yet).
+    // TODO: #E218003 add SEP support when SparseTensor is available in SCF flow.
+
+    // Fill in the cost model parameters related to multiclustering (strategy and numTiles).
+    // If op is single cluster (no scf.forall) then numTiles is set to 1 and strategy is left unset (default).
+    fillInMCParams(params, nceOp, log);
+
+    // Weights sparsity
+    const auto weights = nceOp.getWeightsOperand();
+    if (weights != nullptr && mlir::isa<vpux::VPU::SparseTensorType>(weights.getType())) {
+        params.weightsSparsityRatio = getWeightsSparsityRatio(weights);
+        params.isWeightsSparsityEnabled = true;
+    }
+
+    // Task type — same logic as getWorkloadCostParam
+    llvm::TypeSwitch<mlir::Operation*, void>(nceOp.getOperation())
+            .Case<VPU::NCEConvolutionOp>([&](VPU::NCEConvolutionOp) {
+                params.nceTaskType = VPUIP::NCETaskType::CONV;
+            })
+            .Case<VPU::NCECompressConvolutionOp>([&](VPU::NCECompressConvolutionOp) {
+                params.nceTaskType = VPUIP::NCETaskType::CONV;
+                params.isNceCompressConv = true;
+            })
+            .Case<VPU::NCEDepthConvolutionOp>([&](VPU::NCEDepthConvolutionOp) {
+                params.nceTaskType = VPUIP::NCETaskType::DWCONV;
+            })
+            .Case<VPU::NCEMaxPoolOp>([&](VPU::NCEMaxPoolOp) {
+                params.nceTaskType = VPUIP::NCETaskType::MAXPOOL;
+            })
+            .Case<VPU::NCEAveragePoolOp>([&](VPU::NCEAveragePoolOp) {
+                params.nceTaskType = VPUIP::NCETaskType::AVEPOOL;
+            })
+            .Case<VPU::NCEEltwiseOp>([&](VPU::NCEEltwiseOp) {
+                params.nceTaskType = VPUIP::NCETaskType::ELTWISE;
+            })
+            .Case<VPU::NCEInterpolateOp>([&](VPU::NCEInterpolateOp) {
+                params.nceTaskType = VPUIP::NCETaskType::CONV;
+            })
+            .Case<VPU::NCEMatMulOp>([&](auto) {
+                params.nceTaskType = VPUIP::NCETaskType::CONV;
+            })
+            .Case<VPU::NCEReduceOp>([&](VPU::NCEReduceOp origOp) {
+                params.nceTaskType = VPU::configureNCEReduceTaskType(origOp);
+            })
+            .Case<VPU::NCEPermuteOp>([&](VPU::NCEPermuteOp) {
+                params.nceTaskType = VPUIP::NCETaskType::ELTWISE;
+                params.isNcePermute = true;
+                params.inOrder = DimsOrder::NHWC;
+                params.outOrder = DimsOrder::NWCH;
+            })
+            .Default([](mlir::Operation* op) {
+                VPUX_THROW("Unsupported NCE operation '{0}' at '{1}'", op->getName(), op->getLoc());
+            });
+    return params;
+}
+
 VPUIP::ShaveWorkloadCostParams vpux::VPU::getShaveWorkloadCostParam(VPU::SWOpInterface swOp, config::ArchKind arch,
                                                                     int64_t numSHV, int64_t numTiles) {
     VPUIP::ShaveWorkloadCostParams params{};
@@ -1266,7 +1463,7 @@ VPUIP::ShaveWorkloadCostParams vpux::VPU::getShaveWorkloadCostParam(VPU::SWOpInt
         const auto outType = mlir::dyn_cast<vpux::NDTypeInterface>(output.getType());
         params.outDataTypes.push_back(outType.getElementType());
         params.outOrders.push_back(outType.getDimsOrder());
-        params.outputShapes.push_back(outType.getShape().raw());
+        params.outputShapes.emplace_back(outType.getShape().raw());
     }
     auto op = swOp.getOperation();
     if (auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(op)) {
@@ -1274,6 +1471,21 @@ VPUIP::ShaveWorkloadCostParams vpux::VPU::getShaveWorkloadCostParam(VPU::SWOpInt
 
         if (strategy.has_value()) {
             params.layerStrategy = strategy.value();
+            // Derive effective numTiles from output distribution if available on IR,
+            // otherwise fall back to getOptimalNumClusters
+            // E-216912: consider multi-output ops in numTiles calculation
+            auto outputDistType = getDistributedTensor(op->getResult(0));
+            if (outputDistType != nullptr) {
+                params.numTiles = outputDistType.getDistribution().getNumClusters().getInt();
+            } else if (auto outDistIf = mlir::dyn_cast<VPU::DistributedTypeInterface>(op->getResult(0).getType());
+                       outDistIf != nullptr && outDistIf.containsDistributedTypes()) {
+                auto distributedOutput =
+                        mlir::cast<VPU::DistributedTensorType>(outDistIf.getDistributedTypes().front());
+                params.numTiles = distributedOutput.getDistribution().getNumClusters().getInt();
+            } else {
+                const auto& outputShape = params.outputShapes[0];
+                params.numTiles = VPU::getOptimalNumClusters(op, ShapeRef(outputShape), strategy.value());
+            }
         } else if (hasDistributedTypesIO(op)) {
             // It shows this is a cluster tiling op and its MC strategy attribute has been removed
             // We need evaluate it from the input/ output distributed mode
@@ -1289,6 +1501,8 @@ VPUIP::ShaveWorkloadCostParams vpux::VPU::getShaveWorkloadCostParam(VPU::SWOpInt
                             inputType, outputType);
             auto distributionInAttr = distributedInput.getDistribution();
             auto distributionOutAttr = distributedOutput.getDistribution();
+            // Override numTiles with actual cluster count from output distribution
+            params.numTiles = distributionOutAttr.getNumClusters().getInt();
             SmallVector<int64_t> numTilesIn = {1, 1, 1, 1}, numTilesOut = {1, 1, 1, 1};
             // DUPLICATED tensor has no numTiles item
             if (distributionInAttr.getNumTiles() != nullptr) {
@@ -1315,6 +1529,9 @@ VPUIP::ShaveWorkloadCostParams vpux::VPU::getShaveWorkloadCostParam(VPU::SWOpInt
                 params.layerStrategy = VPU::MultiClusterStrategy::SplitOverKernel;
             }
         }
+    } else {
+        // Not a clustered op, single cluster execution
+        params.numTiles = 1;
     }
     return params;
 }

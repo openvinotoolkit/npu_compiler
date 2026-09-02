@@ -282,6 +282,7 @@ NetworkMetadata vpux::VPUMI37XX::getHostCompileNetworkMetadata(mlir::ModuleOp mo
         auto netOps = module.getOps<net::NetworkInfoOp>();
         if (netOps.begin() != netOps.end()) {
             metadata = ELFNPU37XX::constructMetadata(module, vpux::Logger::global());
+            ELFNPU37XX::setResourceRequirement(module, *metadata);
             ::getNetworkMetadata(metadata, network);
         } else {
             VPUX_THROW("NetworkInfoOp is not found in the module");

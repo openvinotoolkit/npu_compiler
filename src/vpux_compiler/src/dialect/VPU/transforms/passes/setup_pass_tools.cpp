@@ -3,12 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/dialect/config/IR/attributes.hpp"
-#include "vpux/compiler/dialect/config/IR/resources.hpp"
-#include "vpux/compiler/dialect/config/constraints.hpp"
+#include "vpux/compiler/dialect/config/IR/dialect.hpp"
+#include "vpux/compiler/dialect/const/constant_call_stack.hpp"
 #include "vpux/compiler/utils/npu_action_handler.hpp"
 #include "vpux/compiler/utils/pass_disabling_callback.hpp"
 #include "vpux/compiler/utils/pass_usage_observer.hpp"
@@ -55,9 +53,14 @@ void SetupPassToolsPass::safeRunOnModule() {
         actionHandler.addBreakpointManager(PassDisablingCallback::createBreakpointManager());
     }
 
-    if (outdatedPassDetectionFileOpt.hasValue() && !outdatedPassDetectionFileOpt.getValue().empty()) {
+    if (enableOutdatedPassDetectionOpt.getValue()) {
         auto& actionHandler = getActionHandler(getContext());
-        actionHandler.registerObserver(std::make_unique<PassUsageObserver>(outdatedPassDetectionFileOpt.getValue()));
+        actionHandler.registerObserver(std::make_unique<PassUsageObserver>(_log));
+    }
+
+    if (constantTracingOpt.getValue()) {
+        auto& actionHandler = getActionHandler(getContext());
+        actionHandler.registerObserver(std::make_unique<Const::CallStackObserver>());
     }
 }
 

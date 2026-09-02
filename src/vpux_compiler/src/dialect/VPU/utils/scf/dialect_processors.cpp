@@ -11,6 +11,7 @@
 #include <mlir/Dialect/Affine/IR/AffineOps.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/Attributes.h>
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 
@@ -84,7 +85,7 @@ std::optional<int64_t> checkAndGetValueFromConstOrDimOp(mlir::Value operand, con
         return integerValue;
     }
 
-    if (auto dimOp = mlir::dyn_cast<mlir::tensor::DimOp>(operand.getDefiningOp())) {
+    if (auto dimOp = mlir::dyn_cast_or_null<mlir::tensor::DimOp>(operand.getDefiningOp())) {
         auto dimensionValue = getIntValueFromDimOp(dimOp, log);
         if (dimensionValue.has_value()) {
             return dimensionValue;
@@ -123,13 +124,16 @@ bool DialectProcessorRegistry::hasProcessor(mlir::Operation* op) const {
     return getProcessor(op) != nullptr;
 }
 
-std::unique_ptr<DialectProcessorRegistry> DialectProcessorRegistry::createDefault() {
+std::unique_ptr<DialectProcessorRegistry> DialectProcessorRegistry::createDefault(
+        TensorBoundResolver tensorBoundResolver) {
     auto registry = std::make_unique<DialectProcessorRegistry>();
     registry->registerProcessor(
             std::make_unique<AffineDialectProcessor>(Logger::global().nest("affine-dialect-processor")));
     registry->registerProcessor(
             std::make_unique<ArithmeticDialectProcessor>(Logger::global().nest("arith-dialect-processor")));
     registry->registerProcessor(std::make_unique<SCFDialectProcessor>(Logger::global().nest("scf-dialect-processor")));
+    registry->registerProcessor(std::make_unique<TensorDialectProcessor>(
+            Logger::global().nest("tensor-dialect-processor"), std::move(tensorBoundResolver)));
     return registry;
 }
 
@@ -137,7 +141,7 @@ bool AffineDialectProcessor::canProcess(mlir::Operation* op) const {
     return mlir::isa<mlir::affine::AffineDialect>(op->getDialect());
 }
 
-bool AffineDialectProcessor::processOperation(mlir::Operation* op, llvm::DenseMap<mlir::Value, int64_t>& valueMap,
+bool AffineDialectProcessor::processOperation(mlir::Operation* op, ScalarValueMap& valueMap,
                                               BlockProcessor blockProcessor) const {
     (void)blockProcessor;
     auto [affineMap, mapOperands] = getAffineMapAndOperands(op);
@@ -217,7 +221,7 @@ bool ArithmeticDialectProcessor::canProcess(mlir::Operation* op) const {
     return mlir::isa<mlir::arith::ArithDialect>(op->getDialect());
 }
 
-bool ArithmeticDialectProcessor::processOperation(mlir::Operation* op, llvm::DenseMap<mlir::Value, int64_t>& valueMap,
+bool ArithmeticDialectProcessor::processOperation(mlir::Operation* op, ScalarValueMap& valueMap,
                                                   BlockProcessor blockProcessor) const {
     (void)blockProcessor;
     if (auto constOp = mlir::dyn_cast<mlir::arith::ConstantOp>(op)) {
@@ -226,15 +230,16 @@ bool ArithmeticDialectProcessor::processOperation(mlir::Operation* op, llvm::Den
             return true;
         }
         if (auto floatAttr = mlir::dyn_cast<mlir::FloatAttr>(constOp.getValueAttr())) {
-            // Store float as bit pattern - will be interpreted correctly by float ops
+            // Scalar float constant — store as double bit pattern for float ops (e.g. arith.mulf).
             valueMap[op->getResult(0)] = llvm::bit_cast<int64_t>(floatAttr.getValueAsDouble());
             return true;
         }
-        if (auto indexAttr = mlir::dyn_cast<mlir::IntegerAttr>(constOp.getValueAttr())) {
-            valueMap[op->getResult(0)] = indexAttr.getInt();
-            return true;
-        }
-        return false;
+        // Non-scalar constant (e.g. dense<[8.0, 4.0]> : tensor<2xf16>): the value cannot be
+        // represented as a scalar int64_t in the value map. TensorDialectProcessor handles
+        // such constants directly by reading the defining-op attribute (bypassing valueMap),
+        // so the chain evaluation can safely continue.
+        _log.trace("Skipping non-scalar arith.constant (result type: {0})", op->getResult(0).getType());
+        return true;
     }
 
     for (auto operand : op->getOperands()) {
@@ -449,6 +454,15 @@ bool ArithmeticDialectProcessor::processOperation(mlir::Operation* op, llvm::Den
                 valueMap[op->getResult(0)] = llvm::bit_cast<int64_t>(lhs / rhs);
                 return true;
             })
+            .Case<mlir::arith::ExtFOp>([&](auto extFOp) {
+                auto it = valueMap.find(extFOp.getIn());
+                if (it == valueMap.end()) {
+                    _log.trace("Missing input value for arith.extf: operand not in value map");
+                    return false;
+                }
+                valueMap[op->getResult(0)] = it->second;
+                return true;
+            })
             .Default([&](mlir::Operation*) {
                 _log.trace("Unsupported arith operation: {0}", op->getName());
                 return false;
@@ -459,7 +473,7 @@ bool SCFDialectProcessor::canProcess(mlir::Operation* op) const {
     return mlir::isa<mlir::scf::SCFDialect>(op->getDialect());
 }
 
-bool SCFDialectProcessor::processOperation(mlir::Operation* op, llvm::DenseMap<mlir::Value, int64_t>& valueMap,
+bool SCFDialectProcessor::processOperation(mlir::Operation* op, ScalarValueMap& valueMap,
                                            BlockProcessor blockProcessor) const {
     return llvm::TypeSwitch<mlir::Operation*, bool>(op)
             .Case<mlir::scf::IfOp>([&](auto ifOp) {
@@ -490,7 +504,7 @@ bool SCFDialectProcessor::processOperation(mlir::Operation* op, llvm::DenseMap<m
             });
 }
 
-bool SCFDialectProcessor::processIfOp(mlir::scf::IfOp ifOp, llvm::DenseMap<mlir::Value, int64_t>& valueMap,
+bool SCFDialectProcessor::processIfOp(mlir::scf::IfOp ifOp, ScalarValueMap& valueMap,
                                       const BlockProcessor& blockProcessor) const {
     auto condition = ifOp.getCondition();
     if (!valueMap.contains(condition)) {
@@ -524,6 +538,101 @@ bool SCFDialectProcessor::processIfOp(mlir::scf::IfOp ifOp, llvm::DenseMap<mlir:
     }
 
     return true;
+}
+
+bool TensorDialectProcessor::canProcess(mlir::Operation* op) const {
+    return mlir::isa<mlir::tensor::TensorDialect>(op->getDialect());
+}
+
+bool TensorDialectProcessor::processExtractOp(mlir::tensor::ExtractOp extractOp, ScalarValueMap& valueMap) const {
+    // Use a pre-seeded tensor bound if available.
+    auto tensorIt = valueMap.find(extractOp.getTensor());
+    if (tensorIt != valueMap.end()) {
+        valueMap[extractOp.getResult()] = tensorIt->second;
+        return true;
+    }
+
+    auto indices = extractOp.getIndices();
+    if (indices.size() != 1) {
+        _log.trace("tensor.extract with {0}-dimensional index not supported", indices.size());
+        return false;
+    }
+
+    int64_t indexVal = 0;
+    auto indexIt = valueMap.find(indices[0]);
+    if (indexIt != valueMap.end()) {
+        indexVal = indexIt->second;
+    } else {
+        auto constIdx = mlir::getConstantIntValue(indices[0]);
+        if (!constIdx.has_value()) {
+            _log.trace("tensor.extract: index is not statically known");
+            return false;
+        }
+        indexVal = constIdx.value();
+    }
+
+    auto* defOp = extractOp.getTensor().getDefiningOp();
+    auto constOp = defOp ? mlir::dyn_cast<mlir::arith::ConstantOp>(defOp) : nullptr;
+    if (!constOp) {
+        // The source is not a constant, so the extracted element cannot be read directly. Ask the injected
+        // resolver whether a bound can be recovered for this tensor instead.
+        if (_boundResolver != nullptr) {
+            if (auto bound = _boundResolver(extractOp.getTensor())) {
+                valueMap[extractOp.getResult()] = bound.value();
+                return true;
+            }
+        }
+        _log.trace("tensor.extract: non-constant source without a pre-seeded or recovered bound");
+        return false;
+    }
+
+    auto denseAttr = mlir::dyn_cast<mlir::DenseElementsAttr>(constOp.getValue());
+    if (!denseAttr) {
+        _log.trace("tensor.extract: constant is not a DenseElementsAttr");
+        return false;
+    }
+
+    auto numElements = denseAttr.getNumElements();
+    if (indexVal < 0 || indexVal >= numElements) {
+        _log.trace("tensor.extract: index {0} is out of bounds (size {1})", indexVal, numElements);
+        return false;
+    }
+
+    if (mlir::isa<mlir::FloatType>(extractOp.getResult().getType())) {
+        auto fpValues = denseAttr.template getValues<llvm::APFloat>();
+        auto fpValIt = fpValues.begin();
+        std::advance(fpValIt, indexVal);
+        llvm::APFloat fpVal(*fpValIt);
+        bool lossy = false;
+        fpVal.convert(llvm::APFloat::IEEEdouble(), llvm::APFloat::rmNearestTiesToEven, &lossy);
+        valueMap[extractOp.getResult()] = llvm::bit_cast<int64_t>(fpVal.convertToDouble());
+    } else {
+        auto intValues = denseAttr.template getValues<llvm::APInt>();
+        auto intValIt = intValues.begin();
+        std::advance(intValIt, indexVal);
+        valueMap[extractOp.getResult()] = (*intValIt).getSExtValue();
+    }
+    return true;
+}
+
+bool TensorDialectProcessor::processOperation(mlir::Operation* op, ScalarValueMap& valueMap, BlockProcessor) const {
+    return llvm::TypeSwitch<mlir::Operation*, bool>(op)
+            .Case<mlir::tensor::DimOp>([&](auto dimOp) {
+                auto dimValue = getIntValueFromDimOp(dimOp, _log);
+                if (!dimValue.has_value()) {
+                    _log.trace("Could not resolve tensor.dim to a static value");
+                    return false;
+                }
+                valueMap[op->getResult(0)] = dimValue.value();
+                return true;
+            })
+            .Case<mlir::tensor::ExtractOp>([&](auto extractOp) {
+                return processExtractOp(extractOp, valueMap);
+            })
+            .Default([&](mlir::Operation*) {
+                _log.trace("Unsupported tensor operation: {0}", op->getName());
+                return false;
+            });
 }
 
 }  // namespace vpux::VPU

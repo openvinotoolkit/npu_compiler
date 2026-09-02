@@ -7,8 +7,8 @@
 
 #pragma once
 
-#include "intel_npu/config/config.hpp"
 #include "npu_driver_compiler.h"
+#include "vpux/utils/ov/config.hpp"
 
 #include "openvino/core/extension.hpp"
 #include "openvino/core/model.hpp"
@@ -159,7 +159,6 @@ struct BlobView final {
 // compiler via provided BlobAllocator implementation.
 struct NetworkDescriptionView {
     NetworkDescriptionView(BlobView blob, NetworkMetadata&&);
-    NetworkDescriptionView(BlobView blob, BlobView compatibilityString, NetworkMetadata&&);
 
     NetworkDescriptionView(const NetworkDescriptionView&) = delete;
     NetworkDescriptionView& operator=(const NetworkDescriptionView&) = delete;
@@ -170,7 +169,6 @@ struct NetworkDescriptionView {
     ~NetworkDescriptionView() = default;
 
     BlobView compiledNetwork;
-    BlobView compatibilityString;  // To be removed E#219950
     NetworkMetadata metadata;
 };
 
@@ -200,7 +198,7 @@ public:
      * @return Compiled network description
      */
     virtual NetworkDescription compile(const std::shared_ptr<const ov::Model>& model,
-                                       const intel_npu::Config& config) const = 0;
+                                       const vpux::OV::Config& config) const = 0;
 
     /**
      * @brief Compiles the model, weights separation enabled. All init schedules along with the main one are compiled in
@@ -209,7 +207,7 @@ public:
      * part.
      */
     virtual std::vector<std::shared_ptr<NetworkDescription>> compileWsOneShot(
-            const std::shared_ptr<ov::Model>& /*model*/, const intel_npu::Config& /*config*/) const {
+            const std::shared_ptr<ov::Model>& /*model*/, const vpux::OV::Config& /*config*/) const {
         OPENVINO_NOT_IMPLEMENTED;
     }
 
@@ -228,7 +226,7 @@ public:
      * Plugin does not know total numbers of Init schedules
      */
     virtual NetworkDescription compileWsIterative(const std::shared_ptr<ov::Model>& /*model*/,
-                                                  const intel_npu::Config& /*config*/, size_t /*callNumber*/) const {
+                                                  const vpux::OV::Config& /*config*/, size_t /*callNumber*/) const {
         OPENVINO_NOT_IMPLEMENTED;
     }
 
@@ -240,7 +238,7 @@ public:
      * @returns SupportedOpsMap structure with information about supported layers
      */
     virtual ov::SupportedOpsMap query(const std::shared_ptr<const ov::Model>& model,
-                                      const intel_npu::Config& config) const = 0;
+                                      const vpux::OV::Config& config) const = 0;
 
     /**
      * @brief Parses already compiled network to extract meta information:
@@ -251,11 +249,11 @@ public:
      *        since the network is already compiled
      * @return Network metadata extracted from the compiled network
      */
-    virtual NetworkMetadata parse(const std::vector<uint8_t>& network, const intel_npu::Config& config) const = 0;
+    virtual NetworkMetadata parse(const std::vector<uint8_t>& network, const vpux::OV::Config& config) const = 0;
 
     virtual std::vector<ov::ProfilingInfo> processProfilingOutput(const std::vector<uint8_t>& profData,
                                                                   const std::vector<uint8_t>& network,
-                                                                  const intel_npu::Config& config) const = 0;
+                                                                  const vpux::OV::Config& config) const = 0;
 
     virtual std::vector<ze::ze_profiling_layer_info> getLayerInfo(const uint8_t* blobData, uint64_t blobSize,
                                                                   const uint8_t* profData, uint64_t profSize) const = 0;
@@ -265,35 +263,32 @@ public:
 
     // CiD-specific methods
 
-    virtual NetworkDescriptionView compile(const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config,
-                                           BlobAllocator& allocator,
-                                           bool allocateCompatibilityString = false) const = 0;
+    virtual NetworkDescriptionView compile(const std::shared_ptr<ov::Model>& model, const vpux::OV::Config& config,
+                                           BlobAllocator& allocator) const = 0;
 
     virtual NetworkDescriptionView compile(const std::shared_ptr<const ov::Model>& model,
-                                           const intel_npu::Config& config, BlobAllocator& allocator,
-                                           bool allocateCompatibilityString = false) const = 0;
+                                           const vpux::OV::Config& config, BlobAllocator& allocator) const = 0;
 
     // VCL specific methods
 
     virtual ov::SupportedOpsMap queryFromDesc(const vcl_query_desc_t& desc, vcl_compiler_desc_t& compilerDesc,
                                               vcl_compiler_properties_t& compilerProp, vcl_device_desc_t& deviceDesc,
-                                              intel_npu::Config& config, bool isDeviceDescEmpty) const = 0;
+                                              vpux::OV::Config& config, bool isDeviceDescEmpty) const = 0;
 
     virtual NetworkDescription compileFromDesc(const vcl_executable_desc_t& desc,
                                                const vcl_compiler_properties_t& compilerProp,
                                                vcl_compiler_desc_t& compilerDesc, vcl_device_desc_t& deviceDesc,
-                                               intel_npu::Config& config, bool isDeviceDescEmpty) const = 0;
+                                               vpux::OV::Config& config, bool isDeviceDescEmpty) const = 0;
 
     virtual NetworkDescriptionView compileFromDesc(const vcl_executable_desc_t& desc,
                                                    const vcl_compiler_properties_t& compilerProp,
                                                    vcl_compiler_desc_t& compilerDesc, vcl_device_desc_t& deviceDesc,
-                                                   intel_npu::Config& config, bool isDeviceDescEmpty,
-                                                   BlobAllocator& allocator,
-                                                   bool generateCompatibilityString = false) const = 0;
+                                                   vpux::OV::Config& config, bool isDeviceDescEmpty,
+                                                   BlobAllocator& allocator) const = 0;
 
     virtual std::vector<std::shared_ptr<NetworkDescriptionView>> compileFromDescWsOneShot(
             const vcl_executable_desc_t& desc, const vcl_compiler_properties_t& compilerProp,
-            vcl_compiler_desc_t& compilerDesc, vcl_device_desc_t& deviceDesc, intel_npu::Config& config,
+            vcl_compiler_desc_t& compilerDesc, vcl_device_desc_t& deviceDesc, vpux::OV::Config& config,
             bool isDeviceDescEmpty, BlobAllocator& allocator) const = 0;
 };
 

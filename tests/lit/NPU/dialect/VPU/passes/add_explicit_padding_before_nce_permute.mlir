@@ -99,7 +99,7 @@ func.func @NCEPermuteDepthConvWeightsSparseConv(%arg0: tensor<1x3x257x257xf16>) 
     %slice = VPU.Slice %nce_permute [0, 0, 0, 0] [1, 16, 257, 257]
         : tensor<1x16x257x272xf16, {order = #NHWC}> to tensor<1x16x257x257xf16, {order = #NHWC}>
 
-    %depth_conv = VPU.NCE.DepthConvolution(%slice, %depth_conv_weights) rawFilterShape [16, 1, 1, 1] {ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    %depth_conv = VPU.NCE.DepthConvolution(%slice, %depth_conv_weights) rawFilterShape [16, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
          strides = [1, 1]}
         -> tensor<1x16x257x257xf16, {order = #NHWC}>
 
@@ -268,7 +268,7 @@ func.func @NCEPermuteDepthConvSliceOnChannels(%arg0: tensor<1x5929x3x3xf16>) -> 
     %slice0 = VPU.Slice %nce_permute [0, 0, 0, 0] [1, 5936, 3, 3]
         : tensor<1x5936x3x16xf16, {order = #NHWC}> to tensor<1x5936x3x3xf16, {order = #NHWC}>
 
-    %depth_conv = VPU.NCE.DepthConvolution(%slice0, %weights) rawFilterShape [5936, 1, 1, 1] {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    %depth_conv = VPU.NCE.DepthConvolution(%slice0, %weights) rawFilterShape [5936, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
          strides = [1, 1]}
         -> tensor<1x5936x3x3xf16, {order = #NHWC}>
@@ -322,7 +322,7 @@ func.func @NCEPermuteDepthConvAvgPoolSliceOnChannels(%arg0: tensor<1x39x13x3xf16
     %slice0 = VPU.Slice %nce_permute [0, 0, 0, 0] [1, 48, 13, 3]
         : tensor<1x48x13x16xf16, {order = #NHWC}> to tensor<1x48x13x3xf16, {order = #NHWC}>
 
-    %depth_conv = VPU.NCE.DepthConvolution(%slice0, %weights) rawFilterShape [48, 1, 7, 3] {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 1 : i64>,
+    %depth_conv = VPU.NCE.DepthConvolution(%slice0, %weights) rawFilterShape [48, 1, 7, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
          strides = [7, 1]}
         -> tensor<1x48x2x1xf16, {order = #NHWC}>
@@ -385,7 +385,7 @@ func.func @NCEPermuteEltwiseSliceOnChannels(%arg0: tensor<1x12x77x77xf16>) ->  t
     %slice0 = VPU.Slice %nce_permute [0, 0, 0, 0] [1, 16, 77, 77]
         : tensor<1x16x77x80xf16, {order = #NHWC}> to tensor<1x16x77x77xf16, {order = #NHWC}>
 
-    %eltwise = VPU.NCE.Eltwise(%slice0, %constant) {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+    %eltwise = VPU.NCE.Eltwise(%slice0, %constant) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
         -> tensor<1x16x77x77xf16, {order = #NHWC}>
 
     %slice1 = VPU.Slice %eltwise [0, 0, 0, 0] [1, 12, 77, 77]
@@ -484,9 +484,9 @@ module @DoNotAddExplicitPadWhenUserProducesSlicedChannels {
             ppe = #VPU.PPEStub<>
         } -> tensor<1x16x720x1280xf16, {order = #NHWC}>
 
-        %depth_conv = VPU.NCE.DepthConvolution(%permute, %weights_depth_conv) rawFilterShape [3, 1, 1, 1] {
+        %depth_conv = VPU.NCE.DepthConvolution(%permute, %weights_depth_conv) rawFilterShape [3, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            ppe = #VPU.PPEStub<>, 
+            ppe = #VPU.PPEStub<>,
             strides = [1, 1]
         } -> tensor<1x3x720x1280xf16, {order = #NHWC}>
 
@@ -494,7 +494,7 @@ module @DoNotAddExplicitPadWhenUserProducesSlicedChannels {
             mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
             pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [2, 2]
         } : tensor<1x3x720x1280xf16, {order = #NHWC}>, tensor<32x1x1x144xf16, {order = #NHWC}> -> tensor<1x32x360x640xf16, {order = #NHWC}>
 

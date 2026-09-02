@@ -229,7 +229,7 @@ class VPURegMapped_RegisterWrapper<Dialect dialect, string regDialectStr, string
 // RegMapped Specialization Types
 //
 
-class VPURegMapped_RegMappedWrapper<Dialect dialect, string regDialectStr, string name = "", list<string> registerTypes = []> :
+class VPURegMapped_RegMappedWrapper<Dialect dialect, string regDialectStr, string name = "", list<string> registerTypes = [], bit canBeEmpty = 0> :
          TypeDef<dialect, "RegMapped_" # name, [], "vpux::VPURegMapped::RegisterType"> {
     list<string> regsList = !foreach(name, registerTypes, regDialectStr # "Register_" # name # "Type::get(builder, values[\"" # name # "\"])," );
     string regsStr = !interleave(regsList, "\n");
@@ -265,6 +265,7 @@ class VPURegMapped_RegMappedWrapper<Dialect dialect, string regDialectStr, strin
 
     string _name = name;
     list<string> _registers = registerTypes;
+    bit _canBeEmpty = canBeEmpty;
 }
 
 //

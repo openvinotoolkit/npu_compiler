@@ -9,6 +9,7 @@
 #include "vpux/utils/core/string_ref.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
+#include <llvm/Support/JSON.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/Operation.h>
 
@@ -52,11 +53,25 @@ private:
     ArrayRef<uint8_t> _builtinTable;
 };
 
-}  // namespace vpux::VPU
-
-namespace vpux::VPU {
+// Keys used in the precomputed strategy table JSON schema.
+constexpr StringLiteral ptcSpatialTiling = "spatial_tiling";
+constexpr StringLiteral ptcTemporalTiling = "temporal_tiling";
+constexpr StringLiteral ptcPipelineMode = "pipeline_mode";
 
 /// Applies strategies from a binary PTC table to all NCE/SW ops in func.
 void applyPrecomputedStrategyTableBinary(ArrayRef<uint8_t> buf, mlir::func::FuncOp func, Logger log);
+
+/// Populates json with one entry per NCE/SW op in func that was decided to need temporal tiling
+/// (i.e. has a tilingStrategy attribute). Each entry key is the 16-character hex FNV-1a descriptor
+/// hash; the value holds the full descriptor (shapes, layout, element type, strides, padding) plus
+/// spatial_tiling, temporal_tiling, and pipeline_mode fields.  Merges into any existing entries
+/// already present in json so incremental population across multiple functions is supported.
+void createPrecomputedStrategyTableJSON(llvm::json::Value& json, mlir::func::FuncOp func);
+
+/// Reads the existing JSON file at path (if any), merges entries from func, and writes the
+/// result back.  No-op unless built with VPUX_DEVELOPER_BUILD.
+/// Reads the output path from VPUX_PTC_WRITE_LOCATION (default: "precomputed_strategy_table.json")
+/// and only runs if VPUX_PTC_WRITE_ENABLED=1.
+void writePrecomputedStrategyTableJSON(mlir::func::FuncOp func);
 
 }  // namespace vpux::VPU

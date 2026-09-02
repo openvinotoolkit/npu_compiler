@@ -19,38 +19,38 @@
 
 using namespace vpux;
 
-namespace {
-
-mlir::FailureOr<int64_t> extractAxis(mlir::Location loc, IE::GatherOpAdaptor gather) {
-    if (gather.getAxis() != nullptr) {
-        auto reshapeAxis = gather.getAxis().getDefiningOp<IE::ReshapeOp>();
-        auto axisConst = (reshapeAxis != nullptr) ? reshapeAxis.getInput().getDefiningOp<Const::DeclareOp>()
-                                                  : gather.getAxis().getDefiningOp<Const::DeclareOp>();
-        if (axisConst == nullptr) {
-            return errorAt(loc, "Only constant input is supported for axis");
-        }
-
-        if (const auto& attr = axisConst.getContentAttr(); !attr.isSplat()) {
-            return errorAt(loc, "Axis value must be a scalar");
-        }
-
-        const auto axisContent = axisConst.getContent();
-        int64_t axisInd = axisContent.getSplatValue<int64_t>();
-
-        if (axisInd < 0) {
-            const auto inType = mlir::cast<mlir::ShapedType>(gather.getInput().getType());
-            const auto inRank = inType.getRank();
-            axisInd += inRank;
-            VPUX_THROW_UNLESS(axisInd >= 0 && axisInd < inRank, "Wrong Gather axis {0}", axisInd);
-        }
-
-        return axisInd;
-    } else if (gather.getAxisValue().has_value()) {
-        return gather.getAxisValue().value();
-    } else {
-        return errorAt(loc, "Axis was not provided");
+namespace vpux::IE::Gather {
+llvm::FailureOr<int64_t> parseAxis(mlir::Location loc, mlir::ValueRange opInputs) {
+    if (opInputs.size() != 3) {
+        return errorAt(loc, "Invalid IE.Gather operation: expected 3 inputs got {0}", opInputs.size());
     }
+
+    // Note: by definition in .td file, IE.Reshape's operand #2 is the axis.
+    auto reshapeAxis = opInputs[2].getDefiningOp<IE::ReshapeOp>();
+    auto axisConst = (reshapeAxis != nullptr) ? reshapeAxis.getInput().getDefiningOp<Const::DeclareOp>()
+                                              : opInputs[2].getDefiningOp<Const::DeclareOp>();
+    if (axisConst == nullptr) {
+        return errorAt(loc, "Only constant input is supported for axis");
+    }
+
+    if (const auto& attr = axisConst.getContentAttr(); !attr.isSplat()) {
+        return errorAt(loc, "Axis value must be a scalar");
+    }
+
+    const auto axisContent = axisConst.getContent();
+    int64_t axisInd = axisContent.getSplatValue<int64_t>();
+
+    if (axisInd < 0) {
+        const auto inType = mlir::cast<mlir::ShapedType>(opInputs[0].getType());
+        const auto inRank = inType.getRank();
+        axisInd += inRank;
+        VPUX_THROW_UNLESS(axisInd >= 0 && axisInd < inRank, "Wrong Gather axis {0}", axisInd);
+    }
+
+    return axisInd;
 }
+}  // namespace vpux::IE::Gather
+namespace {
 
 auto calculateOutputShape(const llvm::ArrayRef<int64_t>& inputShape, const llvm::ArrayRef<int64_t>& indicesShape,
                           int64_t batchDims, int64_t axisVal, int64_t indicesRank) {
@@ -98,13 +98,8 @@ mlir::LogicalResult vpux::IE::GatherOp::inferReturnTypeComponents(
     const auto indicesType = mlir::cast<mlir::ShapedType>(gather.getIndices().getType());
     const auto indicesShape = indicesType.getShape();
 
-    const auto inAxis = extractAxis(loc, gather);
-    if (mlir::failed(inAxis)) {
-        return mlir::failure();
-    }
-
+    const auto axis = gather.getAxisValue();
     auto batch = gather.getBatchDims();
-    auto axis = checked_cast<int64_t>(*inAxis);
     auto rank = gather.getIndicesRank().value_or(indicesShape.size());
 
     auto outShape = calculateOutputShape(inputShape, indicesShape, batch, axis, rank);
@@ -124,51 +119,6 @@ mlir::LogicalResult vpux::IE::GatherOp::inferReturnTypeComponents(
 
     return mlir::success();
 }
-
-//
-// ConvertConstToAttr
-//
-
-namespace {
-
-class ConvertConstToAttr final : public mlir::OpRewritePattern<IE::GatherOp> {
-public:
-    using mlir::OpRewritePattern<IE::GatherOp>::OpRewritePattern;
-
-public:
-    mlir::LogicalResult matchAndRewrite(IE::GatherOp gatherOp, mlir::PatternRewriter& rewriter) const final;
-};
-
-mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::GatherOp gatherOp, mlir::PatternRewriter& rewriter) const {
-    auto axis = gatherOp.getAxis();
-    if (axis == nullptr) {
-        return mlir::failure();
-    }
-
-    auto axisConst = gatherOp.getAxis().getDefiningOp<Const::DeclareOp>();
-    if (axisConst == nullptr) {
-        return mlir::failure();
-    }
-
-    if (const auto& attr = axisConst.getContentAttr(); !attr.isSplat()) {
-        return mlir::failure();
-    }
-
-    const auto axisContent = axisConst.getContent();
-    int64_t axisInd = axisContent.getSplatValue<int64_t>();
-    if (axisInd < 0) {
-        const auto inType = mlir::cast<mlir::ShapedType>(gatherOp.getInput().getType());
-        const auto inRank = inType.getRank();
-        axisInd += inRank;
-    }
-
-    rewriter.replaceOpWithNewOp<IE::GatherOp>(gatherOp, gatherOp.getType(), gatherOp.getInput(), gatherOp.getIndices(),
-                                              nullptr, rewriter.getI64IntegerAttr(axisInd), gatherOp.getBatchDims(),
-                                              gatherOp.getIndicesRankAttr());
-    return mlir::success();
-}
-
-}  // namespace
 
 //
 // ConstantFoldGather
@@ -203,28 +153,24 @@ mlir::LogicalResult ConstantFoldGather::matchAndRewrite(IE::GatherOp gatherOp, m
         return mlir::failure();
     }
 
-    const auto axis = extractAxis(gatherOp.getLoc(), IE::GatherOpAdaptor(gatherOp));
-    if (mlir::failed(axis)) {
-        return mlir::failure();
-    }
-
+    const auto axis = gatherOp.getAxisValue();
     const auto inputContent = inputConst.getContent();
     const auto indicesContent = indicesConst.getContent();
     const auto inputType = mlir::cast<mlir::ShapedType>(gatherOp.getInput().getType());
     const auto elementType = inputType.getElementType();
 
     if (elementType.isF16()) {
-        return foldGatherImpl<vpux::type::float16>(gatherOp, rewriter, inputContent, indicesContent, axis.value());
+        return foldGatherImpl<vpux::type::float16>(gatherOp, rewriter, inputContent, indicesContent, axis);
     } else if (elementType.isF32()) {
-        return foldGatherImpl<float>(gatherOp, rewriter, inputContent, indicesContent, axis.value());
+        return foldGatherImpl<float>(gatherOp, rewriter, inputContent, indicesContent, axis);
     } else if (mlir::isa<mlir::Float8E5M2Type>(elementType)) {
-        return foldGatherImpl<vpux::type::float8_e5m2>(gatherOp, rewriter, inputContent, indicesContent, axis.value());
+        return foldGatherImpl<vpux::type::float8_e5m2>(gatherOp, rewriter, inputContent, indicesContent, axis);
     } else if (mlir::isa<mlir::Float8E4M3FNType>(elementType)) {
-        return foldGatherImpl<vpux::type::float8_e4m3>(gatherOp, rewriter, inputContent, indicesContent, axis.value());
+        return foldGatherImpl<vpux::type::float8_e4m3>(gatherOp, rewriter, inputContent, indicesContent, axis);
     } else if (elementType.isSignedInteger(8)) {
-        return foldGatherImpl<int8_t>(gatherOp, rewriter, inputContent, indicesContent, axis.value());
+        return foldGatherImpl<int8_t>(gatherOp, rewriter, inputContent, indicesContent, axis);
     } else if (elementType.isUnsignedInteger(8)) {
-        return foldGatherImpl<uint8_t>(gatherOp, rewriter, inputContent, indicesContent, axis.value());
+        return foldGatherImpl<uint8_t>(gatherOp, rewriter, inputContent, indicesContent, axis);
     }
 
     return mlir::failure();
@@ -370,7 +316,7 @@ mlir::LogicalResult BypassSignednessConvertIndices::matchAndRewrite(IE::GatherOp
     }
 
     rewriter.replaceOpWithNewOp<IE::GatherOp>(gatherOp, gatherOp.getType(), gatherOp.getInput(), convertOp.getInput(),
-                                              gatherOp.getAxis(), gatherOp.getAxisValueAttr(), gatherOp.getBatchDims(),
+                                              gatherOp.getAxisValue(), gatherOp.getBatchDims(),
                                               gatherOp.getIndicesRankAttr());
     return mlir::success();
 }
@@ -378,7 +324,6 @@ mlir::LogicalResult BypassSignednessConvertIndices::matchAndRewrite(IE::GatherOp
 }  // namespace
 
 void vpux::IE::GatherOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* context) {
-    patterns.add<ConvertConstToAttr>(context);
     patterns.add<ConstantFoldGather>(context);
     patterns.add<BypassSignednessConvertIndices>(context);
 }

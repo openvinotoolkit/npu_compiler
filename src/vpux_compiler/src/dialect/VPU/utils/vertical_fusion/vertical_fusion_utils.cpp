@@ -4,27 +4,25 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
+#include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/control_flow.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vf_axis_increment.hpp"
-#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/dma.hpp"
-#include "vpux/compiler/utils/strings.hpp"
 #include "vpux/utils/core/numeric.hpp"
-#include "vpux/utils/profiling/reports/api.hpp"
 
 #include <llvm/ADT/SetOperations.h>
 #include <llvm/ADT/TypeSwitch.h>
 
 #include <queue>
+#include <type_traits>
 #include <variant>
 
 using namespace vpux;
@@ -84,57 +82,85 @@ mlir::FailureOr<TilingStorage> vpux::VPU::calculateTilingRegions(mlir::Operation
                                                                  const llvm::SetVector<mlir::Operation*>& fusedOps) {
     TilingStorage storage;
 
-    // Work queue of (operation, tile, tileNumber)
-    using WorkItem = std::tuple<mlir::Operation*, TileInfo, size_t>;
-    std::queue<WorkItem> workQueue;
+    // Work queue of (output value, tile, tileNumber)
+    using WorkItem = std::tuple<mlir::Value, TileInfo, size_t>;
+    SmallVector<WorkItem> workQueue;
+    workQueue.reserve(tiles.size() * std::max<size_t>(fusedOps.size(), 1));
 
     // Initialize the queue with the starting operation and its tiles
     for (const auto& item : tiles | indexed) {
         auto& tile = item.value();
         const auto tileNumber = item.index();
-        workQueue.push(std::make_tuple(operation, tile, tileNumber));
+        workQueue.emplace_back(std::make_tuple(operation->getResult(0), tile, tileNumber));
     }
 
     // Process all operations in the queue
-    while (!workQueue.empty()) {
-        auto workItem = workQueue.front();
-        auto& currentOp = std::get<0>(workItem);
+    for (size_t workItemIndex = 0; workItemIndex < workQueue.size(); ++workItemIndex) {
+        auto workItem = std::move(workQueue[workItemIndex]);
+        auto& output = std::get<0>(workItem);
         auto& tile = std::get<1>(workItem);
         auto& tileNumber = std::get<2>(workItem);
-        workQueue.pop();
 
-        auto inputTiling = TilingInfo(ArrayRef({tile}));
+        auto currentOp = output.getDefiningOp();
+        if (currentOp == nullptr) {
+            continue;
+        }
+
+        auto mainOutputTile = tile;
+        auto inputTiling = TilingInfo(ArrayRef({mainOutputTile}));
         try {
             if (auto tilingBuilderOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(currentOp)) {
-                inputTiling = tilingBuilderOp.backInferTileInfo(tile, log);
+                if (currentOp->getNumResults() > 1 && output != currentOp->getResult(0)) {
+                    mainOutputTile =
+                            tilingBuilderOp.getMainOutputTile(mlir::dyn_cast<mlir::OpResult>(output), tile, log);
+                    if (mainOutputTile.shape.empty()) {
+                        log.trace("could not infer main output tile from secondary output tile for op @ {0}, secondary "
+                                  "tile={1}, tileNum={2}",
+                                  currentOp->getLoc(), tile, tileNumber);
+                        return mlir::failure();
+                    }
+                }
+
+                inputTiling = tilingBuilderOp.backInferTileInfo(mainOutputTile, log);
                 if (opStorage != nullptr && !inputTiling.tiles.empty()) {
                     auto& allValues = opStorage->gatherValue(currentOp);
+                    const auto& mainOutTileShape = mainOutputTile.shape;
                     const auto sameTile = [&](auto& item) {
                         auto& tiling = item.second;
-                        return tiling.second.shape == tile.shape &&
+                        return tiling.second.shape == mainOutTileShape &&
                                tiling.first.tiles[0].shape == inputTiling.tiles[0].shape;
                     };
                     if (llvm::none_of(allValues, sameTile)) {
                         if (auto tilingInfoOp = mlir::dyn_cast<VPU::TilingInfoOpInterface>(currentOp)) {
                             if (auto channelAlignOp = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(currentOp)) {
-                                const auto channelDim = tile.shape.size() == 5 ? DimsGroups5D::Act::C : Dims4D::Act::C;
-                                if (tile.shape[channelDim] % channelAlignOp.getOutputChannelAlignment() != 0) {
+                                const auto channelDim =
+                                        mainOutTileShape.size() == 5 ? DimsGroups5D::Act::C : Dims4D::Act::C;
+                                if (mainOutTileShape[channelDim] % channelAlignOp.getOutputChannelAlignment() != 0) {
+                                    log.trace("calculateTilingRegions: channel alignment check failed for op @ {0}, "
+                                              "tile={1}, tileNum={2}",
+                                              currentOp->getLoc(), mainOutputTile, tileNumber);
                                     return mlir::failure();
                                 }
                             }
 
-                            if (!isMultiClusterCompatibleForTiling(currentOp, {tile}, log) ||
-                                !tilingInfoOp.isSupportedTiling({tile}, TilingMode::ISOLATED, log)) {
+                            if (!isMultiClusterCompatibleForTiling(currentOp, {mainOutputTile}, log) ||
+                                !tilingInfoOp.isSupportedTiling({mainOutputTile}, TilingMode::ISOLATED, log)) {
+                                log.trace("calculateTilingRegions: tile not supported for op @ {0}, tile={1}, "
+                                          "tileNum={2}",
+                                          currentOp->getLoc(), mainOutputTile, tileNumber);
                                 return mlir::failure();
                             }
                         }
                     }
                 }
             } else if (auto tilingViewLikeOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(currentOp)) {
-                if (!tilingViewLikeOp.isSupportedOutTile(tile)) {
+                if (!tilingViewLikeOp.isSupportedOutTile(mainOutputTile)) {
+                    log.trace("calculateTilingRegions: out tile unsupported for viewOp @ {0}, tile={1}, "
+                              "tileNum={2}",
+                              currentOp->getLoc(), mainOutputTile, tileNumber);
                     return mlir::failure();
                 }
-                inputTiling = tilingViewLikeOp.backInferTileInfo(tile, log);
+                inputTiling = tilingViewLikeOp.backInferTileInfo(mainOutputTile, log);
             } else {
                 VPUX_THROW("Unsupported operation type {0} for VF", currentOp->getName());
             }
@@ -144,9 +170,9 @@ mlir::FailureOr<TilingStorage> vpux::VPU::calculateTilingRegions(mlir::Operation
 
         // Store the tiling info for the current operation
         if (opStorage != nullptr) {
-            opStorage->insert(currentOp, tileNumber, std::make_pair(inputTiling, tile));
-            log.trace("TileInfo inserted for operation at {0} {1} tile {2}, {3}", currentOp->getName(),
-                      currentOp->getLoc(), tileNumber, tile);
+            opStorage->insert(currentOp, tileNumber, std::make_pair(inputTiling, mainOutputTile));
+            log.trace("TileInfo inserted for operation {0} @ {1} tile {2}, {3}", currentOp->getName(),
+                      currentOp->getLoc(), tileNumber, mainOutputTile);
         }
 
         // Process each operand of the current operation
@@ -168,8 +194,8 @@ mlir::FailureOr<TilingStorage> vpux::VPU::calculateTilingRegions(mlir::Operation
 
             // Create the tile for the operand and add it to the work queue
             auto& oneTile = inputTiling.tiles[indexOp];
-            auto inputTile = TileInfo(oneTile.shape, oneTile.offsets, oneTile.axis, tile.isCompletedTile);
-            workQueue.push(std::make_tuple(operand.getDefiningOp(), inputTile, tileNumber));
+            auto inputTile = TileInfo(oneTile.shape, oneTile.offsets, oneTile.axis, mainOutputTile.isCompletedTile);
+            workQueue.emplace_back(operand, inputTile, tileNumber);
         }
     }
 
@@ -251,14 +277,30 @@ mlir::FailureOr<Dim> vpux::VPU::getVFTilingDim(ArrayRef<int64_t> tilingStrategy,
     return allowedDims.front();
 }
 
-DimArr vpux::VPU::getAllowedDims(ArrayRef<mlir::Operation*> operations, Logger log) {
+namespace {
+bool isNCEWeightsOperand(mlir::Operation* op, mlir::Value operand) {
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
+    return nceOp != nullptr && nceOp.getWeightsOperand() == operand;
+}
+
+std::optional<Dim> backInferNCEWeightsTilingDim(mlir::Operation* op, Dim outputAxis) {
+    const auto is5DTensor = getShape(op->getResult(0)).size() == 5;
+    const auto isTilingOnChannel = is5DTensor ? outputAxis == DimsGroups5D::Act::C : outputAxis == Dims4D::Act::C;
+    if (!isTilingOnChannel) {
+        return std::nullopt;
+    }
+    return is5DTensor ? DimsGroups5D::Filter::OC : Dims4D::Filter::OC;
+}
+}  // namespace
+
+DimArr vpux::VPU::getAllowedDims(ArrayRef<mlir::Operation*> operations, Logger log, bool backInferNCEWeights) {
     DimArr allowedDims;
     auto outputOp = operations.back();
     auto outputTilingDims = getTileDimOrder(outputOp, TilingMode::ISOLATED, log);
 
     for (auto outputDim : outputTilingDims) {
         std::queue<std::pair<mlir::Operation*, Dim>> opQueue;
-        opQueue.push({outputOp, outputDim});
+        opQueue.emplace(outputOp, outputDim);
         bool isAllowed = true;
         while (!opQueue.empty()) {
             auto curOp = opQueue.front().first;
@@ -282,7 +324,18 @@ DimArr vpux::VPU::getAllowedDims(ArrayRef<mlir::Operation*> operations, Logger l
             for (auto input : curOp->getOperands()) {
                 auto parentOp = input.getDefiningOp();
                 if (parentOp != nullptr && llvm::find(operations, parentOp) != operations.end()) {
-                    opQueue.push({parentOp, curAxis});
+                    auto inputAxis = curAxis;
+                    // Keep NCE weights-axis back-inference opt-in for v2 only. v1 VF still uses activation-axis
+                    // traversal in tiling limit/storage/cost paths, so enabling this partial remap changes v1
+                    // scheduling decisions without a matching CMX model update.
+                    if (backInferNCEWeights && isNCEWeightsOperand(curOp, input)) {
+                        auto weightsAxis = backInferNCEWeightsTilingDim(curOp, curAxis);
+                        if (!weightsAxis.has_value()) {
+                            continue;
+                        }
+                        inputAxis = weightsAxis.value();
+                    }
+                    opQueue.emplace(parentOp, inputAxis);
                 }
             }
         }
@@ -316,22 +369,6 @@ ResultType vpux::VPU::backInfer(VPU::TilingViewLikeOpInterface opIf, ArgType til
     return std::get<std::function<ResultType(ArgType)>>(variantFunc)(tiling);
 }
 
-bool isLegalTilingDim(VPU::TilingViewLikeOpInterface opIf, Dim tiling) {
-    return opIf.isSupportedTilingDim(tiling);
-}
-
-bool isLegalTilingDim(VPU::TilingViewLikeOpInterface opIf, ArrayRef<int64_t> tiling) {
-    const auto tiles = fillDividedTiles(opIf, ShapeRef(tiling), getShape(opIf->getResult(0)));
-    if (mlir::failed(tiles)) {
-        return false;
-    }
-    const auto uniqueTiles = VPU::getUniqueShapeTilingCandidates(opIf.getOperation(), tiles.value(), Logger::global());
-    auto allTilesAreLegal = llvm::all_of(uniqueTiles, [&](const TileInfo& outputTile) {
-        return opIf.isSupportedOutTile(outputTile);
-    });
-    return allTilesAreLegal;
-}
-
 // Template method for inputs tiling dim (or strategy) back-infer
 // Infer logic is decided by the passed strategy
 // opTilingMap - record all ops in VF block and their tiling dims (or strategies) when back-infer given outputTiling
@@ -357,20 +394,34 @@ mlir::FailureOr<SmallVector<ResultType>> vpux::VPU::backInferVFTiling(
         opTilingMap[curOp] = curTiling;
 
         if (auto tilingViewLikeOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(curOp)) {
-            if (!isLegalTilingDim(tilingViewLikeOp, curTiling)) {
+            if (!tilingViewLikeOp.isSupportedTilingDim(curTiling)) {
                 return mlir::failure();
             }
             curTiling = VPU::backInfer<ArgType, ResultType>(tilingViewLikeOp, curTiling, strategy);
         }
 
         for (auto operand : curOp->getOperands()) {
+            auto inputTiling = curTiling;
+            // v1 does not have full weights-axis support across tiling limit/storage/cost calculation; apply this
+            // remap only for v2, where the merge flow opts into the corresponding NCE weights handling.
+            // Strategy-level back-inference would need a full filter-space tiling strategy remap, not this axis helper.
+            if constexpr (std::is_same_v<ResultType, vpux::Dim> &&
+                          std::is_same_v<VFConfigType, VPU::VF::v2::VFConfig>) {
+                if (isNCEWeightsOperand(curOp, operand)) {
+                    auto weightsAxis = backInferNCEWeightsTilingDim(curOp, curTiling);
+                    if (!weightsAxis.has_value()) {
+                        continue;
+                    }
+                    inputTiling = weightsAxis.value();
+                }
+            }
             if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
-                inputTilings[arg.getArgNumber()] = curTiling;
+                inputTilings[arg.getArgNumber()] = inputTiling;
             }
 
             auto parentOp = operand.getDefiningOp();
             if (llvm::find(vfOps, parentOp) != vfOps.end()) {
-                opQueue.push({parentOp, curTiling});
+                opQueue.push({parentOp, inputTiling});
             }
         }
     }
@@ -405,7 +456,7 @@ VPU::VerticalFusionOp vpux::VPU::fuseOpsInBlock(mlir::OpBuilder& rewriter, VPU::
         prevOperations.push_back(prevOp);
     }
 
-    SmallVector<size_t> argNumLastOp;
+    mlir::DenseMap<size_t, size_t> lastOpArgMapper;
     SmallVector<size_t> argNumCurrentOp;
     mlir::DenseMap<size_t, size_t> opArgMapper;
     const auto bodyBuilder = [&](mlir::OpBuilder& builder, mlir::Location loc, mlir::ValueRange blockArgs) {
@@ -438,13 +489,15 @@ VPU::VerticalFusionOp vpux::VPU::fuseOpsInBlock(mlir::OpBuilder& rewriter, VPU::
 
         SmallVector<mlir::Value> newResults;
 
-        const auto copyOps = [&](auto operations) {
+        const auto copyOps = [&](const auto& operations) {
             for (auto* op : operations) {
                 if (!mlir::isa<VPU::YieldOp>(op)) {
                     auto* clonedOp = builder.clone(*op, mapper);
-                    if (op == lastOp && !argNumLastOp.empty()) {
-                        for (auto index : argNumLastOp) {
-                            mapper.map(curBlockArgs[index], clonedOp->getResult(0));
+                    if (op == lastOp && !lastOpArgMapper.empty()) {
+                        for (auto [argIndex, resultIndex] : lastOpArgMapper) {
+                            if (op->getNumResults() > resultIndex) {
+                                mapper.map(curBlockArgs[argIndex], clonedOp->getResult(resultIndex));
+                            }
                         }
                     }
                 } else {
@@ -460,7 +513,7 @@ VPU::VerticalFusionOp vpux::VPU::fuseOpsInBlock(mlir::OpBuilder& rewriter, VPU::
         copyOps(prevOperations);
         copyOps(vfOp.getBody()->getOperations() | transformed(getOpPointer));
 
-        builder.create<VPU::YieldOp>(loc, newResults.back());
+        builder.create<VPU::YieldOp>(loc, newResults);
     };
 
     SmallVector<mlir::Value> newOperands(prevOperands.begin(), prevOperands.end());
@@ -477,7 +530,11 @@ VPU::VerticalFusionOp vpux::VPU::fuseOpsInBlock(mlir::OpBuilder& rewriter, VPU::
     for (auto arg : vfOp.getBody()->getArguments()) {
         auto operand = vfOp.getOperand(arg.getArgNumber());
         if (operand.getDefiningOp() == prevOp) {
-            argNumLastOp.push_back(arg.getArgNumber());
+            auto opResult = mlir::dyn_cast<mlir::OpResult>(operand);
+            VPUX_THROW_WHEN(opResult == nullptr || opResult.getOwner() != prevOp,
+                            "Value is not produced by the expected op");
+            const unsigned resultIdx = opResult.getResultNumber();
+            lastOpArgMapper[arg.getArgNumber()] = resultIdx;
         } else {
             const auto value = llvm::find(newOperands, operand);
             if (value == newOperands.end()) {
@@ -639,7 +696,7 @@ VPU::VerticalFusionOp vpux::VPU::fuseSingleViewOpsChainInBlock(mlir::OpBuilder& 
             }
         }
 
-        builder.create<VPU::YieldOp>(loc, newResults.back());
+        builder.create<VPU::YieldOp>(loc, newResults);
     };
 
     if (tilingInfo == nullptr) {
@@ -834,9 +891,8 @@ VPU::DistributedTensorType vpux::VPU::inferDistributedTypeThroughViewOps(VPU::Di
             auto possibleDistribution = VPU::DistributionInfo::getAttrFromClass(viewOp->getContext(), distribution);
             auto newDistributionAttr = VPU::updateSliceLikeOpsAlignment(viewOp->getContext(), type.getShape(),
                                                                         sliceOutShape, possibleDistribution);
-            auto explicitDistribution =
-                    VPU::getExplicitDistrAttrForSliceLikeOps(newDistributionAttr, sliceOutShape, type.getShape().raw(),
-                                                             type.getElementType(), viewOp->getContext());
+            auto explicitDistribution = VPU::getExplicitDistrAttrForSliceLikeOps(
+                    newDistributionAttr, sliceOutShape, type.getShape().raw(), viewOp->getContext());
             distribution = VPU::DistributionInfo::getClassFromAttr(explicitDistribution);
             type = mlir::cast<vpux::NDTypeInterface>(viewOp->getResult(0).getType());
             continue;
@@ -848,14 +904,17 @@ VPU::DistributedTensorType vpux::VPU::inferDistributedTypeThroughViewOps(VPU::Di
     return mlir::cast<VPU::DistributedTensorType>(getDistributedTypeFromDistributionMap(type, distributionMap));
 };
 
-mlir::BlockArgument vpux::VPU::getLinkedArgumentBetweenVFOps(VerticalFusionOp currentOp, VPU::VerticalFusionOp prevOp) {
+SmallVector<mlir::BlockArgument> vpux::VPU::getLinkedArgumentsBetweenVFOps(VerticalFusionOp currentOp,
+                                                                           VPU::VerticalFusionOp prevOp) {
+    SmallVector<mlir::BlockArgument> linkedArgs;
+    linkedArgs.reserve(currentOp.getBody()->getNumArguments());
     for (auto blockArg : currentOp.getBody()->getArguments()) {
         auto operand = currentOp.getOperand(blockArg.getArgNumber());
         if (operand.getDefiningOp() == prevOp.getOperation()) {
-            return blockArg;
+            linkedArgs.push_back(blockArg);
         }
     }
-    return nullptr;
+    return linkedArgs;
 }
 
 // Explicit instantiation of the template function for V1/V2 VFConfig

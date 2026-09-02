@@ -7,19 +7,15 @@
 #include "vpux/compiler/dialect/HostExec/transforms/passes.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 
-#include <mlir/Dialect/Arith/IR/Arith.h>
-#include <mlir/Dialect/Async/IR/Async.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Transforms/Inliner.h>
 
 namespace vpux::HostExec {
-
 #define GEN_PASS_DECL_INLINEMAINBATCHINGCALLS
 #define GEN_PASS_DEF_INLINEMAINBATCHINGCALLS
 #include "vpux/compiler/dialect/HostExec/passes.hpp.inc"
-
 }  // namespace vpux::HostExec
 
 using namespace vpux;
@@ -43,7 +39,7 @@ struct MainBatchingInlinerInterface final : public mlir::InlinerInterface {
 
     void handleTerminator(mlir::Operation* op, mlir::Block* newDest) const final {
         auto returnOp = mlir::dyn_cast<mlir::func::ReturnOp>(op);
-        if (!returnOp) {
+        if (returnOp == nullptr) {
             return;
         }
         mlir::OpBuilder builder(op);
@@ -53,7 +49,7 @@ struct MainBatchingInlinerInterface final : public mlir::InlinerInterface {
 
     void handleTerminator(mlir::Operation* op, mlir::ValueRange valuesToReplace) const final {
         auto returnOp = mlir::dyn_cast<mlir::func::ReturnOp>(op);
-        if (!returnOp) {
+        if (returnOp == nullptr) {
             return;
         }
         VPUX_THROW_WHEN(returnOp.getNumOperands() != valuesToReplace.size(),
@@ -83,6 +79,7 @@ void InlineMainBatchingCallsPass::safeRunOnModule() {
     auto trueAttr = builder.getBoolAttr(true);
 
     mlir::DenseMap<mlir::func::FuncOp, SmallVector<mlir::func::CallOp>> callsToInline;
+
     module.walk([&](mlir::func::CallOp callOp) {
         if (!callOp.getCallee().starts_with("main_batching")) {
             return;
@@ -91,6 +88,7 @@ void InlineMainBatchingCallsPass::safeRunOnModule() {
         VPUX_THROW_WHEN(calleeFunc == nullptr, "Cannot find callee function '{0}' for call '{1}'", callOp.getCallee(),
                         callOp.getLoc());
         callsToInline[calleeFunc].push_back(callOp);
+
         auto funcOp = callOp->getParentOfType<mlir::func::FuncOp>();
         if (funcOp != nullptr) {
             // Mark the caller function with 'HostCompileInferenceExec' attribute to indicate that the function is
@@ -111,6 +109,7 @@ void InlineMainBatchingCallsPass::safeRunOnModule() {
 
     mlir::InlinerConfig config;
     MainBatchingInlinerInterface interface(module.getContext());
+
     size_t inlinedCalls = 0;
     for (auto& [calleeFunc, callOps] : callsToInline) {
         for (auto callOp : callOps) {

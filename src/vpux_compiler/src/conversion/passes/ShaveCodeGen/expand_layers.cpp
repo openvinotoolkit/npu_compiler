@@ -9,6 +9,7 @@
 
 #include "vpux/compiler/conversion/passes/ShaveCodeGen/Approximation.hpp"
 
+#include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/Dialect/Math/Transforms/Passes.h>
 #include "mlir/Dialect/Math/Transforms/Approximation.h"
 #include "mlir/Dialect/Vector/Utils/VectorUtils.h"
@@ -450,16 +451,24 @@ void ExpandLayersPass::safeRunOnModule() {
         patterns.add<mlir::math::ErfPolynomialApproximation>(&ctx);
         patterns.add<vpux::ShaveCodeGen::AsinPolynomialApproximation, vpux::ShaveCodeGen::AcosPolynomialApproximation>(
                 &ctx);
-        mlir::populateExpandRoundEvenPattern(patterns);
-        mlir::populateExpandRoundFPattern(patterns);
 
         // Increase pattern benefit to take precedence over native mlir patterns.
         patterns.add(Roundfp16, mlir::PatternBenefit(100));
         patterns.add(RoundEvenfp16, mlir::PatternBenefit(100));
         patterns.add(NegF);
-        mlir::populateExpandFmaFPattern(patterns);
         patterns.add(Asinhfp16);
         patterns.add(Acoshfp16);
+
+        const auto extendPatternsWith = [&patterns](StringRef name) {
+            [[maybe_unused]] const auto consumed =
+                    name.consume_front((mlir::math::MathDialect::getDialectNamespace() + ".").str());
+            assert(consumed);
+            mlir::math::populateExpansionPatterns(patterns, name);
+        };
+
+        extendPatternsWith(mlir::math::RoundEvenOp::getOperationName());
+        extendPatternsWith(mlir::math::RoundOp::getOperationName());
+        extendPatternsWith(mlir::math::FmaOp::getOperationName());
 
         if (mlir::failed(mlir::applyPatternsGreedily(funcOp, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
             signalPassFailure();

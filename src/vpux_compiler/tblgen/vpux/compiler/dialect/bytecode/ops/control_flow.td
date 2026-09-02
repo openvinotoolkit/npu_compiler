@@ -13,7 +13,7 @@ include "mlir/IR/BuiltinAttributes.td"
 def Bytecode_RetOp : Bytecode_ZeroOperandsInstructionBase<"ret", [Terminator], "1.0.0", "intel_npu::vm::OpCode::RET"> {
     let summary = "Return operation";
 
-    let opDescription = [{
+    let description = [{
         This operation represents a return operation in the bytecode format, and it is used to terminate the execution of a function.
         It does not return any value.
 
@@ -46,22 +46,25 @@ def Bytecode_RetVOp : Bytecode_VariadicOperandsInstructionOp<"retv", [Terminator
     }];
 }
 
-def Bytecode_CallOp : Bytecode_VariadicOperandsInstructionOp<"call", [AttrSizedOperandSegments], "1.0.0", "intel_npu::vm::OpCode::CALL"> {
-    let summary = "Call a function by index";
+def Bytecode_CallOp : Bytecode_VariadicOperandsInstructionOp<"call",
+        [AttrSizedOperandSegments],
+        "1.0.0", "intel_npu::vm::OpCode::CALL"> {
+    let summary = "Call a function by index register";
 
     let description = [{
-        Calls the function whose index is held in `func_idx`. Creates a new call frame, copies
-        the argument register values into the callee's parameter registers, and transfers control
-        to the callee's first instruction. `results_dst` is reserved for return-value mapping;
-        value return handling is introduced with return-value instructions (for example, `retv`/'ret').
-        Control returns to the instruction following the `call`.
+        Calls the function whose index is held in `func_idx`. Creates a new call frame, copies the argument
+        register values into the callee's parameter registers, and transfers control to the callee's
+        first instruction. `results_dst` is reserved for return-value mapping; value return handling
+        is introduced with return-value instructions (for example, `retv`/'ret'). Control returns to
+        the instruction following the `call`.
 
         Signature: call rs, N, rN..., M, rM...
 
         Example:
         ```mlir
-        bytecode.call %func_idx, results(%result0, %result1 : !bytecode.Register, !bytecode.Register),
-                                 args(%arg0, %arg1 : !bytecode.Register, !bytecode.Register)
+        bytecode.call %func_idx,
+                      results(%result0, %result1 : !bytecode.Register, !bytecode.Register),
+                      args(%arg0, %arg1 : !bytecode.Register, !bytecode.Register)
         ```
     }];
 
@@ -75,6 +78,12 @@ def Bytecode_CallOp : Bytecode_VariadicOperandsInstructionOp<"call", [AttrSizedO
         $func_idx `,` `results``(` ($results_dst^ `:` type($results_dst))? `)` `,`
                       `args``(` ($args^ `:` type($args))? `)`
         attr-dict
+    }];
+
+    let extraClassDeclaration = [{
+        bool isDstOperand(::mlir::OpOperand& operand) {
+            return llvm::is_contained(getResultsDst(), operand.get());
+        }
     }];
 }
 

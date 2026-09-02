@@ -16,25 +16,17 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 
 def IE_BatchNormInferenceOp :
         IE_LayerOp<
-            "BatchNormInference",
-            [
-                AttrSizedOperandSegments
-            ]
+            "BatchNormInference"
         > {
     let summary = "InferenceEngine BatchNormInference layer";
 
     let arguments = (ins
         RankedTensorOf<[F16, F32, F64]>:$input,
 
-        Optional<RankedTensorOf<[F16, F32, F64]>>:$gamma,
-        Optional<RankedTensorOf<[F16, F32, F64]>>:$beta,
-        Optional<RankedTensorOf<[F16, F32, F64]>>:$mean,
-        Optional<RankedTensorOf<[F16, F32, F64]>>:$variance,
-
-        OptionalAttr<F64ArrayAttr>:$gamma_value,
-        OptionalAttr<F64ArrayAttr>:$beta_value,
-        OptionalAttr<F64ArrayAttr>:$mean_value,
-        OptionalAttr<F64ArrayAttr>:$variance_value,
+        F64ArrayAttr:$gamma_value,
+        F64ArrayAttr:$beta_value,
+        F64ArrayAttr:$mean_value,
+        F64ArrayAttr:$variance_value,
 
         F64Attr:$eps
     );
@@ -42,8 +34,6 @@ def IE_BatchNormInferenceOp :
     let results = (outs
         RankedTensorOf<[F16, F32, F64]>:$output
     );
-
-    let hasCanonicalizer = 1;
 }
 
 def IE_GRNOp :
@@ -250,6 +240,31 @@ def IE_RMSOp :
     );
 
     let hasCanonicalizer = 1;
+}
+
+def IE_GatedDeltaNetOp :
+        IE_LayerOp<
+            "GatedDeltaNet"
+        > {
+    let summary = "InferenceEngine GatedDeltaNet layer";
+
+    let arguments = (ins
+        RankedTensorOf<[F16, F32]>:$query,
+        RankedTensorOf<[F16, F32]>:$key,
+        RankedTensorOf<[F16, F32]>:$value,
+        RankedTensorOf<[F16, F32]>:$recurrent_state,
+        RankedTensorOf<[F16, F32]>:$gate,
+        RankedTensorOf<[F16, F32]>:$beta,
+        UnitAttr:$fuse_qk_l2norm,
+        F64Attr:$q_l2_norm_eps,
+        F64Attr:$k_l2_norm_eps
+    );
+    let results = (outs
+        RankedTensorOf<[F16, F32]>:$output,
+        RankedTensorOf<[F16, F32]>:$output_state
+    );
+
+    let hasVerifier = 1;
 }
 
 #endif

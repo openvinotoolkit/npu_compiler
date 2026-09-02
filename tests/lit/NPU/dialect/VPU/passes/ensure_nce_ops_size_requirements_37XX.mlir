@@ -262,10 +262,12 @@ func.func @Int4ConvolutionLargeChannels(%arg0: tensor<1x18944x1x1xf16, {order = 
     // CHECK-SAME:  -> tensor<1x32x1x1xf16, {order = #NHWC}>
 
     // CHECK:       [[ADD_0:%.+]] = VPU.NCE.Eltwise([[CONV_0]], [[CONV_1]]) {
+    // CHECK-NOT:  mpe_engine
     // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>
     // CHECK-SAME:  } -> tensor<1x32x1x1xf16, {order = #NHWC}>
 
     // CHECK:       [[ADD_1:%.+]] = VPU.NCE.Eltwise([[ADD_0]], [[CONV_2]]) {
+    // CHECK-NOT:  mpe_engine
     // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>
     // CHECK-SAME:  } -> tensor<1x32x1x1xf16, {order = #NHWC}>
 
@@ -328,11 +330,13 @@ func.func @SplitNCEConvOverICandOC(%arg0: tensor<1x16640x4x1xf16, {order = #NHWC
   // CHECK:       [[INPUT_SLICE3:%.+]] = VPU.Slice [[CONCAT_OUT0:%.+]] [0, 0, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[INPUT_SLICE4:%.+]] = VPU.Slice [[CONCAT_OUT1:%.+]] [0, 0, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[ADD_OUT0:%.+]] = VPU.NCE.Eltwise([[INPUT_SLICE3:%.+]], [[INPUT_SLICE4:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:  } -> tensor<1x4608x4x1xf16, {order = #NHWC}>
 
   // CHECK:       [[INPUT_SLICE5:%.+]] = VPU.Slice [[CONCAT_OUT0:%.+]] [0, 4608, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[INPUT_SLICE6:%.+]] = VPU.Slice [[CONCAT_OUT1:%.+]] [0, 4608, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[INPUT_SLICE5:%.+]], [[INPUT_SLICE6:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:  } -> tensor<1x4608x4x1xf16, {order = #NHWC}>
 
   // CHECK:       [[CONCAT_OUT3:%.+]] = VPU.Concat([[ADD_OUT0:%.+]], [[ADD_OUT1:%.+]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 4608, 0, 0]]} : tensor<1x4608x4x1xf16, {order = #NHWC}>, tensor<1x4608x4x1xf16, {order = #NHWC}> -> tensor<1x9216x4x1xf16, {order = #NHWC}>
@@ -340,11 +344,13 @@ func.func @SplitNCEConvOverICandOC(%arg0: tensor<1x16640x4x1xf16, {order = #NHWC
   // CHECK:       [[INPUT_SLICE7:%.+]] = VPU.Slice [[CONCAT_OUT3:%.+]] [0, 0, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[INPUT_SLICE8:%.+]] = VPU.Slice [[CONCAT_OUT2:%.+]] [0, 0, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[ADD_OUT2:%.+]] = VPU.NCE.Eltwise([[INPUT_SLICE7:%.+]], [[INPUT_SLICE8:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:  } -> tensor<1x4608x4x1xf16, {order = #NHWC}>
 
   // CHECK:       [[INPUT_SLICE9:%.+]] = VPU.Slice [[CONCAT_OUT3:%.+]] [0, 4608, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[INPUT_SLICE10:%.+]] = VPU.Slice [[CONCAT_OUT2:%.+]] [0, 4608, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[ADD_OUT3:%.+]] = VPU.NCE.Eltwise([[INPUT_SLICE9:%.+]], [[INPUT_SLICE10:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:  } -> tensor<1x4608x4x1xf16, {order = #NHWC}>
 
   // CHECK:       [[CONCAT_OUT4:%.+]] = VPU.Concat([[ADD_OUT2:%.+]], [[ADD_OUT3:%.+]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 4608, 0, 0]]} : tensor<1x4608x4x1xf16, {order = #NHWC}>, tensor<1x4608x4x1xf16, {order = #NHWC}> -> tensor<1x9216x4x1xf16, {order = #NHWC}>
@@ -390,9 +396,11 @@ func.func @SplitNCEConvOverIC3ConvsWithOutNCHW(%arg0: tensor<1x16640x4x1xf16, {o
   // CHECK:      [[CONV_OUT2:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE2:%.+]], [[FILTER0:%.+]], [[WEIGHTS_TABLE0:%.+]])
   // CHECK-SAME:         -> tensor<1x512x4x1xf16, {order = #NHWC}>
   // CHECK:      [[ADD_OUT0:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0:%.+]], [[CONV_OUT1:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:     op_type = #VPU.eltwise_type<ADD>
   // CHECK-SAME:        -> tensor<1x512x4x1xf16, {order = #NHWC}>
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[ADD_OUT0:%.+]], [[CONV_OUT2:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:     op_type = #VPU.eltwise_type<ADD>
   // CHECK-SAME:        -> tensor<1x512x4x1xf16, {order = #NCHW}>
   // CHECK:      return [[ADD_OUT1:%.+]] : tensor<1x512x4x1xf16, {order = #NCHW}>

@@ -58,7 +58,7 @@ bool checkAttrsForGatherOp(IE::GatherOp gatherOp) {
         return false;
     }
 
-    return batchDims == 0 && gatherOp.getAxisValue().has_value();
+    return batchDims == 0;
 }
 
 //
@@ -94,7 +94,7 @@ mlir::LogicalResult ConvertGatherPass::GatherToSlice::matchAndRewrite(IE::Gather
 
     const auto indicesVal = indicesContent.getSplatValue<int64_t>();
 
-    const auto axisVal = gatherOp.getAxisValue().value();
+    const auto axisVal = gatherOp.getAxisValue();
 
     const auto inType = mlir::cast<vpux::NDTypeInterface>(gatherOp.getInput().getType());
     const auto inputShape = inType.getShape();
@@ -146,7 +146,7 @@ mlir::LogicalResult ConvertGatherPass::GatherToReverse::matchAndRewrite(IE::Gath
         return mlir::failure();
     }
 
-    const auto axisVal = gatherOp.getAxisValue().value();
+    const auto axisVal = gatherOp.getAxisValue();
     const auto inputShape = getShape(gatherOp.getInput());
 
     // For GatherDMA all dimensions before axis dimension must be 1
@@ -230,7 +230,7 @@ mlir::LogicalResult ConvertGatherPass::GatherRepeatInterleaveToBroadcast::matchA
         return mlir::failure();
     }
 
-    const auto axisVal = gatherOp.getAxisValue().value();
+    const auto axisVal = gatherOp.getAxisValue();
     const auto inputShape = getShape(gatherOp.getInput());
     const auto axisDim = inputShape[Dim(axisVal)];
 

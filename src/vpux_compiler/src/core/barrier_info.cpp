@@ -133,11 +133,11 @@ size_t vpux::BarrierInfo::getLastTaskForQueueType(VPURT::TaskQueueType taskQueue
     VPUX_THROW_WHEN(_taskQueueTypeMap.empty(), "Task queue map not initialized");
     auto taskQueueTypeMapIt = _taskQueueTypeMap.find(taskQueueType);
     VPUX_THROW_WHEN(taskQueueTypeMapIt == _taskQueueTypeMap.end(),
-                    "Task queue map not initialized for executor {0}:{1}", stringifyEnum(taskQueueType.type).data(),
+                    "Task queue map not initialized for executor {0}:{1}", stringifyEnum(taskQueueType.type),
                     taskQueueType.id);
 
     auto lastTaskInd = taskQueueTypeMapIt->second.find_last();
-    VPUX_THROW_WHEN(lastTaskInd == -1, "No task for queue type {0}:{1}", stringifyEnum(taskQueueType.type).data(),
+    VPUX_THROW_WHEN(lastTaskInd == -1, "No task for queue type {0}:{1}", stringifyEnum(taskQueueType.type),
                     taskQueueType.id);
 
     return static_cast<size_t>(lastTaskInd);
@@ -535,7 +535,7 @@ SmallVector<size_t> vpux::BarrierInfo::getBarriersForTaskBlock(size_t blockInd, 
     VPUX_THROW_WHEN(blockInd >= getControlGraphBlockCount(), "Invalid task block index ({0})", blockInd);
     auto [blockStartInd, blockEndInd] = getControlGraphBlockTaskRange(blockInd, blockStartSyncPoint, blockEndSyncPoint);
 
-    llvm::BitVector barrierInd(getNumOfBarrierOps() + _fifoDependencies.size(),
+    llvm::BitVector barrierInd(getNumOfBarrierOps() + _temporaryBarrierDependencies.size(),
                                false);  // use of BitVector here is faster than eg std::set
     if (updateBarriers) {
         for (auto taskInd = blockStartInd; taskInd <= blockEndInd; ++taskInd) {
@@ -2134,7 +2134,7 @@ SmallVector<std::set<size_t>> vpux::BarrierInfo::findParallelTasksWithBarrierDep
                                 size_t& controlMapOffset) {
         if (controlMapBlockInd != taskBlockInd) {
             std::tie(taskControlMap, controlMapOffset) =
-                    buildTaskControlMap(taskBlockInd, /* considerTaskFifoDependency */ true);
+                    buildTaskControlMap(taskBlockInd, /* considerNonBarrierTaskDependencies */ true);
             controlMapBlockInd = taskBlockInd;
         }
     };
@@ -2255,7 +2255,7 @@ void vpux::BarrierInfo::optimizeBarriers(bool checkValidSlotCount, bool consider
                         "Number of barriers changed during optimization.");
 
         if (considerTaskFifoDependency) {
-            auto removedDepsCount = removeBarrierDependenciesImpliedByFIFO();
+            auto removedDepsCount = removeTemporaryBarrierDependencies();
             _log.trace("Removed {0} temporary barriers", removedDepsCount);
 
             numBarriersAfterOptimization = getNumOfBarrierOps();
@@ -2402,7 +2402,7 @@ void vpux::BarrierInfo::optimizeBarriersWithSameProducers(size_t blockIdx, bool 
         return;
     }
     _log.nest().trace("Barrier range [{0}, {1}]", barriersRangeVec.front(), barriersRangeVec.back());
-    size_t maxBarrierIndex = _allBarrierOps.size() + _fifoDependencies.size() - 1;
+    size_t maxBarrierIndex = _allBarrierOps.size() + _temporaryBarrierDependencies.size() - 1;
     VPUX_THROW_WHEN(barriersRangeVec.front() > maxBarrierIndex,
                     "Invalid barrier index for lower limit of barrier range optimization");
     VPUX_THROW_WHEN(barriersRangeVec.back() > maxBarrierIndex,
@@ -2501,8 +2501,9 @@ void vpux::BarrierInfo::shareWaitAndUpdateBarriers(size_t availableSlots) {
 void vpux::BarrierInfo::linkTasksToBarriers(const BarrierInfo::TaskSet& tasksToAdd,
                                             const BarrierInfo::TaskSet& newBarriers, bool waitBarriers,
                                             size_t availableSlots) {
-    VPUX_THROW_UNLESS(_fifoDependencies.size() == 0,
-                      "Cannot create new barriers when FIFO dependencies are created but not represented in IR");
+    VPUX_THROW_UNLESS(
+            _temporaryBarrierDependencies.size() == 0,
+            "Cannot create new barriers while temporary barrier dependencies are present but not represented in IR");
     mlir::OpBuilder builder(getBarrierOpAtIndex(*newBarriers.begin()));
     BarrierInfo::TaskSet newBarrierBatch;
 
@@ -2589,26 +2590,33 @@ size_t vpux::BarrierInfo::getBarriersEarliestConsumer(const TaskSet& barriers) {
     return earliestTaskInd;
 };
 
+std::optional<size_t> vpux::BarrierInfo::addTemporaryBarrierDependence(size_t producerTaskInd, size_t consumerTaskInd) {
+    size_t commonBarrier = std::numeric_limits<size_t>::max();
+    if (hasBarrierDependency(producerTaskInd, consumerTaskInd, commonBarrier)) {
+        return std::nullopt;
+    }
+
+    // Add barrier dependence between the producer and consumer tasks without creating a new barrier in the IR. This
+    // creates a temporary state of mismatch between number of barriers in the IR and number of barriers tracked by the
+    // _barrierProducerMap and _barrierConsumerMap maps. This state is used to perform barrier optimizations taking into
+    // account dependencies that are not explicitly represented by barriers. These dependencies will be removed after
+    // optimization is done for the sake of internal self-consistency.
+    const auto tempBarrierInd = _barrierProducerMap.size();
+    _barrierProducerMap.push_back({});
+    _barrierConsumerMap.push_back({});
+
+    addProducer(tempBarrierInd, producerTaskInd);
+    addConsumer(tempBarrierInd, consumerTaskInd);
+    _temporaryBarrierDependencies.emplace_back(tempBarrierInd, producerTaskInd, consumerTaskInd);
+
+    return tempBarrierInd;
+}
+
 unsigned vpux::BarrierInfo::createBarrierDependenciesImpliedByFIFO(
         size_t blockIdx, std::optional<mlir::DenseSet<vpux::config::ExecutorKind>> executorKind) {
     // This method requires task queue map built with buildTaskQueueTypeMap()
     VPUX_THROW_WHEN(_taskQueueTypeMap.empty(), "TaskQueueTypeMap has not been created");
     unsigned newDepsCount = 0;
-    auto addTemporaryBarrierDependence = [&](size_t prevIndex, size_t currentIndex) {
-        // Add barrier dependence between task with index prevIndex and task with index currentIndex but do not create a
-        // new barrier in the IR. This creates a temporary state of mismatch between number of barriers in the IR and
-        // number of barriers tracked by the _barrierProducerMap and _barrierConsumerMap maps. This state is used to
-        // perform barrier optimizations taking into account FIFO dependencies. These dependencies will be
-        // removed after optimization is done for the sake of internal self-consistency.
-        size_t tempBarrierInd = _barrierProducerMap.size();
-        _barrierProducerMap.push_back({});
-        _barrierConsumerMap.push_back({});
-
-        addProducer(tempBarrierInd, prevIndex);
-        addConsumer(tempBarrierInd, currentIndex);
-        newDepsCount += 2;
-        return tempBarrierInd;
-    };
 
     auto [blockStartInd, blockEndInd] =
             getControlGraphBlockTaskRange(blockIdx, /* blockStartSyncPoint */ true, /* blockEndSyncPoint */ true);
@@ -2632,12 +2640,10 @@ unsigned vpux::BarrierInfo::createBarrierDependenciesImpliedByFIFO(
         int currIndex = fifoTasks.find_next(prevIndex);
 
         while (currIndex <= fifoTasks.find_last() && currIndex != -1 && static_cast<size_t>(currIndex) <= blockEndInd) {
-            size_t commonBarrier = -1;
             // Check if the two tasks do not have barrier dependency already and that they're in the same block
-            if (!hasBarrierDependency(static_cast<size_t>(prevIndex), static_cast<size_t>(currIndex), commonBarrier)) {
-                // add temporary dependency from task prevIndex to currIndex
-                auto newBarrierIdx = addTemporaryBarrierDependence(prevIndex, currIndex);
-                _fifoDependencies.emplace_back(newBarrierIdx, prevIndex, currIndex);
+            if (addTemporaryBarrierDependence(static_cast<size_t>(prevIndex), static_cast<size_t>(currIndex))
+                        .has_value()) {
+                newDepsCount += 2;
             }
             prevIndex = currIndex;
             currIndex = fifoTasks.find_next(currIndex);
@@ -2647,12 +2653,12 @@ unsigned vpux::BarrierInfo::createBarrierDependenciesImpliedByFIFO(
     return newDepsCount;
 }
 
-unsigned vpux::BarrierInfo::removeBarrierDependenciesImpliedByFIFO() {
+unsigned vpux::BarrierInfo::removeTemporaryBarrierDependencies() {
     unsigned removedDepsCount = 0;
 
-    // Remove barriers implicitly implied by FIFO dependency that were temporarily added between neighbour tasks
-    // on the same FIFO
-    for (const auto& dep : _fifoDependencies) {
+    // Remove temporary barriers that were added to represent non-barrier task dependencies.
+    // All such dependencies are tracked in _temporaryBarrierDependencies regardless of their origin.
+    for (const auto& dep : _temporaryBarrierDependencies) {
         size_t commonBarrier = -1;
         const auto [barrierIdx, parentTaskIdx, childTaskIdx] = dep;
 
@@ -2667,7 +2673,7 @@ unsigned vpux::BarrierInfo::removeBarrierDependenciesImpliedByFIFO() {
     // with FIFO
     auto removeTemporaryBarriers = [&](SmallVector<TaskSet>& barrierMap, bool producerMap) {
         auto numUsersOfTemporaryFIFObarriers =
-                std::accumulate(barrierMap.end() - _fifoDependencies.size(), barrierMap.end(), 0U,
+                std::accumulate(barrierMap.end() - _temporaryBarrierDependencies.size(), barrierMap.end(), 0U,
                                 [](const size_t& a, const TaskSet& b) {
                                     return a + b.size();
                                 });
@@ -2676,12 +2682,12 @@ unsigned vpux::BarrierInfo::removeBarrierDependenciesImpliedByFIFO() {
         // To prevent unnecessary data copy and movement during temporary barrier creation, we directly truncate the
         // barrierMap while preserving its allocated capacity. This approach minimizes overhead by avoiding costly
         // reallocations.
-        barrierMap.truncate(barrierMap.size() - _fifoDependencies.size());
+        barrierMap.truncate(barrierMap.size() - _temporaryBarrierDependencies.size());
     };
 
     removeTemporaryBarriers(_barrierProducerMap, /* producerMap */ true);
     removeTemporaryBarriers(_barrierConsumerMap, /* producerMap */ false);
-    _fifoDependencies.clear();
+    _temporaryBarrierDependencies.clear();
     return removedDepsCount;
 }
 
@@ -2759,6 +2765,91 @@ void vpux::BarrierInfo::clearTaskQueueTypeMap() {
     _taskQueueTypeMap.clear();
 }
 
+void vpux::BarrierInfo::buildWlmTasksDependenciesFromEnqueueDma() {
+    if (_func == nullptr) {
+        return;
+    }
+    const auto numTiles = config::getTileExecutor(_func->getParentOfType<mlir::ModuleOp>()).getCount();
+
+    std::map<VPURT::TaskQueueType, SmallVector<size_t>> workloadToTaskCache;
+
+    const auto getOrBuildWorkloadToTask = [&](VPURT::TaskQueueType queueType) -> const SmallVector<size_t>* {
+        const auto cacheIt = workloadToTaskCache.find(queueType);
+        if (cacheIt != workloadToTaskCache.end()) {
+            return &cacheIt->second;
+        }
+
+        const auto queueIt = _taskQueueTypeMap.find(queueType);
+        if (queueIt == _taskQueueTypeMap.end()) {
+            return nullptr;
+        }
+
+        SmallVector<size_t> workloadToTask;
+        for (const auto taskInd : queueIt->second.set_bits()) {
+            const auto taskOp = getTaskOpAtIndex(static_cast<size_t>(taskInd));
+            const auto numWorkloads = (taskOp != nullptr) ? VPURT::getNumberOfWorkloads(taskOp) : 1;
+            VPUX_THROW_UNLESS(numWorkloads > 0, "Task {0} has zero workloads", taskInd);
+
+            workloadToTask.append(numWorkloads, static_cast<size_t>(taskInd));
+        }
+
+        return &workloadToTaskCache.emplace(queueType, std::move(workloadToTask)).first->second;
+    };
+
+    // EnqueueDMAs target only DPU and SHAVE tasks
+    // Only the first enqueued task needs an explicit dependency,
+    // the remaining ones are ordered transitively by FIFO dependencies
+    for (auto taskOp : _allTaskOps) {
+        auto enqueueDmaOp = mlir::dyn_cast_or_null<VPUIP::EnqueueDMAOp>(taskOp.getInnerTaskOp());
+        if (enqueueDmaOp == nullptr) {
+            continue;
+        }
+
+        const auto enqueueDmaAttr = enqueueDmaOp.getEnqueueDmaAttr();
+        const auto executorKind = enqueueDmaAttr.getTargetExecutorKindAttr().getValue();
+        const auto tileIdx = checked_cast<size_t>(enqueueDmaAttr.getTileIdx().getValue().getSExtValue());
+        const auto listIdx = checked_cast<size_t>(enqueueDmaAttr.getListIdx().getValue().getSExtValue());
+        const auto startTaskIdx = checked_cast<size_t>(enqueueDmaAttr.getStartTaskIdx().getValue().getSExtValue());
+
+        // Resolve the exact queue the EnqueueDMA targets by its (executor, tile and list) encoding, then map the
+        // per queue start workload index directly to the global task index of the first enqueued task
+        const auto queueType = VPURT::getQueueTypeFromTileAndListIndex(executorKind, tileIdx, listIdx, numTiles);
+        const auto* workloadToTask = getOrBuildWorkloadToTask(queueType);
+
+        std::optional<size_t> enqueuedTaskInd;
+        if (workloadToTask != nullptr && startTaskIdx < workloadToTask->size()) {
+            enqueuedTaskInd = (*workloadToTask)[startTaskIdx];
+        }
+
+        VPUX_THROW_UNLESS(enqueuedTaskInd.has_value(),
+                          "EnqueueDMAOp start task index {0} is outside of queue {1} (tile {2}, list {3})",
+                          startTaskIdx, stringifyEnum(executorKind), tileIdx, listIdx);
+
+        _wlmTaskDependencies.emplace_back(getIndex(taskOp), enqueuedTaskInd.value());
+    }
+}
+
+unsigned vpux::BarrierInfo::createBarrierDependenciesImpliedByWlm(size_t blockStartInd, size_t blockEndInd) {
+    unsigned newDepsCount = 0;
+
+    if (_wlmTaskDependencies.empty()) {
+        return newDepsCount;
+    }
+
+    for (const auto& [producerTaskInd, consumerTaskInd] : _wlmTaskDependencies) {
+        if (!inRange(blockStartInd, blockEndInd, producerTaskInd) ||
+            !inRange(blockStartInd, blockEndInd, consumerTaskInd)) {
+            continue;
+        }
+
+        if (addTemporaryBarrierDependence(producerTaskInd, consumerTaskInd).has_value()) {
+            newDepsCount += 2;
+        }
+    }
+
+    return newDepsCount;
+}
+
 void vpux::BarrierInfo::buildTaskQueueTypeMap() {
     if (_taskQueueTypeMap.empty()) {
         mlir::DenseSet<vpux::config::ExecutorKind> executors = {config::ExecutorKind::DMA_NN,
@@ -2778,6 +2869,19 @@ void vpux::BarrierInfo::buildTaskQueueTypeMap() {
     }
 }
 
+void vpux::BarrierInfo::buildWlmTasksDependencies(bool considerEnqueueDmaDependency) {
+    VPUX_THROW_UNLESS(_wlmTaskDependencies.empty(),
+                      "buildWlmTasksDependencies() called with {0} FWLM dependencies already present",
+                      _wlmTaskDependencies.size());
+
+    if (considerEnqueueDmaDependency) {
+        buildWlmTasksDependenciesFromEnqueueDma();
+    }
+
+    // TODO:
+    // (E-222134 -Extend WLM DPU enqueue delay checks for more complex scenarios with DMA from SHV)
+}
+
 //
 // buildTaskControlMap
 //
@@ -2786,7 +2890,7 @@ void vpux::BarrierInfo::buildTaskQueueTypeMap() {
 // Resulting map for a given task will contain all tasks that are reachable from the given task
 // directly or through other tasks and barriers.
 std::pair<SmallVector<llvm::BitVector>, size_t> vpux::BarrierInfo::buildTaskControlMap(
-        size_t blockIdx, bool considerTaskFifoDependency, bool ignoreOutOfBlockDependencies) {
+        size_t blockIdx, bool considerNonBarrierTaskDependencies, bool ignoreOutOfBlockDependencies) {
     SmallVector<llvm::BitVector> taskControlMap;
     VPUX_THROW_WHEN(blockIdx >= getControlGraphBlockCount(), "Invalid task block index ({0})", blockIdx);
 
@@ -2804,11 +2908,9 @@ std::pair<SmallVector<llvm::BitVector>, size_t> vpux::BarrierInfo::buildTaskCont
     resetBitMap(taskControlMap);
 
     unsigned newDeps = 0;
-    if (considerTaskFifoDependency) {
-        // For every initialized queue in _taskQueueTypeMap, create temporary barriers between tasks on the same FIFO in
-        // order to build taskControlMap with information about tasks-to-task dependencies stored exclusively on FIFO.
-        // The these temporary barriers are removed afterwards.
+    if (considerNonBarrierTaskDependencies) {
         newDeps = createBarrierDependenciesImpliedByFIFO(blockIdx);
+        newDeps += createBarrierDependenciesImpliedByWlm(blockStartInd, blockEndInd);
     }
 
     for (auto taskInd = blockEndInd + 1; taskInd-- > blockStartInd;) {
@@ -2883,8 +2985,8 @@ std::pair<SmallVector<llvm::BitVector>, size_t> vpux::BarrierInfo::buildTaskCont
         }
     }
 
-    if (considerTaskFifoDependency) {
-        auto removedDeps = removeBarrierDependenciesImpliedByFIFO();
+    if (considerNonBarrierTaskDependencies) {
+        auto removedDeps = removeTemporaryBarrierDependencies();
         VPUX_THROW_WHEN(newDeps != removedDeps, "Temporary barriers have not been correctly removed");
     }
 
@@ -3447,6 +3549,7 @@ void BarrierInfoTest::initializeBarrierMaps(BarrierInfoMaps& barrierMaps) {
         buildTaskBlockMap();
     }
     setTaskQueueTypeMap(barrierMaps.taskQueueTypeMap);
+    setWlmTaskDependencies(barrierMaps.wlmTaskDependencies);
 }
 
 void vpux::BarrierInfoTest::setTaskQueueTypeMap(
@@ -3459,6 +3562,16 @@ void vpux::BarrierInfoTest::setTaskQueueTypeMap(
                               getNumOfTasks());
             _taskQueueTypeMap[taskQueueType].set(taskInd);
         }
+    }
+}
+
+void vpux::BarrierInfoTest::setWlmTaskDependencies(const SmallVector<std::pair<size_t, size_t>>& wlmTaskDependencies) {
+    for (const auto& [producerTaskInd, consumerTaskInd] : wlmTaskDependencies) {
+        VPUX_THROW_UNLESS(producerTaskInd < getNumOfTasks(), "Invalid producer task index '{0}', limit is '{1}'",
+                          producerTaskInd, getNumOfTasks());
+        VPUX_THROW_UNLESS(consumerTaskInd < getNumOfTasks(), "Invalid consumer task index '{0}', limit is '{1}'",
+                          consumerTaskInd, getNumOfTasks());
+        _wlmTaskDependencies.emplace_back(producerTaskInd, consumerTaskInd);
     }
 }
 

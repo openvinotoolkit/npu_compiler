@@ -71,6 +71,50 @@ func.func @FlashSDPA(%arg0: tensor<1x8x64x64xf16>, %arg1: tensor<1x8x32x64xf16>,
 
 // -----
 
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @FlashSDPAGQATargetSeqLenEqual1
+// CHECK-SAME: [[GQA_QUERY:%[^, ]+]]: tensor<1x32x1x128xf16>,
+// CHECK-SAME: [[GQA_KEY:%[^, ]+]]: tensor<1x8x1024x128xf16>,
+// CHECK-SAME: [[GQA_VALUE:%[^, ]+]]: tensor<1x8x1024x128xf16, {order = #NCWH}>
+func.func @FlashSDPAGQATargetSeqLenEqual1(%arg0: tensor<1x32x1x128xf16>, %arg1: tensor<1x8x1024x128xf16>, %arg2: tensor<1x8x1024x128xf16, {order = #NCWH}>) -> tensor<1x32x1x128xf16> {
+    %cst_1 = const.Declare tensor<1x32x1x128xf16> = dense<0.000000e+00> : tensor<1x32x1x128xf16>
+    %cst_2 = const.Declare tensor<1x1x32x1xf16> = dense<0xFC00> : tensor<1x1x32x1xf16>
+    %cst_3 = const.Declare tensor<1x1x32x1xf32> = dense<0.000000e+00> : tensor<1x1x32x1xf32>
+
+    %result_running_output, %result_running_max, %result_running_sum =
+        IE.FlashSDPA(%arg0, %arg1, %arg2, %cst_1, %cst_2, %cst_3) {is_head = true, is_tail = true, source_seq_len_pad_size = 0 : i64}
+            : tensor<1x32x1x128xf16>, tensor<1x8x1024x128xf16>, tensor<1x8x1024x128xf16, {order = #NCWH}>, tensor<1x32x1x128xf16>, tensor<1x1x32x1xf16>, tensor<1x1x32x1xf32>
+            -> tensor<1x32x1x128xf16>, tensor<1x1x32x1xf16>, tensor<1x1x32x1xf32>
+
+    return %result_running_output : tensor<1x32x1x128xf16>
+
+    // CHECK-DAG:   [[GQA_IN_OUT:%.+]] = const.Declare tensor<1x32x1x128xf16> = dense<0.000000e+00> : tensor<1x32x1x128xf16>
+    // CHECK-DAG:   [[GQA_IN_MAX:%.+]] = const.Declare tensor<1x1x32x1xf16> = dense<0xFC00> : tensor<1x1x32x1xf16>
+    // CHECK-DAG:   [[GQA_IN_SUM:%.+]] = const.Declare tensor<1x1x32x1xf32> = dense<0.000000e+00> : tensor<1x1x32x1xf32>
+
+    // CHECK-DAG:   [[GQA_IN_MAX_RESHAPED:%.+]] = VPU.AffineReshape([[GQA_IN_MAX]]) {dim_mapping = {{\[\[}}0], [0], [1], [2, 3]], shape_value = [1, 32, 1, 1]} : tensor<1x1x32x1xf16> -> tensor<1x32x1x1xf16>
+    // CHECK-DAG:   [[GQA_IN_SUM_RESHAPED:%.+]] = VPU.AffineReshape([[GQA_IN_SUM]]) {dim_mapping = {{\[\[}}0], [0], [1], [2, 3]], shape_value = [1, 32, 1, 1]} : tensor<1x1x32x1xf32> -> tensor<1x32x1x1xf32>
+
+    // CHECK-DAG:   [[GQA_AUX_BUF:%.+]] = VPU.Empty : tensor<1x4x1x1024xf16>
+    // CHECK-DAG:   [[GQA_DPU_DESCRIPTORS_BUF:%.+]] = const.Declare tensor<1x1x2x256xsi32> = dense<0> : tensor<1x1x2x256xsi32>
+    // CHECK-DAG:   [[GQA_WEIGHTS_TABLE_0:%.+]] = const.Declare tensor<1x1x1024x4xsi32> = dense
+    // CHECK-DAG:   [[GQA_WEIGHTS_TABLE_1:%.+]] = const.Declare tensor<1x1x128x4xsi32> = dense
+
+    // CHECK:           [[GQA_RES_OUT:%[^, ]+]], [[GQA_RES_MAX:%[^, ]+]], [[GQA_RES_SUM:%[^, ]+]] =
+    // CHECK-SAME:              VPU.FlashSDPA([[GQA_QUERY]], [[GQA_KEY]], [[GQA_VALUE]], [[GQA_AUX_BUF]],
+    // CHECK-SAME:                            [[GQA_DPU_DESCRIPTORS_BUF]], [[GQA_WEIGHTS_TABLE_0]], [[GQA_WEIGHTS_TABLE_1]],
+    // CHECK-SAME:                            [[GQA_IN_OUT]], [[GQA_IN_MAX_RESHAPED]], [[GQA_IN_SUM_RESHAPED]]) {
+    // CHECK-SAME:                      is_head = true,
+    // CHECK-SAME:                      is_tail = true,
+    // CHECK-SAME:                      source_seq_len_pad_size = 0 : i64
+    // CHECK-SAME:                  -> tensor<1x32x1x128xf16>, tensor<1x32x1x1xf16>, tensor<1x32x1x1xf32>
+
+    // CHECK:   return [[GQA_RES_OUT]]
+}
+
+// -----
+
 // CHECK-LABEL: @LogSoftmaxPeak
 // CHECK-SAME: [[INPUT:%[^:]+]]: tensor<1x1x151x7056xf16>
 func.func @LogSoftmaxPeak(%arg0: tensor<1x1x151x7056xf16>) -> (tensor<1x1x151x1xf32>, tensor<1x1x151x1xsi64>) {
@@ -131,10 +175,160 @@ func.func @InterpolateParameterScalesInput(%interp_input: tensor<1x3x4x6xf16>, %
     // CHECK: [[SCALES_1:%.+]] = VPU.Convert([[SCALES_0]]) {dstElemType = f16} : tensor<1x1x1x2xf32> -> tensor<1x1x1x2xf16>
     // CHECK: [[SCALES_2:%.+]] = VPU.AffineReshape([[SCALES_1]])
     // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [0], [0]], shape_value = [2]} : tensor<1x1x1x2xf16> -> tensor<2xf16>
-    // CHECK: [[AUX_BUF:%.+]] = VPU.Empty : tensor<1x1x1x1310720xui8>
+    // CHECK: [[AUX_BUF:%.+]] = VPU.Empty : tensor<1x1x1x{{[0-9]+}}xui8>
     // CHECK: [[INTERPOLATE:%.+]] = VPU.InterpolateDMA([[INTERP_INPUT]], [[SCALES_2]], [[AUX_BUF]])
     // CHECK-SAME: {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3]
-    // CHECK-SAME: : tensor<1x3x4x6xf16>, tensor<2xf16>, tensor<1x1x1x1310720xui8> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-SAME: : tensor<1x3x4x6xf16>, tensor<2xf16>, tensor<1x1x1x{{[0-9]+}}xui8> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK: return [[INTERPOLATE]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @InterpolateParameterScalesDynamicInput2KBound
+// CHECK-SAME: ([[INTERP_INPUT:%.+]]: tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1080, 1920]> : tensor<4xsi64>, order = #NCHW}>, [[SCALES:%.+]]: tensor<2xf32>) -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+func.func @InterpolateParameterScalesDynamicInput2KBound(%interp_input: tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1080, 1920]> : tensor<4xsi64>, order = #NCHW}>, %scales: tensor<2xf32>) -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}> {
+    %scales_0 = IE.AffineReshape(%scales) {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 1, 2]} : tensor<2xf32> -> tensor<1x1x1x2xf32>
+    %scales_1 = IE.Convert(%scales_0) {dstElemType = f16} : tensor<1x1x1x2xf32> -> tensor<1x1x1x2xf16>
+    %scales_2 = IE.AffineReshape(%scales_1) {dim_mapping = [[0], [0], [0], [0]], shape_value = [2]} : tensor<1x1x1x2xf16> -> tensor<2xf16>
+    %interpolate = IE.Interpolate(%interp_input, %scales_2) {
+        attr = #IE.Interpolate<mode = <LINEAR>,
+                                shape_calc_mode = <SCALES>,
+                                coord_mode = <HALF_PIXEL>,
+                                nearest_mode = <FLOOR>,
+                                antialias = false,
+                                pads_begin = [0, 0, 0, 0],
+                                pads_end = [0, 0, 0, 0],
+                                cube_coeff = -7.500000e-01 : f64>,
+        axes_attr = [2, 3],
+        operandSegmentSizes = array<i32: 1, 0, 1, 0>,
+        sizes_attr = []}
+        : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1080, 1920]> : tensor<4xsi64>, order = #NCHW}>, tensor<2xf16>
+            -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+    return %interpolate : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: [[SCALES_0:%.+]] = VPU.AffineReshape([[SCALES]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 1, 2]} : tensor<2xf32> -> tensor<1x1x1x2xf32>
+    // CHECK: [[SCALES_1:%.+]] = VPU.Convert([[SCALES_0]]) {dstElemType = f16} : tensor<1x1x1x2xf32> -> tensor<1x1x1x2xf16>
+    // CHECK: [[SCALES_2:%.+]] = VPU.AffineReshape([[SCALES_1]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [0], [0]], shape_value = [2]} : tensor<1x1x1x2xf16> -> tensor<2xf16>
+    // CHECK: [[AUX_BUF:%.+]] = VPU.Empty : tensor<1x1x1x{{[0-9]+}}xui8>
+    // CHECK: [[INTERPOLATE:%.+]] = VPU.InterpolateDMA([[INTERP_INPUT]], [[SCALES_2]], [[AUX_BUF]])
+    // CHECK-SAME: {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3]
+    // CHECK-SAME: : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1080, 1920]> : tensor<4xsi64>, order = #NCHW}>, tensor<2xf16>, tensor<1x1x1x{{[0-9]+}}xui8> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK: return [[INTERPOLATE]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @InterpolateParameterScalesDynamicInput4KBound
+// CHECK-SAME: ([[INTERP_INPUT:%.+]]: tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>, [[SCALES:%.+]]: tensor<2xf32>) -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+func.func @InterpolateParameterScalesDynamicInput4KBound(%interp_input: tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>, %scales: tensor<2xf32>) -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}> {
+    %scales_0 = IE.AffineReshape(%scales) {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 1, 2]} : tensor<2xf32> -> tensor<1x1x1x2xf32>
+    %scales_1 = IE.Convert(%scales_0) {dstElemType = f16} : tensor<1x1x1x2xf32> -> tensor<1x1x1x2xf16>
+    %scales_2 = IE.AffineReshape(%scales_1) {dim_mapping = [[0], [0], [0], [0]], shape_value = [2]} : tensor<1x1x1x2xf16> -> tensor<2xf16>
+    %interpolate = IE.Interpolate(%interp_input, %scales_2) {
+        attr = #IE.Interpolate<mode = <LINEAR>,
+                                shape_calc_mode = <SCALES>,
+                                coord_mode = <HALF_PIXEL>,
+                                nearest_mode = <FLOOR>,
+                                antialias = false,
+                                pads_begin = [0, 0, 0, 0],
+                                pads_end = [0, 0, 0, 0],
+                                cube_coeff = -7.500000e-01 : f64>,
+        axes_attr = [2, 3],
+        operandSegmentSizes = array<i32: 1, 0, 1, 0>,
+        sizes_attr = []}
+        : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>, tensor<2xf16>
+            -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+    return %interpolate : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: [[SCALES_0:%.+]] = VPU.AffineReshape([[SCALES]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 1, 2]} : tensor<2xf32> -> tensor<1x1x1x2xf32>
+    // CHECK: [[SCALES_1:%.+]] = VPU.Convert([[SCALES_0]]) {dstElemType = f16} : tensor<1x1x1x2xf32> -> tensor<1x1x1x2xf16>
+    // CHECK: [[SCALES_2:%.+]] = VPU.AffineReshape([[SCALES_1]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [0], [0]], shape_value = [2]} : tensor<1x1x1x2xf16> -> tensor<2xf16>
+    // CHECK: [[AUX_BUF:%.+]] = VPU.Empty : tensor<1x1x1x{{[0-9]+}}xui8>
+    // CHECK: [[INTERPOLATE:%.+]] = VPU.InterpolateDMA([[INTERP_INPUT]], [[SCALES_2]], [[AUX_BUF]])
+    // CHECK-SAME: {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3]
+    // CHECK-SAME: : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>, tensor<2xf16>, tensor<1x1x1x{{[0-9]+}}xui8> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK: return [[INTERPOLATE]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @InterpolateParameterScalesInput4KClamp
+// CHECK-SAME: ([[INTERP_INPUT:%.+]]: tensor<1x3x540x960xf16>, [[SCALES:%.+]]: tensor<2xf32>) -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+func.func @InterpolateParameterScalesInput4KClamp(%interp_input: tensor<1x3x540x960xf16>, %scales: tensor<2xf32>) -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}> {
+    %scales_0 = IE.AffineReshape(%scales) {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 1, 2]} : tensor<2xf32> -> tensor<1x1x1x2xf32>
+    %scales_1 = IE.Convert(%scales_0) {dstElemType = f16} : tensor<1x1x1x2xf32> -> tensor<1x1x1x2xf16>
+    %scales_2 = IE.AffineReshape(%scales_1) {dim_mapping = [[0], [0], [0], [0]], shape_value = [2]} : tensor<1x1x1x2xf16> -> tensor<2xf16>
+    %interpolate = IE.Interpolate(%interp_input, %scales_2) {
+        attr = #IE.Interpolate<mode = <LINEAR>,
+                                shape_calc_mode = <SCALES>,
+                                coord_mode = <HALF_PIXEL>,
+                                nearest_mode = <FLOOR>,
+                                antialias = false,
+                                pads_begin = [0, 0, 0, 0],
+                                pads_end = [0, 0, 0, 0],
+                                cube_coeff = -7.500000e-01 : f64>,
+        axes_attr = [2, 3],
+        operandSegmentSizes = array<i32: 1, 0, 1, 0>,
+        sizes_attr = []}
+        : tensor<1x3x540x960xf16>, tensor<2xf16> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+    return %interpolate : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: [[SCALES_0:%.+]] = VPU.AffineReshape([[SCALES]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 1, 2]} : tensor<2xf32> -> tensor<1x1x1x2xf32>
+    // CHECK: [[SCALES_1:%.+]] = VPU.Convert([[SCALES_0]]) {dstElemType = f16} : tensor<1x1x1x2xf32> -> tensor<1x1x1x2xf16>
+    // CHECK: [[SCALES_2:%.+]] = VPU.AffineReshape([[SCALES_1]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [0], [0]], shape_value = [2]} : tensor<1x1x1x2xf16> -> tensor<2xf16>
+    // CHECK: [[AUX_BUF:%.+]] = VPU.Empty : tensor<1x1x1x{{[0-9]+}}xui8>
+    // CHECK: [[INTERPOLATE:%.+]] = VPU.InterpolateDMA([[INTERP_INPUT]], [[SCALES_2]], [[AUX_BUF]])
+    // CHECK-SAME: {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3]
+    // CHECK-SAME: : tensor<1x3x540x960xf16>, tensor<2xf16>, tensor<1x1x1x{{[0-9]+}}xui8> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK: return [[INTERPOLATE]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @InterpolateParameterScalesInput4KSmallerScale
+// CHECK-SAME: ([[INTERP_INPUT:%.+]]: tensor<1x3x1080x1920xf16>, [[SCALES:%.+]]: tensor<2xf32>) -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+func.func @InterpolateParameterScalesInput4KSmallerScale(%interp_input: tensor<1x3x1080x1920xf16>, %scales: tensor<2xf32>) -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}> {
+    %scales_0 = IE.AffineReshape(%scales) {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 1, 2]} : tensor<2xf32> -> tensor<1x1x1x2xf32>
+    %scales_1 = IE.Convert(%scales_0) {dstElemType = f16} : tensor<1x1x1x2xf32> -> tensor<1x1x1x2xf16>
+    %scales_2 = IE.AffineReshape(%scales_1) {dim_mapping = [[0], [0], [0], [0]], shape_value = [2]} : tensor<1x1x1x2xf16> -> tensor<2xf16>
+    %interpolate = IE.Interpolate(%interp_input, %scales_2) {
+        attr = #IE.Interpolate<mode = <LINEAR>,
+                                shape_calc_mode = <SCALES>,
+                                coord_mode = <HALF_PIXEL>,
+                                nearest_mode = <FLOOR>,
+                                antialias = false,
+                                pads_begin = [0, 0, 0, 0],
+                                pads_end = [0, 0, 0, 0],
+                                cube_coeff = -7.500000e-01 : f64>,
+        axes_attr = [2, 3],
+        operandSegmentSizes = array<i32: 1, 0, 1, 0>,
+        sizes_attr = []}
+        : tensor<1x3x1080x1920xf16>, tensor<2xf16> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+    return %interpolate : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: [[SCALES_0:%.+]] = VPU.AffineReshape([[SCALES]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 1, 2]} : tensor<2xf32> -> tensor<1x1x1x2xf32>
+    // CHECK: [[SCALES_1:%.+]] = VPU.Convert([[SCALES_0]]) {dstElemType = f16} : tensor<1x1x1x2xf32> -> tensor<1x1x1x2xf16>
+    // CHECK: [[SCALES_2:%.+]] = VPU.AffineReshape([[SCALES_1]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [0], [0]], shape_value = [2]} : tensor<1x1x1x2xf16> -> tensor<2xf16>
+    // CHECK: [[AUX_BUF:%.+]] = VPU.Empty : tensor<1x1x1x{{[0-9]+}}xui8>
+    // CHECK: [[INTERPOLATE:%.+]] = VPU.InterpolateDMA([[INTERP_INPUT]], [[SCALES_2]], [[AUX_BUF]])
+    // CHECK-SAME: {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3]
+    // CHECK-SAME: : tensor<1x3x1080x1920xf16>, tensor<2xf16>, tensor<1x1x1x{{[0-9]+}}xui8> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK: return [[INTERPOLATE]]
 }
 

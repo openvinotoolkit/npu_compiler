@@ -840,6 +840,86 @@ func.func @FuseLastCopyThroughReinterpretCast(
     // CHECK:       return [[OUTPUT]]
 }
 
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!DistributedBuffer = !VPUIP.DistributedBuffer<1x16x48x640xf16, #NCHW, @CMX_NN,
+                      {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1],
+                       num_clusters = 3 : i64, uniform_distributed_segments}>
+
+// CHECK-LABEL: func.func @FuseLastCopyThroughReinterpretCastDynamicShape
+// CHECK-SAME: [[OUTPUT:%.+]]: memref<1x16x48x?xf16, @DDR>)
+func.func @FuseLastCopyThroughReinterpretCastDynamicShape(
+        %output: memref<1x16x48x?xf16, @DDR>)
+        -> memref<1x16x48x?xf16, @DDR> {
+    %cmx_buf = VPURT.AllocDistributed -> !DistributedBuffer
+
+    %ddr_alloc = memref.alloc() : memref<1x16x48x640xf16, @DDR>
+    %cmx_to_ddr = VPUIP.Copy
+        inputs(%cmx_buf : !DistributedBuffer)
+        outputs(%ddr_alloc : memref<1x16x48x640xf16, @DDR>)
+        -> memref<1x16x48x640xf16, @DDR>
+
+    %ddr_to_dyn = Core.ReinterpretCast(%cmx_to_ddr) : memref<1x16x48x640xf16, @DDR>
+                -> memref<1x16x48x?xf16, @DDR>
+
+    %last_copy = VPUIP.Copy
+        inputs(%ddr_to_dyn : memref<1x16x48x?xf16, @DDR>)
+        outputs(%output : memref<1x16x48x?xf16, @DDR>)
+        -> memref<1x16x48x?xf16, @DDR>
+    return %last_copy : memref<1x16x48x?xf16, @DDR>
+
+    // CHECK-NOT:   memref.alloc
+    // CHECK:       [[CMX_BUF:%.+]] = VPURT.AllocDistributed
+    // CHECK:       [[REINTERP:%.+]] = Core.ReinterpretCast([[OUTPUT]])
+    // CHECK-SAME:                   -> memref<1x16x48x640xf16, @DDR>
+    // CHECK:       VPUIP.Copy
+    // CHECK-SAME:      inputs([[CMX_BUF]]
+    // CHECK-SAME:      outputs([[REINTERP]]
+    // CHECK:       return [[OUTPUT]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!DistributedBuffer = !VPUIP.DistributedBuffer<1x16x48x640xf16, #NCHW, @CMX_NN,
+                      {mode = "SEGMENTED", num_tiles = [1, 1, 3, 1],
+                       num_clusters = 3 : i64, uniform_distributed_segments}>
+
+// CHECK-LABEL: func.func @FuseLastCopyThroughReinterpretCastDynamicStrided
+// CHECK-SAME: [[OUTPUT:%.+]]: memref<1x16x48x?xf16, strided<[?, ?, ?, ?], offset: ?>>)
+func.func @FuseLastCopyThroughReinterpretCastDynamicStrided(
+        %output: memref<1x16x48x?xf16, strided<[?, ?, ?, ?], offset: ?>>)
+        -> memref<1x16x48x?xf16, strided<[?, ?, ?, ?], offset: ?>> {
+    %cmx_buf = VPURT.AllocDistributed -> !DistributedBuffer
+
+    %ddr_alloc = memref.alloc() : memref<1x16x48x640xf16, @DDR>
+    %cmx_to_ddr = VPUIP.Copy
+        inputs(%cmx_buf : !DistributedBuffer)
+        outputs(%ddr_alloc : memref<1x16x48x640xf16, @DDR>)
+        -> memref<1x16x48x640xf16, @DDR>
+
+    %ddr_to_dyn = Core.ReinterpretCast(%cmx_to_ddr) : memref<1x16x48x640xf16, @DDR>
+                -> memref<1x16x48x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+
+    %last_copy = VPUIP.Copy
+        inputs(%ddr_to_dyn : memref<1x16x48x?xf16, strided<[?, ?, ?, ?], offset: ?>>)
+        outputs(%output : memref<1x16x48x?xf16, strided<[?, ?, ?, ?], offset: ?>>)
+        -> memref<1x16x48x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+    return %last_copy : memref<1x16x48x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+
+    // CHECK-NOT:   memref.alloc
+    // CHECK:       [[CMX_BUF:%.+]] = VPURT.AllocDistributed
+    // CHECK:       [[REINTERP:%.+]] = Core.ReinterpretCast([[OUTPUT]])
+    // CHECK-SAME:                   -> memref<1x16x48x640xf16, @DDR>
+    // CHECK:       VPUIP.Copy
+    // CHECK-SAME:      inputs([[CMX_BUF]]
+    // CHECK-SAME:      outputs([[REINTERP]]
+    // CHECK:       return [[OUTPUT]]
+}
+
 
 // -----
 module @Module0 attributes {config.compilationMode = #config.compilation_mode<HostCompile>} {
@@ -913,4 +993,137 @@ module @Module0 attributes {config.compilationMode = #config.compilation_mode<Ho
         // CHECK-NOT:   VPUIP.Copy
         // CHECK:       return [[OUT_DATA]], [[OUT_SHAPE]]
     }
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+
+// CHECK-LABEL: func.func @FuseLastCopyConcatViewHasMultipleUsers
+// CHECK-SAME:  [[ARG0:%arg[0-9]+]]: memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>
+// CHECK-SAME:  [[ARG1:%arg[0-9]+]]: memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>
+// CHECK-SAME:  [[ARG2:%arg[0-9]+]]: memref<1x4x128xf16, @DDR>
+func.func @FuseLastCopyConcatViewHasMultipleUsers(
+        %arg0: memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>,
+        %arg1: memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>,
+        %arg2: memref<1x4x128xf16, @DDR>) -> memref<1x4x128xf16, @DDR> {
+
+    %alloc = memref.alloc() : memref<1x16x4x8xf16, {order = #NHWC}, @DDR>
+
+    %sv0 = VPUIP.SubView %alloc [0, 0, 0, 0] [1, 16, 4, 4] :
+        memref<1x16x4x8xf16, {order = #NHWC}, @DDR> to
+        memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>
+    %copy0 = VPUIP.Copy
+        inputs(%arg0 : memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>)
+        outputs(%sv0 : memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>)
+        -> memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>
+
+    %sv1 = VPUIP.SubView %alloc [0, 0, 0, 4] [1, 16, 4, 4] :
+        memref<1x16x4x8xf16, {order = #NHWC}, @DDR> to
+        memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>
+    %copy1 = VPUIP.Copy
+        inputs(%arg1 : memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>)
+        outputs(%sv1 : memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>)
+        -> memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>
+
+    %concat = VPUIP.ConcatView
+        inputs(%copy0, %copy1 :
+            memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>,
+            memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>)
+        outputs(%alloc : memref<1x16x4x8xf16, {order = #NHWC}, @DDR>)
+        -> memref<1x16x4x8xf16, {order = #NHWC}, @DDR>
+
+    // Chain 1: DDR->DDR copy to function output, eliminated by FuseLastCopy
+    %sc1 = VPUIP.ShapeCast {shape = [1, 1, 4, 128]}
+        inputs(%concat : memref<1x16x4x8xf16, {order = #NHWC}, @DDR>)
+        -> memref<1x1x4x128xf16, {order = #NHWC}, @DDR>
+    %pc1 = VPUIP.PermuteCast {dst_order = #NCHW, mem_perm = #NWCH}
+        inputs(%sc1 : memref<1x1x4x128xf16, {order = #NHWC}, @DDR>)
+        -> memref<1x1x4x128xf16, @DDR>
+    %rsh1 = VPUIP.GenericReshape
+        inputs(%pc1 : memref<1x1x4x128xf16, @DDR>)
+        -> memref<1x4x128xf16, @DDR>
+    %copy_out = VPUIP.Copy
+        inputs(%rsh1 : memref<1x4x128xf16, @DDR>)
+        outputs(%arg2 : memref<1x4x128xf16, @DDR>)
+        -> memref<1x4x128xf16, @DDR>
+
+    // Chain 2: DDR->CMX load, preserved after transformation
+    %sc2 = VPUIP.ShapeCast {shape = [1, 1, 4, 128]}
+        inputs(%concat : memref<1x16x4x8xf16, {order = #NHWC}, @DDR>)
+        -> memref<1x1x4x128xf16, {order = #NHWC}, @DDR>
+    %pc2 = VPUIP.PermuteCast {dst_order = #NCHW, mem_perm = #NWCH}
+        inputs(%sc2 : memref<1x1x4x128xf16, {order = #NHWC}, @DDR>)
+        -> memref<1x1x4x128xf16, @DDR>
+    %sub2 = VPUIP.SubView %pc2 [0, 0, 0, 0] [1, 1, 2, 128] :
+        memref<1x1x4x128xf16, @DDR> to
+        memref<1x1x2x128xf16, {order = #NCHW, strides = [512, 512, 128, 1]}, @DDR>
+    %alloc_cmx = memref.alloc() : memref<1x1x2x128xf16, @CMX_NN>
+    %cmx_copy = VPUIP.Copy
+        inputs(%sub2 : memref<1x1x2x128xf16, {order = #NCHW, strides = [512, 512, 128, 1]}, @DDR>)
+        outputs(%alloc_cmx : memref<1x1x2x128xf16, @CMX_NN>)
+        -> memref<1x1x2x128xf16, @CMX_NN>
+
+    return %copy_out : memref<1x4x128xf16, @DDR>
+
+    // DDR alloc for the concat buffer is eliminated.
+    // CHECK-NOT: memref.alloc() : memref<1x16x4x8xf16, {order = #NHWC}, @DDR>
+
+    // Inverse view chain applied to %arg2 (reversed cast order relative to chain1).
+    // CHECK:           [[INV_RSH:%.+]] = VPUIP.GenericReshape
+    // CHECK-SAME:          inputs([[ARG2]] : memref<1x4x128xf16, @DDR>)
+    // CHECK-SAME:          -> memref<1x1x4x128xf16, @DDR>
+    // CHECK:           [[INV_PC:%.+]] = VPUIP.PermuteCast {dst_order = #NCHW, mem_perm = #NWCH}
+    // CHECK-SAME:          inputs([[INV_RSH]] : memref<1x1x4x128xf16, @DDR>)
+    // CHECK-SAME:          -> memref<1x1x4x128xf16, {order = #NHWC}, @DDR>
+    // CHECK:           [[INV_SC:%.+]] = VPUIP.ShapeCast {shape = [1, 16, 4, 8]}
+    // CHECK-SAME:          inputs([[INV_PC]] : memref<1x1x4x128xf16, {order = #NHWC}, @DDR>)
+    // CHECK-SAME:          -> memref<1x16x4x8xf16, {order = #NHWC}, @DDR>
+
+    // CMX->DDR copies write directly into subviews of the inverse ShapeCast.
+    // CHECK:           [[SV0:%.+]] = VPUIP.SubView [[INV_SC]] [0, 0, 0, 0] [1, 16, 4, 4]
+    // CHECK-SAME:          : memref<1x16x4x8xf16, {order = #NHWC}, @DDR>
+    // CHECK-SAME:          to memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>
+    // CHECK:           [[CMX_COPY0:%.+]] = VPUIP.Copy
+    // CHECK-SAME:          inputs([[ARG0]] : memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:          outputs([[SV0]] : memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>)
+    // CHECK-SAME:          -> memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>
+    // CHECK:           [[SV1:%.+]] = VPUIP.SubView [[INV_SC]] [0, 0, 0, 4] [1, 16, 4, 4]
+    // CHECK-SAME:          : memref<1x16x4x8xf16, {order = #NHWC}, @DDR>
+    // CHECK-SAME:          to memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>
+    // CHECK:           [[CMX_COPY1:%.+]] = VPUIP.Copy
+    // CHECK-SAME:          inputs([[ARG1]] : memref<1x16x4x4xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME:          outputs([[SV1]] : memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>)
+    // CHECK-SAME:          -> memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>
+
+    // ConcatView preserved; its output buffer is now the inverse ShapeCast view of %arg2.
+    // CHECK:           [[CONCAT:%.+]] = VPUIP.ConcatView
+    // CHECK-SAME:          inputs([[CMX_COPY0]], [[CMX_COPY1]]
+    // CHECK-SAME:              : memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>,
+    // CHECK-SAME:                memref<1x16x4x4xf16, {order = #NHWC, strides = [512, 1, 128, 16]}, @DDR>)
+    // CHECK-SAME:          outputs([[INV_SC]] : memref<1x16x4x8xf16, {order = #NHWC}, @DDR>)
+    // CHECK-SAME:          -> memref<1x16x4x8xf16, {order = #NHWC}, @DDR>
+
+    // Chain 2 (DDR->CMX load) is intact and now reads from the %arg2-backed buffer.
+    // CHECK:           [[SC2:%.+]] = VPUIP.ShapeCast {shape = [1, 1, 4, 128]}
+    // CHECK-SAME:          inputs([[CONCAT]] : memref<1x16x4x8xf16, {order = #NHWC}, @DDR>)
+    // CHECK-SAME:          -> memref<1x1x4x128xf16, {order = #NHWC}, @DDR>
+    // CHECK:           [[PC2:%.+]] = VPUIP.PermuteCast {dst_order = #NCHW, mem_perm = #NWCH}
+    // CHECK-SAME:          inputs([[SC2]] : memref<1x1x4x128xf16, {order = #NHWC}, @DDR>)
+    // CHECK-SAME:          -> memref<1x1x4x128xf16, @DDR>
+    // CHECK:           [[SV2:%.+]] = VPUIP.SubView [[PC2]] [0, 0, 0, 0] [1, 1, 2, 128]
+    // CHECK-SAME:          : memref<1x1x4x128xf16, @DDR>
+    // CHECK-SAME:          to memref<1x1x2x128xf16, {order = #NCHW, strides = [512, 512, 128, 1]}, @DDR>
+    // CHECK:           [[CMX_ALLOC:%.+]] = memref.alloc() : memref<1x1x2x128xf16, @CMX_NN>
+    // CHECK:           VPUIP.Copy
+    // CHECK-SAME:          inputs([[SV2]] : memref<1x1x2x128xf16, {order = #NCHW, strides = [512, 512, 128, 1]}, @DDR>)
+    // CHECK-SAME:          outputs([[CMX_ALLOC]] : memref<1x1x2x128xf16, @CMX_NN>)
+    // CHECK-SAME:          -> memref<1x1x2x128xf16, @CMX_NN>
+
+    // DDR->DDR copy eliminated; %arg2 returned directly.
+    // CHECK-NOT:       VPUIP.Copy
+    // CHECK:           return [[ARG2]] : memref<1x4x128xf16, @DDR>
 }

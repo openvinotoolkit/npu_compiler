@@ -42,6 +42,23 @@ std::shared_ptr<VPUNN::VPUCostModel> createCostModel(mlir::Operation* op);
 
 }  // namespace CostModelConfig
 
+// RAII guard that enables the VPUNN online profiling service for AUTO cost-source-hint queries for its
+// lifetime, restoring the previous state on destruction. Used to scope online profiling (which may issue
+// slow network queries) to a deliberate cost search instead of leaving it on for every compiler query.
+// Enabling is a no-op when ENABLE_VPUNN_PROFILING_SERVICE forced a value (the environment takes precedence).
+class ScopedProfilingForAutoHint {
+public:
+    explicit ScopedProfilingForAutoHint(const std::shared_ptr<VPUNN::VPUCostModel>& costModel);
+    ~ScopedProfilingForAutoHint();
+
+    ScopedProfilingForAutoHint(const ScopedProfilingForAutoHint&) = delete;
+    ScopedProfilingForAutoHint& operator=(const ScopedProfilingForAutoHint&) = delete;
+
+private:
+    std::shared_ptr<VPUNN::VPUCostModel> _costModel;
+    bool _prevEnabled = false;
+};
+
 /**
  * Analyzes the VPUNN L1 Cost Model with a custom `isInvalidated` function.
  * This analysis object remains preserved once constructed, until `invalidate` is called
@@ -122,6 +139,24 @@ Shape stripGroupDim(ShapeRef s);
 VPUIP::WorkloadCostParams getWorkloadCostParam(VPU::NCEOpInterface nceOp, config::ArchKind arch, int64_t numDPU,
                                                int64_t numTiles = 1,
                                                std::optional<VPU::MultiClusterStrategy> mcStrategy = std::nullopt);
+
+/**
+ * Build WorkloadCostParams for an NCE op in the SCF tiling flow.
+ *
+ * Unlike getWorkloadCostParam (which reads shapes, pads, and MC strategy from the op's types
+ * and attributes), this function takes them as explicit parameters. This avoids the need to
+ * temporarily mutate the op's types/attributes when computing workloads for SCF-tiled ops.
+ *
+ * Key differences from getWorkloadCostParam:
+ *   - Shapes: provided directly (pre-computed for the current tile)
+ *   - Pads: derived internally from the op's pad attribute and any tensor.pad on the activation
+ *   - MC strategy: derived internally from the enclosing scf.forall loop structure (when the op is not
+ *     inside an scf.forall, treat it as single cluster)
+ *   - SEP info: skipped (not yet supported in SCF flow — #E218003)
+ */
+VPUIP::WorkloadCostParams getWorkloadCostParamForSCF(VPU::NCEOpInterface nceOp, config::ArchKind arch, int64_t numDPU,
+                                                     ShapeRef inputShape, ShapeRef outputShape, Logger log);
+
 VPUIP::ShaveWorkloadCostParams getShaveWorkloadCostParam(VPU::SWOpInterface swOp, config::ArchKind arch, int64_t numSHV,
                                                          int64_t numTiles = 1);
 

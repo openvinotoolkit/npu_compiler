@@ -30,26 +30,32 @@ mlir::LogicalResult vpux::VPU::LogSoftmaxTopKOp::inferReturnTypes(
 
     auto si64Type = mlir::IntegerType::get(ctx, 64, mlir::IntegerType::Signed);
 
-    auto inputShape = inType.getShape().raw();
-    SmallVector<int64_t> topKShape(inputShape.begin(), inputShape.end());
-    topKShape.back() = 1;
-
-    mlir::Type topKOutType;
-    if (auto distributedType = mlir::dyn_cast<VPU::DistributedTensorType>(inType)) {
-        auto distribution = distributedType.getDistribution();
-
-        // Create new distribution with updated shapes for width=1
-        auto newDistribution = VPU::getNonOverlappedDistributedAttr(
-                ShapeRef(topKShape), distribution.getMode(), distribution.getNumTiles(), distribution.getNumClusters(),
-                distribution.getAlignment(), distribution.getUniformDistributedSegments(), si64Type, ctx);
-
-        topKOutType = VPU::DistributedTensorType::get(ctx, topKShape, si64Type, distributedType.getOrder(),
-                                                      distributedType.getMemSpace(), newDistribution);
-    } else {
-        topKOutType = inType.changeShape(ShapeRef(topKShape)).changeElemType(si64Type);
+    if (logSoftmaxTopK.getAxisIndAttr() == nullptr) {
+        return mlir::failure();
     }
 
-    inferredReturnTypes.push_back(topKOutType);
+    const auto axis = logSoftmaxTopK.getAxisIndAttr().getValue().getSExtValue();
+    if (axis < 0 || axis >= static_cast<int64_t>(inType.getRank())) {
+        return mlir::failure();
+    }
+
+    const auto inputShape = inType.getShape().raw();
+    SmallVector<int64_t> topKShape(inputShape.begin(), inputShape.end());
+    topKShape[axis] = 1;
+
+    if (auto distributedType = mlir::dyn_cast<VPU::DistributedTensorType>(inType)) {
+        const auto& distribution = distributedType.getDistribution();
+
+        // Create new distribution with updated shapes for width=1
+        const auto newDistribution = VPU::getNonOverlappedDistributedAttr(
+                ShapeRef(topKShape), distribution.getMode(), distribution.getNumTiles(), distribution.getNumClusters(),
+                distribution.getAlignment(), distribution.getUniformDistributedSegments(), ctx);
+
+        inferredReturnTypes.push_back(VPU::DistributedTensorType::get(
+                ctx, topKShape, si64Type, distributedType.getOrder(), distributedType.getMemSpace(), newDistribution));
+    } else {
+        inferredReturnTypes.push_back(inType.changeShape(ShapeRef(topKShape)).changeElemType(si64Type));
+    }
 
     return mlir::success();
 }
@@ -65,7 +71,26 @@ vpux::InputTiling vpux::VPU::LogSoftmaxTopKOp::backInferTileInfo(const vpux::Til
 
 vpux::OutputTiling vpux::VPU::LogSoftmaxTopKOp::getOutputTiling(const vpux::TileInfo& firstOutputTile,
                                                                 vpux::Logger /*log*/) {
-    return logSoftmaxTopKOutputTiling(firstOutputTile);
+    const auto axis = getAxisIndAttr().getValue().getSExtValue();
+    return logSoftmaxTopKOutputTiling(firstOutputTile, axis);
+}
+
+vpux::TileInfo vpux::VPU::LogSoftmaxTopKOp::getMainOutputTile(mlir::OpResult /*secondaryOutput*/,
+                                                              const vpux::TileInfo& secondaryOutputTile,
+                                                              vpux::Logger /*log*/) {
+    auto mainShape = secondaryOutputTile.shape;
+    auto mainOffsets = secondaryOutputTile.offsets;
+    auto mainAxis = secondaryOutputTile.axis;
+
+    // No tiling is done on axis dim (see getTilingStrategy impl),
+    // therefore it is safe to infer main output from topk output
+    const auto axis = getAxisIndAttr().getValue().getSExtValue();
+    const auto axisDim = Dim(axis);
+    mainShape[axisDim] = getBoundedShape(getOutput())[axisDim];
+    mainOffsets[axisDim] = 0;
+    mainAxis[axisDim] = 1;
+
+    return vpux::TileInfo(mainShape, mainOffsets, mainAxis);
 }
 
 void vpux::VPU::LogSoftmaxTopKOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const TileInfo& /*outputTile*/) {

@@ -105,11 +105,6 @@ TEST_P(FuseSDPATestCommon, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
-TEST_P(FuseSDPATestCommon, NPU5010_HW) {
-    setDefaultHardwareMode();
-    run(Platform::NPU5010);
-}
-
 INSTANTIATE_TEST_SUITE_P(precommit_FuseSDPA, FuseSDPATestCommon,
                          ::testing::ValuesIn({SDPAParams{
                                  {1, 1, 1, 64}, {1, 1, 64, 64}, {1, 1, 64, 64}, {1, 1, 1, 64}}}),

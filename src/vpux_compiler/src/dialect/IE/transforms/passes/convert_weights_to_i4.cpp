@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -202,11 +203,18 @@ void ConvertWeightsToI4Pass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
 
+    const auto isQuantileStorage = [](mlir::quant::QuantizedType quantType) -> bool {
+        return mlir::isa<vpux::type::QuantileType>(quantType.getStorageType());
+    };
+
     mlir::TypeConverter typeConverter;
-    typeConverter.addConversion([](vpux::NDTypeInterface tensor) {
+    typeConverter.addConversion([isQuantileStorage](vpux::NDTypeInterface tensor) {
         // Handle U4 only storage type with zero point of 8
         const auto elementType = tensor.getElementType();
         if (const auto uniformType = mlir::dyn_cast_if_present<mlir::quant::UniformQuantizedType>(elementType)) {
+            if (isQuantileStorage(uniformType)) {
+                return tensor;
+            }
             const uint64_t zeroPoint = uniformType.getZeroPoint();
             if (!uniformType.isSigned() && uniformType.getStorageTypeIntegralWidth() == 4 && zeroPoint == 8) {
                 const auto newElemType = changeStorageTypeToI4(uniformType);
@@ -214,6 +222,9 @@ void ConvertWeightsToI4Pass::safeRunOnFunc() {
             }
         } else if (const auto perAxisType =
                            mlir::dyn_cast_if_present<mlir::quant::UniformQuantizedPerAxisType>(elementType)) {
+            if (isQuantileStorage(perAxisType)) {
+                return tensor;
+            }
             const auto zeroPoints = perAxisType.getZeroPoints();
             bool isAllEight = std::all_of(zeroPoints.begin(), zeroPoints.end(), [](int n) {
                 return n == 8;
@@ -229,23 +240,66 @@ void ConvertWeightsToI4Pass::safeRunOnFunc() {
     typeConverter.addSourceMaterialization(dummyConverter<mlir::RankedTensorType>);
     typeConverter.addTargetMaterialization(dummyConverter<mlir::RankedTensorType>);
 
+    // Check if a Conv-like op has subbyte-capable activations (unsigned 8/16-bit quantized input 0)
+    const auto inConvLikeOp = [](mlir::Operation* op) -> bool {
+        if (!mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::TransposedConvolutionOp,
+                       IE::GroupTransposedConvolutionOp, IE::MatMulOp>(op)) {
+            return false;
+        }
+        auto inputType = mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType());
+        const auto quantType = mlir::dyn_cast_if_present<mlir::quant::QuantizedType>(inputType.getElementType());
+        if (quantType == nullptr) {
+            return false;
+        }
+        const auto actBits = quantType.getStorageTypeIntegralWidth();
+        return !quantType.isSigned() && (actBits == 8 || actBits == 16);
+    };
+
+    // Determine if a u4:zp=8 const should stay u4 (legal) instead of being converted to i4.
+    // Const(quant<fp16:u4:scale,8>)
+    //            |
+    //   IE::ElemTypeInfoOpInterface* — if multi-input/output, keep u4 conservatively
+    //            |
+    //   Conv-like op && input 0 is unsigned quantized (subbyte-capable) → keep u4
+    //   Otherwise → convert to i4
+    const auto shouldKeepU4 = [&](Const::DeclareOp constOp) -> bool {
+        for (auto user : constOp.getResult().getUsers()) {
+            auto* op = user;
+            while (mlir::isa<IE::ElemTypeInfoOpInterface>(op)) {
+                if (op->getNumOperands() != 1 || op->getNumResults() != 1 || !op->getResult(0).hasOneUse()) {
+                    return true;
+                }
+                op = *op->getResult(0).getUsers().begin();
+            }
+            if (!inConvLikeOp(op)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
     const auto isLegalConstDeclareOp = [&](Const::DeclareOp constOp) {
-        // only handle U4 type with zero point of 8
         const auto constTensor = constOp.getResult();
         const auto elementType = mlir::cast<vpux::NDTypeInterface>(constTensor.getType()).getElementType();
         if (const auto uniformType = mlir::dyn_cast_if_present<mlir::quant::UniformQuantizedType>(elementType)) {
+            if (isQuantileStorage(uniformType)) {
+                return true;
+            }
             const uint64_t zeroPoint = uniformType.getZeroPoint();
             if (!uniformType.isSigned() && uniformType.getStorageTypeIntegralWidth() == 4 && zeroPoint == 8) {
-                return false;
+                return shouldKeepU4(constOp);
             }
         } else if (const auto perAxisType =
                            mlir::dyn_cast_if_present<mlir::quant::UniformQuantizedPerAxisType>(elementType)) {
+            if (isQuantileStorage(perAxisType)) {
+                return true;
+            }
             const auto zeroPoints = perAxisType.getZeroPoints();
             bool isAllEight = std::all_of(zeroPoints.begin(), zeroPoints.end(), [](int n) {
                 return n == 8;
             });
             if (!perAxisType.isSigned() && perAxisType.getStorageTypeIntegralWidth() == 4 && isAllEight) {
-                return false;
+                return shouldKeepU4(constOp);
             }
         }
         return true;
@@ -255,7 +309,11 @@ void ConvertWeightsToI4Pass::safeRunOnFunc() {
     target.addDynamicallyLegalOp<Const::DeclareOp>(isLegalConstDeclareOp);
     target.markUnknownOpDynamicallyLegal([&](mlir::Operation* op) {
         if (mlir::isa<IE::LayerOpInterface>(op)) {
-            return typeConverter.isLegal(op);
+            if (typeConverter.isLegal(op)) {
+                return true;
+            }
+            // Allow Conv-like ops with subbyte-capable activations to keep u4 weights
+            return inConvLikeOp(op);
         }
         return true;
     });

@@ -17,6 +17,7 @@
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/passes.hpp"
@@ -986,6 +987,13 @@ mlir::LogicalResult MoveThroughEltwiseGeneric<ConcreteOp>::matchAndRewrite(Concr
         return mlir::failure();
     }
 
+    // Move-through rewrite is legal only for layout-preserving ops (same input/output order).
+    const auto inOrder = DimsOrder::fromValue(origOp.getInput());
+    const auto outOrder = DimsOrder::fromValue(origOp.getOutput());
+    if (inOrder != outOrder) {
+        return mlir::failure();
+    }
+
     mlir::IRMapping mapper;
     mapper.map(origOp->getOperand(0), inputAffineReshape.getInput());
     auto newOp = rewriter.clone(*origOp, mapper);
@@ -1022,12 +1030,56 @@ private:
 
     bool isConstInput(mlir::Value value) const;
 
+    // Returns true when the Multiply already runs on HW (satisfies NCE invariants) and every consumer is a
+    // HW op whose channel and spatial alignment requirements are met by the current output shape. In that
+    // case reverting the input shape is harmful, so the rewrite is skipped.
+    bool runsOnHWAlignedWithConsumer(IE::MultiplyOp origOp) const;
+
 private:
     Logger _log;
 };
 
+bool MoveThroughMultiply::runsOnHWAlignedWithConsumer(IE::MultiplyOp origOp) const {
+    // Keeping the batched Multiply shape on HW is only relevant on NPU50XX and newer
+    if (config::getArch(origOp) < config::ArchKind::NPU50XX) {
+        return false;
+    }
+
+    auto output = origOp.getOutput();
+    if (output.use_empty()) {
+        return false;
+    }
+
+    const auto outputShape = getShape(output);
+    if (outputShape.size() != 4 || outputShape[Dims4D::Act::N] != 1) {
+        return false;
+    }
+
+    return llvm::all_of(output.getUsers(), [&](mlir::Operation* user) {
+        if (mlir::failed(VPU::NCEInvariant::isSupported(user, _log))) {
+            return false;
+        }
+        auto alignIface = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(user);
+        if (alignIface == nullptr) {
+            return true;
+        }
+        const auto spatialAlignment = VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT;
+        return outputShape[Dims4D::Act::C] % alignIface.getInputChannelAlignment() == 0 &&
+               outputShape[Dims4D::Act::H] % spatialAlignment == 0 &&
+               outputShape[Dims4D::Act::W] % spatialAlignment == 0;
+    });
+}
+
 mlir::LogicalResult MoveThroughMultiply::matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
+
+    // Keep the input shape unchanged when the Multiply already runs on HW as a DPU Eltwise task and its
+    // consumer is a HW op with matching channel alignment. Reverting the shape here would prevent the
+    // Multiply from being lowered to a DPU Eltwise and break the alignment with the following HW op.
+    if (runsOnHWAlignedWithConsumer(origOp)) {
+        _log.nest().trace("Multiply runs on HW and is aligned with a following HW op; keep the input shape");
+        return mlir::failure();
+    }
 
     auto hasConstInput = llvm::any_of(origOp.getInputs(), [&](auto input) {
         return isConstInput(input);
@@ -1164,9 +1216,15 @@ mlir::LogicalResult MoveThroughMultiply::processMultiplyOpWithBroadCastConstInpu
                 appendLoc(constInput.getLoc(), "reorder_const"), constInput,
                 mlir::AffineMapAttr::get(affineReshapeInputDimOrder.toAffineMap(getContext())));
     }
+    // Pass an explicit result type derived from the AffineReshape input type with only the element type
+    // replaced by the original output element type.
+    const auto origOutputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
+    const auto affineReshapeInputType = mlir::cast<vpux::NDTypeInterface>(affineReshapeOp.getInput().getType());
+    const auto newOutputType = affineReshapeInputType.changeElemType(origOutputType.getElementType());
     auto newMultiply = rewriter.create<IE::MultiplyOp>(
-            takeOpLoc(origOp, "multiply_in"), affineReshapeOp.getInput(), constInput, origOp.getAutoBroadcastAttr(),
-            origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            takeOpLoc(origOp, "multiply_in"), newOutputType, affineReshapeOp.getInput(), constInput,
+            origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(),
+            origOp.getInputPaddingAttr());
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(
             origOp, newMultiply.getOutput(), affineReshapeOp.getDimMappingAttr(), affineReshapeOp.getShapeValueAttr());
     return mlir::success();
@@ -1270,6 +1328,18 @@ mlir::LogicalResult MoveThroughAdd::matchAndRewrite(IE::AddOp origOp, mlir::Patt
 
     auto ctx = rewriter.getContext();
 
+    // A per-channel scale tensor encodes one scale value per output channel. Moving the AddOp
+    // through an AffineReshape that modifies the channel dimension would invalidate the
+    // per-channel scales.
+    if (origOp.getScale() != nullptr) {
+        const auto origOutShape = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType()).getShape();
+        if (affineReshapeInShape[Dims4D::Act::C] != origOutShape[Dims4D::Act::C]) {
+            _log.nest().trace("Skipping: scale table present and channel dimension changes ({0} -> {1})",
+                              origOutShape[Dims4D::Act::C], affineReshapeInShape[Dims4D::Act::C]);
+            return mlir::failure();
+        }
+    }
+
     auto inputShape = getShape(inputAffineReshapeOp.getInput());
     auto newInputShapeCast = rewriter.create<IE::ShapeCastOp>(appendLoc(anotherInput.getLoc(), "shapecast_in"),
                                                               anotherInput, getIntArrayAttr(ctx, inputShape));
@@ -1280,9 +1350,10 @@ mlir::LogicalResult MoveThroughAdd::matchAndRewrite(IE::AddOp origOp, mlir::Patt
             affineReshapeInput == origOp.getInput1() ? newInputShapeCast.getResult() : inputAffineReshapeOp.getInput();
     auto origOutputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     auto newOutputType = origOutputType.changeShape(inputShape);
-    auto newAddOp = rewriter.create<IE::AddOp>(
-            takeOpLoc(origOp, "add_in"), newOutputType, newInput1, newInput2, origOp.getAutoBroadcastAttr(),
-            origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+    auto newAddOp = rewriter.create<IE::AddOp>(takeOpLoc(origOp, "add_in"), newOutputType, newInput1, newInput2,
+                                               origOp.getScale(), origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(),
+                                               origOp.getClampAttr(), origOp.getStaticScaleAttr(),
+                                               origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
     rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(origOp, origOutputType, newAddOp.getOutput(),
                                                      inputAffineReshapeOp.getDimMappingAttr(),
@@ -1784,7 +1855,7 @@ mlir::LogicalResult MoveUpThroughGather::matchAndRewrite(IE::GatherOp origOp, ml
     auto isUnsqueezeAffineReshape = [&](IE::AffineReshapeOp affineReshapeOp) {
         auto inShape = getShape(affineReshapeOp.getInput());
         auto outShape = getShape(affineReshapeOp.getOutput());
-        if (outShape.size() <= inShape.size()) {
+        if (outShape.size() <= inShape.size() || inShape[Dim(origAxis)] == 1) {
             return false;
         }
 
@@ -1803,6 +1874,12 @@ mlir::LogicalResult MoveUpThroughGather::matchAndRewrite(IE::GatherOp origOp, ml
                 ++outIdx;
                 continue;
             }
+
+            if (inShape[Dim(inIdx)] == 1) {
+                ++inIdx;
+                continue;
+            }
+
             return false;
         }
         return true;
@@ -1820,9 +1897,9 @@ mlir::LogicalResult MoveUpThroughGather::matchAndRewrite(IE::GatherOp origOp, ml
     auto inShapeAttr = getIntArrayAttr(origOp.getContext(), newInShape);
     auto inAffineReshapeOp = rewriter.create<IE::AffineReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
                                                                   affineReshapeOp.getDimMapping(), inShapeAttr);
-    auto newGatherOp = rewriter.create<IE::GatherOp>(
-            takeOpLoc(origOp, "gather_out"), inAffineReshapeOp.getOutput(), origOp.getIndices(), origOp.getAxis(),
-            getIntAttr(origOp.getContext(), newAxis), origOp.getBatchDims(), origOp.getIndicesRankAttr());
+    auto newGatherOp = rewriter.create<IE::GatherOp>(takeOpLoc(origOp, "gather_out"), inAffineReshapeOp.getOutput(),
+                                                     origOp.getIndices(), newAxis, origOp.getBatchDims(),
+                                                     origOp.getIndicesRankAttr());
     rewriter.replaceOp(affineReshapeOp, newGatherOp.getOutput());
 
     return mlir::success();

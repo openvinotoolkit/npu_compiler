@@ -27,9 +27,18 @@ void serializeDescriptorMetadata(vpux::bytecode::BytecodeWriter& writer, mlir::O
     auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
     VPUX_THROW_UNLESS(moduleOp != nullptr, "Expected metadata op to be inside a module");
 
-    const auto nameIndex = vpux::bytecode::getStringIndex(nameRef.getLeafReference().getValue(), moduleOp);
-    const auto typeIndex = vpux::bytecode::getTypeIndex(precisionRef.getLeafReference().getValue(), moduleOp);
-    const auto shapeIndex = vpux::bytecode::getConstantIndex(shapeRef.getLeafReference().getValue(), moduleOp);
+    using namespace vpux;
+    const auto nameIndexOpt = bytecode::getIndex<bytecode::StringSectionOp, bytecode::StringOp>(nameRef, moduleOp);
+    VPUX_THROW_UNLESS(nameIndexOpt.has_value(), "Failed to resolve metadata name symbol {0}", nameRef);
+    const auto typeIndexOpt = bytecode::getIndex<bytecode::TypeSectionOp, bytecode::TypeOp>(precisionRef, moduleOp);
+    VPUX_THROW_UNLESS(typeIndexOpt.has_value(), "Failed to resolve metadata precision symbol {0}", precisionRef);
+    const auto shapeIndexOpt =
+            bytecode::getIndex<bytecode::ConstantSectionOp, bytecode::ConstantOp>(shapeRef, moduleOp);
+    VPUX_THROW_UNLESS(shapeIndexOpt.has_value(), "Failed to resolve metadata shape symbol {0}", shapeRef);
+
+    const auto nameIndex = nameIndexOpt.value();
+    const auto typeIndex = typeIndexOpt.value();
+    const auto shapeIndex = shapeIndexOpt.value();
     const auto dynamicStrides = static_cast<uint8_t>(hasDynamicStrides);
 
     intel_npu::vm::appendValueTo(writer.getBytecodeBuffer(), kind);
@@ -169,7 +178,9 @@ void bytecode::NetworkMetadataOp::serialize(vpux::bytecode::BytecodeWriter& writ
     auto moduleOp = getOperation()->getParentOfType<mlir::ModuleOp>();
     VPUX_THROW_UNLESS(moduleOp != nullptr, "Expected network metadata op to be inside a module");
 
-    const auto nameIndex = bytecode::getStringIndex(getName().getLeafReference().getValue(), moduleOp);
+    const auto nameIndexOpt = bytecode::getIndex<bytecode::StringSectionOp, bytecode::StringOp>(getName(), moduleOp);
+    VPUX_THROW_UNLESS(nameIndexOpt.has_value(), "Failed to resolve network metadata name symbol {0}", getName());
+    const auto nameIndex = nameIndexOpt.value();
     const auto numStreams = static_cast<uint64_t>(getNumStreams());
     const auto numCmdLists = static_cast<uint64_t>(getNumCmdlists());
 

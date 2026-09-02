@@ -121,8 +121,47 @@ std::optional<size_t> getStaticInstructionSize(OpCode opcode) {
     return std::nullopt;
 }
 
+namespace {
+
+std::optional<size_t> getInstructionSizeDecodeByteSize(OpCode opcode) {
+    switch (opcode) {
+    case OpCode::RETV:
+        return OPCODE_SIZE + OPERAND_SIZE;
+    case OpCode::BUFFER_CREATE:
+    case OpCode::BUFFER_LOAD:
+    case OpCode::BUFFER_SUBVIEW:
+    case OpCode::BUFFER_STORE: {
+        constexpr auto baseOperands = 3;  // dst + src + rank
+        return OPCODE_SIZE + baseOperands * OPERAND_SIZE;
+    }
+    case OpCode::BUFFER_VIEW: {
+        constexpr auto baseOperands = 5;  // dst + src + offset + elem type + rank
+        return OPCODE_SIZE + baseOperands * OPERAND_SIZE;
+    }
+    case OpCode::KERNEL_CREATE: {
+        constexpr auto baseOperands = 4;  // dst + kidx + kNameIdx + N
+        return OPCODE_SIZE + baseOperands * OPERAND_SIZE;
+    }
+    case OpCode::CMD_LIST_ADD_KERNEL: {
+        constexpr auto baseOperands = 3;  // dst + src + N
+        return OPCODE_SIZE + baseOperands * OPERAND_SIZE;
+    }
+    case OpCode::CALL: {
+        constexpr auto baseOperands = 2;  // rs + N
+        return OPCODE_SIZE + baseOperands * OPERAND_SIZE;
+    }
+    default:
+        return std::nullopt;
+    }
+}
+
 std::optional<size_t> getVariadicInstructionSize(OpCode opcode, const uint8_t* instructionBegin,
                                                  size_t availableBytes) {
+    const auto decodeByteSize = getInstructionSizeDecodeByteSize(opcode);
+    if (!decodeByteSize.has_value() || availableBytes < decodeByteSize.value()) {
+        return std::nullopt;
+    }
+
     switch (opcode) {
     case OpCode::RETV: {
         const auto numResults = getOperand(instructionBegin, 0);
@@ -131,21 +170,39 @@ std::optional<size_t> getVariadicInstructionSize(OpCode opcode, const uint8_t* i
         }
         return getInstructionSizeForOperandCount(1 + static_cast<size_t>(numResults));
     }
-    case OpCode::BUFFER_CREATE:
-        return decodeRankBasedVariadicInstructionSize(instructionBegin, /*baseOperands=*/3, /*operandsPerDim=*/2,
-                                                      /*rankOperandIndex=*/2);
-    case OpCode::BUFFER_SUBVIEW:
-        return decodeRankBasedVariadicInstructionSize(instructionBegin, /*baseOperands=*/3, /*operandsPerDim=*/3,
-                                                      /*rankOperandIndex=*/2);
-    case OpCode::BUFFER_VIEW:
-        return decodeRankBasedVariadicInstructionSize(instructionBegin, /*baseOperands=*/5, /*operandsPerDim=*/2,
-                                                      /*rankOperandIndex=*/4);
-    case OpCode::BUFFER_STORE:
-        return decodeRankBasedVariadicInstructionSize(instructionBegin, /*baseOperands=*/3, /*operandsPerDim=*/1,
-                                                      /*rankOperandIndex=*/2);
+    case OpCode::BUFFER_CREATE: {
+        constexpr auto baseOperands = 3;    // dst + size + rank
+        constexpr auto operandsPerDim = 2;  // size + stride per dimension
+        constexpr auto rankOperandIndex = 2;
+        return decodeRankBasedVariadicInstructionSize(instructionBegin, baseOperands, operandsPerDim, rankOperandIndex);
+    }
+    case OpCode::BUFFER_LOAD: {
+        constexpr auto baseOperands = 3;    // dst + buffer + rank
+        constexpr auto operandsPerDim = 1;  // index per dimension
+        constexpr auto rankOperandIndex = 2;
+        return decodeRankBasedVariadicInstructionSize(instructionBegin, baseOperands, operandsPerDim, rankOperandIndex);
+    }
+    case OpCode::BUFFER_SUBVIEW: {
+        constexpr auto baseOperands = 3;    // dst + src + rank
+        constexpr auto operandsPerDim = 3;  // offset + size + stride per dimension
+        constexpr auto rankOperandIndex = 2;
+        return decodeRankBasedVariadicInstructionSize(instructionBegin, baseOperands, operandsPerDim, rankOperandIndex);
+    }
+    case OpCode::BUFFER_VIEW: {
+        constexpr auto baseOperands = 5;    // dst + src + offset + elem type + rank
+        constexpr auto operandsPerDim = 2;  // size + stride per dimension
+        constexpr auto rankOperandIndex = 4;
+        return decodeRankBasedVariadicInstructionSize(instructionBegin, baseOperands, operandsPerDim, rankOperandIndex);
+    }
+    case OpCode::BUFFER_STORE: {
+        constexpr auto baseOperands = 3;    // dst + src + rank
+        constexpr auto operandsPerDim = 1;  // offset per dimension
+        constexpr auto rankOperandIndex = 2;
+        return decodeRankBasedVariadicInstructionSize(instructionBegin, baseOperands, operandsPerDim, rankOperandIndex);
+    }
     case OpCode::KERNEL_CREATE: {
         // Binary layout: [opcode:2] [dst:2] [kidx:2] [kNameIdx:2] [N:2] [N×input:2] [M:2] [M×output:2]
-        // getInstructionSizeDecodeByteSize guarantees opcode+dst+kidx+kNameIdxN (10 bytes) are readable.
+        // The header check at the top of this function guarantees opcode+dst+kidx+kNameIdx+N (10 bytes) are readable.
         const auto n = getOperand(instructionBegin, 3);
         if (n < 0) {
             return std::nullopt;
@@ -162,12 +219,12 @@ std::optional<size_t> getVariadicInstructionSize(OpCode opcode, const uint8_t* i
         }
         const auto mChecked = static_cast<size_t>(m);
         // Overflow-safe total: (6 + N + M) * sizeof(int16_t)
-        constexpr size_t FIXED_OPERANDS = 6;  // opcode word + dst + kidx + kNameIndex + N + M
+        constexpr size_t fixedOperands = 6;  // opcode word + dst + kidx + kNameIndex + N + M
         if (nChecked > std::numeric_limits<size_t>::max() - mChecked ||
-            nChecked + mChecked > std::numeric_limits<size_t>::max() - FIXED_OPERANDS) {
+            nChecked + mChecked > std::numeric_limits<size_t>::max() - fixedOperands) {
             return std::nullopt;
         }
-        return (FIXED_OPERANDS + nChecked + mChecked) * sizeof(int16_t);
+        return (fixedOperands + nChecked + mChecked) * sizeof(int16_t);
     }
     case OpCode::CMD_LIST_ADD_KERNEL: {
         // Layout: rs1, rs2, N, rN..., M, rM...
@@ -201,46 +258,35 @@ std::optional<size_t> getVariadicInstructionSize(OpCode opcode, const uint8_t* i
         return getInstructionSizeForOperandCount(totalOperandCount);
     }
     case OpCode::CALL: {
-        return intel_npu::vm::getCallInstructionSize(instructionBegin, availableBytes);
+        // Binary layout: [opcode:2] [rs:2] [N:2] [N*dst:2] [M:2] [M*arg:2]
+        // N is the destination register count and M is the argument register count.
+        // The header check at the top of this function guarantees opcode+rs+N (6 bytes) are readable.
+        const auto n = static_cast<size_t>(static_cast<uint16_t>(getOperand(instructionBegin, 1)));
+        // M is at operand index (2 + N); verify it fits within the available buffer.
+        const auto mByteOffset = OPCODE_SIZE + (2 + n) * OPERAND_SIZE;
+        if (availableBytes < mByteOffset + OPERAND_SIZE) {
+            return std::nullopt;
+        }
+        const auto m = static_cast<size_t>(static_cast<uint16_t>(getOperand(instructionBegin, 2 + n)));
+        // Overflow-safe total: (4 + N + M) * sizeof(int16_t)
+        constexpr size_t fixedOperands = 4;  // opcode word + rs + N + M
+        if (n > std::numeric_limits<size_t>::max() - m || n + m > std::numeric_limits<size_t>::max() - fixedOperands) {
+            return std::nullopt;
+        }
+        return (fixedOperands + n + m) * sizeof(int16_t);
     }
     default:
         return std::nullopt;
     }
 }
+
+}  // namespace
 
 std::optional<size_t> getInstructionSize(OpCode opcode, const uint8_t* instructionBegin, size_t availableBytes) {
     if (const auto staticInstructionSize = getStaticInstructionSize(opcode); staticInstructionSize.has_value()) {
         return staticInstructionSize;
     }
     return getVariadicInstructionSize(opcode, instructionBegin, availableBytes);
-}
-
-std::optional<size_t> getInstructionSizeDecodeByteSize(OpCode opcode) {
-    if (const auto staticInstructionSize = getStaticInstructionSize(opcode); staticInstructionSize.has_value()) {
-        return staticInstructionSize;
-    }
-
-    switch (opcode) {
-    case OpCode::RETV:
-        return OPCODE_SIZE + OPERAND_SIZE;
-    case OpCode::BUFFER_CREATE:
-        return OPCODE_SIZE + 3 * OPERAND_SIZE;
-    case OpCode::BUFFER_SUBVIEW:
-    case OpCode::BUFFER_STORE:
-        return OPCODE_SIZE + 3 * OPERAND_SIZE;
-    case OpCode::BUFFER_VIEW:
-        return OPCODE_SIZE + 5 * OPERAND_SIZE;
-    case OpCode::KERNEL_CREATE:
-        // Minimum bytes to read N (input count): opcode + dst + kidx + kNameIdx + N
-        return OPCODE_SIZE + 4 * OPERAND_SIZE;
-    case OpCode::CMD_LIST_ADD_KERNEL:
-        return OPCODE_SIZE + 3 * OPERAND_SIZE;  // rs1, rs2, N
-    case OpCode::CALL:
-        // CALL decode needs rs and N before full size can be derived
-        return OPCODE_SIZE + 2 * OPERAND_SIZE;
-    default:
-        return std::nullopt;
-    }
 }
 
 }  // namespace intel_npu::vm

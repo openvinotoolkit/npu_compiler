@@ -22,6 +22,7 @@
 #include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
@@ -193,32 +194,13 @@ mlir::LogicalResult NonMaxSuppressionRewrite::matchAndRewrite(IE::NonMaxSuppress
                                                               mlir::PatternRewriter& rewriter) const {
     _log.trace("Found NonMaxSuppression Operation '{0}'", origOp->getLoc());
 
-    // The NMS act-shave kernel reads the iou/score thresholds from scalar input tensors. Always
-    // provide both as operands: pass through the runtime operand when it is present, otherwise
-    // materialize a single-element constant tensor from the corresponding threshold attribute.
-    const auto scoresElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getInBoxScores().getType()).getElementType();
-    const auto thresholdType = mlir::RankedTensorType::get({1}, scoresElemType);
-
-    const auto materializeThreshold = [&](mlir::Value runtimeOperand, mlir::FloatAttr valueAttr,
-                                          StringRef name) -> mlir::Value {
-        if (runtimeOperand != nullptr) {
-            return runtimeOperand;
-        }
-        const auto value = static_cast<float>(valueAttr != nullptr ? valueAttr.getValueAsDouble() : 0.0);
-        return Const::createFloatConst(rewriter, appendLoc(origOp->getLoc(), name), thresholdType,
-                                       ArrayRef<float>{value});
-    };
-
-    auto iouThreshold =
-            materializeThreshold(origOp.getIouThreshold(), origOp.getIouThresholdValueAttr(), "nms_iou_threshold");
-    auto scoreThreshold = materializeThreshold(origOp.getScoreThreshold(), origOp.getScoreThresholdValueAttr(),
-                                               "nms_score_threshold");
-
+    const auto boundsRepAttr =
+            VPU::BoundsRepresentationAttr::get(origOp.getContext(), VPU::BoundsRepresentation::BOUNDS);
     rewriter.replaceOpWithNewOp<VPU::NonMaxSuppressionOp>(
-            origOp, origOp.getInBoxCoords(), origOp.getInBoxScores(), iouThreshold, scoreThreshold,
-            origOp.getBoxEncodingAttr(), origOp.getSortResultDescendingAttr(),
-            origOp.getMaxOutputBoxesPerClassValueAttr(), origOp.getIouThresholdValueAttr(),
-            origOp.getScoreThresholdValueAttr(), origOp.getSoftNmsSigmaValueAttr());
+            origOp, origOp.getInBoxCoords(), origOp.getInBoxScores(), origOp.getBoxEncodingAttr(),
+            origOp.getSortResultDescendingAttr(), origOp.getMaxOutputBoxesPerClassValueAttr(),
+            origOp.getIouThresholdValueAttr(), origOp.getScoreThresholdValueAttr(), origOp.getSoftNmsSigmaValueAttr(),
+            boundsRepAttr);
 
     _log.trace("Replaced with 'VPU.NonMaxSuppressionOp'");
 
@@ -312,13 +294,8 @@ mlir::LogicalResult InterpolateRewrite::matchAndRewrite(IE::InterpolateOp origOp
         const auto outputType = origOp.getOutput().getType();
         auto module = origOp->getParentOfType<mlir::ModuleOp>();
 
-        // Default kernel CMX workspace; clamp to fragmentation-aware CMX so it never exceeds what
-        // the scheduler can safely give on the current arch.
-        constexpr int64_t kerWszBytes = (1024 + 256) * 1024;
-        const int64_t fragAwareBytes = VPU::getTotalCMXFragmentationAwareSize(module).count();
-        const int64_t auxBytes = std::min(kerWszBytes, fragAwareBytes);
-        _log.info("InterpolateDMA aux buffer: fragAware={0}B, kerWsz={1}B, aux={2}B at '{3}'", fragAwareBytes,
-                  kerWszBytes, auxBytes, origOp->getLoc());
+        const int64_t auxBytes = VPU::getTotalCMXFragmentationAwareSize(module).count();
+        _log.info("InterpolateDMA aux buffer: aux={0}B at '{1}'", auxBytes, origOp->getLoc());
         auto auxType = mlir::RankedTensorType::get({1, 1, 1, auxBytes}, getUInt8Type(rewriter.getContext()));
         mlir::Value auxBuffer = VPU::createEmptyAuxiliaryBuffer(rewriter, origOp->getLoc(), auxType);
 
@@ -330,14 +307,46 @@ mlir::LogicalResult InterpolateRewrite::matchAndRewrite(IE::InterpolateOp origOp
         return mlir::success();
     }
 
+    // Pin shape_calc_mode to SIZES at the IE->VPU boundary so the VPU dialect IR is invariant,
+    // and stamp `useScaleAttr` for SCALES-authored ops as the sole carrier of "scales_attr is
+    // the authoritative coordinate-transform scale". Downstream consumers (tile back-inference,
+    // serializer, kernel) read useScaleAttr, never shape_calc_mode.
+    auto* ctx = rewriter.getContext();
+    const auto origCalcMode = origOp.getAttr().getShapeCalcMode().getValue();
+    const bool wasScalesAuthored = origCalcMode == IE::InterpolateCalcMode::SCALES;
+
+    auto sizesCalcModeAttr = IE::InterpolateCalcModeAttr::get(ctx, IE::InterpolateCalcMode::SIZES);
+    auto vpuInterpAttr = IE::InterpolateAttr::get(ctx, origOp.getAttr().getMode(), sizesCalcModeAttr,
+                                                  origOp.getAttr().getCoordMode(), origOp.getAttr().getNearestMode(),
+                                                  origOp.getAttr().getAntialias(), origOp.getAttr().getPadsBegin(),
+                                                  origOp.getAttr().getPadsEnd(), origOp.getAttr().getCubeCoeff());
+
+    // shape_calc_mode is now SIZES, so inferReturnTypes reads sizes_attr. Materialize it from
+    // the known output shape (at the interpolated axes) when the front-end did not provide one.
+    mlir::ArrayAttr sizesAttr = origOp.getSizesAttrAttr();
+    if (sizesAttr == nullptr) {
+        const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
+        const auto outputShape = to_small_vector(getShape(origOp.getOutput()));
+        const auto axesVal = IE::getInterpAxesVal(origOp.getLoc(), origOp.getAxes(), origOp.getAxesAttr(), inputType);
+        SmallVector<int64_t> sizes;
+        sizes.reserve(axesVal.size());
+        for (auto axis : axesVal) {
+            sizes.push_back(outputShape[axis]);
+        }
+        sizesAttr = getIntArrayAttr(ctx, sizes);
+    }
+
+    auto useScaleUnitAttr = wasScalesAuthored ? mlir::UnitAttr::get(ctx) : nullptr;
+
     rewriter.replaceOpWithNewOp<VPU::InterpolateOp>(
             origOp, origOp.getType(), origOp.getInput(), origOp.getSizes(), origOp.getScales(), origOp.getAxes(),
-            /*coordinates*/ nullptr, /* lambdas */ nullptr, origOp.getSizesAttrAttr(), origOp.getScalesAttrAttr(),
-            origOp.getAxesAttrAttr(), origOp.getTileOffsetAttrAttr(), origOp.getInitialInputDimsAttrAttr(),
-            origOp.getInitialOutputDimsAttrAttr(),
+            /*coordinates*/ nullptr, /* lambdas */ nullptr,
+            /*dynamic_input_offsets=*/nullptr, /*dynamic_output_offsets=*/nullptr, sizesAttr,
+            origOp.getScalesAttrAttr(), origOp.getAxesAttrAttr(), origOp.getTileOffsetAttrAttr(),
+            origOp.getInitialInputDimsAttrAttr(), origOp.getInitialOutputDimsAttrAttr(),
             /*initial_input_offset_attr=*/nullptr, /*initial_output_offset_attr=*/nullptr,
-            /*multiClusterStrategy=*/nullptr, origOp.getAttrAttr(), origOp.getOutputPaddingAttr(),
-            origOp.getInputPaddingAttr());
+            /*multiClusterStrategy=*/nullptr, /*useScaleAttr=*/useScaleUnitAttr, vpuInterpAttr,
+            origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     return mlir::success();
 }
 
@@ -348,9 +357,32 @@ mlir::LogicalResult InterpolateRewrite::matchAndRewrite(IE::InterpolateOp origOp
 mlir::LogicalResult TopKRewrite::matchAndRewrite(IE::TopKOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("Found TopK Operation '{0}'", origOp->getLoc());
 
+    auto opWithDma = mlir::dyn_cast<IE::LayerWithDmaInterface>(origOp.getOperation());
+    if (opWithDma && opWithDma.isSupported()) {
+        rewriter.replaceOpWithNewOp<VPU::TopKDmaOp>(origOp, origOp.getInput(), origOp.getKValueAttr(),
+                                                    origOp.getAxisAttr(), origOp.getModeAttr(), origOp.getSortAttr(),
+                                                    origOp.getElementTypeAttr(), /*multiClusterStrategy=*/nullptr);
+        return mlir::success();
+    }
+
     rewriter.replaceOpWithNewOp<VPU::TopKOp>(origOp, origOp.getInput(), origOp.getK(), origOp.getKValueAttr(),
                                              origOp.getAxisAttr(), origOp.getModeAttr(), origOp.getSortAttr(),
                                              origOp.getElementTypeAttr(), /*multiClusterStrategy=*/nullptr);
+
+    return mlir::success();
+}
+
+//
+// GatedDeltaNetRewrite
+//
+
+mlir::LogicalResult GatedDeltaNetRewrite::matchAndRewrite(IE::GatedDeltaNetOp origOp,
+                                                          mlir::PatternRewriter& rewriter) const {
+    _log.trace("Found GatedDeltaNet Operation '{0}'", origOp->getLoc());
+
+    rewriter.replaceOpWithNewOp<VPU::GatedDeltaNetOp>(
+            origOp, origOp.getQuery(), origOp.getKey(), origOp.getValue(), origOp.getRecurrentState(), origOp.getGate(),
+            origOp.getBeta(), origOp.getFuseQkL2normAttr(), origOp.getQL2NormEpsAttr(), origOp.getKL2NormEpsAttr());
 
     return mlir::success();
 }
@@ -516,7 +548,7 @@ mlir::LogicalResult GroupConvolutionRewrite::matchAndRewrite(IE::GroupConvolutio
     rewriter.replaceOpWithNewOp<VPU::GroupConvolutionOp>(
             origOp, origOp.getOutput().getType(), origOp.getInput(), origOp.getFilter(), origOp.getBias(),
             origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations(),
-            origOp.getGroupsAttr(), origOp.getPostOpAttr(), origOp.getOutputPaddingAttr(),
+            origOp.getGroupsAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(),
             origOp.getInputPaddingAttr());
 
     return mlir::success();
@@ -613,13 +645,32 @@ mlir::LogicalResult DynamicQuantizeRewrite::matchAndRewrite(IE::DynamicQuantizeO
 }
 
 //
+// MultiplyRewrite
+//
+
+mlir::LogicalResult MultiplyRewrite::matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("Found Multiply Operation '{0}'", origOp->getLoc());
+
+    if (origOp.getScale() != nullptr) {
+        return matchFailed(rewriter, origOp, "SW eltwise Multiply does not support scales-as-input");
+    }
+
+    rewriter.replaceOpWithNewOp<VPU::MultiplyOp>(origOp, origOp.getOutput().getType(), origOp.getInput1(),
+                                                 origOp.getInput2(), origOp.getAutoBroadcastAttr(),
+                                                 origOp.getPostOpAttr(), /*multiClusterStrategy=*/nullptr);
+    _log.trace("Replaced with 'VPU.MultiplyOp'");
+
+    return mlir::success();
+}
+
+//
 // AddRewrite
 //
 
 mlir::LogicalResult AddRewrite::matchAndRewrite(IE::AddOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("Found Add Operation '{0}'", origOp->getLoc());
 
-    if (origOp.getScales() != nullptr) {
+    if (origOp.getScale() != nullptr) {
         return matchFailed(rewriter, origOp, "SW eltwise Add does not support scales-as-input");
     }
 
@@ -804,6 +855,7 @@ void ConvertLayers2VPUPass::safeRunOnFunc() {
     patterns.add<GRUCellRewrite>(&ctx, _log);
     patterns.add<ExperimentalDetectronROIFeatureExtractorRewrite>(&ctx, _log);
     patterns.add<TopKRewrite>(&ctx, _log);
+    patterns.add<GatedDeltaNetRewrite>(&ctx, _log);
     patterns.add<AtanRewrite>(&ctx, _log);
     patterns.add<ScatterUpdateRewrite>(&ctx, _log);
     patterns.add<MaxPool8Rewrite>(&ctx, _log);
@@ -820,6 +872,7 @@ void ConvertLayers2VPUPass::safeRunOnFunc() {
     patterns.add<DynamicTileRewrite>(&ctx, _log);
     patterns.add<DynamicQuantizeRewrite>(&ctx, _log);
     patterns.add<AddRewrite>(&ctx, _log);
+    patterns.add<MultiplyRewrite>(&ctx, _log);
     patterns.add<FlashSDPARewrite>(&ctx, _log);
     patterns.add<LogSoftmaxTopKRewrite>(&ctx, _log);
     patterns.add<LogSoftmaxPeakRewrite>(&ctx, _log);

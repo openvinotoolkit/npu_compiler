@@ -80,11 +80,6 @@ bool FuseInefficientTileRewriter::isBroadcastShape(ShapeRef inShape, ShapeRef ou
 }
 
 bool FuseInefficientTileRewriter::isInnermostMemDimBroadcast(IE::TileOp tileOp) const {
-    if (!tileOp.getRepeatsValues().has_value()) {
-        // Dynamic repeats — cannot statically determine the broadcast dimension.
-        return false;
-    }
-
     // Dynamic shape dims make totalSize() and getInnermostNonTrivialDim() unsafe.
     const auto inputType = mlir::cast<mlir::ShapedType>(tileOp.getInput().getType());
     const auto outputType = mlir::cast<mlir::ShapedType>(tileOp.getOutput().getType());

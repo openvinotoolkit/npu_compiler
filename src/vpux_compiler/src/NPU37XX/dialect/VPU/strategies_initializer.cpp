@@ -75,6 +75,10 @@ class StrategyFactory37XX : public VPU::StrategyFactory {
         return mlir::isa<vpux::VPU::DistributedTensorType>(outputType);
     }
 
+    bool isConvertTileWithEltwiseToNCEPoolSupported() override {
+        return false;
+    }
+
     std::unique_ptr<IConvertIEToVPUNCEStrategy> getConvertIEToVPUNCEStrategy(const Logger& log) override {
         return std::make_unique<vpux::arch37xx::ConvertIEToVPUNCEStrategy>(log, config::ArchKind::NPU37XX);
     }

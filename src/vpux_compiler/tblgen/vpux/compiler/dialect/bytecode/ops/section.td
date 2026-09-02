@@ -12,7 +12,7 @@ include "vpux/compiler/dialect/bytecode/types.td"
 include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/SymbolInterfaces.td"
 
-def Bytecode_FuncSectionOp : Bytecode_SerializableOp<"func_section", [NoTerminator], "1.0.0"> {
+def Bytecode_FuncSectionOp : Bytecode_SerializableOp<"func_section", [NoTerminator, Symbol, SymbolTable], "1.0.0"> {
     let summary = "Function section operation";
 
     let description = [{
@@ -46,7 +46,7 @@ def Bytecode_FuncSectionOp : Bytecode_SerializableOp<"func_section", [NoTerminat
     }];
 }
 
-def Bytecode_FuncOp : Bytecode_SerializableOp<"func", [HasParent<"vpux::bytecode::FuncSectionOp">, IsolatedFromAbove,
+def Bytecode_FuncOp : Bytecode_SerializableOp<"func", [HasParent<"vpux::bytecode::FuncSectionOp">, IsolatedFromAbove, Symbol,
         DeclareOpInterfaceMethods<SymbolUserOpInterface>], "1.0.0"> {
     let summary = "Function operation";
 
@@ -56,7 +56,7 @@ def Bytecode_FuncOp : Bytecode_SerializableOp<"func", [HasParent<"vpux::bytecode
 
         Example:
         ```mlir
-        bytecode.func @my_function @my_function_name @function_type {
+        bytecode.func @my_function @string_section::@my_function_name @type_section::@function_type {
             // Bytecode instructions for the function body
         }
         ```
@@ -64,8 +64,8 @@ def Bytecode_FuncOp : Bytecode_SerializableOp<"func", [HasParent<"vpux::bytecode
 
     let arguments = (ins
         SymbolNameAttr:$sym_name,
-        FlatSymbolRefAttr:$func_name,
-        FlatSymbolRefAttr:$function_type_ref
+        SymbolRefAttr:$func_name,
+        SymbolRefAttr:$function_type_ref
     );
 
     let regions = (region
@@ -78,7 +78,7 @@ def Bytecode_FuncOp : Bytecode_SerializableOp<"func", [HasParent<"vpux::bytecode
     }];
 }
 
-def Bytecode_ConstantSectionOp : Bytecode_SerializableOp<"constant_section", [NoTerminator], "1.0.0"> {
+def Bytecode_ConstantSectionOp : Bytecode_SerializableOp<"constant_section", [NoTerminator, Symbol, SymbolTable], "1.0.0"> {
     let summary = "Constant section operation";
 
     let description = [{
@@ -108,7 +108,7 @@ def Bytecode_ConstantSectionOp : Bytecode_SerializableOp<"constant_section", [No
     }];
 }
 
-def Bytecode_ConstantOp : Bytecode_SerializableOp<"constant", [HasParent<"vpux::bytecode::ConstantSectionOp">], "1.0.0"> {
+def Bytecode_ConstantOp : Bytecode_SerializableOp<"constant", [HasParent<"vpux::bytecode::ConstantSectionOp">, Symbol], "1.0.0"> {
     let summary = "Constant operation";
 
     let description = [{
@@ -133,7 +133,7 @@ def Bytecode_ConstantOp : Bytecode_SerializableOp<"constant", [HasParent<"vpux::
     let hasVerifier = 1;
 }
 
-def Bytecode_StringSectionOp : Bytecode_SerializableOp<"string_section", [NoTerminator], "1.0.0"> {
+def Bytecode_StringSectionOp : Bytecode_SerializableOp<"string_section", [NoTerminator, Symbol, SymbolTable], "1.0.0"> {
     let summary = "String section operation";
 
     let description = [{
@@ -163,7 +163,7 @@ def Bytecode_StringSectionOp : Bytecode_SerializableOp<"string_section", [NoTerm
     }];
 }
 
-def Bytecode_StringOp : Bytecode_SerializableOp<"string", [HasParent<"vpux::bytecode::StringSectionOp">], "1.0.0"> {
+def Bytecode_StringOp : Bytecode_SerializableOp<"string", [HasParent<"vpux::bytecode::StringSectionOp">, Symbol], "1.0.0"> {
     let summary = "String operation";
 
     let description = [{
@@ -186,7 +186,7 @@ def Bytecode_StringOp : Bytecode_SerializableOp<"string", [HasParent<"vpux::byte
     }];
 }
 
-def Bytecode_TypeSectionOp : Bytecode_SerializableOp<"type_section", [NoTerminator, SymbolTable], "1.0.0"> {
+def Bytecode_TypeSectionOp : Bytecode_SerializableOp<"type_section", [NoTerminator, Symbol, SymbolTable], "1.0.0"> {
     let summary = "Type section operation";
 
     let description = [{
@@ -216,7 +216,7 @@ def Bytecode_TypeSectionOp : Bytecode_SerializableOp<"type_section", [NoTerminat
     }];
 }
 
-def Bytecode_TypeOp : Bytecode_SerializableOp<"type", [HasParent<"vpux::bytecode::TypeSectionOp">], "1.0.0"> {
+def Bytecode_TypeOp : Bytecode_SerializableOp<"type", [HasParent<"vpux::bytecode::TypeSectionOp">, Symbol], "1.0.0"> {
     let summary = "Type operation";
 
     let description = [{
@@ -241,7 +241,7 @@ def Bytecode_TypeOp : Bytecode_SerializableOp<"type", [HasParent<"vpux::bytecode
 }
 
 
-def Bytecode_KernelSectionOp : Bytecode_SerializableOp<"kernel_section", [NoTerminator, SymbolTable], "1.0.0"> {
+def Bytecode_KernelSectionOp : Bytecode_SerializableOp<"kernel_section", [NoTerminator, Symbol, SymbolTable], "1.0.0"> {
     let summary = "Kernel section operation";
 
     let description = [{
@@ -271,7 +271,7 @@ def Bytecode_KernelSectionOp : Bytecode_SerializableOp<"kernel_section", [NoTerm
     }];
 }
 
-def Bytecode_KernelOp : Bytecode_SerializableOp<"kernel", [HasParent<"vpux::bytecode::KernelSectionOp">], "1.0.0"> {
+def Bytecode_KernelOp : Bytecode_SerializableOp<"kernel", [HasParent<"vpux::bytecode::KernelSectionOp">, Symbol], "1.0.0"> {
     let summary = "Kernel operation";
 
     let description = [{
@@ -294,7 +294,7 @@ def Bytecode_KernelOp : Bytecode_SerializableOp<"kernel", [HasParent<"vpux::byte
     }];
 }
 
-def Bytecode_MetadataSectionOp : Bytecode_SerializableOp<"metadata_section", [NoTerminator], "1.0.0"> {
+def Bytecode_MetadataSectionOp : Bytecode_SerializableOp<"metadata_section", [NoTerminator, Symbol, SymbolTable], "1.0.0"> {
     let summary = "Metadata section operation";
 
     let description = [{

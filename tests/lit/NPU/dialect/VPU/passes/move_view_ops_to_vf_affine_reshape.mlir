@@ -20,7 +20,7 @@ func.func @MoveAffineReshapeBetweenVFs(%arg0: tensor<1x128x256x1xf16, {order = #
                              %arg0 as %arg2: tensor<1x128x256x1xf16, {order = #NHWC}>)
         attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x128x256x1xf16, {order = #NHWC}> {
       %inner = VPU.NCE.Eltwise(%arg1, %arg2)
-          {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+          {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
           -> tensor<1x128x256x1xf16, {order = #NHWC}>
       VPU.Yield %inner
     }
@@ -34,7 +34,7 @@ func.func @MoveAffineReshapeBetweenVFs(%arg0: tensor<1x128x256x1xf16, {order = #
                              %1 as %arg2: tensor<1x128x64x4xf16, {order = #NHWC}>)
         attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x128x64x4xf16, {order = #NHWC}> {
       %inner = VPU.NCE.Eltwise(%arg1, %arg2)
-          {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+          {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
           -> tensor<1x128x64x4xf16, {order = #NHWC}>
       VPU.Yield %inner
     }
@@ -53,17 +53,17 @@ func.func @MoveAffineReshapeBetweenVFs(%arg0: tensor<1x128x256x1xf16, {order = #
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // Same AffineReshape pattern but parent VF has no tiling (tilingStrategy=[1,1,1,1]).
-// v2 rewriter checks parent tiling compatibility -> parent has no tiling dims -> incompatible.
-// AffineReshape stays outside VF.
+// For a regular activation input, the v2 rewriter keeps the AffineReshape outside the consumer VF because there are no
+// parent tiling dims to prove compatible with the restricted AffineReshape mapping.
 
-// CHECK-LABEL: @NotMoveAffineReshapeDueToNoTilingParent
+// CHECK-LABEL: @NoMoveAffineReshapeWithNoTilingParent
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x128x256x1xf16, {order = #NHWC}>
-func.func @NotMoveAffineReshapeDueToNoTilingParent(%arg0: tensor<1x128x256x1xf16, {order = #NHWC}>) -> tensor<1x128x64x4xf16, {order = #NHWC}> {
+func.func @NoMoveAffineReshapeWithNoTilingParent(%arg0: tensor<1x128x256x1xf16, {order = #NHWC}>) -> tensor<1x128x64x4xf16, {order = #NHWC}> {
     %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x128x256x1xf16, {order = #NHWC}>,
                              %arg0 as %arg2: tensor<1x128x256x1xf16, {order = #NHWC}>)
         attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x128x256x1xf16, {order = #NHWC}> {
       %inner = VPU.NCE.Eltwise(%arg1, %arg2)
-          {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+          {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
           -> tensor<1x128x256x1xf16, {order = #NHWC}>
       VPU.Yield %inner
     }
@@ -73,7 +73,7 @@ func.func @NotMoveAffineReshapeDueToNoTilingParent(%arg0: tensor<1x128x256x1xf16
                              %1 as %arg2: tensor<1x128x64x4xf16, {order = #NHWC}>)
         attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x128x64x4xf16, {order = #NHWC}> {
       %inner = VPU.NCE.Eltwise(%arg1, %arg2)
-          {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+          {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
           -> tensor<1x128x64x4xf16, {order = #NHWC}>
       VPU.Yield %inner
     }
@@ -81,8 +81,10 @@ func.func @NotMoveAffineReshapeDueToNoTilingParent(%arg0: tensor<1x128x256x1xf16
 
     //CHECK:  [[VF0:%.+]] = VPU.VerticalFusion ([[INPUT]]
     //CHECK:  [[RESHAPE:%.+]] = VPU.AffineReshape([[VF0]])
-    //CHECK:  [[VF1:%.+]] = VPU.VerticalFusion ([[RESHAPE]]
-    //CHECK:  return [[VF1]]
+    //CHECK:  [[VF1:%.+]] = VPU.VerticalFusion ([[RESHAPE]] as [[ARG1:%[^:]+]]: tensor<1x128x64x4xf16, {order = #NHWC}>, [[RESHAPE]] as [[ARG2:%[^:]+]]: tensor<1x128x64x4xf16, {order = #NHWC}>)
+    //CHECK:  [[ELTWISE:%.+]] = VPU.NCE.Eltwise([[ARG1]], [[ARG2]])
+    //CHECK:  VPU.Yield [[ELTWISE]]
+    //CHECK:  return [[VF1]] : tensor<1x128x64x4xf16, {order = #NHWC}>
 }
 
 // -----
@@ -103,7 +105,7 @@ func.func @MoveAffineReshapeWithSplitOuterDimTiling(%arg0: tensor<1x128x256x1xf1
                              %arg0 as %arg2: tensor<1x128x256x1xf16, {order = #NHWC}>)
         attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x128x256x1xf16, {order = #NHWC}> {
       %inner = VPU.NCE.Eltwise(%arg1, %arg2)
-          {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+          {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
           -> tensor<1x128x256x1xf16, {order = #NHWC}>
       VPU.Yield %inner
     }
@@ -115,7 +117,7 @@ func.func @MoveAffineReshapeWithSplitOuterDimTiling(%arg0: tensor<1x128x256x1xf1
                              %1 as %arg2: tensor<1x128x64x4xf16, {order = #NHWC}>)
         attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x128x64x4xf16, {order = #NHWC}> {
       %inner = VPU.NCE.Eltwise(%arg1, %arg2)
-          {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+          {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
           -> tensor<1x128x64x4xf16, {order = #NHWC}>
       VPU.Yield %inner
     }
@@ -147,7 +149,7 @@ func.func @MoveAffineReshapeWithMultiDimTiling(%arg0: tensor<1x128x256x1xf16, {o
                              %arg0 as %arg2: tensor<1x128x256x1xf16, {order = #NHWC}>)
         attributes {tilingStrategy = [1, 2, 2, 1]} -> tensor<1x128x256x1xf16, {order = #NHWC}> {
       %inner = VPU.NCE.Eltwise(%arg1, %arg2)
-          {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+          {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
           -> tensor<1x128x256x1xf16, {order = #NHWC}>
       VPU.Yield %inner
     }
@@ -160,7 +162,7 @@ func.func @MoveAffineReshapeWithMultiDimTiling(%arg0: tensor<1x128x256x1xf16, {o
                              %1 as %arg2: tensor<1x128x64x4xf16, {order = #NHWC}>)
         attributes {tilingStrategy = [1, 2, 2, 1]} -> tensor<1x128x64x4xf16, {order = #NHWC}> {
       %inner = VPU.NCE.Eltwise(%arg1, %arg2)
-          {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+          {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
           -> tensor<1x128x64x4xf16, {order = #NHWC}>
       VPU.Yield %inner
     }

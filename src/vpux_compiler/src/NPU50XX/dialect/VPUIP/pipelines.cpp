@@ -133,6 +133,7 @@ void vpux::VPUIP::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     if (options.enableAsyncRegionOutlining && canOutlineFromProfilingPerspective(options)) {
         pm.addPass(VPUIP::createAsyncRegionsOutliningPass(options.asyncRegionOutliningMinOpsInBlock, log));
     }
+    pm.addPass(VPUIP::createAddAsyncSchedulingDependenciesPass(log));
 
     pm.addPass(VPUIP::createCalculateAsyncRegionCycleCostPass(log));
     if (options.enablePrintStatistics) {
@@ -155,7 +156,7 @@ void vpux::VPUIP::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     VPUIP::buildHardwareAdaptationPipeline(pm, log);
 
     // Level 1 : VPU RunTime
-    pm.addPass(VPUIP::createAssignLogicalTaskIndexPass(log));
+    pm.addPass(VPUIP::createAssignShvLogicalTaskIndexPass(log));
     pm.addPass(VPUIP::createUnrollSwKernelPass(log));
 
     pm.addPass(VPUIP::createUnrollDistributedOpsPass(log, options.enableSegmentedDmaFusion));
@@ -207,6 +208,7 @@ void vpux::VPUIP::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         }
     }
 
+    pm.addPass(VPUIP::createLegalizeNNDMADimSizesPass(log));
     if (options.enableProfiling) {
         pm.addPass(VPUIP::createDMATaskProfilingHwDdrPass(options.enableDMAProfiling, log));
     }
@@ -224,7 +226,7 @@ void vpux::VPUIP::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     }
 
     auto dpuDryRunMode = VPU::getDPUDryRunMode(options.dpuDryRun);
-    if (dpuDryRunMode == VPU::DPUDryRunMode::STRIP || options.shaveDryRun == true) {
+    if (dpuDryRunMode == VPU::DPUDryRunMode::STRIP || options.shaveDryRun) {
         pm.addPass(VPUIP::createComputeTaskStrippingPass(log, dpuDryRunMode, options.shaveDryRun));
     }
 
@@ -358,6 +360,7 @@ void vpux::VPUIP::arch50xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPUIP::createLegalizeStridedDMAsPass(log));
 
     VPUIP::buildAsyncSchedulingPipeline(pm, log);
+    pm.addPass(VPUIP::createAddAsyncSchedulingDependenciesPass(log));
 
     pm.addPass(VPUIP::createStaticAllocationPass(VPU::getMemKind<VPU::MemoryKind::CMX_NN>, log));
     pm.addPass(VPUIP::createStaticAllocationPass(VPU::getMemKind<VPU::MemoryKind::DDR>, log));

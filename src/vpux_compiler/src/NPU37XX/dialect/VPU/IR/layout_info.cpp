@@ -21,9 +21,11 @@
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/IE/utils/elem_type_info_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_utils.hpp"
 #include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
 #include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
@@ -42,6 +44,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/utils/layout_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
@@ -236,7 +239,7 @@ private:
         if (!mlir::isa_and_nonnull<IE::MVNOp>(mvnOp)) {
             return false;
         }
-        auto mvnShape = mlir::cast<vpux::NDTypeInterface>(mvnOp->getOperand(0).getType()).getShape();
+        auto mvnShape = getBoundedShape(mvnOp->getOperand(0).getType());
         auto W = mvnShape[Dims4D::Act::W];
         auto H = mvnShape[Dims4D::Act::H];
         auto C = mvnShape[Dims4D::Act::C];
@@ -346,9 +349,12 @@ public:
             const auto vectorChannels = channels - trailingChannels;
             // NHWC can be faster when "[(C/VEC_SIZE)*VEC_SIZE]*W > W*H" and "C%VEC_SIZE" is "small" relative to C.
             // But it's hard to decide how "small" the "C%VEC_SIZE" should be, so only convert NHWC back to NCHW
-            // when "[(C/VEC_SIZE)*VEC_SIZE]*W <= W*H". We can make this pattern more precise when cost model ready.
-            // for details, see: E#105260
-            return vectorChannels <= inputShape[Dims4D::Act::H];
+            // when "[(C/VEC_SIZE)*VEC_SIZE]*W < W*H". At equality (vectorChannels == H) the vectorization benefit
+            // is the same for both layouts, so NHWC is kept to avoid a layout-change overhead
+            // (e.g. MaxPool 1x1 + NCE.Permute when input comes from NCE.Interpolate).
+            // `<` (not `<=`) is intentional: the equal case stays NHWC.
+            // We can make this pattern more precise when cost model ready. For details, see: E#105260
+            return vectorChannels < inputShape[Dims4D::Act::H];
         };
 
         auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
@@ -356,6 +362,36 @@ public:
         auto shaveActExec = tileExec.getSubExecutor(config::ExecutorKind::SHAVE_ACT);
         const auto numSplits = tileExec.getCount() * shaveActExec.getCount();
         VPUX_THROW_WHEN(numSplits <= 0, "Number of splits should be a positive integer, while it is {0}", numSplits);
+
+        // On NPU50XX+, RunMVNNormalizeOnDPU (with forceDecompose) converts large NHWC MVN to DPU.
+        // For NEAREST-Interpolate->MVN patterns where the DPU path will fire, keep NHWC so the
+        // MVN feeds the DPU normalize path directly -- switching to NCHW here would require an
+        // extra MaxPool 1x1 + NCE.Permute reorder that the DPU path immediately undoes.
+        // Guard 1: channels/tile >= VPU_CHANNEL_ALIGNMENT AND C % VPU_CHANNEL_ALIGNMENT == 0.
+        //   Both conditions mirror DecomposeMVN's forceDecompose gate: the first ensures each tile
+        //   holds enough channels for a valid NCE.MaxPool workload; the second ensures the op will
+        //   actually be force-decomposed (DecomposeMVN also requires alignment). Without the modulo
+        //   check, the layout guard would keep NHWC for aligned-count but unaligned-C MVN ops that
+        //   forceDecompose skips, leaving them on SHAVE in NHWC (worse than NCHW).
+        // Guard 2: tensor large enough relative to per-tile CMX -- shared with DecomposeMVN's
+        //   forceDecompose gate, see VPU::NCEInvariant::isLargeEnoughForDPUOverSHAVE.
+        //
+        // On NPU37XX/NPU40XX, RunMVNNormalizeOnDPU is disabled, so the MVN always runs on SHAVE.
+        // SHAVE benefits from NCHW vectorization, so this guard must not apply there.
+        if (arch >= config::ArchKind::NPU50XX) {
+            if (auto interpOp = mlir::dyn_cast<IE::InterpolateOp>(parentLayerWithPermute.getOperation())) {
+                if (IE::isSupportedNearestNCEInterpolate(interpOp)) {
+                    const auto numTiles = tileExec.getCount();
+                    const auto channels = inputShape[Dims4D::Act::C];
+                    const auto tensorBytes = static_cast<int64_t>(inputType.getTotalAllocSize().count());
+                    if (channels >= VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT * numTiles &&
+                        channels % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT == 0 &&
+                        VPU::NCEInvariant::isLargeEnoughForDPUOverSHAVE(op, tensorBytes, numTiles)) {
+                        return;
+                    }
+                }
+            }
+        }
 
         const auto minChannelsPerSplit = inputShape[Dims4D::Act::C] / numSplits;
         const auto maxChannelsPerSplit = (inputShape[Dims4D::Act::C] + numSplits - 1) / numSplits;
@@ -415,6 +451,7 @@ void redirectLayoutOpInterfacesForVPU(mlir::DialectRegistry& registry) {
         VPU::EluOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         VPU::HSwishOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         VPU::ErfOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
+        VPU::ErfInvOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         VPU::MishOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         VPU::FloorOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         VPU::RoundOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
@@ -472,7 +509,7 @@ void redirectLayoutOpInterfacesForVPU(mlir::DialectRegistry& registry) {
         VPU::AdaptiveMaxPoolOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
         // TODO: E#115645 support HW/SW option for SEP VPU ops
         VPU::RollOp::attachInterface<vpux::VPU::RollDimsOrderOpModelForSW>(*ctx);
-        VPU::SelectOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
+        VPU::SelectOp::attachInterface<vpux::VPU::SameInOutDimsOrderOpModel_NCHW_NHWC>(*ctx);
         VPU::GridSampleOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
         VPU::BucketizeOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
         VPU::PerAxisTileOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
@@ -626,6 +663,7 @@ void redirectLayoutOpInterfacesForIE(mlir::DialectRegistry& registry) {
         IE::EluOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         IE::HSwishOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         IE::ErfOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
+        IE::ErfInvOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         IE::MishOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         IE::FloorOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         IE::RoundOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
@@ -688,7 +726,7 @@ void redirectLayoutOpInterfacesForIE(mlir::DialectRegistry& registry) {
 
         IE::AdaptiveAvgPoolOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
         IE::AdaptiveMaxPoolOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
-        IE::SelectOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
+        IE::SelectOp::attachInterface<vpux::VPU::SameInOutDimsOrderOpModel_NCHW_NHWC>(*ctx);
         IE::GridSampleOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
         IE::BucketizeOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
         IE::PerAxisTileOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);

@@ -99,16 +99,12 @@ mlir::LogicalResult ConvertBroadcastToTile<ConcreteOp>::matchAndRewrite(Concrete
             repeats[i] = checked_cast<int32_t>(outputShapeBounded[i] / adjustedInputBoundedShape[i]);
         }
 
-        const auto dataType = mlir::RankedTensorType::get({checked_cast<int64_t>(repeats.size())},
-                                                          getSInt32Type(origOp->getContext()));
-        const auto repeatsConstOp =
-                Const::createConst(rewriter, takeOpLoc(origOp, "n_repeats"), dataType, ArrayRef(repeats));
+        const auto repeatsAttr = getIntArrayAttr(origOp->getContext(), repeats);
 
         auto reshapeInputOp = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
                                                              adjustedInputShapeAttr);
 
-        rewriter.replaceOpWithNewOp<IE::TileOp>(origOp, origOp.getType(), reshapeInputOp.getOutput(), repeatsConstOp,
-                                                nullptr /*repeats_value*/);
+        rewriter.replaceOpWithNewOp<IE::TileOp>(origOp, origOp.getType(), reshapeInputOp.getOutput(), repeatsAttr);
     } else {
         const auto adjustedInputShapeRank = checked_cast<int64_t>(adjustedInputShape.size());
         const auto dataType =

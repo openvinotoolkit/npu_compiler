@@ -175,7 +175,7 @@ func.func @MergeConvShapeCastSliceShapeCastEltwise(
     %2 = VPU.ShapeCast {shape = [1, 16, 256, 512]}
         inputs(%1 : tensor<1x4x256x2048xf16, {order = #NHWC}>)
        -> tensor<1x16x256x512xf16, {order = #NHWC}>
-    %3 = VPU.NCE.Eltwise(%2, %arg1) {
+    %3 = VPU.NCE.Eltwise(%2, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         is_inplace = true,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         op_type = #VPU.eltwise_type<ADD>,

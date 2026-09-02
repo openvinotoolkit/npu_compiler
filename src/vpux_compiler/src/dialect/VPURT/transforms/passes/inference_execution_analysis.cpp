@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <optional>
 #include "vpux/compiler/core/cycle_cost_info.hpp"
 #include "vpux/compiler/core/profiling_metadata.hpp"
 #include "vpux/compiler/core/profiling_utils.hpp"
@@ -12,6 +13,7 @@
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/strided_dmas_utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/strings.hpp"
@@ -136,6 +138,12 @@ profiling::TaskInfo makeTaskInfo(VPURT::TaskOp taskOp, double startTimeNs, doubl
         VPUIP::SwKernelOp swTask = mlir::dyn_cast<VPUIP::SwKernelOp>(op);
         taskInfo.exec_type = profiling::TaskInfo::ExecType::SW;
         taskInfo.clusterId = getClusterId(swTask);
+        taskInfo.fifo_id = std::nullopt;
+        if (auto listIndex = swTask.getListIndex()) {
+            VPUX_THROW_UNLESS(*listIndex >= 0 && *listIndex <= 255,
+                              "SwKernelOp listIndex {0} is out of range for flatbuffers fifo_id", *listIndex);
+            taskInfo.fifo_id = static_cast<uint8_t>(*listIndex);
+        }
         auto tensorInfo = extractTensorInfoFromOp(swTask);
         taskInfo.customArgs = profiling::to_custom_args(tensorInfo);
         break;

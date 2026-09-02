@@ -8,7 +8,7 @@
 
 // These tests verify that MoveThroughScatterUpdate fires when newAxisValue != 0.
 // The DMA path (LayerWithDmaInterface) is required for non-zero axis, which is
-// only registered for NPU50XX
+// only registered for NPU50XX.
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>

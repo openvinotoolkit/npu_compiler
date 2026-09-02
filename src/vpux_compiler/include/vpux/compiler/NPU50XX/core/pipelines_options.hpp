@@ -101,7 +101,7 @@ struct DefaultHWOptionsDeviceBase : public virtual vpux::DefaultHWOptionsBase {
 
     BoolOption enableRunMVNNormalizeOnDPU{*this, "enable-run-mvn-normalize-on-dpu",
                                           llvm::cl::desc("Enable RunMVNNormalizeOnDPU pass on DPU"),
-                                          llvm::cl::init(false)};
+                                          llvm::cl::init(true)};
 
     BoolOption enableSoftmaxDecomposition{*this, "enable-softmax-decomposition",
                                           llvm::cl::desc("Enable Softmax decomposition pass"), llvm::cl::init(true)};

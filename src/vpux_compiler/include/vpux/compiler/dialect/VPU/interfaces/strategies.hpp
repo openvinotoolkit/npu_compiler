@@ -59,6 +59,8 @@ public:
      */
     virtual bool isNCEPermuteOffsetsCorrectionNeeded(VPU::NCEOpInterface nceOp) = 0;
 
+    virtual bool isConvertTileWithEltwiseToNCEPoolSupported() = 0;
+
     // IE to VPU conversion
     virtual std::unique_ptr<IConvertIEToVPUNCEStrategy> getConvertIEToVPUNCEStrategy(const Logger& log) = 0;
 };

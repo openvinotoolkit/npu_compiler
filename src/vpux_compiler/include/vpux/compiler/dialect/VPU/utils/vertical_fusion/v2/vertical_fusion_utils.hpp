@@ -101,5 +101,5 @@ std::optional<std::pair<mlir::Operation*, int64_t>> findFirstNonViewUser(mlir::O
 
 // Check if the eltwise op with sw op user will cause cmx size exceed for the shared input, which will cause dynamic
 // spilling
-bool cmxSizeExceedForEltwiseOpWithSwOpUser(VFConfig& currentConfig, ArrayRef<mlir::Operation*> parents, Logger log);
+bool cmxSizeExceedForEltwiseOpWithSwOpUser(VFConfig& currentConfig, ArrayRef<mlir::OpResult> parentResults, Logger log);
 }  // namespace vpux::VPU::VF::v2

@@ -289,16 +289,60 @@ llvm::SetVector<mlir::Operation*> collectTiledAndFusedOps(mlir::Operation* op,
             const auto checkProducersUsers = [&](auto* user) {
                 return !producers.contains(user);
             };
-            if (!mlir::isa_and_nonnull<mlir::TilingInterface>(producer) || producers.contains(producer) ||
-                !vpux::VPU::checkFusion(operand, producer->getOpResult(0), producers, mergeConfig) ||
-                llvm::any_of(producer->getUsers(), checkProducersUsers)) {
+            if (!mlir::isa_and_nonnull<mlir::TilingInterface>(producer) || producers.contains(producer)) {
                 continue;
             }
+            // Use the producer result actually consumed by this operand, not a hardcoded result 0.
+            // For multi-result producers the consumer may read a result other than 0; planFusion must
+            // reason about the distributed type of the consumed result. Equivalent to getOpResult(0)
+            // for single-result producers.
+            auto producerResult = mlir::cast<mlir::OpResult>(operand.get());
+            auto plan = vpux::VPU::planFusion(operand, producerResult, producers, mergeConfig);
+            if (!plan.canFuse) {
+                continue;
+            }
+            if (llvm::any_of(producer->getUsers(), checkProducersUsers)) {
+                continue;
+            }
+            // A strategy adjustment is validated against only the consumer through which the BFS
+            // encountered this producer. If the producer has multiple users (skip-connection
+            // topology), the adjusted strategy may be incompatible with the other consumers.
+            // Suppress the adjustment for multi-user producers; accept only if the current
+            // strategy is already compatible (plan has no adjustment).
+            if (plan.newProducerStrategy.has_value() && !producer->hasOneUse()) {
+                continue;
+            }
+            // All checks passed — fusion is committed, so apply any planned MC strategy adjustment
+            // immediately. This keeps the producer's updated strategy visible to subsequent BFS steps
+            // that process the producers of `producer`, matching the original eager behavior. Mutation
+            // happens only after every precondition succeeds, so no speculative change is introduced.
+            vpux::VPU::applyFusionPlan(plan);
             worklist.push_back(producer);
             producers.insert(producer);
         }
     }
     return producers;
+}
+
+// A group encloses a long skip connection when one of its operations has two or more distinct user
+// operations that are all part of the group (the fan-out is fully contained by the group). The
+// default (non-scf) VF partition keeps a skip source in a separate group from the operation that
+// merges the skip back in, so a group never encloses such a fan-out. Detecting this lets the
+// cost-based growth stop at the same boundaries as the default partition.
+bool groupEnclosesLongSkip(const llvm::SetVector<mlir::Operation*>& groupOps) {
+    for (auto* op : groupOps) {
+        llvm::SmallPtrSet<mlir::Operation*, 4> inGroupUsers;
+        for (auto* user : op->getUsers()) {
+            if (!groupOps.contains(user)) {
+                continue;
+            }
+            inGroupUsers.insert(user);
+            if (inGroupUsers.size() > 1) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 }  // namespace
@@ -327,7 +371,9 @@ SmallVector<mlir::OpFoldResult> vpux::VPU::staticTileSizeComputation(
         return op == lastOperation;
     };
 
-    const auto tiles = fillDividedTiles(lastOperation, operations, strategy, outputShape, dynOperationAlignment);
+    // disable alignment for performance optimizations
+    const auto tiles = fillDividedTiles(lastOperation, operations, strategy, outputShape, dynOperationAlignment,
+                                        /*enableSWOptimizationAlignment=*/false);
 
     if (mlir::failed(tiles) || tiles.value().empty()) {
         return {};
@@ -538,54 +584,161 @@ mlir::LogicalResult vpux::VPU::applySCFTiling(mlir::Operation* operation, mlir::
 
 SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation* operation, mlir::RewriterBase& builder,
                                                                 const MergeConfiguration& mergeConfig, Logger log) {
-    if (!operation->hasAttr(tilingStrategy)) {
-        return {};
-    }
-
     auto tilingInterfaceOp = mlir::cast<mlir::TilingInterface>(operation);
 
-    const auto strategy = operation->getAttr(tilingStrategy);
     mlir::scf::SCFTilingOptions tilingOptions;
 
     auto allOpsToFuse = collectTiledAndFusedOps(operation, mergeConfig);
-
     if (allOpsToFuse.size() == 1) {
         return {};
     }
 
-    VF::v2::VFConfig config(allOpsToFuse);
-    DimArr allowedDims = getAllowedDims(allOpsToFuse.getArrayRef(), log);
-    if (allowedDims.empty()) {
+    // Peels the current input boundary of the working set: operations whose operands are all
+    // external to the set (block arguments, constants, or values produced outside the set). Only
+    // these true source operations can be removed without disconnecting the remaining cone, which
+    // must stay a single-output sub-cone anchored at `operation` for the downstream tiling and cost
+    // analyses (both walk up from a single output).
+    //
+    // VFConfig::getInputs() is deliberately not used here: it reports operations by
+    // VerticalFusionOpInterface membership and can misclassify a middle operation of the chain as
+    // an input when the intermediate producers (for example NCE.Permute or DepthToSpace) do not
+    // implement that interface. Removing such a middle operation would split the cone into a
+    // disconnected multi-output group that the tiling storage cannot describe.
+    //
+    // Returns true when at least one operation was removed. A single-output cone always has a
+    // source distinct from the anchor while more than one operation remains, so progress is
+    // guaranteed; the caller still stops on a false return as a defensive loop-termination bound.
+    const auto popInputOperation = [&]() -> bool {
+        SmallVector<mlir::Operation*> sources;
+        for (auto* op : allOpsToFuse) {
+            if (op == operation) {
+                continue;
+            }
+            const bool allOperandsExternal = llvm::all_of(op->getOperands(), [&](mlir::Value operand) {
+                auto* producer = operand.getDefiningOp();
+                return producer == nullptr || !allOpsToFuse.contains(producer);
+            });
+            if (allOperandsExternal) {
+                sources.push_back(op);
+            }
+        }
+        bool removedAny = false;
+        for (auto* op : sources) {
+            removedAny |= allOpsToFuse.remove(op);
+        }
+        return removedAny;
+    };
+
+    std::optional<VF::v2::VFCase> bestVFCaseOpt;
+
+    // Cost-based candidates collected while shrinking from the maximal fused cone toward the anchor,
+    // ordered from the largest group (front) to the smallest group nearest the anchor (back).
+    SmallVector<VF::v2::VFCase, 4> costBasedCandidates;
+    VF::v2::VFCacheAnalysis cache(operation);
+
+    while (allOpsToFuse.size() > 1) {
+        VF::v2::VFConfig config(allOpsToFuse, cache);
+        // Stop once only view-like operations remain: they cannot be tiled/fused on their own.
+        const auto nonViewLikeOpCount = llvm::count_if(allOpsToFuse, [](mlir::Operation* op) {
+            return !mlir::isa<VPU::TilingViewLikeOpInterface>(op);
+        });
+        if (nonViewLikeOpCount == 0) {
+            break;
+        }
+
+        DimArr allowedDims = getAllowedDims(allOpsToFuse.getArrayRef(), log);
+        if (allowedDims.empty()) {
+            if (!popInputOperation()) {
+                break;
+            }
+            continue;
+        }
+
+        auto vfCase = mergeConfig.splitGetter(config, allowedDims);
+
+        if (VPU::hasDynamicDimAlignment(operation) && !vfCase.isInitialized()) {
+            VPU::removeDynamicDimAlignment(operation);
+            vfCase = mergeConfig.splitGetter(config, allowedDims);
+        }
+
+        // Use the merge policy from the configuration to decide whether to proceed
+        if (vfCase.isInitialized() && mergeConfig.mergeDecision(vfCase)) {
+            if (mergeConfig.selectBetterCase == nullptr) {
+                // Greedy configuration: prioritize merging by keeping the first (largest)
+                // valid candidate found while shrinking from the input side.
+                bestVFCaseOpt = std::move(vfCase);
+                break;
+            }
+
+            // Cost-based configuration: record every valid candidate; the fusion boundary is
+            // selected after the full nested-subset sequence has been enumerated.
+            costBasedCandidates.push_back(std::move(vfCase));
+        }
+
+        if (!popInputOperation()) {
+            break;
+        }
+    }
+
+    if (mergeConfig.selectBetterCase != nullptr) {
+        // Bottom-up growth over the enumerated candidates. Starting from the smallest valid group
+        // nearest the anchor (back of the list), extend the group toward the inputs only while
+        // fusing the additional operations stays profitable (selectBetterCase), and stop at the
+        // first non-profitable boundary. Operations left outside the group are fused at a later
+        // anchor of the reverse walk. This mirrors the incremental pairwise merge of the default
+        // (non-scf) VF path and avoids over-merging a large group whose best-split cost hides the
+        // true per-operation cost.
+        for (int idx = costBasedCandidates.size(); idx-- > 0;) {
+            auto& candidate = costBasedCandidates[idx];
+            if (!bestVFCaseOpt.has_value()) {
+                bestVFCaseOpt = std::move(candidate);
+                continue;
+            }
+            // Stop before a group encloses a long skip connection. The default partition keeps a
+            // skip source separate from the operation that merges the skip, so growing past this
+            // boundary would over-merge relative to the default VF grouping.
+            if (groupEnclosesLongSkip(candidate.getConfig().getVFOperations())) {
+                break;
+            }
+            if (!mergeConfig.selectBetterCase(bestVFCaseOpt.value(), candidate)) {
+                break;
+            }
+            bestVFCaseOpt = std::move(candidate);
+        }
+    }
+
+    if (!bestVFCaseOpt.has_value()) {
         return {};
     }
 
-    auto outputs = config.getOutputs();
+    auto bestVFCase = std::move(bestVFCaseOpt.value());
+
+    if (!bestVFCase.isInitialized()) {
+        return {};
+    }
+
+    allOpsToFuse = bestVFCase.getConfig().getVFOperations();
+
+    auto outputs = bestVFCase.getConfig().getOutputs();
     if (outputs.empty()) {
         return {};
     }
-
-    auto* lastOp = outputs.back();
-    auto outputType = mlir::cast<vpux::NDTypeInterface>(lastOp->getResult(0).getType());
-
-    VPU::VF::v2::VFCase bestVFCase = mergeConfig.splitGetter(config, allowedDims);
 
     const auto& tilingStorage = bestVFCase.getTilingStorage();
 
     llvm::DenseMap<mlir::Operation*, VPU::PendingSliceReplacement> skipConnectionMap =
             analyzeSkipConnectionsForTiling(allOpsToFuse, tilingStorage, log);
 
-    if (VPU::hasDynamicDimAlignment(operation) && !bestVFCase.isInitialized()) {
-        VPU::removeDynamicDimAlignment(operation);
-        bestVFCase = mergeConfig.splitGetter(config, allowedDims);
-    }
-
-    // Use the merge policy from the configuration to decide whether to proceed
-    if (!mergeConfig.mergeDecision(bestVFCase)) {
-        return {};
+    std::optional<mlir::Attribute> strategy;
+    if (operation->hasAttr(tilingStrategy)) {
+        strategy = operation->getAttr(tilingStrategy);
     }
 
     operation->setAttr(tilingStrategy, bestVFCase.getTiling());
     std::unordered_map<Dim, std::pair<int64_t, int64_t>> remainders;
+
+    auto* lastOp = outputs.back();
+    auto outputType = mlir::cast<vpux::NDTypeInterface>(lastOp->getResult(0).getType());
 
     const auto vfTileSizeComputationFn = [&](mlir::OpBuilder& builder,
                                              mlir::Operation* operation) -> SmallVector<mlir::OpFoldResult> {
@@ -655,7 +808,9 @@ SmallVector<mlir::Operation*> vpux::VPU::applySCFVerticalFusion(mlir::Operation*
 
     if (mlir::failed(tiledResults) || tiledResults->replacements.empty() || tiledResults->loops.empty() ||
         tiledResults->fusedProducers.empty()) {
-        operation->setAttr(tilingStrategy, strategy);
+        if (strategy.has_value()) {
+            operation->setAttr(tilingStrategy, strategy.value());
+        }
         builder.setListener(previousListener);
         return {};
     }

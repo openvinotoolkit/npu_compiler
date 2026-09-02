@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace intel_npu::vm {
@@ -121,10 +122,7 @@ struct SectionHeader {
     SectionHeader& operator=(const SectionHeader&) = delete;
     SectionHeader(SectionHeader&&) = default;
     SectionHeader& operator=(SectionHeader&&) = default;
-    ~SectionHeader() {
-        // Explicit user-defined destructor to satisfy the static analyzer.
-        // Resource cleanup remains handled by std::unique_ptr
-    }
+    ~SectionHeader() = default;
 
     // Returns the total serialized size of this header including its SectionInfo
     size_t getBinarySize() const;
@@ -152,10 +150,7 @@ public:
     SectionHeaderTable& operator=(const SectionHeaderTable&) = delete;
     SectionHeaderTable(SectionHeaderTable&&) = default;
     SectionHeaderTable& operator=(SectionHeaderTable&&) = default;
-    ~SectionHeaderTable() {
-        // Explicit user-defined destructor to satisfy the static analyzer.
-        // Resource cleanup remains handled by member destructors.
-    }
+    ~SectionHeaderTable() = default;
 
     // Returns a reference to the internal section header list
     const std::vector<SectionHeader>& getSectionHeaders() const;

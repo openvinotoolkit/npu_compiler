@@ -31,15 +31,12 @@ public:
     }
 
     static void setupOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
+                                 const vpux::OV::Config& config) {
         Base::setupOptionsImpl(options, initCompilerOptions, config);
-        if (config.get<intel_npu::TURBO>()) {
+        if (config.get<vpux::OV::TURBO>()) {
             overwriteIfUnset(options.optimizationLevel, 3);
         }
-        setupOptionsCommon(options, getLogLevel(config));
-
-        // Overwrite option
-        options.enableDynamicQuantizationForStaticCase = false;
+        setupOptionsCommon(options, config.get<vpux::OV::LOG_LEVEL>());
     }
 
     static void setupOptionsCommon(DefaultHWOptions40XX& options, LogLevel logLevel = LogLevel::None) {
@@ -48,6 +45,8 @@ public:
         if (options.enableSCFTiling) {
             overwriteIfUnset(options.enableBoundedTensorsToDynamicDimsMask, false);
         }
+        // NPU40XX has no native SDPA execution, so every Attention op is decomposed.
+        overwriteIfUnset(options.forceAttentionDecomposition, true);
     }
 };
 
@@ -57,10 +56,10 @@ public:
     using Base::Base;
 
     static void setupOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
+                                 const vpux::OV::Config& config) {
         Base::setupOptionsImpl(options, initCompilerOptions, config);
         setupOptionsCommon(options);
-        setupPWLMParams(options, getLogLevel(config));
+        setupPWLMParams(options, config.get<vpux::OV::LOG_LEVEL>());
     }
 
     static void setupOptionsCommon(DefaultHWOptions40XX& options) {
@@ -78,7 +77,8 @@ public:
 
         overwriteIfUnset(options.enableConvertFFTToConv, false);
         overwriteIfUnset(options.enableConvertToAttention, false);
-        overwriteIfUnset(options.enableFuseSoftwareSDPA, false);
+        // NPU40XX has no native SDPA execution, so every Attention op is decomposed.
+        overwriteIfUnset(options.forceAttentionDecomposition, true);
         overwriteIfUnset(options.enableConvertToReduceSquare, true);
         overwriteIfUnset(options.enableDecomposeGRUSequence, false);
         overwriteIfUnset(options.workloadManagementMode, WorkloadManagementMode::PWLM_V0_1_PAGES);
@@ -97,7 +97,7 @@ public:
     }
 
     static void setupOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
+                                 const vpux::OV::Config& config) {
         overwriteIfUnset(options.enableDynamicDimAlignment, false);
         setupHostPipelineOptionsCommon<DefaultHWOptions40XX>(options);
         DefaultHWSetup40XX::setupOptionsImpl(options, initCompilerOptions, config);
@@ -115,7 +115,7 @@ public:
     }
 
     static void setupOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
+                                 const vpux::OV::Config& config) {
         setupWSInitOptionsCommon<DefaultHWOptions40XX>(options);
         DefaultHWSetup40XX::setupOptionsImpl(options, initCompilerOptions, config);
     }
@@ -132,7 +132,7 @@ public:
     }
 
     static void setupOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
+                                 const vpux::OV::Config& config) {
         setupWSMainOptionsCommon<DefaultHWOptions40XX>(options);
         DefaultHWSetup40XX::setupOptionsImpl(options, initCompilerOptions, config);
     }
@@ -145,7 +145,7 @@ public:
 template <class OptionsContainerType, class Enable = void>
 class DialectPipelineStrategy40XX final : public IDialectPipelineStrategy {
 public:
-    explicit DialectPipelineStrategy40XX(const intel_npu::Config& config)
+    explicit DialectPipelineStrategy40XX(const vpux::OV::Config& config)
             : _optionsContainer(std::make_unique<OptionsContainerType>(config)) {
     }
 
@@ -194,7 +194,7 @@ private:
 
 class DialectPipelineStrategyReferenceSW40XX final : public IDialectPipelineStrategy {
 public:
-    explicit DialectPipelineStrategyReferenceSW40XX(const intel_npu::Config& config)
+    explicit DialectPipelineStrategyReferenceSW40XX(const vpux::OV::Config& config)
             : _optionsContainer(std::make_unique<ReferenceSWSetup40XX>(config)) {
     }
 
@@ -243,7 +243,7 @@ private:
 //
 
 std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy40XX(
-        config::CompilationMode compilationMode, const intel_npu::Config& config) {
+        config::CompilationMode compilationMode, const vpux::OV::Config& config) {
     switch (compilationMode) {
     case config::CompilationMode::DefaultHW: {
         return std::make_unique<DialectPipelineStrategy40XX<DefaultHWSetup40XX>>(config);
@@ -301,7 +301,7 @@ std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy40X
 
 template <>
 std::tuple<std::unique_ptr<VPU::InitCompilerOptions>, std::unique_ptr<DefaultHWOptions40XX>>
-vpux::createOptionsDefaultHW(const intel_npu::Config& config) {
+vpux::createOptionsDefaultHW(const vpux::OV::Config& config) {
     // NOTE: DefaultHWSetup40XX is defined in this file which is why helper is called
     auto defaultHWSetup = std::make_unique<DefaultHWSetup40XX>(config);
     return createOptionsDefaultHWHelper<DefaultHWSetup40XX, DefaultHWOptions40XX>(std::move(defaultHWSetup));

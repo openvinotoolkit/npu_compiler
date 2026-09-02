@@ -29,13 +29,13 @@ def VPU_AbsOp :
     let summary = "Abs VPU layer";
 
     let arguments = (ins
-        AnyTypeOf<[RankedTensorOf<[F16, F32, SI8, SI16, SI32]>, VPU_DistributedTensor]>:$input,
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI8, SI16, SI32, SI64]>, VPU_DistributedTensor]>:$input,
 
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        AnyTypeOf<[RankedTensorOf<[F16, F32, SI8, SI16, SI32]>, VPU_DistributedTensor]>:$output
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI8, SI16, SI32, SI64]>, VPU_DistributedTensor]>:$output
     );
 
     let builders = [
@@ -250,14 +250,10 @@ def VPU_AtanOp :
 }
 
 def VPU_AtanDmaOp :
-        VPU_LayerOp<
+        VPU_SwIoDmaOp<
             "AtanDma",
             [
-                VPU_SwIoDmaOpInterface,
-                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["getDistributedTypeForOpOperand",
-                                                                     "getDistributedTypeForOpResult"]>
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "Atan VPU layer with DMA support";
@@ -271,11 +267,6 @@ def VPU_AtanDmaOp :
     let results = (outs
         RankedTensorOf<[F16, F32]>:$output
     );
-
-    let extraClassDeclaration = [{
-        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
-        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
-    }] # baseExtraClassDeclaration;
 
     let builders = [
         OpBuilder<(ins
@@ -560,6 +551,42 @@ def VPU_ErfOp :
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
+
+def VPU_ErfInvOp :
+        VPU_LayerOp<
+            "ErfInv",
+            [
+                VPU_TilingBuilderOpInterface,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                VPU_EltwiseOp
+            ]
+        > {
+    let summary = "ErfInv VPU layer";
+
+    let arguments = (ins
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
+
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
+    );
+
+    let results = (outs
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output
+    );
+
+     let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input
+        )>
+    ];
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+}
+
 
 def VPU_ExpOp :
         VPU_LayerOp<

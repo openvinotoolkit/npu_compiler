@@ -15,12 +15,18 @@ module @OneDMAWithoutAttributes {
   config.Resources 6 of @NCE at 1.700000e+03 MHz {
     builtin.module @ReservedMemory {
       module @DmaProfilingReservedMemory {
-        config.MemoryResource 512 bytes of @CMX_NN offset 0
+        config.MemoryResource 512 bytes of @CMX_NN offset 98304
+      }
+      module @CMXMetadataReservedMemory {
+        config.MemoryResource 82944 bytes of @CMX_NN offset 15360
+      }
+      module @CMXStackFramesReservedMemory {
+        config.MemoryResource 15360 bytes of @CMX_NN offset 0
       }
     }
   }
   func.func @main(%arg0: memref<1x2x3x4xf16, @DDR>, %arg1: memref<1x2x3x4xf16, @DDR>) -> memref<1x2x3x4xf16, @DDR> {
-    %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x2x3x4xf16, [@CMX_NN, 0]>
+    %0 = VPURT.DeclareBuffer <CMX_NN> [0] <98304> -> memref<1x2x3x4xf16, [@CMX_NN, 0]>
     %1 = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
     %2 = VPURT.ConfigureBarrier<1> <{isFinalBarrier}> -> !VPURT.Barrier
     VPURT.Task updates(%1 : !VPURT.Barrier) {

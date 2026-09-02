@@ -19,6 +19,13 @@ func.func @SingleInputSingleOutputBatched(%arg: tensor<6x3x62x62xf32>) -> tensor
     return %1 : tensor<6x48x60x57xf32>
 }
 
+net.NetworkInfo entryPoint : @SingleInputSingleOutputBatched inputsInfo : {
+    DataInfo "input0" : tensor<6x3x62x62xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<6x48x60x57xf32>
+}
+
+
 // -----
 
 // CHECK: DebatchCoeffDescription expects the batch position to be 0, got: d1 in [1-2]
@@ -34,4 +41,11 @@ func.func @MultipleInputSingleOutputBatched(%arg0: tensor<6x3x62x62xf32>, %arg1:
     %2 = IE.Add(%1, %arg1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } : tensor<6x48x60x57xf32>, tensor<6x48x60x57xf32> -> tensor<6x48x60x57xf32>
     %3 = IE.SoftMax(%2) {axisInd = 1} : tensor<6x48x60x57xf32> -> tensor<6x48x60x57xf32>
     return %3: tensor<6x48x60x57xf32>
+}
+
+net.NetworkInfo entryPoint : @MultipleInputSingleOutputBatched inputsInfo : {
+    DataInfo "input0" : tensor<6x3x62x62xf32>
+    DataInfo "input1" : tensor<6x48x60x57xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<6x48x60x57xf32>
 }

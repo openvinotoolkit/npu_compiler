@@ -57,6 +57,7 @@ def IE_AvgPoolOp :
 
     let arguments = (ins
         RankedTensorOf<[F16, F32, F64, quant_QuantizedType, SI32, SI64, SI8, UI8]>:$input,
+        Optional<RankedTensorOf<[F16, F32, F8E8M0FNU, F8E5M2, F8E4M3FN]>>:$scale,
 
         I64ArrayAttr:$kernel_size,
         I64ArrayAttr:$strides,
@@ -120,6 +121,7 @@ def IE_MaxPoolOp :
 
     let arguments = (ins
         RankedTensorOf<[F16, F32, F64, quant_QuantizedType, SI32, SI64, SI8, UI8]>:$input,
+        Optional<RankedTensorOf<[F16, F32, F8E8M0FNU, F8E5M2, F8E4M3FN]>>:$scale,
 
         I64ArrayAttr:$kernel_size,
         I64ArrayAttr:$strides,

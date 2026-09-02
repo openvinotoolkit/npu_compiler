@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --lower-VPUIP-to-ELF %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --dma-task-profiling-reserve-mem --lower-VPUIP-to-ELF %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 
 module @OneDMAWithoutAttributes {
@@ -12,15 +12,8 @@ module @OneDMAWithoutAttributes {
   } outputsInfo : {
     DataInfo "output_0" : tensor<1x2x3x4xf16>
   }
-  config.Resources 6 of @NCE at 1.700000e+03 MHz {
-    builtin.module @ReservedMemory {
-      module @DmaProfilingReservedMemory {
-        config.MemoryResource 512 bytes of @CMX_NN offset 0
-      }
-    }
-  }
   func.func @main(%arg0: memref<1x2x3x4xf16, @DDR>, %arg1: memref<1x2x3x4xf16, @DDR>) -> memref<1x2x3x4xf16, @DDR> {
-    %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x2x3x4xf16, [@CMX_NN, 0]>
+    %0 = VPURT.DeclareBuffer <CMX_NN> [0] <1571328> -> memref<1x2x3x4xf16, [@CMX_NN, 0]>
     %1 = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
     %2 = VPURT.ConfigureBarrier<1> <{isFinalBarrier}> -> !VPURT.Barrier
     VPURT.Task updates(%1 : !VPURT.Barrier) {

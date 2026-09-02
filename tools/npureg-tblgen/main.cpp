@@ -194,7 +194,7 @@ llvm::Expected<llvm::raw_ostream&> emitDescriptorsDefinitions(llvm::raw_ostream&
     stream << "namespace vpux::" << platformTypeName << "::Descriptors {\n";
     constexpr llvm::StringLiteral descriptorTemplate =
             "struct {0} : ::vpux::VPURegMapped::detail::DescriptorTemplate<{0}, "
-            "::vpux::{1}::detail::Descriptors::{0}Name, {2}> {{};\n";
+            "::vpux::{1}::detail::Descriptors::{0}Name, {2}, {3}>";
 
     for (const auto& [name, descriptor] : descriptors) {
         if (!descriptor.parents.empty()) {
@@ -214,7 +214,11 @@ llvm::Expected<llvm::raw_ostream&> emitDescriptorsDefinitions(llvm::raw_ostream&
                 registersList << ", ";
             }
         }
-        vpux::printTo(stream, descriptorTemplate, name, platformTypeName, registersList.str());
+
+        const auto canBeEmpty = getAs<llvm::BitInit>(descriptor.record, "_canBeEmpty")->getValue();
+        vpux::printTo(stream, descriptorTemplate, name, platformTypeName, canBeEmpty ? "true" : "false",
+                      registersList.str());
+        stream << " {};\n";
     }
     stream << "}  // namespace vpux::" << platformTypeName << "::Descriptors\n";
     return stream;

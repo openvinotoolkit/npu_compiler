@@ -219,11 +219,12 @@ StrategyCost LayerVPUNNCost::getStrategyCost(mlir::Operation* operation, const V
 StrategyCost LayerVPUNNCost::getSpillingTypeCost(vpux::NDTypeInterface type,
                                                  const std::optional<ShapeRef>& tileAxis) const {
     StrategyCost cost =
-            getDMACost(type, _vpuDevice, _vpunnCostModel->get_TheoreticalDMA_cost_model_shared(), _numDMAPorts);
+            getDMACost(type, _arch, _vpuDevice, _vpunnCostModel->get_TheoreticalDMA_cost_model_shared(), _numDMAPorts);
 
-    if (tileAxis.has_value() && isTiledOnLowestDim(tileAxis.value(), type.getDimsOrder())) {
-        cost = correctStrideDMACost(type, cost);
-    }
+    // TODO: Ticket E#213641, remove this after stride DMA cost is accurate
+    bool isStrided = tileAxis.has_value() && isTiledOnLowestDim(tileAxis.value(), type.getDimsOrder());
+    applyStrideDMACorrectionForTile(type, isStrided, cost, _arch, /*isFullSearchVersion=*/false);
+
     return cost;
 }
 
@@ -470,8 +471,9 @@ StrategyCost LayerVPUNNCost::getNCELayerCost(VPU::NCEOpInterface nceOp, const VP
     const auto getSpillingReadCost = [&](NDTypeInterface srcType,
                                          const TensorDistributionMap& distributions) -> uint32_t {
         auto distributedType = getDistributedTypeFromDistributionMap(srcType, distributions);
-        return checked_cast<uint32_t>(getDMACost(
-                distributedType, _vpuDevice, _vpunnCostModel->get_TheoreticalDMA_cost_model_shared(), _numDMAPorts));
+        return checked_cast<uint32_t>(getDMACost(distributedType, _arch, _vpuDevice,
+                                                 _vpunnCostModel->get_TheoreticalDMA_cost_model_shared(),
+                                                 _numDMAPorts));
     };
     auto vpunnLayerWeightsCosts =
             getPerTileWeightsDMACosts(nceOp, parameters._strategy, siblingsAnalysis, tilesTypes, getSpillingReadCost);
@@ -591,29 +593,4 @@ StrategyCost LayerVPUNNCost::getSWLayerCost(VPU::SWOpInterface swOp, const VPUNN
     }
     _log.trace("VPUNN SW layer costs {0}", fullCost);
     return fullCost;
-}
-
-// Correct the DMA cost for a given type by considering the stride of the tensor.
-// It calculates the number of continuous bytes on the lowest dimension and compares it with a predefined
-// threshold. If the continuous bytes are less than the threshold, the cost is adjusted accordingly.
-StrategyCost LayerVPUNNCost::correctStrideDMACost(vpux::NDTypeInterface type, StrategyCost cost) const {
-    const auto dimOrder = type.getDimsOrder();
-    const auto lowestDim = dimOrder.dimAt(dimOrder.numDims() - 1);
-    const Bit elemSize = type.getElemTypeSize();
-    if (auto sparseTensorType = mlir::dyn_cast<VPU::SparseTensorType>(type)) {
-        type = mlir::cast<vpux::NDTypeInterface>(sparseTensorType.getData());
-    }
-    Bit continuousBytesOnLowestDim;
-    if (auto distributedType = mlir::dyn_cast<VPU::DistributedTensorType>(type)) {
-        continuousBytesOnLowestDim = distributedType.getLargestCompactShape()[lowestDim] * elemSize;
-    } else {
-        continuousBytesOnLowestDim = type.getShape()[lowestDim] * elemSize;
-    }
-
-    auto strideDMACorrectionThreshold = getStrideDMACorrectionThresholdByArch(_arch);
-    if (continuousBytesOnLowestDim.count() < strideDMACorrectionThreshold) {
-        auto factor = checked_cast<double>(strideDMACorrectionThreshold) / continuousBytesOnLowestDim.count();
-        return checked_cast<uint32_t>(std::floor(factor * cost));
-    }
-    return cost;
 }

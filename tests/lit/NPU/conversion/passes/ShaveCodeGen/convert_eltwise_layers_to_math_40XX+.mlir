@@ -1892,7 +1892,7 @@ module @QuantizeDequantizePerTensor {
       IE.CGCYield %2 : tensor<1x1x1x100xf16>
     } -> tensor<1x1x1x100xf16>
     return %0 : tensor<1x1x1x100xf16>
-  
+
     // CHECK:   [[CST:%.+]] =  arith.constant dense<3.137210e-02> : tensor<1x1x1x100xf16>
     // CHECK:   [[QUANT_RESULT:%.+]] = linalg.generic
     // CHECK:   ^bb0([[IN_VAL:%.+]]: f16, [[IN_SCALE:%.+]]: f16, [[OUT:%.+]]: f16):

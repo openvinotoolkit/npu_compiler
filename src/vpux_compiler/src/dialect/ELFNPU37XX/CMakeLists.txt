@@ -10,6 +10,7 @@ add_npu_library(npu_compiler_dialect_elfnpu37xx
     LINK_LIBS
       PUBLIC
         npu_compiler_core
+        npu_compiler_backend_common
         npu_compiler_dialect_const
         npu_compiler_dialect_core
         npu_compiler_dialect_net

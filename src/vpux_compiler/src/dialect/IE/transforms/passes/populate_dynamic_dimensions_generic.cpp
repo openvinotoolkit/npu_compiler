@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/logical.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reify_shape.hpp"
@@ -38,7 +39,7 @@ namespace {
 bool isSupportedOp(mlir::Operation* op) {
     return mlir::isa<IE::SoftMaxOp, IE::MinimumOp, IE::MaximumOp, IE::LSTMSequenceOp, IE::LessOp, IE::LessEqualOp,
                      IE::SubtractOp, IE::ModOp, IE::PowerOp, IE::FloorModOp, IE::DivideOp, IE::AndOp, IE::LogicalOrOp,
-                     IE::EqualOp, IE::GreaterEqualOp, IE::GreaterOp, IE::MultiplyOp>(op);
+                     IE::EqualOp, IE::GreaterEqualOp, IE::GreaterOp, IE::MultiplyOp, IE::AttentionDMAOp>(op);
 }
 
 bool supportsStridedAccess(mlir::Operation* op) {

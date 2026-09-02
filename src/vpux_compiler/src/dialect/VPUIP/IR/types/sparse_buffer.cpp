@@ -387,7 +387,7 @@ NDTypeInterface VPUIP::SparseBufferType::changeStrides(StridesRef strides) const
 }
 
 NDTypeInterface VPUIP::SparseBufferType::changeTypeComponents(const vpux::TypeComponents& typeComponents) const {
-    const auto shape = typeComponents.shape.value_or(Shape(getShape().toValues()));
+    const auto shape = typeComponents.shape.has_value() ? ShapeRef(typeComponents.shape.value()) : getShape();
     const auto dimsOrder = typeComponents.dimsOrder.value_or(getDimsOrder());
     const auto memSpace = typeComponents.memSpace.value_or(getMemSpace());
     const auto ndData = mlir::cast<vpux::NDTypeInterface>(getData());
@@ -687,7 +687,7 @@ NDTypeInterface VPUIP::SparseBufferType::changeTypeComponentsForExplicitDistribu
 
     auto ctx = getContext();
 
-    const auto shape = typeComponents.shape.value_or(Shape(getShape().toValues()));
+    const auto shape = typeComponents.shape.has_value() ? ShapeRef(typeComponents.shape.value()) : getShape();
     const auto dimsOrder = typeComponents.dimsOrder.value_or(getDimsOrder());
     const auto memSpace = typeComponents.memSpace.value_or(getMemSpace());
 

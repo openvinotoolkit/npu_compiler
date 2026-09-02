@@ -16,6 +16,8 @@
 #include <mlir/IR/ValueRange.h>
 #include <mlir/Interfaces/SideEffectInterfaces.h>
 
+#include <optional>
+
 namespace vpux::config {
 enum class ExecutorKind : uint64_t;
 }  // namespace vpux::config

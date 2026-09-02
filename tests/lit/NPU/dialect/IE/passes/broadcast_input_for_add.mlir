@@ -217,3 +217,112 @@ func.func @NotBroadcastWithTrivialInput(%arg0: tensor<1x3x16x16xf16>) -> tensor<
     // CHECK:       [[ADD:%.+]] =  IE.Add([[ARG_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x16x16xf16>, tensor<1x1x1x1xf16> -> tensor<1x3x16x16xf16>
     // CHECK:       return [[ADD]]
 }
+
+// -----
+
+// Single-input attention bias: a runtime input broadcasts over an already
+// full-size operand, so it remains materialized for DPU lowering.
+// CHECK-LABEL: @SingleInputAttentionBiasBroadcast
+// CHECK-SAME:    [[ARG_0:%[^:]+]]: tensor<1x12x256x256xf16>
+// CHECK-SAME:    [[ARG_1:%[^:]+]]: tensor<1x1x1x256xf16>
+func.func @SingleInputAttentionBiasBroadcast(%arg0: tensor<1x12x256x256xf16>, %arg1: tensor<1x1x1x256xf16>) -> tensor<1x12x256x256xf16> {
+    %0 = IE.Add(%arg0, %arg1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x12x256x256xf16>, tensor<1x1x1x256xf16> -> tensor<1x12x256x256xf16>
+
+    return %0 : tensor<1x12x256x256xf16>
+
+    // CHECK-DAG:   [[TARGET_SHAPE:%.+]] = const.Declare tensor<4xsi32> = dense<[1, 12, 256, 256]> : tensor<4xsi64>, [#const.CastElemType<si32>]
+    // CHECK:       [[BROADCAST:%.+]] = IE.Broadcast([[ARG_1]], [[TARGET_SHAPE]])
+    // CHECK-SAME:      {mode = #IE.broadcast_type<NUMPY>} : tensor<1x1x1x256xf16>, tensor<4xsi32> -> tensor<1x12x256x256xf16>
+    // CHECK:       [[ADD:%.+]] = IE.Add([[ARG_0]], [[BROADCAST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x12x256x256xf16>, tensor<1x12x256x256xf16> -> tensor<1x12x256x256xf16>
+    // CHECK:       return [[ADD]]
+}
+
+// -----
+
+// Cross-input reading-order broadcast: both runtime inputs expand to the
+// output shape, so the CMX heuristic leaves the Add for SW/SHAVE lowering.
+// CHECK-LABEL: @CrossInputReadingOrderBroadcast
+// CHECK-SAME:    [[ARG_0:%[^:]+]]: tensor<1x300x1x256xf16>
+// CHECK-SAME:    [[ARG_1:%[^:]+]]: tensor<1x1x300x256xf16>
+func.func @CrossInputReadingOrderBroadcast(%arg0: tensor<1x300x1x256xf16>, %arg1: tensor<1x1x300x256xf16>) -> tensor<1x300x300x256xf16> {
+    %0 = IE.Add(%arg0, %arg1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x300x1x256xf16>, tensor<1x1x300x256xf16> -> tensor<1x300x300x256xf16>
+
+    return %0 : tensor<1x300x300x256xf16>
+
+    // CHECK-NOT:   IE.Broadcast
+    // CHECK:       [[ADD:%.+]] = IE.Add([[ARG_0]], [[ARG_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x300x1x256xf16>, tensor<1x1x300x256xf16> -> tensor<1x300x300x256xf16>
+    // CHECK:       return [[ADD]]
+}
+
+// -----
+
+// A large single-input broadcast remains materialized for DPU lowering.
+// CHECK-LABEL: @BroadcastLargeVolumeTensorInput
+// CHECK-SAME:    [[ARG_0:%[^:]+]]: tensor<1x256x300x300xf16>
+// CHECK-SAME:    [[ARG_1:%[^:]+]]: tensor<1x256x1x1xf16>
+func.func @BroadcastLargeVolumeTensorInput(%arg0: tensor<1x256x300x300xf16>, %arg1: tensor<1x256x1x1xf16>) -> tensor<1x256x300x300xf16> {
+    %0 = IE.Add(%arg0, %arg1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x256x300x300xf16>, tensor<1x256x1x1xf16> -> tensor<1x256x300x300xf16>
+
+    return %0 : tensor<1x256x300x300xf16>
+
+    // CHECK-DAG:   [[TARGET_SHAPE:%.+]] = const.Declare tensor<4xsi32> = dense<[1, 256, 300, 300]> : tensor<4xsi64>, [#const.CastElemType<si32>]
+    // CHECK:       [[BROADCAST:%.+]] = IE.Broadcast([[ARG_1]], [[TARGET_SHAPE]])
+    // CHECK-SAME:      {mode = #IE.broadcast_type<NUMPY>} : tensor<1x256x1x1xf16>, tensor<4xsi32> -> tensor<1x256x300x300xf16>
+    // CHECK:       [[ADD:%.+]] = IE.Add([[ARG_0]], [[BROADCAST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x256x300x300xf16>, tensor<1x256x300x300xf16> -> tensor<1x256x300x300xf16>
+    // CHECK:       return [[ADD]]
+}
+
+// -----
+
+// Both operands need broadcasting to a large volume - neither should be materialized.
+// CHECK-LABEL: @NotBroadcastLargeVolumeTwoTensorInputs
+// CHECK-SAME:    [[ARG_0:%[^:]+]]: tensor<1x256x1x300xf16>
+// CHECK-SAME:    [[ARG_1:%[^:]+]]: tensor<1x256x300x1xf16>
+func.func @NotBroadcastLargeVolumeTwoTensorInputs(%arg0: tensor<1x256x1x300xf16>, %arg1: tensor<1x256x300x1xf16>) -> tensor<1x256x300x300xf16> {
+    %0 = IE.Add(%arg0, %arg1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x256x1x300xf16>, tensor<1x256x300x1xf16> -> tensor<1x256x300x300xf16>
+
+    return %0 : tensor<1x256x300x300xf16>
+
+    // CHECK-NOT:   IE.Broadcast
+    // CHECK:       [[ADD:%.+]] = IE.Add([[ARG_0]], [[ARG_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x256x1x300xf16>, tensor<1x256x300x1xf16> -> tensor<1x256x300x300xf16>
+    // CHECK:       return [[ADD]]
+}
+
+// -----
+
+// Constant broadcasts still fold at compile time regardless of volume - unaffected. Uses a
+// non-trivial bias shape (H=300, matching output) so it isn't shortcut to ScaleShift and instead
+// exercises the constant-folded broadcast path.
+// CHECK-LABEL: @BroadcastLargeVolumeConstantInput
+// CHECK-SAME:    [[ARG_0:%[^:]+]]: tensor<1x256x300x300xf16>
+func.func @BroadcastLargeVolumeConstantInput(%arg0: tensor<1x256x300x300xf16>) -> tensor<1x256x300x300xf16> {
+    %0 = const.Declare tensor<1x256x300x1xf16> = dense<1.0> : tensor<1x256x300x1xf16>, [#const.CastElemType<f16>]
+    %1 = IE.Add(%arg0, %0) { auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x256x300x300xf16>, tensor<1x256x300x1xf16> -> tensor<1x256x300x300xf16>
+
+    return %1 : tensor<1x256x300x300xf16>
+
+    // CHECK:       [[BROADCAST:%.+]] = const.Declare tensor<1x256x300x300xf16>
+    // CHECK-SAME:      dense<1.000000e+00> : tensor<1x256x300x1xf16>,
+    // CHECK-SAME:      [#const.CastElemType<f16>, #const.Broadcast<3 : i64, 300 : i64>]
+    // CHECK:       [[ADD_RES:%.+]] = IE.Add([[ARG_0]], [[BROADCAST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x256x300x300xf16>, tensor<1x256x300x300xf16> -> tensor<1x256x300x300xf16>
+
+    // CHECK:       return [[ADD_RES]]
+}
+
+// -----
+
+// CHECK-LABEL: @BroadcastModerateVolumeTensorInput
+// CHECK-SAME:    [[ARG_0:%[^:]+]]: tensor<1x12x256x240xf16>
+// CHECK-SAME:    [[ARG_1:%[^:]+]]: tensor<1x1x1x240xf16>
+func.func @BroadcastModerateVolumeTensorInput(%arg0: tensor<1x12x256x240xf16>, %arg1: tensor<1x1x1x240xf16>) -> tensor<1x12x256x240xf16> {
+    %0 = IE.Add(%arg0, %arg1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x12x256x240xf16>, tensor<1x1x1x240xf16> -> tensor<1x12x256x240xf16>
+
+    return %0 : tensor<1x12x256x240xf16>
+
+    // CHECK-DAG:   [[TARGET_SHAPE:%.+]] = const.Declare tensor<4xsi32> = dense<[1, 12, 256, 240]> : tensor<4xsi64>, [#const.CastElemType<si32>]
+    // CHECK:       [[BROADCAST:%.+]] = IE.Broadcast([[ARG_1]], [[TARGET_SHAPE]])
+    // CHECK-SAME:      {mode = #IE.broadcast_type<NUMPY>} : tensor<1x1x1x240xf16>, tensor<4xsi32> -> tensor<1x12x256x240xf16>
+    // CHECK:       [[ADD_RES:%.+]] = IE.Add([[ARG_0]], [[BROADCAST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x12x256x240xf16>, tensor<1x12x256x240xf16> -> tensor<1x12x256x240xf16>
+
+    // CHECK:       return [[ADD_RES]]
+}

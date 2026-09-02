@@ -13,7 +13,7 @@ using namespace vpux;
 
 namespace VPUXDriverCompiler {
 VPUXExecutableL0::VPUXExecutableL0(const std::shared_ptr<const NetworkDescription>& networkDesc,
-                                   const intel_npu::Config& config, std::shared_ptr<VCLLogger> vclLogger)
+                                   const vpux::OV::Config& config, std::shared_ptr<VCLLogger> vclLogger)
         : _networkDesc(networkDesc), _config(config), _logger(std::move(vclLogger)) {
 }
 

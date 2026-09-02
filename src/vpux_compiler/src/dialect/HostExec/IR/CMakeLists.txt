@@ -15,7 +15,6 @@ add_npu_library(${TARGET_NAME}
         npu_core_utils
         npu_compiler_core
         npu_compiler_utils
-        openvino::npu_al
       PRIVATE
         npu_elf
         npu_compiler_dialect_config

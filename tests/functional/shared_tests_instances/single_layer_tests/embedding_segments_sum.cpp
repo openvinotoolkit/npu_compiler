@@ -31,6 +31,7 @@ TEST_P(EmbeddingSegmentsSumLayerTestCommon, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(EmbeddingSegmentsSumLayerTestCommon, NPU5020_SW) {
     abs_threshold = 0.06;
     setReferenceSoftwareMode();

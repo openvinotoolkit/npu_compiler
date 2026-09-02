@@ -220,11 +220,10 @@ void VPUIP::arch37xx::ClusterSWRewriter::matchAndRewrite(VPUIP::SwKernelOp swTas
     if (isDynamic) {
         {
             auto fullInputShapes = swTask.getDynamicInputShapes();
-            VPUX_THROW_UNLESS(fullInputShapes.size() <= 1, "Multiple dynamic input shape case is not supported");
-            if (!fullInputShapes.empty()) {
-                auto currBuffs = VPUIP::getPerClusterSWMemoryBuffers(
-                        _ctx, loc, "dynamicInputShapes", swTask, fullInputShapes[0], OperandType::input, numClusters,
-                        builder, _log, /*allowDiscontinuousBuffers*/ false);
+            for (auto dynShape : fullInputShapes) {
+                auto currBuffs = VPUIP::getPerClusterSWMemoryBuffers(_ctx, loc, "dynamicInputShapes", swTask, dynShape,
+                                                                     OperandType::input, numClusters, builder, _log,
+                                                                     /*allowDiscontinuousBuffers*/ false);
                 for (int64_t clusterId = 0; clusterId < numClusters; ++clusterId) {
                     swKernelInputDynamicShapes[clusterId].push_back(currBuffs[clusterId]);
                 }

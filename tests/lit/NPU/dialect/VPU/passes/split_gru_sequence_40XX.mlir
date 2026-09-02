@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --split-gru-sequence %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --split-gru-sequence %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 
 // CHECK-LABEL: func.func @SplitGRUSequence

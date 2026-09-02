@@ -30,8 +30,22 @@ SmallVector<mlir::Value> allocateBuffersOfType(const Logger& log, mlir::Location
                 memref = mlir::MemRefType::get(memref.getShape(), memref.getElementType(), nullptr,
                                                memref.getMemorySpace());
             }
+            SmallVector<mlir::Value> dynamicSizes;
+            if (!memref.hasStaticShape()) {
+                dynamicSizes.reserve(memref.getNumDynamicDims());
+                const auto bounds = getBounds(memref);
+                assert((static_cast<int64_t>(bounds.size()) == memref.getRank()) &&
+                       "Bounds are required to create memref.alloc");
+                for (int64_t i = 0; i < memref.getRank(); ++i) {
+                    if (memref.isDynamicDim(i)) {
+                        dynamicSizes.push_back(builder.create<mlir::arith::ConstantIndexOp>(
+                                appendLoc(loc, "dynamic{0}", i), bounds[Dim(i)]));
+                    }
+                }
+            }
 
-            return static_cast<mlir::Value>(builder.create<mlir::memref::AllocOp>(loc, memref).getMemref());
+            return static_cast<mlir::Value>(
+                    builder.create<mlir::memref::AllocOp>(loc, memref, dynamicSizes).getMemref());
         } else if (auto distributedBuffer = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(type)) {
             return static_cast<mlir::Value>(
                     builder.create<VPURT::AllocDistributed>(loc, distributedBuffer, nullptr, nullptr).getBuffer());

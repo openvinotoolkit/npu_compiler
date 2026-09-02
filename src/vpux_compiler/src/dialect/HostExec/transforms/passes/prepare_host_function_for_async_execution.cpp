@@ -33,35 +33,52 @@ namespace {
 
 void wrapIntoAsyncRegion(mlir::Operation* op,
                          std::unordered_map<mlir::Operation*, mlir::async::CreateGroupOp>& forOpToAsyncGroupMap,
-                         const Logger& log) {
+                         std::size_t& standaloneGroupId, const Logger& log) {
     if (op->getParentOfType<mlir::async::ExecuteOp>() != nullptr) {
         log.trace("[SKIP] The Operation already wrapped into asynchronous region");
         return;
     }
 
-    if (auto forOp = getTopParentOpOfType<mlir::scf::ForOp>(op);
-        forOp && forOpToAsyncGroupMap.count(forOp.getOperation()) == 0) {
-        mlir::OpBuilder builder(forOp);
+    mlir::async::CreateGroupOp group = nullptr;
+    mlir::Operation* parentForOp = nullptr;
 
-        builder.setInsertionPoint(forOp);
-        auto step = forOp.getStep();
-        auto lb = forOp.getLowerBound();
-        auto ub = forOp.getUpperBound();
-        auto numberOfIterations = builder.create<mlir::arith::SubIOp>(forOp.getLoc(), ub, lb);
-        auto numberOfIterationsDivStep = builder.create<mlir::arith::DivSIOp>(forOp.getLoc(), numberOfIterations, step);
-        auto group = builder.create<mlir::async::CreateGroupOp>(forOp.getLoc(), numberOfIterationsDivStep);
-        builder.setInsertionPointAfter(forOp);
+    if (auto forOp = getTopParentOpOfType<mlir::scf::ForOp>(op); forOp != nullptr) {
+        parentForOp = forOp.getOperation();
+        if (forOpToAsyncGroupMap.count(parentForOp) == 0) {
+            mlir::OpBuilder builder(forOp);
 
-        if (forOp->hasAttr("no_await_all") == false) {
-            builder.create<mlir::async::AwaitAllOp>(forOp.getLoc(), group);
+            builder.setInsertionPoint(forOp);
+            auto step = forOp.getStep();
+            auto lb = forOp.getLowerBound();
+            auto ub = forOp.getUpperBound();
+            auto numberOfIterations = builder.create<mlir::arith::SubIOp>(forOp.getLoc(), ub, lb);
+            auto numberOfIterationsDivStep =
+                    builder.create<mlir::arith::DivSIOp>(forOp.getLoc(), numberOfIterations, step);
+            group = builder.create<mlir::async::CreateGroupOp>(forOp.getLoc(), numberOfIterationsDivStep);
+            builder.setInsertionPointAfter(forOp);
+
+            if (forOp->hasAttr("no_await_all") == false) {
+                builder.create<mlir::async::AwaitAllOp>(forOp.getLoc(), group);
+            }
+
+            if (forOp->hasAttr("no_reset_cmdlist")) {
+                // The following attributes will be referred in ConvertToLLVMUMD pass
+                group->setAttr("no_reset_cmdlist", builder.getBoolAttr(true));
+            }
+
+            forOpToAsyncGroupMap[parentForOp] = group;
+        } else {
+            group = forOpToAsyncGroupMap[parentForOp];
         }
-
-        if (forOp->hasAttr("no_reset_cmdlist")) {
-            // The following attributes will be referred in ConvertToLLVMUMD pass
-            group->setAttr("no_reset_cmdlist", builder.getBoolAttr(true));
-        }
-
-        forOpToAsyncGroupMap[forOp.getOperation()] = group;
+    } else {
+        mlir::OpBuilder builder(op);
+        // Standalone async ops do not share a surrounding scf.for group, so create a
+        // group with a single element to keep the same add-to-group / await-all lowering shape
+        auto groupSize = builder.create<mlir::arith::ConstantIndexOp>(op->getLoc(), 1);
+        group = builder.create<mlir::async::CreateGroupOp>(op->getLoc(), groupSize);
+        // Make each standalone group structurally unique so later CSE does not merge
+        // unrelated standalone calls into the same command-list group
+        group->setAttr("standalone_group_id", builder.getI64IntegerAttr(standaloneGroupId++));
     }
 
     log.trace("Create 'async.execute' Operation");
@@ -85,9 +102,11 @@ void wrapIntoAsyncRegion(mlir::Operation* op,
     auto execOp = builder.create<mlir::async::ExecuteOp>(op->getLoc(), mlir::TypeRange{resultTypes},
                                                          /* dependencies */ mlir::ValueRange{},
                                                          /* operands */ mlir::ValueRange{}, bodyBuilder);
-    if (auto forOp = getTopParentOpOfType<mlir::scf::ForOp>(op); forOp != nullptr) {
-        builder.create<mlir::async::AddToGroupOp>(op->getLoc(), execOp.getToken(),
-                                                  forOpToAsyncGroupMap[forOp.getOperation()]);
+    if (group != nullptr) {
+        builder.create<mlir::async::AddToGroupOp>(op->getLoc(), execOp.getToken(), group);
+    }
+    if (parentForOp == nullptr) {
+        builder.create<mlir::async::AwaitAllOp>(op->getLoc(), group);
     }
 
     if (allResultsUnused) {
@@ -244,10 +263,11 @@ void PrepareHostFuncForAsyncExecutionPass::safeRunOnModule() {
         func.walk(makeIndexSwitchReturnVoid);
 
         std::unordered_map<mlir::Operation*, mlir::async::CreateGroupOp> forOpToAsyncGroupMap;
+        std::size_t standaloneGroupId = 0;
         const auto wrapCallOpsIntoAsyncRegion = [&](mlir::Operation* op) {
             _log.trace("Process Layer Operation '{0}' at '{1}'", op->getName(), op->getLoc());
             if (mlir::isa<mlir::CallOpInterface>(op)) {
-                wrapIntoAsyncRegion(op, forOpToAsyncGroupMap, _log.nest());
+                wrapIntoAsyncRegion(op, forOpToAsyncGroupMap, standaloneGroupId, _log.nest());
             }
         };
         func.walk(wrapCallOpsIntoAsyncRegion);

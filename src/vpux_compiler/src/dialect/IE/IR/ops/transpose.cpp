@@ -306,6 +306,13 @@ mlir::LogicalResult ConvertTrivialTransposeToReshape::matchAndRewrite(IE::Transp
         return mlir::failure();
     }
 
+    // IE.Reshape does not support dynamic shapes (see reshape.cpp verifier). A trivial
+    // transpose that carries dynamic (bounded) tensors cannot be lowered to IE.Reshape
+    // without losing that information, so keep it as IE.Transpose.
+    if (IE::hasDynamicTensors(transposeOp)) {
+        return mlir::failure();
+    }
+
     const auto inOrder = DimsOrder::fromValue(transposeOp.getInput());
     // E#70418: this canonicalizer cannot rely on IE::isTrivialTranspose()
     // because IE::Reshape *removes* layout information of the output - trivial

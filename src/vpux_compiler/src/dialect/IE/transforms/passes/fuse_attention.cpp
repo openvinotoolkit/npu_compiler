@@ -5,15 +5,20 @@
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/comparison.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/transpose_op_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/dialect/net/IR/ops.hpp"
+#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/type/float16.hpp"
@@ -41,6 +46,14 @@ public:
 private:
     void safeRunOnFunc() final;
 };
+
+// Legality check for converting an AttentionOp into AttentionDMAOp, expressed on raw input
+// Values. Forward-declared here so the AttentionOp creators below can skip GQA/batch input folding
+// for ops that will become AttentionDMAOp, which must keep raw Q/K/V for the SHAVE kernel.
+bool isLegalAttentionDMAInputs(mlir::Value inputQ, mlir::Value inputK, mlir::Value inputV, mlir::Value inputMask,
+                               mlir::Value inputSink, mlir::Value inputBias);
+
+mlir::Value findSeqLenKFromMask(mlir::Value mask);
 
 //
 // Skip through layout operations (Reshape, AffineReshape, Transpose) that have single use
@@ -95,25 +108,121 @@ mlir::Operation* skipLayoutAndReshapeOps(mlir::Value value) {
     return op;
 }
 
+// Peel a `Squeeze/Reshape -> Select(Broadcast(cond), trueVal, falseVal)` chain on the mask and
+// rebuild the Select on the un-broadcasted condition so the attention kernel receives the
+// minimal broadcast shape (e.g. 1x1x1xsSL) and consumes mask via per-dim broadcast strides.
+// Returns the original value when the chain does not match.
+mlir::Value extractUnbroadcastedMask(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value mask) {
+    if (!mask) {
+        return mask;
+    }
+
+    mlir::Value currentMask = mask;
+    auto maskInputOp = currentMask.getDefiningOp();
+    if (mlir::isa_and_present<IE::SqueezeOp, IE::ReshapeOp, IE::AffineReshapeOp>(maskInputOp)) {
+        currentMask = maskInputOp->getOperand(0);
+    }
+
+    auto selectOp = currentMask.getDefiningOp<IE::SelectOp>();
+    if (selectOp == nullptr) {
+        return mask;
+    }
+    auto broadcastOp = selectOp.getInput1().getDefiningOp<IE::BroadcastOp>();
+    if (broadcastOp == nullptr) {
+        return mask;
+    }
+
+    if (selectOp.getAutoBroadcast() != IE::AutoBroadcastType::NUMPY) {
+        return mask;
+    }
+
+    auto unbroadcastedCond = broadcastOp.getInput();
+
+    // Restrict to the validated key-padding mask pattern where only the innermost (sSL) dimension
+    // varies, i.e. cond is 1x...x1xsSL with the same rank as the broadcast mask. The attention kernel
+    // consumes such a mask via per-dim broadcast strides; requiring an equal rank keeps the peeled
+    // mask at the rank the kernel indexes (no rank reduction), and other broadcast layouts are not
+    // validated against the kernel.
+    const auto condShape = getShape(unbroadcastedCond).raw();
+    const auto maskShape = getShape(broadcastOp.getOutput()).raw();
+    if (condShape.empty() || condShape.size() != maskShape.size() || condShape.back() != maskShape.back() ||
+        !std::all_of(condShape.begin(), condShape.end() - 1, [](int64_t dim) {
+            return dim == 1;
+        })) {
+        return mask;
+    }
+
+    // Broadcast output must match Select output exactly: guarantees the peeled rewrite
+    // is a pure 1->N expansion driven by cond alone.
+    if (getShape(broadcastOp.getOutput()) != getShape(selectOp.getOutput())) {
+        return mask;
+    }
+
+    // Both branches must be 1-element float splat constants holding an attention-mask sentinel value
+    // (0 to keep, -inf to mask). This keeps the new Select's NUMPY-inferred output shape equal to
+    // cond.shape and restricts the rewrite to genuine masks.
+    const auto isMaskSentinelSplat = [](mlir::Value v) {
+        auto constOp = v.getDefiningOp<Const::DeclareOp>();
+        if (constOp == nullptr || !constOp.getContentAttr().isSplat()) {
+            return false;
+        }
+        const auto constType = mlir::cast<NDTypeInterface>(constOp.getOutput().getType());
+        if (!mlir::isa<mlir::FloatType>(constType.getElementType()) || constType.getNumElements() != 1) {
+            return false;
+        }
+        const auto splatValue = Const::getSplatValue<double>(constOp);
+        if (mlir::failed(splatValue)) {
+            return false;
+        }
+        return splatValue.value() == 0.0 || (std::isinf(splatValue.value()) && splatValue.value() < 0.0);
+    };
+    if (!isMaskSentinelSplat(selectOp.getInput2()) || !isMaskSentinelSplat(selectOp.getInput3())) {
+        return mask;
+    }
+
+    auto newSelect =
+            builder.create<IE::SelectOp>(appendLoc(loc, "unbroadcast_mask"), unbroadcastedCond, selectOp.getInput2(),
+                                         selectOp.getInput3(), selectOp.getAutoBroadcastAttr());
+    return newSelect.getOutput();
+}
+
+// Optimize Attention inputs by applying two layout transformations:
 //
-// Optimize Attention inputs by concentrating Batch over Channels
+// 1. GQA reshaping: when qHeads > kvHeads and kvHeads > 1, fold the batch and KV-head dimensions
+//    together so that each group of Q heads shares exactly one K/V head:
+//      Q[N, qC, tSL, E]  -> Q[N*kC, qC/kC, tSL, E]
+//      K[N, kC, sSL, E]  -> K[N*kC, 1,     sSL, E]
+//      V[N, kC, sSL, E]  -> V[N*kC, 1,     sSL, E]
+//    The mask, bias and sink is reshaped to match the new batch/channel dimensions when applicable.
+//    The output is reshaped back to the original [N, qC, tSL, vE] layout.
 //
-std::tuple<mlir::Value, mlir::Value, mlir::Value, mlir::Value, bool, SmallVector<int64_t>> optimizeAttentionInputs(
-        mlir::OpBuilder& builder, mlir::Location loc, mlir::Value inputQ, mlir::Value inputK, mlir::Value inputV,
-        mlir::Value mask) {
+// 2. Batch-to-channels concentration: when batch > 1 and all N*C products (Q, K, V, mask, bias,
+//    sink) are mutually broadcastable, fold the batch dimension into the channel dimension:
+//      X[N, C, S, D] -> X[1, N*C, S, D]
+//    This lets the hardware treat multiple batch entries as additional channel groups and improves
+//    utilization. The output is reshaped back to the original [N, C, S, D] layout.
+//
+std::tuple<mlir::Value, mlir::Value, mlir::Value, mlir::Value, mlir::Value, mlir::Value, bool, SmallVector<int64_t>>
+optimizeAttentionInputs(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value inputQ, mlir::Value inputK,
+                        mlir::Value inputV, mlir::Value mask, mlir::Value bias, mlir::Value sink) {
     const auto ctx = builder.getContext();
     auto queryType = mlir::cast<NDTypeInterface>(inputQ.getType());
     const auto rank = queryType.getRank();
     const auto queryShape = queryType.getShape();
 
     if (rank != 4) {
-        return {inputQ, inputK, inputV, mask, false, SmallVector<int64_t>{}};
+        return {inputQ, inputK, inputV, mask, bias, sink, false, SmallVector<int64_t>{}};
     }
+
+    // Peel mask Squeeze->Select(Broadcast(...)) so the kernel consumes 1x1x1xsSL via stride broadcast.
+    mask = extractUnbroadcastedMask(builder, loc, mask);
 
     mlir::Value optimizedQ = inputQ;
     mlir::Value optimizedK = inputK;
     mlir::Value optimizedV = inputV;
     mlir::Value optimizedMask = mask;
+    mlir::Value optimizedBias = bias;
+    mlir::Value optimizedSink = sink;
     bool needsReshapeBack = false;
     SmallVector<int64_t> origOutputShape;
 
@@ -163,34 +272,42 @@ std::tuple<mlir::Value, mlir::Value, mlir::Value, mlir::Value, bool, SmallVector
                 builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_v_gqa"), inputV, getIntArrayAttr(ctx, newVShape))
                         .getOutput();
 
-        // Reshape mask to match GQA-reshaped Q/K/V batch and channel dimensions.
-        // Per-head mask [maskBatch, qC, S, T] -> [newBatch, qC/kC, S, T];
-        // batch-only mask [batch, 1, S, T] -> [newBatch, 1, S, T];
-        // broadcast mask [1, 1, S, T] kept as-is.
-        if (mask) {
-            const auto maskShape = mlir::cast<NDTypeInterface>(mask.getType()).getShape();
-            if (maskShape.size() == 4) {
-                const auto maskBatch = maskShape.raw()[0];
-                const auto maskChannels = maskShape.raw()[1];
-                int64_t newMaskBatch = maskBatch;
-                int64_t newMaskChannels = maskChannels;
-                if (maskChannels == qChannels && maskChannels > 1) {
-                    newMaskChannels = newQChannels;
-                    if (maskBatch == batch) {
-                        newMaskBatch = newBatch;
-                    }
-                } else if (maskBatch == batch && maskBatch > 1) {
-                    newMaskBatch = newBatch;
-                }
-                if (newMaskBatch != maskBatch || newMaskChannels != maskChannels) {
-                    SmallVector<int64_t> newMaskShape = {newMaskBatch, newMaskChannels, maskShape.raw()[2],
-                                                         maskShape.raw()[3]};
-                    optimizedMask = builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_mask_gqa"), mask,
-                                                                  getIntArrayAttr(ctx, newMaskShape))
-                                            .getOutput();
-                }
+        // Reshape mask/bias/sink to match GQA-reshaped Q/K/V batch and channel dimensions.
+        // Per-head operand [operandBatch, qC, S, T] -> [newBatch, qC/kC, S, T];
+        // batch-only operand [batch, 1, S, T] -> [newBatch, 1, S, T];
+        // broadcast operand [1, 1, S, T] kept as-is.
+        auto reshapeGQAOperand = [&](mlir::Value operand, StringRef name) -> mlir::Value {
+            if (!operand) {
+                return operand;
             }
-        }
+            const auto operandShape = mlir::cast<NDTypeInterface>(operand.getType()).getShape();
+            if (operandShape.size() != 4) {
+                return operand;
+            }
+            const auto operandBatch = operandShape.raw()[0];
+            const auto operandChannels = operandShape.raw()[1];
+            int64_t newOperandBatch = operandBatch;
+            int64_t newOperandChannels = operandChannels;
+            if (operandChannels == qChannels && operandChannels > 1) {
+                newOperandChannels = newQChannels;
+                if (operandBatch == batch) {
+                    newOperandBatch = newBatch;
+                }
+            } else if (operandBatch == batch && operandBatch > 1) {
+                newOperandBatch = newBatch;
+            }
+            if (newOperandBatch != operandBatch || newOperandChannels != operandChannels) {
+                SmallVector<int64_t> newOperandShape = {newOperandBatch, newOperandChannels, operandShape.raw()[2],
+                                                        operandShape.raw()[3]};
+                return builder
+                        .create<IE::ReshapeOp>(appendLoc(loc, name), operand, getIntArrayAttr(ctx, newOperandShape))
+                        .getOutput();
+            }
+            return operand;
+        };
+        optimizedMask = reshapeGQAOperand(mask, "reshape_mask_gqa");
+        optimizedBias = reshapeGQAOperand(bias, "reshape_bias_gqa");
+        optimizedSink = reshapeGQAOperand(sink, "reshape_sink_gqa");
 
         needsReshapeBack = true;
         // Match existing convention: use dimension 2 from V for head dimension
@@ -229,6 +346,18 @@ std::tuple<mlir::Value, mlir::Value, mlir::Value, mlir::Value, bool, SmallVector
                 compatibleShapes = false;
             }
         }
+        if (compatibleShapes && bias) {
+            const auto biasNC = getNCProduct(bias);
+            if (qNC.has_value() && biasNC.has_value() && !vpux::isBroadcastable(qNC.value(), biasNC.value())) {
+                compatibleShapes = false;
+            }
+        }
+        if (compatibleShapes && sink) {
+            const auto sinkNC = getNCProduct(sink);
+            if (qNC.has_value() && sinkNC.has_value() && !vpux::isBroadcastable(qNC.value(), sinkNC.value())) {
+                compatibleShapes = false;
+            }
+        }
 
         if (compatibleShapes) {
             auto reshapeBatchToChannels = [&](mlir::Value input, StringRef name) -> mlir::Value {
@@ -264,8 +393,11 @@ std::tuple<mlir::Value, mlir::Value, mlir::Value, mlir::Value, bool, SmallVector
             optimizedK = reshapeBatchToChannels(inputK, "reshape_k_batch_to_channels");
             optimizedV = reshapeBatchToChannels(inputV, "reshape_v_batch_to_channels");
             optimizedMask = reshapeBatchToChannels(mask, "reshape_mask_batch_to_channels");
+            optimizedBias = reshapeBatchToChannels(bias, "reshape_bias_batch_to_channels");
+            optimizedSink = reshapeBatchToChannels(sink, "reshape_sink_batch_to_channels");
 
-            if (optimizedQ != inputQ || optimizedK != inputK || optimizedV != inputV || optimizedMask != mask) {
+            if (optimizedQ != inputQ || optimizedK != inputK || optimizedV != inputV || optimizedMask != mask ||
+                optimizedBias != bias || optimizedSink != sink) {
                 needsReshapeBack = true;
 
                 // Compute broadcasted output shape from Q, K, V
@@ -279,7 +411,8 @@ std::tuple<mlir::Value, mlir::Value, mlir::Value, mlir::Value, bool, SmallVector
         }
     }
 
-    return {optimizedQ, optimizedK, optimizedV, optimizedMask, needsReshapeBack, origOutputShape};
+    return {optimizedQ,    optimizedK,    optimizedV,       optimizedMask,
+            optimizedBias, optimizedSink, needsReshapeBack, origOutputShape};
 }
 
 void createAttentionFromSDPA(mlir::Operation* op, mlir::Value inputQ, mlir::Value inputK, mlir::Value inputV,
@@ -298,11 +431,17 @@ void createAttentionFromSDPA(mlir::Operation* op, mlir::Value inputQ, mlir::Valu
         scale = Const::createConst(builder, scaleLoc, scaleTensorType, llvm::ArrayRef<float>{scaleValue});
     }
 
-    auto [finalQ, finalK, finalV, finalMask, needsReshapeBack, origOutputShape] =
-            optimizeAttentionInputs(builder, loc, inputQ, inputK, inputV, mask);
+    mlir::Value finalQ = inputQ, finalK = inputK, finalV = inputV, finalMask = mask, finalBias = nullptr,
+                finalSink = sink;
+    bool needsReshapeBack = false;
+    SmallVector<int64_t> origOutputShape;
+    if (!isLegalAttentionDMAInputs(inputQ, inputK, inputV, mask, sink, /*inputBias=*/nullptr)) {
+        std::tie(finalQ, finalK, finalV, finalMask, finalBias, finalSink, needsReshapeBack, origOutputShape) =
+                optimizeAttentionInputs(builder, loc, inputQ, inputK, inputV, mask, /*bias=*/nullptr, sink);
+    }
 
     auto attentionOp = builder.create<IE::AttentionOp>(appendLoc(loc, "attention_full"), finalQ, finalK, finalV,
-                                                       finalMask, scale, sink, /*bias=*/nullptr, /*padSizeS=*/nullptr);
+                                                       finalMask, scale, finalSink, finalBias, /*padSizeS=*/nullptr);
 
     if (needsReshapeBack) {
         auto reshapeBackOp =
@@ -322,11 +461,16 @@ void createAttention(mlir::Operation* op, mlir::Value inputQ, mlir::Value inputK
     const auto ctx = builder.getContext();
     const auto loc = op->getLoc();
 
-    auto [finalQ, finalK, finalV, finalMask, needsReshapeBack, origOutputShape] =
-            optimizeAttentionInputs(builder, loc, inputQ, inputK, inputV, mask);
+    mlir::Value finalQ = inputQ, finalK = inputK, finalV = inputV, finalMask = mask, finalBias = bias, finalSink = sink;
+    bool needsReshapeBack = false;
+    SmallVector<int64_t> origOutputShape;
+    if (!isLegalAttentionDMAInputs(inputQ, inputK, inputV, mask, sink, bias)) {
+        std::tie(finalQ, finalK, finalV, finalMask, finalBias, finalSink, needsReshapeBack, origOutputShape) =
+                optimizeAttentionInputs(builder, loc, inputQ, inputK, inputV, mask, bias, sink);
+    }
 
     auto attentionOp = builder.create<IE::AttentionOp>(appendLoc(loc, "attention_pattern"), finalQ, finalK, finalV,
-                                                       finalMask, scale, sink, bias, /*padSizeS=*/nullptr);
+                                                       finalMask, scale, finalSink, finalBias, /*padSizeS=*/nullptr);
 
     if (needsReshapeBack) {
         auto reshapeBackOp =
@@ -477,6 +621,219 @@ void squeezeSDPALeadingOnesTo4D(IE::SDPAOp sdpaOp) {
                                                    getIntArrayAttr(ctx, getShape(sdpaOp.getOutput()).raw()));
     sdpaOp.getOutput().replaceAllUsesWith(unsqueeze.getOutput());
     sdpaOp.erase();
+}
+
+// Legal AttentionDMA configurations: {qHeadSize, tSL, sSL}
+struct AttentionDMAConfigs {
+    int64_t qHeadSize;
+    int64_t tSL;
+    int64_t sSL;
+    int64_t eDim;
+    int64_t eVDim;
+};
+
+static const SmallVector<AttentionDMAConfigs> LEGAL_ATTENTION_DMA_CONFIGS = {
+        {12, 3600, 3600, 16, 16},
+};
+
+bool isLegalAttentionDMAInputs(mlir::Value inputQ, mlir::Value inputK, mlir::Value inputV, mlir::Value inputMask,
+                               mlir::Value inputSink, mlir::Value inputBias) {
+    auto tensorTypeQ = mlir::cast<NDTypeInterface>(inputQ.getType());
+    auto tensorTypeK = mlir::cast<NDTypeInterface>(inputK.getType());
+    auto tensorTypeV = mlir::cast<NDTypeInterface>(inputV.getType());
+
+    const auto rankQ = tensorTypeQ.getRank();
+    const auto rankK = tensorTypeK.getRank();
+    const auto rankV = tensorTypeV.getRank();
+
+    if (rankQ < 3 || rankQ > 4) {
+        return false;
+    }
+    if (rankK < 3 || rankK > 4) {
+        return false;
+    }
+    if (rankV < 3 || rankV > 4) {
+        return false;
+    }
+    // Boolean mask (i8 signless) is not yet supported in legal AttentionDMA configs
+    if (inputMask) {
+        auto tensorTypeMask = mlir::cast<NDTypeInterface>(inputMask.getType());
+        auto maskElemType = tensorTypeMask.getElementType();
+        if (maskElemType.isSignlessInteger(8)) {
+            return false;
+        }
+    }
+
+    auto shapeQ = tensorTypeQ.getShape().raw();
+    auto shapeK = tensorTypeK.getShape().raw();
+    auto shapeV = tensorTypeV.getShape().raw();
+
+    // If any Q/K/V dimension is dynamic, always allow conversion to AttentionDynamic
+    const auto hasDynamicDim = [](ArrayRef<int64_t> shape) {
+        return llvm::any_of(shape, [](int64_t d) {
+            return d == mlir::ShapedType::kDynamic;
+        });
+    };
+    if (hasDynamicDim(shapeQ) || hasDynamicDim(shapeK) || hasDynamicDim(shapeV)) {
+        vpux::Logger::global().trace("AttentionOp has dynamic shapes, legal for AttentionDma.");
+        return true;
+    }
+
+    const auto qHeadSize = (rankQ == 3) ? shapeQ[0] : shapeQ[0] * shapeQ[1];
+    const auto tSL = shapeQ[rankQ - 2];
+    const auto sSL = shapeK[rankK - 2];
+    const auto eDim = shapeK[rankK - 1];
+    // V may be transposed or not; mirror AttentionOp type inference (inferReturnTypeComponents) to
+    // pick the embedding dim, otherwise non-transposed V would be misclassified.
+    const auto isTransposedV = shapeK[rankK - 2] != shapeV[rankV - 2];
+    const auto eVdim = isTransposedV ? shapeV[rankV - 2] : shapeV[rankV - 1];
+
+    // If the input sink is present, DynamicAttention is not supported
+    if (inputSink != nullptr) {
+        return false;
+    }
+
+    // Bias-only (no mask) is not supported by AttentionDMA DMA kernel yet.
+    if (inputBias != nullptr && inputMask == nullptr) {
+        return false;
+    }
+
+    auto matches = [&](const AttentionDMAConfigs& config) {
+        return (config.qHeadSize == qHeadSize) && (config.sSL == sSL) && (config.tSL == tSL) && (config.eDim == eDim) &&
+               (config.eVDim == eVdim);
+    };
+
+    if (llvm::any_of(LEGAL_ATTENTION_DMA_CONFIGS, matches)) {
+        vpux::Logger::global().trace("AttentionOp is legal for AttentionDMA conversion");
+        return true;
+    }
+
+    // The AttentionDMAFlash kernel handles variable-length KV sequences via an explicit seqLenK argument.
+    if (findSeqLenKFromMask(inputMask) != nullptr && sSL >= 8192) {
+        return true;
+    }
+
+    return false;
+}
+
+bool isLegalAttentionDMA(IE::AttentionOp op) {
+    auto attDynOpName = mlir::OperationName("IE.AttentionDMA", op->getContext());
+    if (!attDynOpName.isRegistered() || !attDynOpName.hasInterface<IE::LayerWithDmaInterface>()) {
+        return false;
+    }
+    // Query the interface to confirm the current workload management mode is FWLM: AttentionDMA relies on
+    // the FWLM SHV-submit-DMA flow, so it must not be lowered when FWLM is not active.
+    const auto* iface = attDynOpName.getInterface<IE::LayerWithDmaInterface>();
+    if (!iface || !iface->isSupported(iface, op.getOperation())) {
+        return false;
+    }
+    return isLegalAttentionDMAInputs(op.getInputQ(), op.getInputK(), op.getInputV(), op.getInputMask(),
+                                     op.getInputSink(), op.getInputBias());
+}
+
+mlir::Value getNonConstOperand(mlir::Value lhs, mlir::Value rhs) {
+    const auto isConst = [](mlir::Value value) {
+        return mlir::isa_and_present<Const::DeclareOp>(value.getDefiningOp());
+    };
+    const bool lhsConst = isConst(lhs);
+    const bool rhsConst = isConst(rhs);
+    if (lhsConst == rhsConst) {
+        return nullptr;
+    }
+    return lhsConst ? rhs : lhs;
+}
+
+// Match the mask tree encoding seq_len_k; return the seq_len_k block argument (nullptr on mismatch).
+//   seq_len_k -> Convert -> Add(c) -> AffineReshape
+//     -> Add(c)      -> Greater(c)                       (left-aligned:  valid tokens at buffer start, -inf on right)
+//     -> Subtract(c) -> Broadcast(c) -> GreaterEqual(c)  (right-aligned: valid tokens at buffer end,   -inf on left)
+//     -> Select(cond, c, c) == mask
+mlir::Value findSeqLenKFromMask(mlir::Value mask) {
+    if (!mask) {
+        return nullptr;
+    }
+
+    auto selectOp = mask.getDefiningOp<IE::SelectOp>();
+    if (selectOp == nullptr) {
+        return nullptr;
+    }
+    mlir::Value current = selectOp.getInput1();
+
+    StringRef alignment;
+    if (auto greaterOp = current.getDefiningOp<IE::GreaterOp>()) {
+        alignment = "left-aligned";
+        current = getNonConstOperand(greaterOp.getInput1(), greaterOp.getInput2());
+    } else if (auto greaterEqualOp = current.getDefiningOp<IE::GreaterEqualOp>()) {
+        alignment = "right-aligned";
+        current = getNonConstOperand(greaterEqualOp.getInput1(), greaterEqualOp.getInput2());
+    } else {
+        return nullptr;
+    }
+    if (current == nullptr) {
+        return nullptr;
+    }
+
+    if (alignment == "right-aligned") {
+        auto broadcastOp = current.getDefiningOp<IE::BroadcastOp>();
+        if (broadcastOp == nullptr) {
+            return nullptr;
+        }
+        current = broadcastOp.getInput();
+
+        auto subtractOp = current.getDefiningOp<IE::SubtractOp>();
+        if (subtractOp == nullptr) {
+            return nullptr;
+        }
+        current = getNonConstOperand(subtractOp.getInput1(), subtractOp.getInput2());
+        if (current == nullptr) {
+            return nullptr;
+        }
+    } else {
+        // Follow all Add ops until AffineReshape — the count is 1 or 2 depending on
+        // whether OV constant-folded the row-offset and scalar-adjustment adds into one.
+        while (auto addOp = current.getDefiningOp<IE::AddOp>()) {
+            current = getNonConstOperand(addOp.getInput1(), addOp.getInput2());
+            if (current == nullptr) {
+                return nullptr;
+            }
+        }
+    }
+
+    auto affineReshapeOp = current.getDefiningOp<IE::AffineReshapeOp>();
+    if (affineReshapeOp == nullptr) {
+        return nullptr;
+    }
+    current = affineReshapeOp.getInput();
+
+    auto addOp = current.getDefiningOp<IE::AddOp>();
+    if (addOp == nullptr) {
+        return nullptr;
+    }
+    current = getNonConstOperand(addOp.getInput1(), addOp.getInput2());
+    if (current == nullptr) {
+        return nullptr;
+    }
+
+    auto convertOp = current.getDefiningOp<IE::ConvertOp>();
+    if (convertOp == nullptr) {
+        return nullptr;
+    }
+    current = convertOp.getInput();
+
+    if (current.getDefiningOp() != nullptr) {
+        return nullptr;
+    }
+    auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(current.getType());
+    if (tensorType == nullptr || !tensorType.getElementType().isInteger(32) || tensorType.getNumElements() != 1) {
+        return nullptr;
+    }
+
+    // Right-aligned masks are not yet supported by the AttentionDMA kernel.
+    if (alignment == "right-aligned") {
+        return nullptr;
+    }
+
+    return current;
 }
 
 //
@@ -630,8 +987,30 @@ void FuseAttentionPass::safeRunOnFunc() {
             return;
         }
 
-        mlir::Value inputQ = qkMatMulOp.getInput1();
-        mlir::Value inputK = qkMatMulOp.getInput2();
+        // Skip Reshape ops that concentrate the batch dimension into channels:
+        // [N, C, S, D] -> [1, N*C, S, D]. The optimizeAttentionInputs step applies
+        // this transformation itself if possible;
+        const auto skipBatchToChannelReshape = [](mlir::Value value) -> mlir::Value {
+            auto reshapeOp = value.getDefiningOp<IE::ReshapeOp>();
+            if (reshapeOp == nullptr) {
+                return value;
+            }
+            const auto inType = mlir::cast<NDTypeInterface>(reshapeOp.getInput().getType());
+            const auto outType = mlir::cast<NDTypeInterface>(reshapeOp.getOutput().getType());
+            if (inType.getRank() != 4 || outType.getRank() != 4) {
+                return value;
+            }
+            const auto inShape = inType.getShape().raw();
+            const auto outShape = outType.getShape().raw();
+            if (outShape[0] == 1 && inShape[0] * inShape[1] == outShape[1] && inShape[2] == outShape[2] &&
+                inShape[3] == outShape[3]) {
+                return reshapeOp.getInput();
+            }
+            return value;
+        };
+
+        mlir::Value inputQ = skipBatchToChannelReshape(qkMatMulOp.getInput1());
+        mlir::Value inputK = skipBatchToChannelReshape(qkMatMulOp.getInput2());
 
         // Check all input ranks before any graph modifications.
         auto hasInvalidRank = [](mlir::Value val) -> bool {
@@ -677,6 +1056,11 @@ void FuseAttentionPass::safeRunOnFunc() {
                         return {input, nullptr};
                     }
 
+                    // AttentionOp only supports a scalar scale
+                    if (mlir::cast<NDTypeInterface>(scale.getType()).getShape().totalSize() != 1) {
+                        return {input, nullptr};
+                    }
+
                     if (!layoutOps.empty()) {
                         // Reconnect the first layout op to bypass the multiply
                         layoutOps.back()->setOperand(0, multiplyOp.getInput1());
@@ -705,7 +1089,12 @@ void FuseAttentionPass::safeRunOnFunc() {
             }
         }
 
-        mlir::Value inputV = matMulVOp.getInput2();
+        // AttentionOp only supports a scalar scale
+        if (scale != nullptr && mlir::cast<NDTypeInterface>(scale.getType()).getShape().totalSize() != 1) {
+            return;
+        }
+
+        mlir::Value inputV = skipBatchToChannelReshape(matMulVOp.getInput2());
 
         inputV = extractUnbroadcastedInput(builder, matMulVOp->getLoc(), inputV);
 
@@ -837,7 +1226,7 @@ void FuseAttentionPass::safeRunOnFunc() {
             const auto maskRank = mlir::cast<NDTypeInterface>(tiledMask.getType()).getRank();
             SmallVector<int64_t> maskTiles(maskRank, 1);
             maskTiles[maskRank - 2] = qHeads;
-            tiledMask = builder.create<IE::TileOp>(appendLoc(loc, "mqa_fold_mask"), tiledMask, nullptr,
+            tiledMask = builder.create<IE::TileOp>(appendLoc(loc, "mqa_fold_mask"), tiledMask,
                                                    getIntArrayAttr(ctx, maskTiles))
                                 .getOutput();
         }
@@ -855,6 +1244,21 @@ void FuseAttentionPass::safeRunOnFunc() {
 
         attentionOp.getOutput().replaceAllUsesWith(reshapedOut.getOutput());
         attentionOp.erase();
+    });
+
+    // Convert AttentionOp to AttentionDMAOp if the configuration is legal for AttentionDMA.
+    func->walk([&](IE::AttentionOp attentionOp) {
+        if (isLegalAttentionDMA(attentionOp)) {
+            auto builder = mlir::OpBuilder(attentionOp);
+            mlir::Value seqLenK = findSeqLenKFromMask(attentionOp.getInputMask());
+            auto newAttOp = builder.create<IE::AttentionDMAOp>(
+                    attentionOp->getLoc(), attentionOp.getInputQ(), attentionOp.getInputK(), attentionOp.getInputV(),
+                    seqLenK ? nullptr : attentionOp.getInputMask(), attentionOp.getInputScale(),
+                    attentionOp.getInputSink(), attentionOp.getInputBias(), seqLenK, attentionOp.getPadSizeSAttr());
+
+            attentionOp.getOutput().replaceAllUsesWith(newAttOp.getOutput());
+            attentionOp.erase();
+        }
     });
 }
 

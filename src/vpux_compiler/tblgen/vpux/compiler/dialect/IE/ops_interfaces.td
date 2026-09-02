@@ -204,6 +204,27 @@ def IE_AlignedChannelsOpInterface : OpInterface<"AlignedChannelsOpInterface"> {
 }
 
 //
+// ShapeInfoOpInterface
+//
+
+def IE_ShapeInfoOpInterface : OpInterface<"ShapeInfoOpInterface"> {
+    let description = "Interface for operations that require 4D shapes after shape legalization";
+
+    let cppNamespace = "vpux::IE";
+
+    let methods = [
+        InterfaceMethod<
+            "Verify operation shape requirements",
+            "mlir::LogicalResult", "verifyShapeInfo", (ins)
+        >
+    ];
+
+    let verify = [{
+        return vpux::IE::verifyShapeInfo($_op);
+    }];
+}
+
+//
 // QuantizedLayerOpInterface
 //
 
@@ -249,16 +270,22 @@ def IE_QuantizedLayerOpInterface : OpInterface<"QuantizedLayerOpInterface"> {
 //
 
 def IE_MPEEngineInfoOpInterface : OpInterface<"MPEEngineInfoOpInterface"> {
-    let description = "Interface for querying the MPE engine mode.";
+    let description = "Interface for querying the MPE engine.";
     let cppNamespace = "vpux::IE";
 
     let methods = [
-    InterfaceMethod<
-        "Get the current MPE engine mode.",
-        "mlir::Attribute",
-        "getMPEEngineMode"
-    >
-];
+        InterfaceMethod<
+            "Get the MPE engine.",
+            "mlir::Attribute",
+            "getMPEEngine"
+        >,
+        InterfaceMethod<
+            "Get the MPE engine with explicit weight and activation zero-points.",
+            "mlir::Attribute",
+            "getMPEEngineWithZP",
+            (ins "mlir::Attribute":$weightZp, "mlir::Attribute":$activationZp)
+        >
+    ];
 }
 
 //

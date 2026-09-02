@@ -114,6 +114,39 @@ INSTANTIATE_TEST_SUITE_P(DynDQ, DynDQTestCommon, ::testing::ValuesIn(params), Dy
 INSTANTIATE_TEST_SUITE_P(DynDQ, DynDQTestCommonWithoutNF4, ::testing::ValuesIn(paramsI4),
                          DynDQTestCommonWithoutNF4::getTestCaseName);
 
+class DynDQTestGSSmall : public DynDQTestCommon {};
+
+TEST_P(DynDQTestGSSmall, NPU3720_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU3720);
+}
+
+TEST_P(DynDQTestGSSmall, NPU4000_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(DynDQTestGSSmall, NPU5010_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(DynDQTestGSSmall, NPU5020_TestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5020);
+}
+
+const std::vector<DynDeQuantParams> paramsGSSmall = {
+        {{80, 1024, 32}, {80, 1024, 1}, ov::element::i4, ov::element::f16},
+        {{128, 2560, 32}, {128, 2560, 1}, ov::element::i4, ov::element::f16},
+        {{80, 4096, 32}, {80, 4096, 1}, ov::element::i4, ov::element::f16},
+        {{80, 1024, 64}, {80, 1024, 1}, ov::element::i4, ov::element::f16},
+        {{80, 1024, 96}, {80, 1024, 1}, ov::element::i4, ov::element::f16},
+};
+
+INSTANTIATE_TEST_SUITE_P(DynDQ_GSSmall, DynDQTestGSSmall, ::testing::ValuesIn(paramsGSSmall),
+                         DynDQTestGSSmall::getTestCaseName);
+
 //
 // Asymmetric dynamic dequantization test (Convert -> Subtract(zp) -> Multiply(scale))
 // exercises the asymmetric pattern consolidated by ConsolidateWeightsDequantization

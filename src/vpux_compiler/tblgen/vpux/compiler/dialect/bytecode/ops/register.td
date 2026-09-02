@@ -9,6 +9,7 @@
 include "vpux/compiler/dialect/bytecode/ops/base.td"
 include "vpux/compiler/dialect/bytecode/types.td"
 include "mlir/IR/BuiltinAttributes.td"
+include "mlir/IR/SymbolInterfaces.td"
 
 def Bytecode_GeneralRegisterOp : Bytecode_Op<"general_register", []> {
     let summary = "General register operation";
@@ -109,7 +110,7 @@ def Bytecode_VirtualParameterRegisterOp : Bytecode_Op<"virtual_parameter_registe
 def Bytecode_SetOp : Bytecode_TwoOperandsInstructionBase<"set", [], "1.0.0", "intel_npu::vm::OpCode::SET"> {
     let summary = "Set operation";
 
-    let opDescription = [{
+    let description = [{
         This operation sets the value of a source register into a destination register.
 
         Examples:
@@ -120,6 +121,11 @@ def Bytecode_SetOp : Bytecode_TwoOperandsInstructionBase<"set", [], "1.0.0", "in
 }
 
 def Bytecode_SetImmOp : Bytecode_InstructionOp<"set_imm", [], "1.0.0", "intel_npu::vm::OpCode::SET_IMM"> {
+    let extraClassDeclaration = [{
+        bool isDstOperand(::mlir::OpOperand& operand) {
+            return operand.get() == getDst();
+        }
+    }];
     let summary = "Set immediate operation";
 
     let description = [{
@@ -145,5 +151,63 @@ def Bytecode_SetImmOp : Bytecode_InstructionOp<"set_imm", [], "1.0.0", "intel_np
     }];
 }
 
+def Bytecode_SetImmIdxOp : Bytecode_InstructionOp<"set_imm_idx",
+        [DeclareOpInterfaceMethods<SymbolUserOpInterface>],
+        "1.0.0", "intel_npu::vm::OpCode::SET_IMM"> {
+    let summary = "Set symbol index operation";
+
+    let description = [{
+        This operation resolves a symbol reference to its positional index in the function section and writes the
+        result into a destination register.
+
+        Example:
+        ```mlir
+        bytecode.set_imm_idx %dst, @func_section::@my_function
+        ```
+
+        This is an intermediate compiler-only operation. During serialization it lowers to the regular `set.imm`
+        instruction with the computed integer index.
+    }];
+
+    let arguments = (ins
+        Bytecode_RegisterType:$dst,
+        SymbolRefAttr:$callee
+    );
+
+    let assemblyFormat = [{
+        $dst `,` $callee attr-dict
+    }];
+}
+
+def Bytecode_ImmRegisterOp : Bytecode_Op<"imm_register", []> {
+    let summary = "Materialize a 64-bit constant into a virtual register";
+
+    let description = [{
+        Intermediate op: materialize a 64-bit immediate value as a virtual register.
+        Lowered to (VirtualGeneralRegisterOp + SetImmOp) by DeduplicateAndLowerImmRegisterOps
+        before register allocation. That pass deduplicates same-value source uses: entry-block
+        materializations are reused across all successor blocks; within non-entry blocks,
+        same-value source uses share a single VGR. A fresh (VGR + SetImmOp) is always created
+        for each destination use, ensuring shared VGRs are never overwritten.
+
+        Example:
+        ```mlir
+        %reg = bytecode.imm_register 1
+        ```
+    }];
+
+    let arguments = (ins I64Attr:$value);
+    let results   = (outs Bytecode_RegisterType:$result);
+
+    let builders = [
+        OpBuilder<(ins "mlir::IntegerAttr":$value), [{
+            build($_builder, $_state,
+                  vpux::bytecode::RegisterType::get($_builder.getContext()),
+                  value);
+        }]>
+    ];
+
+    let assemblyFormat = "$value attr-dict";
+}
 
 #endif

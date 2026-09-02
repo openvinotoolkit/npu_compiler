@@ -18,12 +18,22 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace vpux::VPU {
 
+using ScalarValueMap = llvm::DenseMap<mlir::Value, int64_t>;
+
 // Forward declaration for block processor callback
-using BlockProcessor = std::function<bool(mlir::Block*, llvm::DenseMap<mlir::Value, int64_t>&)>;
+using BlockProcessor = std::function<bool(mlir::Block*, ScalarValueMap&)>;
+
+/**
+ * @brief Recovers a bound for a tensor that carries none of its own, as a double bit pattern.
+ *
+ * Used by TensorDialectProcessor to resolve a tensor.extract whose source is not a constant.
+ */
+using TensorBoundResolver = std::function<std::optional<int64_t>(mlir::Value)>;
 
 /**
  * @brief Get integer value from a tensor::DimOp using bounds attribute
@@ -71,8 +81,9 @@ public:
 
     /**
      * @brief Create a registry with default processors
+     * @param tensorBoundResolver Optional fallback used by the tensor processor for non-constant sources
      */
-    static std::unique_ptr<DialectProcessorRegistry> createDefault();
+    static std::unique_ptr<DialectProcessorRegistry> createDefault(TensorBoundResolver tensorBoundResolver = nullptr);
 
 private:
     std::vector<std::unique_ptr<IDialectProcessor>> _processors;
@@ -98,7 +109,7 @@ public:
      * @param blockProcessor Optional callback for processing nested blocks (used by SCF)
      * @return true if processing succeeded, false otherwise
      */
-    virtual bool processOperation(mlir::Operation* op, llvm::DenseMap<mlir::Value, int64_t>& valueMap,
+    virtual bool processOperation(mlir::Operation* op, ScalarValueMap& valueMap,
                                   BlockProcessor blockProcessor = nullptr) const = 0;
 
     /**
@@ -119,7 +130,7 @@ public:
     explicit AffineDialectProcessor(Logger log): _log(log) {
     }
     bool canProcess(mlir::Operation* op) const override;
-    bool processOperation(mlir::Operation* op, llvm::DenseMap<mlir::Value, int64_t>& valueMap,
+    bool processOperation(mlir::Operation* op, ScalarValueMap& valueMap,
                           BlockProcessor blockProcessor = nullptr) const override;
     llvm::StringRef getDialectName() const override {
         return "affine";
@@ -139,7 +150,7 @@ public:
     explicit ArithmeticDialectProcessor(Logger log): _log(log) {
     }
     bool canProcess(mlir::Operation* op) const override;
-    bool processOperation(mlir::Operation* op, llvm::DenseMap<mlir::Value, int64_t>& valueMap,
+    bool processOperation(mlir::Operation* op, ScalarValueMap& valueMap,
                           BlockProcessor blockProcessor = nullptr) const override;
     llvm::StringRef getDialectName() const override {
         return "arith";
@@ -157,17 +168,38 @@ public:
     explicit SCFDialectProcessor(Logger log): _log(log) {
     }
     bool canProcess(mlir::Operation* op) const override;
-    bool processOperation(mlir::Operation* op, llvm::DenseMap<mlir::Value, int64_t>& valueMap,
+    bool processOperation(mlir::Operation* op, ScalarValueMap& valueMap,
                           BlockProcessor blockProcessor = nullptr) const override;
     llvm::StringRef getDialectName() const override {
         return "scf";
     }
 
 private:
-    bool processIfOp(mlir::scf::IfOp ifOp, llvm::DenseMap<mlir::Value, int64_t>& valueMap,
-                     const BlockProcessor& blockProcessor) const;
+    bool processIfOp(mlir::scf::IfOp ifOp, ScalarValueMap& valueMap, const BlockProcessor& blockProcessor) const;
 
     Logger _log;
+};
+
+/**
+ * @brief Tensor dialect processor
+ */
+class TensorDialectProcessor : public IDialectProcessor {
+public:
+    explicit TensorDialectProcessor(Logger log, TensorBoundResolver boundResolver = nullptr)
+            : _log(log), _boundResolver(std::move(boundResolver)) {
+    }
+    bool canProcess(mlir::Operation* op) const override;
+    bool processOperation(mlir::Operation* op, ScalarValueMap& valueMap,
+                          BlockProcessor blockProcessor = nullptr) const override;
+    llvm::StringRef getDialectName() const override {
+        return "tensor";
+    }
+
+private:
+    bool processExtractOp(mlir::tensor::ExtractOp extractOp, ScalarValueMap& valueMap) const;
+
+    Logger _log;
+    TensorBoundResolver _boundResolver;
 };
 
 }  // namespace vpux::VPU

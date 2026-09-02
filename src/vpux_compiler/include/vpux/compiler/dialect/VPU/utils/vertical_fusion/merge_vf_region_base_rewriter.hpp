@@ -59,6 +59,7 @@ public:
     }
 
 protected:
+    virtual VFConfigType createVFConfig(VPU::VerticalFusionOp vfOp) const = 0;
     virtual StrategyCost extractVFCost(VFConfigType& vfConfig) const = 0;
     virtual bool canMergeVFOpsWithoutCostCheck(VFCaseType& mergedCase) const = 0;
     virtual bool canSkipMergeVF(VFConfigType& vfConfig, bool opsNeedTiling) const = 0;
@@ -67,7 +68,7 @@ protected:
     virtual std::optional<VFCaseType> findVFCase(VPU::VerticalFusionOp prevOp, VPU::VerticalFusionOp currentOp,
                                                  VPU::VerticalFusionOp mergedOp) const = 0;
     bool isLegalFusion(VPU::VerticalFusionOp currentOp, VPU::VerticalFusionOp prevOp) const;
-    bool checkOtherVFInput(VPU::VerticalFusionOp currentOp, VPU::VerticalFusionOp prevOp) const;
+    virtual bool checkOtherVFInput(VPU::VerticalFusionOp currentOp, VPU::VerticalFusionOp prevOp) const;
     virtual bool checkVFCostFunction(VPU::VerticalFusionOp prevOp, VPU::VerticalFusionOp currentOp,
                                      VFCaseType& mergedCase) const = 0;
     bool waitOtherUsers(VPU::VerticalFusionOp newBlock, VPU::VerticalFusionOp parentVFOp) const;

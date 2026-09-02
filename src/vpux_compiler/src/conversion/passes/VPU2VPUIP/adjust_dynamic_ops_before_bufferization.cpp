@@ -3,11 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include <llvm/ADT/STLExtras.h>
-#include <mlir/IR/BuiltinTypes.h>
-
-#include <functional>
-#include <utility>
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
@@ -15,6 +10,13 @@
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
+
+#include <llvm/ADT/STLExtras.h>
+#include <mlir/IR/BuiltinTypes.h>
+
+#include <algorithm>
+#include <cmath>
+#include <utility>
 
 namespace vpux {
 #define GEN_PASS_DECL_ADJUSTDYNAMICOPSBEFOREBUFFERIZATION
@@ -51,18 +53,13 @@ mlir::LogicalResult UnsqueezeRewrite::matchAndRewrite(VPU::UnsqueezeOp origOp, m
     const auto output = origOp.getOutput();
     const auto outputShape = getShape(output);
 
-    const auto dynamicDimsMaskType = mlir::cast<Core::DynamicDimsMaskTensorType>(output.getType());
-    const auto dynamicDimsMask = dynamicDimsMaskType.getDynamicDimsMask();
+    const auto boundedTensorType = mlir::cast<Core::BoundedTensorType>(output.getType());
 
-    auto dynamicShape = SmallVector<int64_t>();
-    auto zeroedDynamicDimsShape = SmallVector<int32_t>();
-    for (auto [dim, mask] : zip(outputShape, dynamicDimsMask.raw())) {
-        auto dynamicDim = (mask == 0) ? dim : mlir::ShapedType::kDynamic;
-        dynamicShape.push_back(dynamicDim);
-
-        auto zeroedDim = (mask == 0) ? checked_cast<int32_t>(dim) : 0;
-        zeroedDynamicDimsShape.push_back(zeroedDim);
-    }
+    SmallVector<int32_t> zeroedDynamicDimsShape;
+    zeroedDynamicDimsShape.reserve(outputShape.size());
+    std::transform(outputShape.begin(), outputShape.end(), std::back_inserter(zeroedDynamicDimsShape), [](int64_t dim) {
+        return (dim == mlir::ShapedType::kDynamic) ? 0 : dim;
+    });
 
     const auto outputRank = checked_cast<int64_t>(outputShape.size());
     const auto si32Type = mlir::IntegerType::get(ctx, 32, mlir::IntegerType::Signed);
@@ -70,11 +67,11 @@ mlir::LogicalResult UnsqueezeRewrite::matchAndRewrite(VPU::UnsqueezeOp origOp, m
     const auto shapeTensor =
             Const::createConst(rewriter, origOp->getLoc(), shapeType, ArrayRef(zeroedDynamicDimsShape));
 
-    const auto outputShapeAttr = getIntArrayAttr(ctx, dynamicShape);
-    const auto outputBoundsAttr = getIntArrayAttr(ctx, outputShape.raw());
+    const auto outputShapeAttr = getIntArrayAttr(ctx, outputShape);
+    const auto outputBoundsAttr = getIntArrayAttr(ctx, boundedTensorType.getBounds());
     rewriter.replaceOpWithNewOp<VPU::DynamicReshapeOp>(origOp, origOp.getType(), origOp.getInput(), shapeTensor,
                                                        outputShapeAttr, outputBoundsAttr, /*only_set_shape*/ false,
-                                                       VPU::BoundsRepresentation::DYNAMIC_DIMS_MASK);
+                                                       VPU::BoundsRepresentation::BOUNDS);
     return mlir::success();
 }
 

@@ -68,11 +68,6 @@ mlir::ShapedType VPU::DistributedTensorType::cloneWith(std::optional<mlir::Array
     return mlir::cast<vpux::VPU::DistributedTensorType>(changeShapeElemType(ShapeRef(shape.value()), elementType));
 }
 
-mlir::FailureOr<::mlir::bufferization::BufferLikeType> VPU::DistributedTensorType::getBufferType(
-        const mlir::bufferization::BufferizationOptions&, llvm::function_ref<mlir::InFlightDiagnostic()>) const {
-    return mlir::cast<mlir::bufferization::BufferLikeType>(vpux::getBufferType(*this));
-}
-
 mlir::LogicalResult VPU::DistributedTensorType::verifyCompatibleBufferType(
         mlir::bufferization::BufferLikeType bufferType, llvm::function_ref<mlir::InFlightDiagnostic()>) const {
     // Note: in theory, this can be done differently, without needing to convert
@@ -90,11 +85,6 @@ mlir::ShapedType VPU::SparseTensorType::cloneWith(std::optional<mlir::ArrayRef<i
         return mlir::cast<vpux::VPU::SparseTensorType>(changeElemType(elementType));
     }
     return mlir::cast<vpux::VPU::SparseTensorType>(changeShapeElemType(ShapeRef(shape.value()), elementType));
-}
-
-mlir::FailureOr<::mlir::bufferization::BufferLikeType> VPU::SparseTensorType::getBufferType(
-        const mlir::bufferization::BufferizationOptions&, llvm::function_ref<mlir::InFlightDiagnostic()>) const {
-    return mlir::cast<mlir::bufferization::BufferLikeType>(vpux::getBufferType(*this));
 }
 
 mlir::LogicalResult VPU::SparseTensorType::verifyCompatibleBufferType(

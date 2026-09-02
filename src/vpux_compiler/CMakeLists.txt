@@ -108,7 +108,8 @@ target_include_directories(npu_compiler_interface
 # Link only essential dependencies that are part of the public API
 target_link_libraries(npu_compiler_interface
     PUBLIC
-        openvino::npu_al
+        npu_core_utils
+        openvino::runtime
 )
 
 # Construct source files after BITCOMPACTOR configuration
@@ -183,8 +184,8 @@ target_include_directories(${COMPILER_TARGET}
 
 target_link_libraries(${COMPILER_TARGET}
     PUBLIC
-        openvino::npu_al
         npu_compiler_interface
+        openvino::npu_al
     PRIVATE
         npu_profiling_utils
 )

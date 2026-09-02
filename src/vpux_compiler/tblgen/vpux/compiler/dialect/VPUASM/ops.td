@@ -402,6 +402,7 @@ def VPUASM_ManagedMappedInferenceOp :
         UI8Attr:$dma_from_ddr_used,
         UI8Attr:$dma_from_cmx_used,
         SymbolRefAttr:$mappedInferenceVersion,
+        OptionalAttr<SymbolRefAttr>:$dpuPvpTask,
         VPURegMapped_WorkloadManagementBarrierProgrammingModeAttr:$workloadManagementBarrierProgrammingMode,
         BoolAttr:$disableDmaSwFifo
         );
@@ -414,9 +415,28 @@ def VPUASM_ManagedMappedInferenceOp :
         `bootstrapBarriers` `(` ($bootstrapBarriers^)? `)`
         `nnrtConfig` `(` $nnrtConfig `)`
         `mappedInferenceVersion` `(` $mappedInferenceVersion `)`
+        (`dpuPvpTask` `(` $dpuPvpTask^ `)`)?
         (`barrierConfigurationTasks` `(` $barrierConfigurationTasks^ `)`)?
         (`numOfBarrierReprogrammings` `(` $numOfBarrierReprogrammings^ `)`)?
         attr-dict
+    }];
+}
+
+//
+// DpuPVPOp
+//
+
+def VPUASM_DpuPVPOp :
+        VPUASM_Instruction<"DpuPVP", []> {
+    let summary = [{A task containing FP operation counts for DPU PVP configuration. The op is empty as it will get populated
+                    by the actual rewriter of the op.}];
+
+    let arguments = (ins
+        SymbolNameAttr:$sym_name
+    );
+
+    let assemblyFormat = [{
+        $sym_name attr-dict
     }];
 }
 
@@ -598,7 +618,9 @@ def VPUASM_NNDMAOp :
         OptionalAttr<SymbolRefAttr>:$indices,
         OptionalAttr<VPUIP_GatherAddressingMode>:$addressing_mode,
         OptionalAttr<VPUIP_SkipDMAAttr>:$skip_dma,
-        OptionalAttr<VPUIP_FetchDMAAttr>:$fetch_dma
+        OptionalAttr<VPUIP_FetchDMAAttr>:$fetch_dma,
+        OptionalAttr<UI16Attr>:$task_dyn_id,
+        OptionalAttr<SymbolRefAttr>:$dynamic_sequence_length_buff
     );
 
     let extraClassDeclaration = [{
@@ -627,6 +649,8 @@ def VPUASM_NNDMAOp :
         (`is_critical` `(` $is_critical^ `)`)?
         (`tile_indexes` `(` $tile_indexes^ `)`)?
         (`indices` `(` $indices^ `)`)?
+        (`task_dyn_id` `(` $task_dyn_id^ `)`)?
+        (`dynamic_sequence_length_buff` `(` $dynamic_sequence_length_buff^ `)`)?
         attr-dict
         prop-dict
     }];
@@ -1429,6 +1453,43 @@ def CompilerHashOp :
         $sym_name
         `compiler_hash` `(` $compiler_hash `)`
         attr-dict
+    }];
+}
+
+//
+// HostParsedInferenceOp
+//
+
+def HostParsedInferenceOp :
+        VPUASM_Instruction<"HostParsedInference", [
+                DeclareOpInterfaceMethods<ELF_RelocatableOpInterface>,
+                DeclareOpInterfaceMethods<ELF_BinaryOpInterface, ["serialize"]>,
+                DeclareOpInterfaceMethods<ELF_BinarySizeOpInterface, ["getBinarySize", "getAlignmentRequirements"]>,
+                DeclareOpInterfaceMethods<ELF_WrappableOpInterface>,
+                Symbol
+        ]> {
+    let summary = "Task representing the HostParsedInference structure";
+    let description = [{
+        Top-level inference entry structure passed to the firmware. References the (managed) mapped
+        inference and carries the inference resource requirements. Placed in a dedicated ELF section
+        identified by the VPU_SHT_HPI section type.
+    }];
+
+    let arguments = (ins
+        SymbolNameAttr:$sym_name,
+        SymbolRefAttr:$mapped,
+        I64Attr:$nnSliceLength,
+        I64Attr:$nnSliceCount,
+        I64Attr:$nnBarriers
+    );
+
+    let assemblyFormat = [{
+        attr-dict
+        $sym_name `:`
+        `mapped` `(` $mapped `)`
+        `nnSliceLength` `(` $nnSliceLength `)`
+        `nnSliceCount` `(` $nnSliceCount `)`
+        `nnBarriers` `(` $nnBarriers `)`
     }];
 }
 

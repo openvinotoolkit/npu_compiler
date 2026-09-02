@@ -6,10 +6,13 @@
 #include "vpux/compiler/ShaveCodeGen/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 
+#include <llvm/ADT/STLExtras.h>
 #include <mlir/Dialect/Bufferization/Transforms/Transforms.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/MemRef/Utils/MemRefUtils.h>
 #include <mlir/Pass/Pass.h>
+
+#include <iterator>
 
 namespace vpux::ShaveCodeGen {
 #define GEN_PASS_DECL_MOVEKERNELRESULTSTOARGUMENTS
@@ -54,19 +57,38 @@ void MoveKernelResultsToArgumentsPass::safeRunOnModule() {
 
         auto inputs = vpux::to_small_vector(block->getArgumentTypes());
         auto outputs = vpux::to_small_vector(terminator->getOperandTypes());
-        auto inputCount = inputs.size();
 
-        // Adjust and add return values
+        const auto isTensor = [](mlir::Type type) {
+            return mlir::isa<mlir::TensorType>(type);
+        };
+        if (llvm::none_of(outputs, isTensor)) {
+            continue;
+        }
+        if (!llvm::all_of(outputs, isTensor)) {
+            func.emitError("expected kernel function '")
+                    << func.getSymName() << "' to return only tensors, but got a mix of tensor and non-tensor results";
+            return signalPassFailure();
+        }
+
+        // Find insertion point: before the first scalar argument
+        auto firstScalarIt = llvm::find_if(inputs, [](auto type) {
+            return !mlir::isa<mlir::ShapedType>(type);
+        });
+        size_t insertionPoint = std::distance(inputs.begin(), firstScalarIt);
+
+        // Insert bufferized arguments before the first scalar argument
+        size_t currentInsertPos = insertionPoint;
         for (auto outputType : outputs) {
             auto memrefTy = mlir::bufferization::getMemRefTypeWithStaticIdentityLayout(
                     mlir::cast<mlir::TensorType>(outputType));
-            inputs.push_back(memrefTy);
-            block->addArgument(memrefTy, loc);
+            inputs.insert(inputs.begin() + currentInsertPos, memrefTy);
+            block->insertArgument(currentInsertPos, memrefTy, loc);
+            currentInsertPos++;
         }
 
         auto builder = mlir::OpBuilder::atBlockEnd(block);
         for (auto it : terminator->getOpOperands() | indexed) {
-            auto correspondentInput = block->getArgument(inputCount + it.index());
+            auto correspondentInput = block->getArgument(insertionPoint + it.index());
             auto opOperand = &it.value();
             auto mat = builder.create<mlir::bufferization::MaterializeInDestinationOp>(loc, opOperand->get(),
                                                                                        correspondentInput);

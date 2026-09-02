@@ -129,6 +129,53 @@ func.func @NotConvertRandomUniformToFP16() -> tensor<1x4x64x64xf32> {
 
 // -----
 
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @InterpolateInputF32ScaleF32
+module @InterpolateInputF32ScaleF32 {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        // CHECK: DataInfo "data" : tensor<1x3x540x960xf32>
+        DataInfo "data" : tensor<1x3x540x960xf32>
+        // CHECK: DataInfo "scales" : tensor<2xf32>
+        DataInfo "scales" : tensor<2xf32>
+    }
+    outputsInfo : {
+        // CHECK: DataInfo "output" : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+        DataInfo "output" : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+    }
+
+// CHECK: func.func @main([[DATA:%[^:]+]]: tensor<1x3x540x960xf16>, [[SCALES:%[^:]+]]: tensor<2xf32>) -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}> {
+func.func @main(%data: tensor<1x3x540x960xf32>, %scales: tensor<2xf32>) -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}> {
+    %interp = IE.Interpolate(%data, %scales) {
+        attr = #IE.Interpolate<mode = <LINEAR>,
+                               shape_calc_mode = <SCALES>,
+                               coord_mode = <HALF_PIXEL>,
+                               nearest_mode = <FLOOR>,
+                               antialias = false,
+                               pads_begin = [0, 0, 0, 0],
+                               pads_end = [0, 0, 0, 0],
+                               cube_coeff = -7.500000e-01 : f64>,
+        axes_attr = [2, 3],
+        operandSegmentSizes = array<i32: 1, 0, 1, 0>,
+        sizes_attr = []}
+        : tensor<1x3x540x960xf32>, tensor<2xf32>
+            -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+    return %interp : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK-NOT:   IE.Convert({{.*}}) {dstElemType = f16} : tensor<2xf32>
+    // CHECK:       [[INTERP:%.+]] = IE.Interpolate([[DATA]], [[SCALES]])
+    // CHECK-SAME:    : tensor<1x3x540x960xf16>, tensor<2xf32>
+    // CHECK-SAME:        -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:       return [[INTERP]]
+}
+
+}
+
+// -----
+
 // CHECK-LABEL: @Mvn1HighNormalization
 module @Mvn1HighNormalization {
 

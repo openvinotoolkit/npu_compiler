@@ -18,10 +18,12 @@
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_reduce_output_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -49,6 +51,10 @@ bool vpux::VPU::NCEDepthConvolutionOp::fitIntoCMX(vpux::NDTypeInterface input, v
     const auto op = getOperation();
     if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
         VPUX_THROW("getWeightTableBuffers function failed");
+    }
+    if (mlir::failed(getReduceOutputBuffers(op, buffers, output))) {
+        VPUX_THROW("getReduceOutputBuffers failed at '{0}' for op '{1}', outputTileShape '{2}', axes_value '{3}'",
+                   getLoc(), op->getName(), output.getShape(), op->getAttr("axes_value"));
     }
 
     auto totalAvailableCMXSize =
@@ -80,6 +86,18 @@ SmallVector<int64_t> vpux::VPU::NCEDepthConvolutionOp::getConstRawFilterShape() 
     VPUX_THROW_WHEN(!vals.has_value(), "Cannot get constant raw filter shape from NCEDepthConvolutionOp '{0}'",
                     getLoc());
     return vals.value();
+}
+
+//
+// ShapeInfoOpInterface
+//
+
+mlir::LogicalResult vpux::VPU::NCEDepthConvolutionOp::verifyShapeInfo() {
+    if (mlir::failed(vpux::VPU::verifyInputIs4D(getInput()))) {
+        return mlir::failure();
+    }
+
+    return vpux::VPU::verifyInputIs4D(getFilter());
 }
 
 //
@@ -320,7 +338,11 @@ mlir::LogicalResult vpux::VPU::NCEDepthConvolutionOp::inferReturnTypes(
     const auto outputType = mlir::RankedTensorType::get(shapeInfo.shape, inputType.getElementType(), outDesc);
 
     inferredReturnTypes.push_back(outputType);
-    return mlir::success();
+
+    // Infer the extra NCE output types if any
+    auto resultSegmentSizes = op.getProperties().getResultSegmentSizes();
+
+    return inferReduceExtraNCETypes(loc, outputType, op.getAxesValue(), resultSegmentSizes, inferredReturnTypes);
 }
 
 //
@@ -382,6 +404,21 @@ vpux::InputTiling vpux::VPU::NCEDepthConvolutionOp::backInferTileInfo(const vpux
 void vpux::VPU::NCEDepthConvolutionOp::adjustAttrs(const TilingInfo& inputTiling, const TileInfo& outputTile) {
     VPU::adjustPaddings(this, inputTiling);
     VPU::adjustRawFilterShape(this, outputTile);
+}
+
+vpux::OutputTiling vpux::VPU::NCEDepthConvolutionOp::getOutputTiling(const vpux::TileInfo& firstOutputTile,
+                                                                     vpux::Logger /*log*/) {
+    OutputTiling outputTiling;
+    outputTiling.push_back(firstOutputTile);
+    const auto reduceOutputTiles = VPU::getReduceOutputTiling(getOperation(), firstOutputTile);
+    outputTiling.append(reduceOutputTiles.begin(), reduceOutputTiles.end());
+    return outputTiling;
+}
+
+vpux::TileInfo vpux::VPU::NCEDepthConvolutionOp::getMainOutputTile(mlir::OpResult secondaryOutput,
+                                                                   const vpux::TileInfo& secondaryOutputTile,
+                                                                   vpux::Logger /*log*/) {
+    return VPU::getMainTileFromReduceOutputTiling(getOperation(), {secondaryOutput, secondaryOutputTile});
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::NCEDepthConvolutionOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
@@ -447,6 +484,11 @@ bool VPU::NCEDepthConvolutionOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy s
 
     const auto OC = output.getShape()[Dims4D::Act::C];
 
+    // Compute output distribution once; needed both for the output buffer and for
+    // deriving reduce-output buffer sizes via getReduceOutputBuffers.
+    const auto outputDistributionMap = std::make_pair(
+            output, getOutputDistributionAttrFromOp(nceOp, output, numClusters, strategy, siblingsAnalysis));
+
     SmallVector<Byte> buffers = {
             VPU::getTotalAllocSizeWithDistribution(
                     getInput().getType(), getActivationDistributionAttrFromOp(nceOp, getInput(), getInput().getType(),
@@ -454,15 +496,16 @@ bool VPU::NCEDepthConvolutionOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy s
             VPU::getTotalAllocSizeWithDistribution(
                     getFilter().getType(),
                     getFilterDistributionAttrFromOp(nceOpInterface, getFilter().getType(), numClusters, strategy)),
-            VPU::getTotalAllocSizeWithDistribution(
-                    getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
-                                                                           strategy, siblingsAnalysis))};
+            VPU::getTotalAllocSizeWithDistribution(outputDistributionMap.first, outputDistributionMap.second)};
     auto ppeAttr = getPpe();
     addSprLutBufferIfPresent(ppeAttr, buffers);
 
     const auto op = getOperation();
     if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
         VPUX_THROW("getWeightTableBuffers function failed");
+    }
+    if (mlir::failed(getReduceOutputBuffers(op, buffers, outputDistributionMap))) {
+        VPUX_THROW("getReduceOutputBuffers function failed");
     }
 
     auto totalAvailableCMXSize = reservedMem.count() == 0 ? VPU::getTotalCMXSize(op).count()
@@ -507,6 +550,17 @@ vpux::NDTypeInterface vpux::VPU::NCEDepthConvolutionOp::getDistributedTypeForOpO
     }
     VPUX_THROW("Failed to compute distributed type for op {0}", clusteredOp);
     return nullptr;
+}
+
+DimArr vpux::VPU::NCEDepthConvolutionOp::restrictedFusionAxes() {
+    if (getReduceXyMax() != nullptr || getReduceXyMin() != nullptr) {
+        return {Dims4D::Act::C};
+    }
+    return {};
+}
+
+bool vpux::VPU::NCEDepthConvolutionOp::isVFSupported() {
+    return getReduceTensorMinMax() == nullptr;
 }
 
 //

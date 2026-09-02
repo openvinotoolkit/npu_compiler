@@ -22,7 +22,7 @@ func.func @dim_static_alloc() -> index attributes {config.pureHostCompileFunc} {
 // CHECK:      bytecode.ext.func @dim_static_alloc () -> index {
 // CHECK-NOT:    memref.dim
 // CHECK-NOT:    bytecode.buffer.get_dim
-// CHECK:        bytecode.set_imm [[DIM:%.+]], 4
+// CHECK:        [[DIM:%.+]] = bytecode.imm_register 4
 // CHECK-NEXT:   bytecode.retv [[DIM]]
 // CHECK:      }
 
@@ -42,7 +42,7 @@ func.func @dim_dynamic_arg(%arg0: memref<?x6xf32>) -> index attributes {config.p
 
 // CHECK:      bytecode.ext.func @dim_dynamic_arg (memref<?x6xf32>) -> index {
 // CHECK:        [[ARG:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:        bytecode.set_imm [[IDX:%.+]], 0
+// CHECK:        [[IDX:%.+]] = bytecode.imm_register 0
 // CHECK:        [[DIM:%.+]] = bytecode.virtual_general_register
 // CHECK-NEXT:   bytecode.buffer.get_dim [[DIM]], [[ARG]], [[IDX]]
 // CHECK:        bytecode.retv [[DIM]]

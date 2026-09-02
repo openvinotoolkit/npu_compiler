@@ -19,7 +19,8 @@ bool isLegalTensorElem50XX(mlir::Type elementType) {
                                                  /*allowPerChannelZp=*/false);
 }
 
-// change quantized type to a quantile quantized type, with float quantile type and zp fully subtracted
+// Converts a quantized weight type to a QuantileType backed by a pre-computed LUT with zp fully subtracted.
+// Supported quantile types: int8, f16, F8E4M3FN.
 mlir::quant::QuantizedType changeWeightTypeToLUT(mlir::quant::QuantizedType originWeightType, mlir::Type actType) {
     if (originWeightType == nullptr) {
         return nullptr;

@@ -5,6 +5,8 @@
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/utils/logger/logger.hpp"
@@ -34,6 +36,11 @@ public:
 private:
     void safeRunOnModule() final {
         auto moduleOp = getOperation();
+        const auto archKind = config::getArch(moduleOp);
+        // 4-bit outputs are supported on NPU40XX+
+        if (archKind != config::ArchKind::NPU37XX) {
+            return;
+        }
         auto netInfo = net::getNetworkInfo(moduleOp);
         auto outputsInfo = netInfo.getOutputsDataInfo();
         for (auto outputInfo : outputsInfo) {

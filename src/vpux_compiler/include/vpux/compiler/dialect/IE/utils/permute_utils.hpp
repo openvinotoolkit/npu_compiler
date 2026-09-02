@@ -22,4 +22,6 @@ bool isTrivialReorder(IE::ReorderOp origOp);
 bool isTrivialTranspose(IE::TransposeOp origOp);
 bool isTrivialMemPermute(IE::MemPermuteOp origOp);
 
+std::optional<mlir::AffineMap> createTrivialAffineMap(int64_t rank, mlir::MLIRContext* ctx);
+
 }  // namespace vpux::IE

@@ -49,7 +49,7 @@ public:
                 std::accumulate(inputStaticShape.begin(), inputStaticShape.end(), 1, std::multiplies<size_t>());
         auto inputTensor = ov::Tensor{ov::element::f16, inputStaticShape};
         auto inputData = inputTensor.data<ov::element_type_traits<ov::element::f16>::value_type>();
-        for (size_t i = 0; i < totalSize; i++) {
+        for (int64_t i = 0; i < totalSize; i++) {
             inputData[i] = std::floor(10.f * std::sin(i));
         }
         inputs = {
@@ -62,8 +62,8 @@ public:
         ASSERT_EQ(actualTensors.size(), 1);
         ASSERT_EQ(expectedTensors.size(), 1);
 
-        const auto expected = expectedTensors[0];
-        const auto actual = actualTensors[0];
+        const auto& expected = expectedTensors[0];
+        const auto& actual = actualTensors[0];
         ASSERT_EQ(expected.get_size(), actual.get_size());
 
         const float absThreshold = 0.01f;  // Default
@@ -75,17 +75,15 @@ public:
     void SetUp() override {
         const auto testParams = GetParam();
         const std::vector<ov::Shape> inferenceShapes = {{1, testParams.batchSize, testParams.numColumnsA}};
-        const ov::test::InputShape dataShape = {{1, testParams.batchSize, testParams.numColumnsA}, inferenceShapes};
+        const ov::test::InputShape dataShape = {ov::PartialShape(inferenceShapes[0]), inferenceShapes};
         init_input_shapes({dataShape});
         const auto param = std::make_shared<ov::opset1::Parameter>(ov::element::f16, inputDynamicShapes.at(0));
         const auto weightShape = ov::Shape{testParams.numRowsB, testParams.numColsB};
         const auto weightTotalSize = ov::shape_size(weightShape);
         std::vector<ov::element_type_traits<ov::element::u8>::value_type> weightsData(weightTotalSize, 0);
         const float zeroPoint = testParams.zeroPoint;
-        auto idx = 0;
         for (size_t i = 0; i < weightsData.size(); i++) {
             weightsData.at(i) = i % 256;
-            ++idx;
         }
         const auto weights = ov::opset1::Constant::create(ov::element::u8, weightShape, weightsData);
         const auto convert = std::make_shared<ov::opset1::Convert>(weights->output(0), ov::element::f16);

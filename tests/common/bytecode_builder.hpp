@@ -9,6 +9,7 @@
 #include "npu_bytecode_utils/instructions.hpp"
 #include "npu_bytecode_utils/magic_number.hpp"
 #include "npu_bytecode_utils/section_header_table.hpp"
+#include "npu_bytecode_utils/span.hpp"
 #include "npu_bytecode_utils/type_section.hpp"
 #include "npu_bytecode_utils/version.hpp"
 
@@ -154,7 +155,7 @@ public:
             return _isEntrypoint;
         }
 
-        std::vector<uint8_t> getBody() const {
+        const std::vector<uint8_t>& getBody() const {
             return _body;
         }
 
@@ -269,10 +270,12 @@ public:
 
         const auto funcTypeIdx = internFunctionType(functionType);
 
+        auto body = intel_npu::vm::Span<uint8_t>(const_cast<uint8_t*>(functionBuilder.getBody().data()),
+                                                 functionBuilder.getBody().size());
         _functions.push_back(FunctionContext{
                 intel_npu::vm::Function(functionBuilder.getName(), functionBuilder.getNumGeneralRegisters(),
                                         functionBuilder.isEntrypoint(), std::move(fnParamTypes),
-                                        std::move(fnResultTypes), functionBuilder.getBody()),
+                                        std::move(fnResultTypes), body, /*copyBody=*/true),
                 nameIdx, funcTypeIdx});
         return *this;
     }

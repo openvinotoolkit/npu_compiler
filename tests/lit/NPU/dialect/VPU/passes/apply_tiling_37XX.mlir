@@ -143,7 +143,7 @@ func.func @SplitSEDepthConvolutionAlignedOnChannels(%arg0: tensor<1x192x65x65xf1
         sparsity_map=tensor<1x192x32x32xi1, {order =#NHWC}>, storage_element_table=tensor<1x12x32x32xi32,
         {order =#NHWC}>, #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3],
         dataOffset = [0, 0, 1, 1], dataSizes = [1, 192, 64, 64]>>
-    %9 = VPU.NCE.DepthConvolution(%8, %weight, %weight_table) rawFilterShape [192, 1, 3, 3] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64,
+    %9 = VPU.NCE.DepthConvolution(%8, %weight, %weight_table) rawFilterShape [192, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64,
         right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64,
         lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 3, 1, 1]} -> tensor<1x192x32x32xf16>
 

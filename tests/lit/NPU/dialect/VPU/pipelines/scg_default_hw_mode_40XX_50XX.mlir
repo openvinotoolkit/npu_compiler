@@ -63,15 +63,14 @@ module @Eltwise attributes {config.compilationMode = #config.compilation_mode<De
 
   // CHECK: func.func @main([[ARG0:%.+]]: tensor<1x3x224x224xf16>, [[ARG1:%.+]]: tensor<1x3x224x224xf16>) -> tensor<1x3x224x224xf16>
   func.func @main(%arg0: tensor<1x3x224x224xf16>, %arg1: tensor<1x3x224x224xf16>) -> tensor<1x3x224x224xf16> {
-    %op = VPU.GenericSwLayer(%arg0, %arg1) {callee = @VPU.SW::@generated_0} : tensor<1x3x224x224xf16>, tensor<1x3x224x224xf16> -> tensor<1x3x224x224xf16>
+    %op = VPU.GenericSwLayer(%arg0, %arg1 : tensor<1x3x224x224xf16>, tensor<1x3x224x224xf16>) @VPU.SW::@generated_0 -> tensor<1x3x224x224xf16>
     return %op : tensor<1x3x224x224xf16>
 
     // CHECK-DAG:    [[OP0_CPY:%.+]] = VPU.Copy([[ARG0]]) {out_mem_space = [@CMX_NN, 0]}
     // CHECK-SAME:        -> tensor<1x3x224x224xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}>
     // CHECK-DAG:    [[OP1_CPY:%.+]] = VPU.Copy([[ARG1]]) {out_mem_space = [@CMX_NN, 0]}
     // CHECK-SAME:        -> tensor<1x3x224x224xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}>
-    // CHECK:        [[OP:%.+]] = VPU.GenericSwLayer([[OP0_CPY]], [[OP1_CPY]])
-    // CHECK-SAME:        {callee = @VPU.SW::@generated_0}
+    // CHECK:        [[OP:%.+]] = VPU.GenericSwLayer([[OP0_CPY]], [[OP1_CPY]] : {{.*}}) @VPU.SW::@generated_0
     // CHECK-SAME:         -> tensor<1x3x224x224xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}>
     // CHECK:        [[OUT_CPY:%.+]] = VPU.Copy([[OP]])
     // CHECK-SAME:         -> tensor<1x3x224x224xf16>

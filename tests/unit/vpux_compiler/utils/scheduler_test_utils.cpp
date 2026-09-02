@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/init/interfaces_registry.hpp"
 #include "vpux/compiler/init/singleton_initializer.hpp"
 
@@ -58,7 +59,8 @@ void printDebugIR(mlir::ModuleOp module, vpux::Logger log) {
 }
 
 VPU::MPEEngineAttr createMPEEngineAttr(mlir::MLIRContext* ctx, [[maybe_unused]] config::Platform platform) {
-    return VPU::MPEEngine37XXAttr::get(ctx, VPU::MPEEngine37XXModeAttr::get(ctx, VPU::MPEEngine37XXMode::SCL));
+    return VPU::MPEEngine37XXAttr::get(ctx, VPU::MPEEngine37XXModeAttr::get(ctx, VPU::MPEEngine37XXMode::SCL),
+                                       /*weightZp=*/nullptr, /*activationZp=*/nullptr);
 }
 
 VPUIP::NCEClusterTaskOp createNCEClusterTaskOp(mlir::OpBuilder& builder, mlir::MLIRContext* ctx, mlir::Location loc,
@@ -114,6 +116,114 @@ mlir::Value createWeights(mlir::OpBuilder& builder, mlir::Location loc, mlir::Ty
     auto copyWeights = builder.create<VPUIP::NNDMAOp>(loc, weightsDDR, weightsCMX);
 
     return copyWeights.getOutput();
+}
+
+mlir::OwningOpRef<mlir::ModuleOp> createTiledConvolutionModule(mlir::MLIRContext* ctx, int numTilesH, int numTilesC,
+                                                               config::Platform platform, bool addDdr2DdrConsumers) {
+    auto loc = mlir::UnknownLoc::get(ctx);
+    auto module = mlir::ModuleOp::create(loc);
+    module->setAttr(config::PlatformAttr::name, config::PlatformAttr::get(ctx, platform));
+    auto builder = mlir::OpBuilder(module.getBody(), module.getBody()->begin());
+
+    const DimsOrder orderNHWC = DimsOrder::NHWC;
+    const auto cmxSpace = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(vpux::VPU::MemoryKind::CMX_NN), 0);
+    const auto ddrSpace = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(vpux::VPU::MemoryKind::DDR), 0);
+    const auto f16Type = mlir::Float16Type::get(ctx);
+
+    const int64_t inputSizeH = 160;
+    const int64_t inputSizeW = 64;
+    const int64_t inputChannels = 16;
+    const int64_t outputChannels = 160;
+    const int64_t kernelSize = 3;
+    const int64_t stride = 1;
+    const int64_t padding = 1;
+
+    const int64_t tileH = inputSizeH / numTilesH;
+    const int64_t remH = inputSizeH % numTilesH;
+    VPUX_THROW_UNLESS(remH == 0, "Input height {0} is not divisible by numTilesH {1}", inputSizeH, numTilesH);
+    const int64_t tileC = outputChannels / numTilesC;
+    const int64_t remC = outputChannels % numTilesC;
+    VPUX_THROW_UNLESS(remC == 0, "Output channels {0} is not divisible by numTilesC {1}", outputChannels, numTilesC);
+
+    auto inputTypeDDR = vpux::getMemRefType({1, inputChannels, inputSizeH, inputSizeW}, f16Type, orderNHWC, ddrSpace);
+    auto outputTypeDDR = vpux::getMemRefType({1, outputChannels, inputSizeH, inputSizeW}, f16Type, orderNHWC, ddrSpace);
+    auto inputTypeCMX = vpux::getMemRefType({1, inputChannels, inputSizeH, inputSizeW}, f16Type, orderNHWC, cmxSpace);
+
+    auto funcType = builder.getFunctionType({inputTypeDDR, outputTypeDDR}, {outputTypeDDR});
+    auto func = builder.create<mlir::func::FuncOp>(loc, "main", funcType);
+    func.setPublic();
+
+    auto* entryBlock = func.addEntryBlock();
+    builder.setInsertionPointToStart(entryBlock);
+
+    auto inputArg = entryBlock->getArgument(0);
+    auto outputArg = entryBlock->getArgument(1);
+
+    mlir::Value intermediateOutputDDR;
+    if (addDdr2DdrConsumers) {
+        intermediateOutputDDR = builder.create<mlir::memref::AllocOp>(loc, outputTypeDDR).getResult();
+    }
+
+    auto input = builder.create<mlir::memref::AllocOp>(loc, inputTypeCMX);
+    auto copyIn = builder.create<VPUIP::NNDMAOp>(loc, inputArg, input);
+
+    llvm::SmallVector<mlir::Value> weightOps;
+    llvm::SmallVector<mlir::Value> weightTableOps;
+    for (int c = 0; c < numTilesC; c++) {
+        Shape weightsShape = {tileC, inputChannels, kernelSize, kernelSize};
+        weightOps.push_back(createWeights(builder, loc, f16Type, weightsShape, ddrSpace, cmxSpace));
+        weightTableOps.push_back(createWeightsTable(builder, loc, tileC, ddrSpace, cmxSpace));
+    }
+
+    llvm::SmallVector<mlir::Value> allCopyOuts;
+    for (int h = 0; h < numTilesH; h++) {
+        for (int c = 0; c < numTilesC; c++) {
+            auto inputTile = builder.create<vpux::VPUIP::SubViewOp>(
+                    loc, copyIn.getOutput(), mlir::ArrayRef<int64_t>{0, 0, h * tileH, 0},
+                    mlir::ArrayRef<int64_t>{1, inputChannels, tileH, inputSizeW});
+
+            auto outputTileTypeCMX = vpux::getMemRefType({1, tileC, tileH, inputSizeW}, f16Type, orderNHWC, cmxSpace);
+            auto outputTileCMX = builder.create<mlir::memref::AllocOp>(loc, outputTileTypeCMX);
+
+            auto mpeEngineAttr = createMPEEngineAttr(ctx, platform);
+            auto nceOp = createNCEClusterTaskOp(builder, ctx, loc, kernelSize, padding, stride, inputTile, weightOps[c],
+                                                weightTableOps[c], outputTileCMX.getResult(), mpeEngineAttr);
+            nceOp->setAttr(TILING_LOOP_INDEX_ATTR_NAME, builder.getI64IntegerAttr(0));
+
+            auto& dpuTaskRegion = nceOp.getVariants();
+            builder.setInsertionPointToStart(&dpuTaskRegion.front());
+            createDPUTaskOp(builder, {0, c * tileC, h * tileH}, {1, (c + 1) * tileC, (h + 1) * tileH});
+            builder.setInsertionPointAfter(nceOp);
+
+            const auto outputTarget = addDdr2DdrConsumers ? intermediateOutputDDR : outputArg;
+            auto outputTileDDR = builder.create<vpux::VPUIP::SubViewOp>(
+                    loc, outputTarget, mlir::ArrayRef<int64_t>{0, c * tileC, h * tileH, 0},
+                    mlir::ArrayRef<int64_t>{1, tileC, tileH, inputSizeW});
+            auto copyOut = builder.create<VPUIP::NNDMAOp>(loc, nceOp.getOutput(), outputTileDDR);
+            allCopyOuts.push_back(copyOut.getOutput());
+        }
+    }
+
+    mlir::Value finalOutput;
+    if (addDdr2DdrConsumers) {
+        auto copyToOutput = builder.create<VPUIP::NNDMAOp>(loc, intermediateOutputDDR, outputArg);
+        finalOutput = copyToOutput.getOutput();
+    } else {
+        auto concatOp = builder.create<vpux::VPUIP::ConcatViewOp>(loc, allCopyOuts, outputArg);
+        finalOutput = concatOp.getOutput();
+    }
+
+    builder.create<mlir::func::ReturnOp>(loc, mlir::ValueRange{finalOutput});
+
+    mlir::PassManager pm(ctx);
+    VPUIP::buildAsyncSchedulingPipeline(pm);
+    EXPECT_TRUE(mlir::succeeded(pm.run(func)));
+
+    func.walk([&](mlir::async::ExecuteOp execOp) {
+        execOp->setAttr(cycleCostAttrName, builder.getI64IntegerAttr(1000));
+    });
+
+    return module;
 }
 
 }  // namespace vpux

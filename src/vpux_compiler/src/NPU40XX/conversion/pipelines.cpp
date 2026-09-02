@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPUIPDPU/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
+#include "vpux/compiler/utils/platform_resources.hpp"
 
 #include <npu_40xx_nnrt.hpp>
 #include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
@@ -65,13 +66,12 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
     pm.addPass(createConvertVPUIPDPU2NPUReg40XXPass(log, dpuDryRunMode));
 
     pm.addPass(VPURegMapped::createDeduceDynamicMappedInferenceVersionPass(log));
+    pm.addPass(ELF::createAddCompatibilityStringPass(log));
 
     pm.addPass(ELF::createHandleAlignmentRequirementsPass(log));
     pm.addPass(ELF::createSetOpOffsetsPass(log));
 
-    pm.addPass(ELF::createSetCMXSymbolValuePass(
-            log, npu40xx::nn_public::VPU_WORKSPACE_ADDR, npu40xx::nn_public::VPU_WORKSPACE_SIZE,
-            npu40xx::VPU_METADATA_STORAGE_START, npu40xx::nn_public::VPU_METADATA_SIZE));
+    pm.addPass(ELF::createSetCMXSymbolValuePass(log));
     pm.addPass(ELF::createAddRelocationsForDynamicStridesDMAsPass(log));
     pm.addPass(ELF::createAddELFRelocationsPass(log));
     pm.addPass(ELF::createRemoveEmptyELFSectionsPass(log));
@@ -148,6 +148,7 @@ void vpux::arch40xx::elfSubsetPipelineVPUMI(
 
 void vpux::arch40xx::elfSubsetPipelineVPUASM(mlir::OpPassManager& pm, bool disableDmaSwFifo, const Logger& log) {
     pm.addPass(createConvertVPUMI40XX2VPUASMPass(log, disableDmaSwFifo));
+    pm.addPass(VPUASM::createAddPerformanceMetricsSectionPass(log));
     pm.addPass(ELF::createAddABIVersionPass(log));
     pm.addPass(ELF::createAddELFSymbolTablePass(log));
     pm.addPass(ELF::createFinalizeSkipDmaChainsPass(log));

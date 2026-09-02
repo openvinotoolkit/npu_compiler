@@ -6,7 +6,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --de-debatcher="debatching-inlining-method=host_pipeline" --canonicalize --cse --verify-diagnostics %s | FileCheck %s
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
-// -----
 net.NetworkInfo entryPoint : @SingleInputMultipleOutputMultiDynamicDimDeBatched inputsInfo : {
     DataInfo "input" : tensor<3x3x62x62xf32>
 } outputsInfo : {
@@ -148,6 +147,7 @@ func.func @MultipleInputMultipleOutputMultiDynamicDimDeBatched(%arg0: tensor<?x3
 
 
 // -----
+// expected-error@-1 {{HostCompile pipeline must provide the "output_shape" function}}
 
 net.NetworkInfo entryPoint : @main_error_case inputsInfo : {
     DataInfo "input0" : tensor<3x3x62x62xf32>
@@ -166,7 +166,6 @@ func.func nested @debatched_error_case(%arg0: tensor<1x3x?x?xf32, {bounds = #con
     return %4, %5 : tensor<1x48x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 48, 60, 60]> : tensor<4xsi64>}>, tensor<1x48x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 48, 60, 60]> : tensor<4xsi64>}>
 }
 
-// expected-error@+1 {{HostCompile pipeline must provide the "output_shape" function}}
 func.func @main_error_case(%arg0: tensor<?x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 3, 62, 62]> : tensor<4xsi64>}>, %arg1: tensor<?x48x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}>) -> (tensor<?x48x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}>, tensor<?x48x?x?xf16, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}>) {
     %0 = builtin.unrealized_conversion_cast %arg0 : tensor<?x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 3, 62, 62]> : tensor<4xsi64>}> to tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 62, 62]> : tensor<4xsi64>}>
     %1 = builtin.unrealized_conversion_cast %arg1 : tensor<?x48x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}> to tensor<1x48x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 48, 60, 60]> : tensor<4xsi64>}>

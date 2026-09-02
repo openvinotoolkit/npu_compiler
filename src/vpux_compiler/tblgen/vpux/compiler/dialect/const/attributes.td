@@ -213,7 +213,7 @@ def Const_ContentAttr : Const_Attr<"Content"> {
     let extraClassDeclaration = [{
         using ValueType = ::vpux::Const::Content;
 
-        ValueType fold(bool bypassCache = false) const;
+        ValueType fold() const;
 
         mlir::ElementsAttr getBaseContent() const;
         mlir::ArrayRef<vpux::Const::TransformAttrInterface> getTransformations() const;

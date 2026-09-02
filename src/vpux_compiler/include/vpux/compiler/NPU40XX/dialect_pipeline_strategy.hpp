@@ -18,7 +18,7 @@ namespace vpux {
 //
 
 std::unique_ptr<IDialectPipelineStrategy> createDialectPipelineStrategy40XX(config::CompilationMode compilationMode,
-                                                                            const intel_npu::Config& config);
+                                                                            const vpux::OV::Config& config);
 
 //
 // This version is used for testing purposes
@@ -44,6 +44,6 @@ std::unique_ptr<IDialectPipelineStrategy> createDialectPipelineStrategy40XXHostC
 
 template <class OptionsType>
 std::tuple<std::unique_ptr<VPU::InitCompilerOptions>, std::unique_ptr<OptionsType>> createOptionsDefaultHW(
-        const intel_npu::Config& config);
+        const vpux::OV::Config& config);
 
 }  // namespace vpux

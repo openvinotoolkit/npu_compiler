@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
@@ -12,11 +11,13 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/VPU/utils/eltwise_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/range.hpp"
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_PROPAGATEMEMPERMUTETHROUGHELTWISE
@@ -83,10 +84,14 @@ bool isPermuteLikeDirectlyReachable(mlir::Value addInput, mlir::Operation* permL
     return false;
 }
 
+bool isNceEltwiseOp(mlir::Operation* op) {
+    return mlir::isa_and_present<IE::AddOp, IE::MultiplyOp, IE::SubtractOp>(op);
+}
+
 mlir::Operation* getEltwiseOp(mlir::Value permuteInput) {
     auto parentOp = permuteInput.getDefiningOp();
     while (parentOp) {
-        if (mlir::isa<IE::AddOp, IE::MultiplyOp, IE::SubtractOp>(parentOp)) {
+        if (isNceEltwiseOp(parentOp)) {
             return parentOp;
         } else if (auto parentQuantizeCast = mlir::dyn_cast<IE::QuantizeCastOp>(parentOp)) {
             if (VPU::hasMultiBranches(parentQuantizeCast.getOperation())) {
@@ -821,6 +826,11 @@ mlir::LogicalResult ExtractODUPermuteFromAdd::matchAndRewrite(IE::AddOp addOp, m
     auto ctx = addOp.getContext();
     auto inDimOrder = DimsOrder::fromValue(addOp.getInput1());
     const auto memPerm = getPermutationFromOrders(inDimOrder, outDimOrder, ctx);
+    if (memPerm.isIdentity()) {
+        // Nothing to extract: inserting an identity MemPermute here would be a no-op rewrite that
+        // keeps re-triggering this pattern (addOp is left unchanged), causing a non-terminating loop.
+        return matchFailed(_log, rewriter, addOp, "MemPerm is identity, no ODU permute to extract");
+    }
     if (!isSupportedMemPermute(memPerm, outType, addOp, _log.nest())) {
         return matchFailed(_log, rewriter, addOp, "Input MemPermute is not supported");
     }
@@ -837,6 +847,126 @@ mlir::LogicalResult ExtractODUPermuteFromAdd::matchAndRewrite(IE::AddOp addOp, m
     auto memPermuteOp =
             rewriter.create<IE::MemPermuteOp>(addOp->getLoc(), addOp, outDimOrder.toAffineMap(ctx), memPerm);
     rewriter.replaceAllUsesExcept(addOp.getResult(), memPermuteOp.getResult(), memPermuteOp);
+    return mlir::success();
+}
+
+//
+// ExtractODUPermuteFromEltwiseViewOps
+//
+
+class ExtractODUPermuteFromEltwiseViewOps final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
+public:
+    ExtractODUPermuteFromEltwiseViewOps(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx), _log(log) {
+        this->setDebugName("ExtractODUPermuteFromEltwiseViewOps");
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(IE::MemPermuteOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+    Logger _log;
+};
+
+/*
+Reposition the output MemPermute of an NHWC ELtwise that is only exposed through a chain
+of pure view ops (e.g. PermuteCast, Reshape), so the MemPermute lands directly on the Eltwise
+and can later be fused into the Eltwise ODU by MemPermuteRewriter.
+
+For subgraph:
+
+//  ->|
+//    | -> IE.Add (NHWC) -> [pure view ops...] -> IE.MemPermute ->
+//  ->|
+
+convert to:
+
+//  -> IE.ShapeCast ->|
+//                    | -> IE.Add (NHWC) -> IE.MemPermute ->
+//  -> IE.ShapeCast ->|
+
+The reshaped Eltwise keeps the memory layout of the original one, so the MemPermute
+expresses the same data movement while now being fusable into the Add ODU.
+*/
+mlir::LogicalResult ExtractODUPermuteFromEltwiseViewOps::matchAndRewrite(IE::MemPermuteOp origOp,
+                                                                         mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
+    SmallVector<mlir::Operation*> viewOps;
+    mlir::Operation* currentOp = origOp.getInput().getDefiningOp();
+    while (currentOp != nullptr && currentOp->hasOneUse() &&
+           mlir::isa_and_present<IE::PermuteCastOp, IE::ShapeCastOp, IE::ReshapeOp>(currentOp)) {
+        viewOps.push_back(currentOp);
+        currentOp = currentOp->getOperand(0).getDefiningOp();
+    }
+
+    if (viewOps.empty()) {
+        return matchFailed(_log, rewriter, origOp, "No view ops between MemPermute and Eltwise");
+    }
+
+    if (!isNceEltwiseOp(currentOp) || !currentOp->hasOneUse()) {
+        return matchFailed(_log, rewriter, origOp,
+                           "MemPermute is not reachable from a single-use eltwise through pure view ops");
+    }
+    mlir::Operation* eltwiseOp = currentOp;
+
+    // Avoid regressions for pattern(computeOp -> eltwiseOp -> viewOps -> memPermuteOp)
+    // to (computeOp -> shapeCastOp -> eltwiseOp -> memPermuteOp ->)
+    for (auto input : eltwiseOp->getOperands()) {
+        auto preOp = input.getDefiningOp();
+        if (preOp != nullptr && !IE::isPureViewOp(preOp)) {
+            return matchFailed(_log, rewriter, origOp, "Input has non-pure view op");
+        }
+    }
+
+    const auto input1Type = mlir::cast<NDTypeInterface>(eltwiseOp->getOperand(0).getType());
+    const auto input2Type = mlir::cast<NDTypeInterface>(eltwiseOp->getOperand(1).getType());
+    const auto outputType = mlir::cast<NDTypeInterface>(eltwiseOp->getResult(0).getType());
+    if (input1Type.getShape() != outputType.getShape() || input2Type.getShape() != outputType.getShape()) {
+        return matchFailed(_log, rewriter, origOp, "Eltwise has different input/output shapes");
+    }
+
+    if (outputType.getDimsOrder() != DimsOrder::NHWC) {
+        return matchFailed(_log, rewriter, origOp, "Eltwise output layout is not NHWC");
+    }
+
+    const auto permuteInputMemShape = getMemShape(origOp.getInput());
+    if (permuteInputMemShape.size() != outputType.getDimsOrder().numDims()) {
+        return matchFailed(_log, rewriter, origOp, "MemPermute input rank differs from the eltwise rank");
+    }
+
+    const auto newEltwiseShape = outputType.getDimsOrder().toLogicalOrder(permuteInputMemShape);
+    const auto newInput1Type = input1Type.changeShape(ShapeRef(newEltwiseShape));
+    const auto newInput2Type = input2Type.changeShape(ShapeRef(newEltwiseShape));
+    const auto newOutputType = outputType.changeShape(ShapeRef(newEltwiseShape));
+    const auto logCb = [&](const formatv_object_base& msg) {
+        _log.nest().trace("{0}", msg.str());
+    };
+    if (!VPU::isNCEEltwiseSupported(eltwiseOp, newInput1Type, newInput2Type, newOutputType,
+                                    /*allowDifferentScales=*/true, /*allowDifferentZp=*/true,
+                                    /*checkLayout=*/true, /*checkChannelAlignment=*/true, logCb)) {
+        return matchFailed(_log, rewriter, origOp, "Reshaped eltwise is not a supported NCE eltwise");
+    }
+
+    auto permuteInterface = mlir::dyn_cast<IE::LayerWithPermuteInterface>(eltwiseOp);
+    if (permuteInterface == nullptr || !permuteInterface.isSupportedPermutation(origOp)) {
+        return matchFailed(_log, rewriter, origOp, "Eltwise ODU does not support the MemPermute permutation");
+    }
+
+    auto ctx = rewriter.getContext();
+    auto newInput1 = rewriter.create<IE::ShapeCastOp>(appendLoc(eltwiseOp->getLoc(), "input_1_reshape"), newInput1Type,
+                                                      eltwiseOp->getOperand(0), getIntArrayAttr(ctx, newEltwiseShape));
+    auto newInput2 = rewriter.create<IE::ShapeCastOp>(appendLoc(eltwiseOp->getLoc(), "input_2_reshape"), newInput2Type,
+                                                      eltwiseOp->getOperand(1), getIntArrayAttr(ctx, newEltwiseShape));
+
+    auto newEltwiseOut = createNewEltwiseOp(newInput1.getResult(), newInput2.getResult(), eltwiseOp, rewriter);
+
+    auto newMemPermute = rewriter.create<IE::MemPermuteOp>(origOp.getLoc(), newEltwiseOut, origOp.getDstOrderAttr(),
+                                                           origOp.getMemPermAttr());
+    rewriter.replaceOp(origOp, newMemPermute.getOutput());
+    for (auto* viewOp : viewOps) {
+        rewriter.eraseOp(viewOp);
+    }
+    rewriter.eraseOp(eltwiseOp);
+
     return mlir::success();
 }
 
@@ -1063,15 +1193,19 @@ mlir::LogicalResult OptimizeEltwiseSequence::matchAndRewrite(IE::MemPermuteOp me
     const auto outputOrder = outMemPermuteOp.getDstOrder();
     auto preEltwiseOp = eltwiseOps.front();
     mlir::Value newOutput = preEltwiseOp->getResult(0);
-    for (auto eltwiseOp : eltwiseOps) {
+    for (auto eltwiseOpIdx : eltwiseOps | indexed) {
+        auto eltwiseOp = eltwiseOpIdx.value();
+
         rewriter.setInsertionPointAfter(eltwiseOp);
         SmallVector<mlir::Value> newEltwiseInputs;
 
-        for (auto input : eltwiseOp->getOperands()) {
+        for (auto inputIdx : eltwiseOp->getOperands() | indexed) {
+            auto input = inputIdx.value();
             mlir::Value newInput = newOutput;
             if (input.getDefiningOp() != preEltwiseOp) {
-                newInput = rewriter.createOrFold<IE::MemPermuteOp>(eltwiseOp->getLoc(), input, outputOrder,
-                                                                   outMemPermuteOp.getMemPerm());
+                newInput = rewriter.createOrFold<IE::MemPermuteOp>(
+                        takeOpLoc(eltwiseOp, "as_mem_permute_{0}_{1}", eltwiseOpIdx.index(), inputIdx.index()), input,
+                        outputOrder, outMemPermuteOp.getMemPerm());
             }
 
             newInput = createPermuteCast(DimsOrder::fromValue(input), newInput, eltwiseOp->getLoc());
@@ -1123,6 +1257,7 @@ void PropagateMemPermuteThroughEltwisePass::safeRunOnFunc() {
     patterns.add<OptimizeEltwiseSequence>(&ctx, _log);
     patterns.add<SwapMemPermuteWithSoftmax>(&ctx, _log);
     patterns.add<ExtractODUPermuteFromAdd>(&ctx, _log);
+    patterns.add<ExtractODUPermuteFromEltwiseViewOps>(&ctx, _log);
     patterns.add<OptimizeIdentityPool<IE::AvgPoolOp>>(&ctx, _log);
     patterns.add<OptimizeIdentityPool<IE::MaxPoolOp>>(&ctx, _log);
     IE::PermuteCastOp::getCanonicalizationPatterns(patterns, &ctx);

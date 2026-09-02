@@ -31,7 +31,7 @@ func.func @Conv(%arg0: tensor<1x16x?x8xf16, {bounds = #const.OpaqueI64Elements<[
 // CHECK-SAME:      [[INPUT:%arg[0-9]]]: tensor<1x16x?x256xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 340, 256]> : tensor<4xsi64>, order = #NHWC}>
 func.func @Eltwise(%arg0: tensor<1x16x?x256xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 340, 256]> : tensor<4xsi64>, order = #NHWC}>) -> (tensor<1x16x?x256xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 340, 256]> : tensor<4xsi64>, order = #NHWC}>, index) {
     %C2 = arith.constant 2 : index
-    %ELTWISE = VPU.NCE.Eltwise(%arg0, %arg0) {
+    %ELTWISE = VPU.NCE.Eltwise(%arg0, %arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             input_padding = [0, 0, 0, 0],
             op_type = #VPU.eltwise_type<SUBTRACT>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
@@ -144,6 +144,29 @@ func.func @ReifyInterpolateDMAOpShape(%IN: !InterpDMAInType, %SCALES: tensor<2xf
 
 // -----
 
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!AtanDMAType = tensor<1x3x?x6xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 6]> : tensor<4xsi64>, order = #NCHW}>
+!AtanDMAAuxType = tensor<1x1x1x524288xui8>
+
+// CHECK-LABEL: @ReifyAtanDMAOpShape
+// CHECK-SAME: [[ARG0:%.+]]: tensor<1x3x?x6xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 6]> : tensor<4xsi64>, order = #NCHW}>, [[ARG1:%.+]]: tensor<1x1x1x524288xui8>
+func.func @ReifyAtanDMAOpShape(%IN: !AtanDMAType, %AUX: !AtanDMAAuxType) -> (!AtanDMAType, index) {
+    %IDX_2 = arith.constant 2 : index
+    // CHECK: [[IDX_2:%.+]] = arith.constant 2 : index
+
+    %ATAN = VPU.AtanDma(%IN, %AUX) : !AtanDMAType, !AtanDMAAuxType -> !AtanDMAType
+    // CHECK: [[ATAN:%.+]] = VPU.AtanDma([[ARG0]], [[ARG1]])
+
+    %DIM_2 = tensor.dim %ATAN, %IDX_2 : !AtanDMAType
+    // CHECK: [[DIM_2:%.+]] = tensor.dim [[ARG0]], [[IDX_2]]
+
+    return %ATAN, %DIM_2 : !AtanDMAType, index
+    // CHECK: return [[ATAN]], [[DIM_2]]
+}
+
+// -----
+
 !qElemType = !quant.uniform<u8:f16, 0.0039215686274509803>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -251,4 +274,28 @@ func.func @ExpandReifyStaticDim(%arg0: !ExpandInputStatic) -> (!ExpandOutputStat
     %DIM_C = tensor.dim %EXPAND, %C1 : !ExpandOutputStatic
     return %EXPAND, %DIM_C : !ExpandOutputStatic, index
     // CHECK: return [[EXPAND]], [[DIM_C]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!QType = tensor<1x6x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 6, 256, 64]> : tensor<4xsi64>, order = #NCHW}>
+!KType = tensor<1x6x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 6, 256, 64]> : tensor<4xsi64>, order = #NCHW}>
+!VType = tensor<1x6x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 6, 256, 64]> : tensor<4xsi64>, order = #NCHW}>
+!OutType = tensor<1x6x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 6, 256, 64]> : tensor<4xsi64>, order = #NCHW}>
+!AuxType = tensor<1x1x1x1323060xui8>
+
+// CHECK-LABEL: @AttentionDMADynSSL
+// CHECK-SAME:  [[Q:%arg[0-9]]]: tensor<1x6x?x64xf16
+func.func @AttentionDMADynSSL(%Q: !QType, %K: !KType, %V: !VType, %AUX: !AuxType) -> (!OutType, index) {
+    %C2 = arith.constant 2 : index
+    %ATTN = VPU.AttentionDMA(%Q, %K, %V, %AUX) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 1, 0>} : !QType, !KType, !VType, !AuxType -> !OutType
+    %DIM = tensor.dim %ATTN, %C2 : !OutType
+    return %ATTN, %DIM : !OutType, index
+
+    // CHECK:       [[C2:%.+]] = arith.constant 2 : index
+    // CHECK:       [[ATTN:%.+]] = VPU.AttentionDMA
+    // CHECK:       [[DIM:%.+]] = tensor.dim [[Q]], [[C2]]
+    // CHECK:       return [[ATTN]], [[DIM]]
 }

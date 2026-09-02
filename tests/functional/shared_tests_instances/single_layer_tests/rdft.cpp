@@ -65,6 +65,7 @@ TEST_P(RdftLayerTestCommon, NPU5010) {
     VpuOv2LayerTest::setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU5010);
 }
+
 TEST_P(RdftLayerTestCommon, NPU5020) {
     VpuOv2LayerTest::abs_threshold = 1.0;
     VpuOv2LayerTest::setDefaultHardwareMode();

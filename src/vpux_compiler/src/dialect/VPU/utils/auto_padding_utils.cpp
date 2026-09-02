@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
+#include <mlir/Support/LLVM.h>
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
@@ -56,14 +57,6 @@ bool VPU::canAutopadOutput(mlir::Operation* op, std::optional<vpux::NDTypeInterf
 }
 
 bool VPU::canConsumeIDUAutopad(VPU::NCEConvolutionOp nceConvOp, LogCb logCb) {
-    // The current implementation of autopad does not support the cases where the data or sparsity pointer tables are
-    // present, as these cases require the tables to be adjusted to the new number of channels
-    // Once the logic to adjust these tables is added, this condition can be removed
-    if (nceConvOp.getWeightTableDataPtr() != nullptr || nceConvOp.getWeightTableSpPtr() != nullptr) {
-        logCb(formatv("The split weight / sparsity pointer tables are not currently supported with IDU autopad"));
-        return false;
-    }
-
     const auto inputPaddingAttr = nceConvOp.getInputPaddingAttr();
     if (inputPaddingAttr == nullptr) {
         logCb(formatv("Missing input_padding attribute"));
@@ -75,10 +68,18 @@ bool VPU::canConsumeIDUAutopad(VPU::NCEConvolutionOp nceConvOp, LogCb logCb) {
     // sparsity is encountered, skip IDU autopad. The benefit from weight sparsity is also expected to be marginal for
     // such cases, so the heuristic for enabling weight sparsity is expected to leave the weights dense. More details in
     // E#177066.
-    if (mlir::isa<VPU::SparseTensorType>(nceConvOp.getFilter().getType())) {
+    auto filter = nceConvOp.getFilter();
+    if (mlir::isa<VPU::SparseTensorType>(filter.getType())) {
         logCb(formatv("Weights are sparse, so IDU autopad is skipped"));
         return false;
     }
+    const auto weightShape = getShape(filter);
+    // Skip the case where the weights have been flattened
+    if (weightShape[Dims4D::Filter::IC] == 1) {
+        logCb(formatv("The weights have been flattened"));
+        return false;
+    }
+
     const auto inputType = mlir::cast<NDTypeInterface>(nceConvOp.getInput().getType());
     if (inputType.getRank() != 4) {
         logCb(formatv("Only 4D inputs are currently supported for autopad"));
@@ -101,6 +102,12 @@ bool VPU::canConsumeIDUAutopad(VPU::NCEConvolutionOp nceConvOp, LogCb logCb) {
         return false;
     };
 
+    return true;
+}
+
+bool VPU::canConsumeODUAutopad(VPU::NCEOpInterface nceOp, LogCb logCb) {
+    (void)nceOp;
+    (void)logCb;
     return true;
 }
 

@@ -29,7 +29,7 @@ bytecode.func_section @function_section {
         %dst  = bytecode.virtual_general_register
         %in0  = bytecode.virtual_parameter_register 0
         %out0 = bytecode.virtual_parameter_register 1
-        bytecode.kernel.create %dst, @my_kernel, inputs(%in0), outputs(%out0)
+        bytecode.kernel.create %dst, @kernel_section::@my_kernel, inputs(%in0), outputs(%out0)
         bytecode.ret
     }
 }
@@ -50,5 +50,5 @@ bytecode.func_section @function_section {
 // CHECK:         [[DST:%.+]]  = bytecode.virtual_general_register
 // CHECK:         [[IN0:%.+]]  = bytecode.virtual_parameter_register 0
 // CHECK:         [[OUT0:%.+]] = bytecode.virtual_parameter_register 1
-// CHECK:         bytecode.kernel.create [[DST]], @my_kernel, inputs([[IN0]]), outputs([[OUT0]])
+// CHECK:         bytecode.kernel.create [[DST]], @kernel_section::@my_kernel, inputs([[IN0]]), outputs([[OUT0]])
 // CHECK:         bytecode.ret

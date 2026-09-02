@@ -4,16 +4,13 @@
 //
 
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/nce_cluster_task_rewriter.hpp"
-#include <cstdint>
-#include <map>
 #include "vpux/compiler/conversion/passes/VPUIP2VPUMI40XX/buffer_conversion.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
-#include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/compiler/utils/types.hpp"
-#include "vpux/utils/core/numeric.hpp"
+
+#include <cstdint>
 
 namespace {
 
@@ -51,18 +48,6 @@ void checkAllDPUTasksHaveTheSameClusterID(RangeT dpuTasks) {
         assert(maybeClusterID.has_value());
         return maybeClusterID.value();
     });
-}
-
-struct WorkloadZCoord {
-    int64_t zStart;
-    int64_t zEnd;
-
-    WorkloadZCoord(int64_t start, int64_t end = 0): zStart(start), zEnd(end) {
-    }
-};
-
-inline bool operator<(const WorkloadZCoord& lhs, const WorkloadZCoord& rhs) {
-    return lhs.zStart < rhs.zStart;
 }
 
 }  // namespace
@@ -145,8 +130,8 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
             adaptor.getS2dd2sConfigAttr()
 
     );
-    auto createVPUMI40XXVariant = [&](auto dpuTask, std::optional<size_t> wtOffset = std::nullopt,
-                                      bool sprLutRead = false, bool palletLutRead = false, bool forceInvRead = false) {
+    auto createVPUMI40XXVariant = [&](auto dpuTask, bool sprLutRead = false, bool palletLutRead = false,
+                                      bool forceInvRead = false) {
         rewriter.create<VPUMI40XX::DPUVariantOp>(
                 dpuTask.getLoc(), indexWithOnlyTileSet,
                 nullptr,  // taskLocation
@@ -156,121 +141,13 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
                 dpuTask.getInEndAttr(), dpuTask.getOutStartAttr(), dpuTask.getOutEndAttr(), dpuTask.getPadAttr(),
                 mpeModeAttr, mlir::IntegerAttr::get(getUInt64Type(ctx), tileIndex), dpuTask.getHaloRegionsAttr(),
                 dpuTask.getWorkloadIdAttr(), sprLutRead, palletLutRead, forceInvRead, origTaskOp.getWlmPageAttr(),
-                dpuTask.getVariantPrimitiveIdAttr(),
-                wtOffset.has_value()
-                        ? mlir::IntegerAttr::get(getUInt64Type(ctx), static_cast<int64_t>(wtOffset.value()))
-                        : nullptr);
+                dpuTask.getVariantPrimitiveIdAttr(), dpuTask.getWeightTableOffsetAttr());
     };
 
-    // In case of more than one DPU task belonging to the same NCEClusterTaskOp, we need to compute address offsets for
-    // the weight table buffers for each variant. The reason is that the buffers are attached to NceClusterTaskOp and
-    // contain weight table data for all variants, while the buffer addresses are part of the DPU variant descriptors.
-    // The offset computation depends on whether weight table data pointers or weight zero points only are used.
-    // The computation steps are as follows:
-    // 1) Collect all unique Z output ranges among DPU tasks and sort them by the start Z coordinate
-    // 2) Check that the Z output ranges cover the whole output channels range without overlaps or gaps
-    // 3) For each unique Z output range, compute the corresponding offset based on the workload size in Z and previous
-    // offsets
-    // Further on these offsets are passed down to the weight table address fields in the DPU variant descriptors and
-    // added to the start of buffer addresses during address relocation phase.
-    std::map<WorkloadZCoord, size_t> workloadsZData;
     auto dpuTasksIt = dpuTasks.begin();
 
-    if (sprLookupTable || palletLookupTable || dynamicSequenceLength) {
-        // Skip dummy DPU task (see more info in InsertDelayDPUVariant pass)
-        // NCEClusterTask shouldn't be treated as multi variant, because of the dummy DPUTask
-        dpuTasksIt++;
-    }
-
-    // Store the start iterator for real DPU tasks (after skipping dummy if present)
-    const auto realDpuTasksStart = dpuTasksIt;
-
-    auto isMultiVariantWorkload = ++dpuTasksIt != dpuTasks.end();
-    if (isMultiVariantWorkload) {
-        auto getZeroPointTableAlignmentForWorkload8bit = [](int32_t zSize) {
-            return VPU::NCESparsity::NewWeightsTableFormatMapper::getZeroPointTableAlignmentForWorkload(false, zSize);
-        };
-        auto getZeroPointTableAlignmentForWorkload4bit = [](int32_t zSize) {
-            return VPU::NCESparsity::NewWeightsTableFormatMapper::getZeroPointTableAlignmentForWorkload(true, zSize);
-        };
-        std::function<int32_t(int32_t)> wtOffsetComputationFn;
-        if (adaptor.getWeightTableDataPtr()) {
-            wtOffsetComputationFn =
-                    VPU::NCESparsity::NewWeightsTableFormatMapper::getNewPointerTableAlignmentForWorkload;
-        } else if (adaptor.getWeightZeroPoints()) {
-            auto weightsElementType = mlir::cast<NDTypeInterface>(adaptor.getWeights().getType()).getElementType();
-            if (auto quantType = mlir::dyn_cast<mlir::quant::QuantizedType>(weightsElementType)) {
-                auto storageType = quantType.getStorageType();
-                // Unwrap QuantileType to reach the inner integer storage type
-                if (auto quantileType = mlir::dyn_cast<vpux::type::QuantileType>(storageType)) {
-                    storageType = quantileType.getStorageType();
-                }
-                if (auto storageTypeAsIntegerType = mlir::dyn_cast<mlir::IntegerType>(storageType)) {
-                    auto numberOfBitsInZeroPoint = storageTypeAsIntegerType.getWidth();
-                    if (numberOfBitsInZeroPoint == 4) {
-                        wtOffsetComputationFn = getZeroPointTableAlignmentForWorkload4bit;
-                    } else {
-                        wtOffsetComputationFn = getZeroPointTableAlignmentForWorkload8bit;
-                    }
-                }
-            }
-        }
-        if (wtOffsetComputationFn) {
-            std::for_each(realDpuTasksStart, dpuTasks.end(), [&](auto dpuTask) {
-                auto workloadZCoord = WorkloadZCoord(parseIntArrayAttr<int64_t>(dpuTask.getOutStartAttr())[2],
-                                                     parseIntArrayAttr<int64_t>(dpuTask.getOutEndAttr())[2]);
-                const auto [it, inserted] = workloadsZData.insert({workloadZCoord, /*start_offset=*/0});
-                if (!inserted) {
-                    if (it->first.zEnd != workloadZCoord.zEnd) {
-                        VPUX_THROW("DPU tasks from the same NCEClusterTaskOp have overlapping Z output "
-                                   "ranges: "
-                                   "[{}, {}] vs [{}, {}]",
-                                   it->first.zStart, it->first.zEnd, workloadZCoord.zStart, workloadZCoord.zEnd);
-                    }
-                }
-            });
-
-            auto firstWorkloadZDataIt = workloadsZData.begin();
-            if (workloadsZData.size() > 1) {
-                auto workloadZDataPrevIt = firstWorkloadZDataIt;
-                for (auto workloadZDataIt = std::next(firstWorkloadZDataIt); workloadZDataIt != workloadsZData.end();
-                     ++workloadZDataIt) {
-                    if (workloadZDataIt->first.zStart != workloadZDataPrevIt->first.zEnd + 1) {
-                        VPUX_THROW(
-                                "DPU tasks from the same NCEClusterTaskOp have overlapping or gaps in Z output ranges: "
-                                "[{}, {}] vs [{}, {}]",
-                                workloadZDataPrevIt->first.zStart, workloadZDataPrevIt->first.zEnd,
-                                workloadZDataIt->first.zStart, workloadZDataIt->first.zEnd);
-                    }
-
-                    // Accumulate the byte offset for this workload's section.
-                    // Each workload occupies a section whose byte size is determined by the number of output
-                    // channels it processes (zEnd - zStart + 1), padded to the required alignment
-                    // (wtOffsetComputationFn). The resulting offset is stored as weight_table_offset on the DPU variant
-                    // descriptor and later added to the buffer's base CMX address, producing the
-                    // final weight_d_ptr_start register value.
-                    workloadZDataIt->second =
-                            workloadZDataPrevIt->second +
-                            wtOffsetComputationFn(static_cast<int32_t>(workloadZDataPrevIt->first.zEnd -
-                                                                       workloadZDataPrevIt->first.zStart + 1));
-                    workloadZDataPrevIt = workloadZDataIt;
-                }
-            }
-        }
-    }
-
-    auto getWeightTableOffset = [&](auto dpuTask) -> std::optional<int64_t> {
-        if (workloadsZData.size() > 1) {
-            const auto workloadZCoord = WorkloadZCoord(parseIntArrayAttr<int64_t>(dpuTask.getOutStartAttr())[2]);
-            if (auto offset = workloadsZData.at(workloadZCoord)) {
-                return offset;
-            }
-        }
-        return std::nullopt;
-    };
-
-    dpuTasksIt = dpuTasks.begin();
-    if (sprLookupTable || palletLookupTable || dynamicSequenceLength) {
+    const auto hasDummyVariant = (*dpuTasksIt).getIsDummy();
+    if (hasDummyVariant) {
         // Processing dummy DPU task (see more info in InsertDelayDPUVariant pass)
         createVPUMI40XXVariant(*(dpuTasksIt++));
 
@@ -279,15 +156,24 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
         // Invariant read (see DPU FSM diagram in HAS) and Invariant read may be skipped if it's already
         // loaded. As Dummy DPU variant loads Invariant for this workload, without it read of sprLUT may
         // be skipped as well, no matter what we set in readLut.
-        createVPUMI40XXVariant(*dpuTasksIt, getWeightTableOffset(*dpuTasksIt),
+
+        VPUX_THROW_WHEN(dpuTasksIt == dpuTasks.end(),
+                        "Expected at least one real DPU task after the dummy delay variant");
+
+        createVPUMI40XXVariant(*dpuTasksIt,
                                /*sprLutRead=*/sprLookupTable != nullptr,
                                /*palletLutRead=*/palletLookupTable != nullptr,
                                /*forceInvRead=*/true);
         dpuTasksIt++;
     }
 
+    // Keep LUT read enabled on every real variant that belongs to this invariant.
+    // Pre-emption may cause DPU Power Cycle, which causes loss of LUT data in DPUs. When restoring a DPU after reset,
+    // DPU won’t read LUT again if invar_lut_rd_en/invar_plt_rd_en are set to 0, so the DPU resumes without reloading
+    // the LUT. This will cause PPE output to be misconfigured, resulting in incorrect output.
+    // That is why we set sprLutRead/palletLutRead to true, if LUT is present, on each real variant.
     std::for_each(dpuTasksIt, dpuTasks.end(), [&](auto dpuTask) {
-        createVPUMI40XXVariant(dpuTask, getWeightTableOffset(dpuTask), /*sprLutRead=*/sprLookupTable != nullptr,
+        createVPUMI40XXVariant(dpuTask, /*sprLutRead=*/sprLookupTable != nullptr,
                                /*palletLutRead=*/palletLookupTable != nullptr);
     });
 

@@ -123,13 +123,6 @@ private:
             return;
         }
 
-        auto weightShape = getShape(nceOp->getOperand(1));
-        // Skip the case that the the weights had been flattened
-        if (weightShape[Dims4D::Filter::IC] == 1) {
-            _log.nest().trace("The weights had been flattened");
-            return;
-        }
-
         const auto logCb = [&](const formatv_object_base& msg) {
             _log.nest().trace("{0}", msg.str());
         };
@@ -230,6 +223,14 @@ private:
 
     void tryEnablingODUAutopad(VPU::NCEOpInterface nceOp) {
         _log.nest().trace("Trying to autopad ODU");
+
+        const auto logCb = [&](const formatv_object_base& msg) {
+            _log.nest().trace("{0}", msg.str());
+        };
+        if (!VPU::canConsumeODUAutopad(nceOp, logCb)) {
+            _log.nest().trace("Operation cannot consume ODU autopad");
+            return;
+        }
 
         if (!nceOp->hasAttr(VPU::OUTPUT_PADDING_ATTR_NAME)) {
             _log.nest().trace("Missing output_padding attribute");

@@ -101,7 +101,7 @@ func.func @NceDepthConv(%arg0: tensor<1x16x40x80xf16, {order = #NHWC, mem_space 
                         %arg2: tensor<16x1x1x4xsi32, {mem_space = @CMX_NN}>)
         -> tensor<1x16x37x73xf16, {order = #NHWC, mem_space = @CMX_NN}> {
 
-    %0 = VPU.NCE.DepthConvolution(%arg0, %arg1, %arg2) rawFilterShape [16, 1, 4, 8] {
+    %0 = VPU.NCE.DepthConvolution(%arg0, %arg1, %arg2) rawFilterShape [16, 1, 4, 8] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
 
@@ -150,13 +150,13 @@ func.func @NceDepthConv(%arg0: tensor<1x16x40x80xf16, {order = #NHWC, mem_space 
 // CHECK-SAME:      data=memref<1x64x5x10xf16, {order = #NHWC}, @CMX_NN>
 // CHECK-SAME:      sparsity_map=memref<1x64x11x21xi1, @CMX_NN>
 // CHECK-SAME:      storage_element_table=memref<1x1x11x21xi32, {order = #NHWC}, @CMX_NN>
-// CHECK-SAME: [[ARG1:%.+]]: memref<64x64x1x1xf16, {order = #NHWC}, @CMX_NN>
+// CHECK-SAME: [[ARG1:%.+]]: memref<64x64x2x2xf16, {order = #NHWC}, @CMX_NN>
 // CHECK-SAME: [[ARG2:%.+]]: memref<64x1x1x4xsi32, @CMX_NN>
 // CHECK-SAME: )
 // CHECK-SAME: -> memref<1x64x10x20xf16, {order = #NHWC}, @CMX_NN>
 func.func @NceInterpolate(
     %data: !InterpolateTensor,
-    %weights: tensor<64x64x1x1xf16, {order = #NHWC, mem_space = @CMX_NN}>,
+    %weights: tensor<64x64x2x2xf16, {order = #NHWC, mem_space = @CMX_NN}>,
     %weight_table: tensor<64x1x1x4xsi32, {mem_space = @CMX_NN}>
 ) -> tensor<1x64x10x20xf16, {order = #NHWC, mem_space = @CMX_NN}> {
 
@@ -185,7 +185,7 @@ func.func @NceInterpolate(
     // CHECK-SAME: input([[DATA]] : memref<1x64x5x10xf16, {order = #NHWC}, @CMX_NN>)
     // CHECK-SAME: input_sparsity_map([[SPARSITY_MAP]] : memref<1x64x11x21xi1, @CMX_NN>)
     // CHECK-SAME: input_storage_element_table([[STORAGE_ELEMENT]] : memref<1x1x11x21xi32, {order = #NHWC}, @CMX_NN>)
-    // CHECK-SAME: weights([[ARG1]] : memref<64x64x1x1xf16, {order = #NHWC}, @CMX_NN>)
+    // CHECK-SAME: weights([[ARG1]] : memref<64x64x2x2xf16, {order = #NHWC}, @CMX_NN>)
     // CHECK-SAME: weight_table([[ARG2]] : memref<64x1x1x4xsi32, @CMX_NN>)
     // CHECK-SAME: parent_input([[DATA]] : memref<1x64x5x10xf16, {order = #NHWC}, @CMX_NN>)
     // CHECK-SAME: parent_input_sparsity_map([[SPARSITY_MAP]] : memref<1x64x11x21xi1, @CMX_NN>)
@@ -211,7 +211,7 @@ func.func @NceEltwiseAdd(%arg0: tensor<1x64x28x28xf16, {order = #NHWC, mem_space
                          %arg1: tensor<1x64x28x28xf16, {order = #NHWC, mem_space = @CMX_NN}>)
         -> tensor<1x64x28x28xf16, {order = #NHWC, mem_space = @CMX_NN}> {
 
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 op_type = #VPU.eltwise_type<ADD>,
                 ppe = #VPU.PPEStub<>
             } -> tensor<1x64x28x28xf16, {mem_space = @CMX_NN, order = #NHWC}> {
@@ -327,7 +327,7 @@ func.func @SparseInPlaceNCEEltwise(%arg0: !VPU.SparseTensor<data=tensor<1x32x368
                                                                                 sparsity_map=tensor<1x64x368x29xi1, {mem_space = @CMX_NN, order = #NHWC}>>)
         -> tensor<1x32x368x29xf16, {mem_space = @CMX_NN, order = #NHWC}> {
 
-    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 op_type = #VPU.eltwise_type<ADD>,
                 ppe = #VPU.PPEStub<>
             } -> tensor<1x32x368x29xf16, {mem_space = @CMX_NN, order = #NHWC}> {

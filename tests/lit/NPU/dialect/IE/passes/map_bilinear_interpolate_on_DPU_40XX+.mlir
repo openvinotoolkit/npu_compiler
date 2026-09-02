@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --mlir-print-elementsattrs-with-hex-if-larger 8192 --init-compiler="platform=%platform% compilation-mode=DefaultHW" --map-bilinear-interpolate-on-dpu %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --mlir-print-elementsattrs-with-hex-if-larger 8192 --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --map-bilinear-interpolate-on-dpu %s | FileCheck %s
 // REQUIRES: platform-NPU4000 || platform-NPU5010
 
 
@@ -252,4 +252,56 @@ func.func @DoNotMapBilinearInterpolateOnDPUBecauseChannelIs3(%arg0: tensor<1x3x1
     return %0 : tensor<1x3x320x320xf16>
 
     // CHECK:   IE.Interpolate([[INPUT]])
+}
+
+// -----
+module {
+config.PipelineOptions @Options {
+    config.Option @config.EnableSEPtrsOperations : true
+}
+// CHECK-LABEL: @MapBilinearInterpolateOnDPUWithFusedConvert
+func.func @MapBilinearInterpolateOnDPUWithFusedConvert(%arg0: tensor<1x21x65x65xf16>) -> tensor<1x21x513x513xf32> {
+    %0 = IE.Interpolate(%arg0) {
+        attr = #IE.Interpolate<mode = <LINEAR_ONNX>, shape_calc_mode = <SIZES>, coord_mode = <ASYMMETRIC>, nearest_mode = <ROUND_PREFER_FLOOR>,
+        antialias = false,
+        pads_begin = [0, 0, 0, 0],
+        pads_end = [0, 0, 0, 0],
+        cube_coeff = -7.500000e-01 : f64>,
+        axes_attr = [2, 3],
+        operandSegmentSizes = array<i32: 1, 0, 0, 0>,
+        scales_attr = [7.8923077583312988, 7.8923077583312988],
+        sizes_attr = [513, 513]} : tensor<1x21x65x65xf16> -> tensor<1x21x513x513xf32>
+    return %0 : tensor<1x21x513x513xf32>
+
+    // CHECK-NOT:   IE.Interpolate
+    // CHECK:       IE.GroupConvolution
+    // CHECK:       IE.Concat
+}
+}
+
+// -----
+
+module {
+config.PipelineOptions @Options {
+    config.Option @config.EnableSEPtrsOperations : true
+}
+// CHECK-LABEL: @DoNotMapBilinearInterpolateOnDPUAlreadyLegalWithFusedConvert
+func.func @DoNotMapBilinearInterpolateOnDPUAlreadyLegalWithFusedConvert(%arg0: tensor<1x4x256x256xf16>) -> tensor<1x4x1024x1024xf32> {
+    // Interpolate can be executed as SEP
+    %0 = IE.Interpolate(%arg0) {
+        attr = #IE.Interpolate<mode = <LINEAR_ONNX>, shape_calc_mode = <SIZES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>,
+        antialias = false,
+        pads_begin = [0, 0, 0, 0],
+        pads_end = [0, 0, 0, 0],
+        cube_coeff = -7.500000e-01 : f64>,
+        axes_attr = [2, 3],
+        operandSegmentSizes = array<i32: 1, 0, 0, 0>,
+        scales_attr = [4.000000e+00, 4.000000e+00],
+        sizes_attr = [1024, 1024]} : tensor<1x4x256x256xf16> -> tensor<1x4x1024x1024xf32>
+    return %0 : tensor<1x4x1024x1024xf32>
+
+    // CHECK:     IE.Interpolate
+    // CHECK-NOT: IE.GroupConvolution
+    // CHECK-NOT: IE.Concat
+}
 }

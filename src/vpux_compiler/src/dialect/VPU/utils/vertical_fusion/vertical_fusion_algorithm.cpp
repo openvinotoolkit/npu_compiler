@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
@@ -23,6 +24,7 @@
 
 namespace vpux::VPU::VF::v2 {
 
+namespace {
 std::optional<int64_t> findOptimalTilingStrategyInRange(
         const std::shared_ptr<IVFScheduling<VFCase::VFConfigType>>& scheduling, const Dim dim, int64_t minNTiles,
         int64_t& maxNTiles, std::unique_ptr<IVFAxisIncrement>& axisIncrement, ArrayRef<int64_t> origTilingArray,
@@ -87,7 +89,8 @@ std::optional<int64_t> findOptimalTilingStrategyInRange(
     }
 
     return returnFailure();
-};
+}
+}  // namespace
 
 std::deque<std::shared_ptr<IVFScheduling<VFCase::VFConfigType>>> getSchedulingScenarios(VFCase::VFConfigType& config,
                                                                                         Logger log) {
@@ -111,6 +114,7 @@ std::deque<std::shared_ptr<IVFScheduling<VFCase::VFConfigType>>> getSchedulingSc
     return vfChecks;
 }
 
+namespace {
 std::optional<int64_t> getOptimalTilingStrategy(const std::shared_ptr<IVFScheduling<VFCase::VFConfigType>>& scheduling,
                                                 const Dim dim, const VFSplit& split, const int64_t minTiles,
                                                 int64_t& maxTiles, TilingOperationStorage::UPtr& minStorage,
@@ -209,6 +213,7 @@ std::optional<int64_t> getOptimalTilingStrategy(const std::shared_ptr<IVFSchedul
     return findOptimalTilingStrategyInRange(scheduling, dim, minNTiles, maxNTiles, axisIncrement, tilingArray,
                                             minStorage, maxStorage, config, log);
 }
+}  // namespace
 
 VPU::VF::v2::VFCase getVFCaseWithTiling(
         VPU::VF::v2::VFConfig& config, Dim dim, const VPU::VF::v2::VFSplit& split,
@@ -388,8 +393,7 @@ VPU::VF::v2::VFSplit getVFSplit(vpux::NDTypeInterface outputType, mlir::Operatio
             auto distribution = VPU::DistributionInfo::getClassFromAttr(
                     mlir::cast<VPU::DistributedTensorType>(outputType).getDistribution());
             if (distribution.getMemoryShapes().empty()) {
-                auto optMemoryShapes =
-                        VPU::getPerClusterMemoryShapes(outputShape, distribution, outputType.getElementType());
+                auto optMemoryShapes = VPU::getPerClusterMemoryShapes(outputShape, distribution);
                 if (optMemoryShapes.has_value()) {
                     outputShape = Shape(optMemoryShapes.value().front());
                 }
@@ -537,6 +541,7 @@ VPUNNCostParameters fillInCostParam(mlir::Operation* operation, const OutputTili
     return VPUNNCostParameters(mcStrategy, tiling, mode, inputAllTiles);
 }
 
+namespace {
 // Check if there is a spill between parent op and current op due to incompatible distributed type. This function is
 // used to help VF op calculate related spilling status around its parent or user op
 bool hasSpillDueToIncompatibleDistributedType(mlir::Operation* parentOp, mlir::Operation* currentOp,
@@ -582,6 +587,7 @@ bool hasSpill(mlir::Operation* parentOp, mlir::Operation* currentOp, mlir::Value
     return outputTileAxisIsSameAsMultiClusterStrategy(parentOp) ||
            inputTileAxisIsSameAsMultiClusterStrategy(currentOp, currentOpOperand);
 }
+}  // namespace
 
 StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims,
                                  const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log) {
@@ -596,9 +602,11 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
     if (parentVFOp == nullptr) {
         parentVFOp = mlir::dyn_cast<VPU::VerticalFusionOp>(operation);
     }
+    std::unique_ptr<VFCacheAnalysis> vfCache;
     std::optional<VFConfig> vfConfigOpt;
     if (parentVFOp != nullptr) {
-        vfConfigOpt.emplace(parentVFOp);
+        vfCache = std::make_unique<VFCacheAnalysis>(parentVFOp.getOperation());
+        vfConfigOpt.emplace(parentVFOp, *vfCache);
     }
 
     if (hasTiling) {
@@ -646,9 +654,6 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
     auto checkSpillParent = [&](mlir::Value value) -> bool {
         auto parentOperand = resolveOuterOperand(value);
         auto parentOp = findParent(parentOperand);
-        if (parentOp == nullptr) {
-            return false;
-        }
         return !VF::v2::isCmxOperation(parentOp, false) || isPrevOperationEarlyScheduled(parentOp, checkedOp) ||
                hasBeforeDDRUsers(parentOp, checkedOp) || hasSpill(parentOp, checkedOp, parentOperand);
     };
@@ -793,26 +798,31 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
     }
 
     if (!spilling && eltwiseLikeOp) {
-        SmallVector<mlir::Operation*> parents;
-        parents.reserve(operands.size());
+        SmallVector<mlir::OpResult> parentValues;
+        parentValues.reserve(operands.size());
 
         const auto getOutsideParents = [&](mlir::Value operand) {
             auto outerOperand = resolveOuterOperand(operand);
-            auto parentOp = findParent(outerOperand);
-            if (parentOp != nullptr) {
-                parents.emplace_back(parentOp);
+            auto producerValue = findProducerValue(outerOperand);
+            if (producerValue != nullptr) {
+                parentValues.emplace_back(producerValue);
             }
         };
 
         llvm::for_each(operands, getOutsideParents);
-        if (parents.size() <= 1) {
+        if (parentValues.size() <= 1) {
             return cost;
         }
         // check long term spill
 
-        auto* parentLeft = parents.front();
-        auto* parentRight = parents.back();
+        auto producerLeft = parentValues.front();
+        auto producerRight = parentValues.back();
+        if (!producerLeft || !producerRight) {
+            return cost;
+        }
 
+        auto parentLeft = producerLeft.getOwner();
+        auto parentRight = producerRight.getOwner();
         if (parentLeft == nullptr || parentRight == nullptr) {
             return cost;
         }
@@ -822,38 +832,49 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
             return cost;
         }
 
-        auto* earliestParent = parentLeft->isBeforeInBlock(parentRight) ? parentLeft : parentRight;
-        auto* closestParent = earliestParent == parentLeft ? parentRight : parentLeft;
+        const auto& [earliestParent, earliestResult, closestParent, closestResult] = [&]() {
+            if (parentLeft->isBeforeInBlock(parentRight)) {
+                return std::make_tuple(parentLeft, producerLeft, parentRight, producerRight);
+            } else {
+                return std::make_tuple(parentRight, producerRight, parentLeft, producerLeft);
+            }
+        }();
 
         SmallVector<mlir::Operation*> chain;
-        const auto isParentOperation = [&]() {
-            auto prevOp = closestParent;
-            while ((prevOp = findParent(prevOp->getOperand(0)))) {
-                if (prevOp == earliestParent) {
+        const auto isParentOperation = [&](mlir::Operation* clstParent, mlir::Value erlstResult) {
+            auto prevOp = clstParent;
+            while (auto prevValue = findProducerValue(prevOp->getOperand(0))) {
+                // producer of previous Op is the same as the output of earliest parent that feeds into current
+                // operation
+                if (prevValue == erlstResult) {
                     return true;
+                }
+
+                prevOp = prevValue.getDefiningOp();
+                if (prevOp == nullptr) {
+                    return false;
                 }
 
                 if (mlir::isa<VPU::TilingInfoOpInterface, VPU::VerticalFusionOp>(prevOp)) {
                     chain.emplace_back(prevOp);
                 }
 
-                if (mlir::isa_and_nonnull<Const::DeclareOp>(prevOp)) {
+                if (mlir::isa_and_present<Const::DeclareOp>(prevOp)) {
                     return false;
                 }
             }
 
             return false;
-        }();
+        }(closestParent, earliestResult);
 
         if (parentLeft != parentRight && !earliestParent->hasOneUse() &&
-            VF::v2::isCmxOperation(earliestParent, false) && !mlir::isa_and_nonnull<Const::DeclareOp>(closestParent) &&
+            VF::v2::isCmxOperation(earliestParent, false) && !mlir::isa_and_present<Const::DeclareOp>(closestParent) &&
             isParentOperation && chain.size() > 1) {
-            auto operandType = mlir::cast<vpux::NDTypeInterface>(earliestParent->getResult(0).getType());
-            auto operandSize = operandType.getTotalAllocSize();
-            if (auto distributedOutType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(
-                        VPU::getDistributedOutputType(earliestParent, earliestParent->getResult(0)))) {
-                operandSize = distributedOutType.getTotalAllocSize();
-            }
+            auto operandType = mlir::cast<vpux::NDTypeInterface>(earliestResult.getType());
+            auto distributedOutType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(
+                    VPU::getDistributedOutputType(earliestParent, earliestResult));
+            const auto operandSize = distributedOutType != nullptr ? distributedOutType.getTotalAllocSize()
+                                                                   : operandType.getTotalAllocSize();
             const auto hasLongSpilling = [&](mlir::Operation* op) {
                 if (!VF::v2::isCmxOperation(op, true)) {
                     return false;
@@ -866,23 +887,20 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
 
                     op = vfOperations.back().getOperation();
                 }
-                return getRequiredCMX(op, TileInfo(getShape(op->getResult(0))), log) + operandSize >
-                       getTotalCMXFragmentationAwareSize(op);
+                const auto requiredCMX = getRequiredCMX(op, TileInfo(getShape(op->getResult(0))), log);
+                return requiredCMX + operandSize > getTotalCMXFragmentationAwareSize(op);
             };
             if (hasLongSpilling(chain.back()) || hasLongSpilling(chain.front())) {
                 auto getSecondOperandType = [&](const TileInfo& tileInfo) -> vpux::NDTypeInterface {
                     return getOpTypes(tileInfo)[1];
                 };
-                auto longSpillingCost =
-                        costFunction->getSpillingReadCost(operation, costParameters, operands.back(),
-                                                          getSecondOperandType) +
-                        costFunction->getSpillingWriteCost(operation, costParameters, getSecondOperandType);
+                const auto longSpillingCost = costFunction->getSpillingReadCost(operation, costParameters,
+                                                                                operands.back(), getSecondOperandType);
 
-                log.trace("Original VF {0} has long spill cost {1}", operation->getLoc(), longSpillingCost);
                 cost += longSpillingCost;
             }
         } else if (!isParentOperation && vfConfigOpt.has_value() &&
-                   cmxSizeExceedForEltwiseOpWithSwOpUser(*vfConfigOpt, parents, log)) {
+                   cmxSizeExceedForEltwiseOpWithSwOpUser(*vfConfigOpt, parentValues, log)) {
             // If the eltwise and its user exhaust entire CMX memory, we should
             // consider that there will very likely be dynamic spilling for its shared input
             auto getSecondOperandType = [&](const TileInfo& tileInfo) -> vpux::NDTypeInterface {
@@ -896,6 +914,61 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
     }
 
     return cost;
+}
+
+std::optional<VPU::MultiClusterStrategy> findCompatibleMCStrategyForVF(
+        VPU::ClusteredOpInterface producerOp,
+        llvm::function_ref<bool(VPU::MultiClusterStrategy, VPU::DistributedTensorType)> isCompatible) {
+    if (!supportMultiClusterStrategyAdjustmentInVF(producerOp.getOperation())) {
+        return std::nullopt;
+    }
+
+    const auto maybeProducerStrategy = producerOp.getMultiClusterStrategy();
+    if (!maybeProducerStrategy.has_value()) {
+        return std::nullopt;
+    }
+    auto producerStrategy = maybeProducerStrategy.value();
+    auto isNCEOp = mlir::isa<VPU::NCEOpInterface>(producerOp.getOperation());
+
+    SmallVector<VPU::MultiClusterStrategy> potentialStrategies = {VPU::MultiClusterStrategy::HKSwitch,
+                                                                  VPU::MultiClusterStrategy::SplitOverHeight,
+                                                                  VPU::MultiClusterStrategy::SplitOverKernel};
+
+    for (const auto& strategy : potentialStrategies) {
+        if (producerStrategy == strategy) {
+            continue;
+        }
+        if ((!isNCEOp || producerOp->hasAttr(VPU::isInPlace)) && strategy == VPU::MultiClusterStrategy::HKSwitch) {
+            continue;
+        }
+
+        if ((strategy == VPU::MultiClusterStrategy::SplitOverHeight ||
+             strategy == VPU::MultiClusterStrategy::HKSwitch) &&
+            !producerOp.isOperationSplitOverHeightCompatible(TileInfo(ShapeRef()))) {
+            continue;
+        } else if (strategy == VPU::MultiClusterStrategy::SplitOverKernel &&
+                   !producerOp.isOperationSplitOverKernelCompatible(ShapeRef(), ShapeRef(), ShapeRef())) {
+            continue;
+        }
+
+        auto outType = mlir::cast<vpux::NDTypeInterface>(producerOp->getResult(0).getType());
+        auto numClusters = getOptimalNumClusters(producerOp, outType.getShape(), strategy);
+        if (!producerOp.checkStrategyCompatibility(strategy, checked_cast<size_t>(numClusters))) {
+            continue;
+        }
+
+        auto newOutType = getDistributedOutputTypeFromOp(producerOp, outType, numClusters, strategy);
+        if (newOutType == nullptr) {
+            continue;
+        }
+        auto newOutDataType = mlir::cast<VPU::DistributedTensorType>(newOutType.getDistributedTypes().front());
+
+        if (isCompatible(strategy, newOutDataType)) {
+            return strategy;
+        }
+    }
+
+    return std::nullopt;
 }
 
 }  // namespace vpux::VPU::VF::v2

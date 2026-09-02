@@ -60,7 +60,7 @@ public:
                     std::accumulate(inputStaticShape.begin(), inputStaticShape.end(), 1, std::multiplies<size_t>());
             auto inputData = inputTensor.data<ov::element_type_traits<ov::element::i64>::value_type>();
             int64_t customInputValue = genCustomInput ? 0 : 128;
-            for (size_t i = 0; i < totalSize; ++i) {
+            for (int64_t i = 0; i < totalSize; ++i) {
                 // force custom input generation
                 inputData[i] = customInputValue;
             }

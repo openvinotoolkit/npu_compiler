@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --apply-tiling-mvn1sum="tiling-mode=ISOLATED" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --apply-tiling-mvn1sum="tiling-mode=ISOLATED" %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>

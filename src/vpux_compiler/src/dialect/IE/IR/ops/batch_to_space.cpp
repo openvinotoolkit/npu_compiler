@@ -30,33 +30,9 @@ mlir::LogicalResult vpux::IE::BatchToSpace::inferReturnTypeComponents(
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(bsp.getInput().getType());
     const auto inputShape = inputType.getShape().raw();
 
-    SmallVector<int64_t> blockShapeVal = {0};
-    SmallVector<int64_t> cropsBeginVal = {0};
-    SmallVector<int64_t> cropsEndVal = {0};
-
-    if (bsp.getBlockShape() != nullptr || bsp.getBlockShapeValue().has_value()) {
-        auto blockShape = Const::getConstOrArrAttrValue(bsp.getBlockShape(), bsp.getBlockShapeValueAttr());
-        if (mlir::failed(blockShape)) {
-            return mlir::failure();
-        }
-        blockShapeVal = blockShape.value();
-    }
-
-    if (bsp.getCropsBegin() != nullptr || bsp.getCropsBeginValue().has_value()) {
-        auto cropsBegin = Const::getConstOrArrAttrValue(bsp.getCropsBegin(), bsp.getCropsBeginValueAttr());
-        if (mlir::failed(cropsBegin)) {
-            return mlir::failure();
-        }
-        cropsBeginVal = cropsBegin.value();
-    }
-
-    if (bsp.getCropsEnd() != nullptr || bsp.getCropsEndValue().has_value()) {
-        auto cropsEnd = Const::getConstOrArrAttrValue(bsp.getCropsEnd(), bsp.getCropsEndValueAttr());
-        if (mlir::failed(cropsEnd)) {
-            return mlir::failure();
-        }
-        cropsEndVal = cropsEnd.value();
-    }
+    auto blockShapeVal = parseIntArrayAttr<int64_t>(bsp.getBlockShapeValue());
+    auto cropsBeginVal = parseIntArrayAttr<int64_t>(bsp.getCropsBeginValue());
+    auto cropsEndVal = parseIntArrayAttr<int64_t>(bsp.getCropsEndValue());
 
     if (inputShape.size() < 2) {
         return errorAt(loc, "Input tensor rank should be 2 or greater.");
@@ -85,67 +61,4 @@ mlir::LogicalResult vpux::IE::BatchToSpace::inferReturnTypeComponents(
     inferredReturnShapes.emplace_back(outShape, inputType.getElementType(), outDesc);
 
     return mlir::success();
-}
-
-//
-// ConvertConstToAttr
-//
-
-namespace {
-
-class ConvertConstToAttr final : public mlir::OpRewritePattern<IE::BatchToSpace> {
-public:
-    using mlir::OpRewritePattern<IE::BatchToSpace>::OpRewritePattern;
-
-public:
-    mlir::LogicalResult matchAndRewrite(IE::BatchToSpace BatchToSpace, mlir::PatternRewriter& rewriter) const final;
-};
-
-mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::BatchToSpace BatchToSpace,
-                                                        mlir::PatternRewriter& rewriter) const {
-    if (BatchToSpace.getBlockShapeValue().has_value() || BatchToSpace.getCropsBeginValue().has_value() ||
-        BatchToSpace.getCropsEndValue().has_value()) {
-        return mlir::failure();
-    }
-
-    SmallVector<int64_t> blockShapeVal = {0};
-    SmallVector<int64_t> cropsBeginVal = {0};
-    SmallVector<int64_t> cropsEndVal = {0};
-
-    if (BatchToSpace.getBlockShape() != nullptr) {
-        const auto blockShape = Const::getConstArrValue(BatchToSpace.getBlockShape());
-        if (mlir::failed(blockShape)) {
-            return mlir::failure();
-        }
-        blockShapeVal = blockShape.value();
-    }
-
-    if (BatchToSpace.getCropsBegin() != nullptr) {
-        const auto cropsBegin = Const::getConstArrValue(BatchToSpace.getCropsBegin());
-        if (mlir::failed(cropsBegin)) {
-            return mlir::failure();
-        }
-        cropsBeginVal = cropsBegin.value();
-    }
-
-    if (BatchToSpace.getCropsEnd() != nullptr) {
-        const auto cropsEnd = Const::getConstArrValue(BatchToSpace.getCropsEnd());
-        if (mlir::failed(cropsEnd)) {
-            return mlir::failure();
-        }
-        cropsEndVal = cropsEnd.value();
-    }
-
-    rewriter.replaceOpWithNewOp<IE::BatchToSpace>(
-            BatchToSpace, BatchToSpace.getType(), BatchToSpace.getInput(), nullptr, nullptr, nullptr,
-            getIntArrayAttr(rewriter.getContext(), blockShapeVal),
-            getIntArrayAttr(rewriter.getContext(), cropsBeginVal), getIntArrayAttr(rewriter.getContext(), cropsEndVal));
-    return mlir::success();
-}
-
-}  // namespace
-
-void vpux::IE::BatchToSpace::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns,
-                                                         mlir::MLIRContext* context) {
-    patterns.add<ConvertConstToAttr>(context);
 }

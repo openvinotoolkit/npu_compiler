@@ -617,8 +617,12 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::LayoutCastOp orig
     const auto outMap = outOrder.toAffineMap(origOp.getContext());
     const auto mapAttr = mlir::AffineMapAttr::get(outMap);
 
+    // VPUIP has no dedicated LayoutCastOp, so lower it to PermuteCast with a
+    // marker. Back-inference and folding use the marker to preserve
+    // LayoutCast semantics: logical shape is unchanged and only dims order is
+    // reinterpreted.
     auto newOp = rewriter.create<VPUIP::PermuteCastOp>(origOp->getLoc(), newOutType, newArgs.getInput(),
-                                                       origOp.getDstOrderAttr(), mapAttr);
+                                                       origOp.getDstOrderAttr(), mapAttr, rewriter.getUnitAttr());
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, newOp->getResults());
     return mlir::success();
 }
@@ -686,23 +690,22 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::UpsamplingOp orig
 // bufferize VPU::ShapeOfOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ShapeOfOp origOp, VPU::ShapeOfOp::Adaptor& newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::ShapeOfOp origOp, VPU::ShapeOfOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUShapeOfOp", 0);
-
-    auto ctx = origOp.getContext();
 
     const auto memSpaceCMX = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN), 0);
 
     auto newOperand = newArgs.getOperands()[0];
-    VPUX_THROW_UNLESS(mlir::isa<VPUIP::BoundedBufferType>(newOperand.getType()),
-                      "Expected to have BoundedBufferType as input to ShapeOf, got: {0}", newOperand.getType());
+    const auto bounds = getBounds(newOperand.getType());
+    VPUX_THROW_WHEN(mlir::isa<mlir::MemRefType>(newOperand.getType()) && bounds.empty(),
+                    "Expected to have bounded MemRefType as input to ShapeOf, got: {0}", newOperand.getType());
 
-    auto ungroupInput = rewriter.create<VPUIP::UngroupBoundedBufferOp>(newOperand.getLoc(), newOperand);
-    auto shapeValue = ungroupInput.getDynamicShape();
-    auto shapeAlloc = VPUIP::allocateBuffer(log, shapeValue.getLoc(), rewriter, shapeValue, memSpaceCMX);
+    // Note: VPUIP.ShapeOf at bufferization level models VPU.ShapeOf i.e. it
+    // accepts a dynamic memref as input and produces shape as output
+    auto cmxAlloc = VPUIP::allocateBuffer(log, newOperand.getLoc(), rewriter, newOperand, memSpaceCMX);
 
-    auto copyOp = rewriter.create<VPUIP::CopyOp>(shapeValue.getLoc(), shapeValue, shapeAlloc);
+    auto copyOp = rewriter.create<VPUIP::CopyOp>(newOperand.getLoc(), newOperand, cmxAlloc);
     SmallVector<mlir::Value> swKernelOperands{copyOp.getOutput()};
 
     auto origResult = origOp->getResult(0);
@@ -711,7 +714,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ShapeOfOp origOp,
 
     auto op = origOp.getOperation();
     auto module = getModuleOp(op);
-    VPUIP::createRuntimeKernelDefinition(module, log.nest());
+    VPUIP::initSwKernelRuntime(module, log.nest());
 
     auto layerOp = mlir::cast<VPU::LayerOpInterface>(op);
     auto swLayerOp = mlir::cast<VPUIP::SoftwareLayerOpInterface>(op);
@@ -758,35 +761,6 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, Core::ReinterpretCastO
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
     const auto newOutType = vpux::getBufferType(origOp.getResult().getType());
-
-    // Case: output is BoundedBuffer (e.g. memref<?x...> -> BoundedBuffer<data=memref<N...>, shape=...>).
-    // In host compile, at this boundary, dynamic-shape bufferization needs to materialize a VPUIP::BoundedBuffer.
-    // We do not want to model that as a single ReinterpretCast from one memref into both data and
-    // shape, so emit an explicit data cast, shape alloc, and GroupBoundedBuffer.
-    if (auto outBounded = mlir::dyn_cast<VPUIP::BoundedBufferType>(newOutType)) {
-        const auto dataType = mlir::dyn_cast<mlir::MemRefType>(outBounded.getData());
-        const auto shapeType = mlir::dyn_cast<mlir::MemRefType>(outBounded.getDynamicShape());
-        if (dataType == nullptr || shapeType == nullptr) {
-            return mlir::failure();
-        }
-        auto dataCast = rewriter.create<Core::ReinterpretCastOp>(appendLoc(origOp->getLoc(), "_data"), dataType,
-                                                                 newArgs.getInput());
-        auto shapeAlloc = rewriter.create<mlir::memref::AllocOp>(appendLoc(origOp->getLoc(), "_shape"), shapeType);
-        auto grouped = rewriter.create<VPUIP::GroupBoundedBufferOp>(appendLoc(origOp->getLoc(), "_grouped"),
-                                                                    dataCast.getResult(), shapeAlloc);
-        mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, grouped->getResults());
-        return mlir::success();
-    }
-
-    // Case: input is BoundedBuffer (e.g. BoundedBuffer<...> -> memref<?x...>)
-    if (mlir::isa<VPUIP::BoundedBufferType>(newArgs.getInput().getType())) {
-        auto ungroup = rewriter.create<VPUIP::UngroupBoundedBufferOp>(appendLoc(origOp->getLoc(), "_ungroup"),
-                                                                      newArgs.getInput());
-        auto dataCast = rewriter.create<Core::ReinterpretCastOp>(appendLoc(origOp->getLoc(), "_data"), newOutType,
-                                                                 ungroup.getData());
-        mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, dataCast->getResults());
-        return mlir::success();
-    }
 
     // Default: straightforward memref-to-memref reinterpret cast.
     auto newOp = rewriter.create<Core::ReinterpretCastOp>(origOp->getLoc(), newOutType, newArgs.getInput());

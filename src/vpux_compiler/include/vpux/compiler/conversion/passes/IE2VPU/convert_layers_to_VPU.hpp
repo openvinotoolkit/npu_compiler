@@ -174,6 +174,23 @@ private:
 };
 
 //
+// GatedDeltaNetRewrite
+//
+
+class GatedDeltaNetRewrite final : public mlir::OpRewritePattern<IE::GatedDeltaNetOp> {
+public:
+    GatedDeltaNetRewrite(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::GatedDeltaNetOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::GatedDeltaNetOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
 // AtanRewrite
 //
 
@@ -489,6 +506,22 @@ public:
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::AddOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
+// MultiplyRewrite
+//
+
+class MultiplyRewrite final : public mlir::OpRewritePattern<IE::MultiplyOp> {
+public:
+    MultiplyRewrite(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::MultiplyOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
     Logger _log;

@@ -60,7 +60,7 @@ TEST(MLIR_VPU_Sparsity, NCEZMajorConvSparsitySupport) {
                 %1 = VPU.NCE.Convolution(%arg0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                         ppe = #VPU.PPEStub<>,
                         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                        
+
                         strides = [1, 1]
                     } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = #NHWC}>
 
@@ -77,7 +77,7 @@ TEST(MLIR_VPU_Sparsity, NCEEltwiseSparsitySupport) {
 
         module @test {
             func.func @main(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
-                %0 = VPU.NCE.Eltwise(%arg0, %arg0) {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x16x16x16xf16, {order = #NHWC}>
+                %0 = VPU.NCE.Eltwise(%arg0, %arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x16x16x16xf16, {order = #NHWC}>
                 return %0 : tensor<1x16x16x16xf16, {order = #NHWC}>
             }
         }
@@ -96,10 +96,10 @@ TEST(MLIR_VPU_Sparsity, NCEDepthconvSparsitySupport) {
                 %cst1 = const.Declare tensor<16x1x1x4xsi32> =
                     dense<1> : tensor<16x1x1x4xsi32>
 
-                %0 = VPU.NCE.DepthConvolution(%arg0, %cst0, %cst1) rawFilterShape [16, 1, 4, 8] {
+                %0 = VPU.NCE.DepthConvolution(%arg0, %cst0, %cst1) rawFilterShape [16, 1, 4, 8] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                         ppe = #VPU.PPEStub<>,
                         pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
-                        
+
                         strides = [1, 1]
                     } -> tensor<1x16x37x73xf16, {order = #NHWC}>
                 return %0 : tensor<1x16x37x73xf16, {order = #NHWC}>

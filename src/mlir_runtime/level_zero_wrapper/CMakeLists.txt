@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-set(TARGET_NAME level_zero_wrapper)
+set(TARGET_NAME openvino_intel_npu_level_zero_wrapper)
 
 add_library(${TARGET_NAME} SHARED
     level_zero_wrapper.h
@@ -20,7 +20,7 @@ target_include_directories(${TARGET_NAME} PRIVATE
     ${LLVM_INCLUDE_DIRS}
 )
 
-target_link_libraries(${TARGET_NAME} PRIVATE npu_elf openvino::npu_al openvino::ze_loader openvino::npu_zero_utils npu_compiler_dialect_vpumi37xx npu_compiler_interface)
+target_link_libraries(${TARGET_NAME} PRIVATE npu_elf openvino::ze_loader openvino::npu_zero_utils npu_compiler_dialect_vpumi37xx npu_compiler_interface)
 
 install(TARGETS ${TARGET_NAME}
         ARCHIVE DESTINATION ${OV_CPACK_ARCHIVEDIR} COMPONENT ${VPUX_INTERNAL_COMPONENT}

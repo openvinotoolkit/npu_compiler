@@ -20,6 +20,8 @@
 namespace vpux {
 namespace IE {
 
+bool isOnWeightsPath(mlir::Operation* op, mlir::Type lowPrecisionType, const Logger& log);
+
 struct FqData {
     // Note: using Const::Content (instead of raw vectors) because of potential
     // need to broadcast these values.

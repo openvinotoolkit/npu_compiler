@@ -153,9 +153,6 @@ void OutputPipelineTilingPass::safeRunOnFunc() {
     auto func = getOperation();
 
     if (!_enablePrefetchTiling) {
-        func->walk([](mlir::Operation* op) {
-            op->removeAttr(VPU::pinnedStrategy);
-        });
         return;
     }
     auto module = func->getParentOfType<mlir::ModuleOp>();
@@ -275,11 +272,6 @@ void OutputPipelineTilingPass::safeRunOnFunc() {
             adjustTiling();
             origOp->removeAttr(outputPipeliningMinFragmentation);
         }
-    });
-
-    // Clean up the temporary pinnedStrategy attribute after output pipelining decisions are made.
-    func->walk([](mlir::Operation* op) {
-        op->removeAttr(VPU::pinnedStrategy);
     });
 }
 

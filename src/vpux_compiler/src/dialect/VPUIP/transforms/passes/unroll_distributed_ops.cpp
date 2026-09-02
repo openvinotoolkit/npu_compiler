@@ -3,6 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+// GCC 14 false positive in LLVM's SmallDenseMap::grow() inlined with -O3
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 14
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+
 #include "vpux/compiler/dialect/VPUIP/transforms/passes/unroll_distributed_ops.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 
@@ -1512,7 +1518,7 @@ void VPUIP::ClusterPerElementDMABaseRewriter::unrollAcrossClusterReusableWeightT
                 newInputType.getShape(),
                 VPU::DistributionModeAttr::get(output.getContext(), VPU::DistributionMode::DUPLICATED),
                 distribution.getNumTiles(), distribution.getNumClusters(), distribution.getAlignment(),
-                distribution.getUniformDistributedSegments(), outputDistType.getElementType(), output.getContext());
+                distribution.getUniformDistributedSegments(), output.getContext());
 
         auto weightsType = VPUIP::DistributedBufferType::get(
                 outputDistType.getContext(), newInputType.getShape().raw(), outputDistType.getElementType(),
@@ -1783,3 +1789,7 @@ std::unique_ptr<mlir::Pass> vpux::VPUIP::createUnrollDistributedOpsPass(Logger l
                                                                         std::optional<bool> enableSegmentedDmaFusion) {
     return std::make_unique<UnrollDistributedOpsPass>(log, enableSegmentedDmaFusion);
 }
+
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 14
+#pragma GCC diagnostic pop
+#endif

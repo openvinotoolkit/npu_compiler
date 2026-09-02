@@ -74,5 +74,10 @@ bool isQuantizedPurposeAvgPool(IE::AvgPoolOp avgPool);
 bool isQuantizedAvgPoolPermutation(IE::AvgPoolOp avgPool);
 bool isAddOutputQuantized(IE::AddOp add);
 
+// Converts a scale tensor to FP32 by routing it through an identity MaxPool.
+// Preserves accuracy compared to a plain ConvertOp for f16 inputs.
+// Returns the scale unchanged if it is already FP32, or nullptr if scale is nullptr.
+mlir::Value createConvertPoolingForScaleTable(mlir::Value scale, mlir::PatternRewriter& rewriter);
+
 }  // namespace IE
 }  // namespace vpux

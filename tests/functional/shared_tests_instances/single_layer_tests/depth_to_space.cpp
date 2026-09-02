@@ -4,6 +4,7 @@
 //
 
 #include "single_op_tests/depth_to_space.hpp"
+#include <common_test_utils/ov_tensor_utils.hpp>
 #include "vpu_ov2_layer_test.hpp"
 
 using namespace ov::test::utils;
@@ -53,6 +54,7 @@ TEST_P(DepthToSpace_SCFTilingLayerTest, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(DepthToSpaceLayerTestCommon, NPU5020_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
@@ -126,8 +128,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_DepthToSpaceBS4, DepthToSpaceLayerTestCommon, smo
 INSTANTIATE_TEST_SUITE_P(smoke_DepthToSpace_with_tiling, DepthToSpaceLayerTestCommon, smoke_DepthToSpaceBS4_with_tiling,
                          DepthToSpaceLayerTestCommon::getTestCaseName);
 
-// Traking number E-220308
-INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_DepthToSpace_with_scftiling, DepthToSpace_SCFTilingLayerTest,
+INSTANTIATE_TEST_SUITE_P(smoke_DepthToSpace_with_scftiling, DepthToSpace_SCFTilingLayerTest,
                          smoke_DepthToSpaceBS2_with_tiling, DepthToSpace_SCFTilingLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_DepthToSpace_with_large_height, DepthToSpaceLayerTestCommon,

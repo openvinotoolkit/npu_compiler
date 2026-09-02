@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPU/utils/tiling_algorithm/tiling_context.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tiling_pass_config_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -105,6 +106,10 @@ struct CostBasedVFConfiguration : MergeConfiguration {
     CostBasedVFConfiguration(const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log) {
         splitGetter = [&costFunction, log](VPU::VF::v2::VFConfig& config,
                                            DimArrRef allowedDims) -> VPU::VF::v2::VFCase {
+            if (config.getOperationsForTiling().empty()) {
+                return VPU::VF::v2::VFCase(config, {});
+            }
+
             auto splits = VPU::VF::v2::getSplitFromDimArr(allowedDims, allowedDims, config,
                                                           /*enableMultiDimTiling=*/true);
             if (splits.empty()) {
@@ -136,26 +141,72 @@ struct CostBasedVFConfiguration : MergeConfiguration {
             }
             return std::move(bestCase.value());
         };
-        mergeDecision = [&costFunction, log](VPU::VF::v2::VFCase& vfCase) -> bool {
+
+        // Sum of the standalone (unfused) costs of the given operations, each tiled with its own
+        // assigned strategy. Used as the no-fusion reference for profitability decisions.
+        const auto baselineOfOps = [&costFunction](ArrayRef<mlir::Operation*> ops) -> StrategyCost {
+            return std::accumulate(
+                    ops.begin(), ops.end(), StrategyCost{0}, [&costFunction](StrategyCost acc, mlir::Operation* op) {
+                        SmallVector<int64_t> tilingDims;
+                        if (auto tilingStrategyAttr =
+                                    mlir::dyn_cast_or_null<mlir::ArrayAttr>(op->getAttr(tilingStrategy))) {
+                            tilingDims = parseIntArrayAttr<int64_t>(tilingStrategyAttr);
+                        }
+                        return acc + VPU::VF::v2::extractBaselineCost(op, ShapeRef(tilingDims), costFunction,
+                                                                      Logger::global());
+                    });
+        };
+        const auto computeBaselineCost = [baselineOfOps](VPU::VF::v2::VFCase& vfCase) -> StrategyCost {
+            return baselineOfOps(vfCase.getConfig().getOperationsForTiling());
+        };
+
+        mergeDecision = [&costFunction, log, computeBaselineCost](VPU::VF::v2::VFCase& vfCase) -> bool {
             if (!vfCase.isInitialized()) {
                 return false;
             }
 
-            auto& config = vfCase.getConfig();
-            auto ops = config.getOperationsForTiling();
-            auto baselineCost =
-                    std::accumulate(ops.begin(), ops.end(), 0, [&costFunction](StrategyCost acc, mlir::Operation* op) {
-                        auto tilingDims =
-                                parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(op->getAttr(tilingStrategy)));
-                        auto cost = VPU::VF::v2::extractBaselineCost(op, ShapeRef(tilingDims), costFunction,
-                                                                     Logger::global());
-                        return acc + cost;
-                    });
+            const auto baselineCost = computeBaselineCost(vfCase);
 
             return VPU::VF::v2::isVFMergeProfitable(vfCase, baselineCost, 0, costFunction, log);
         };
         viewLikePolicy = [](mlir::Operation* op) -> bool {
             return VPU::VF::v2::isViewLikeOpVFCompatible(op);
+        };
+        // Pairwise marginal merge check used during incremental group growth in
+        // collectTiledAndFusedOps. The incumbent is the current group; the candidate is the group
+        // enlarged with one more producer. Accept the growth only when the fused cost of the enlarged
+        // group is not greater than the current fused cost plus the standalone cost of the newly
+        // added operations (merged <= previous + new). Mirrors the pairwise merge-profitability of the
+        // default (non-SCF) VF path.
+        selectBetterCase = [&costFunction, log, baselineOfOps](VPU::VF::v2::VFCase& current,
+                                                               VPU::VF::v2::VFCase& candidate) -> bool {
+            const auto fusedCost = [&](VPU::VF::v2::VFCase& vfCase) -> int64_t {
+                return checked_cast<int64_t>(vfCase.getCost(costFunction, log));
+            };
+
+            const auto& currentOps = current.getConfig().getVFOperations();
+            const auto& candidateOps = candidate.getConfig().getVFOperations();
+
+            // Operations the candidate adds on top of the current group.
+            std::vector<mlir::Operation*> newOps;
+            newOps.reserve(candidateOps.size());
+            std::set_difference(candidateOps.begin(), candidateOps.end(), currentOps.begin(), currentOps.end(),
+                                std::back_inserter(newOps));
+
+            if (newOps.empty()) {
+                // Same operation set: keep whichever tiling yields the lower fused cost.
+                return fusedCost(candidate) < fusedCost(current);
+            }
+
+            const auto newOpsStandaloneCost = checked_cast<int64_t>(baselineOfOps(newOps));
+
+            // Grow only when fusing the new operations is not more expensive than running the current
+            // group and the new operations separately.
+            return fusedCost(candidate) <= fusedCost(current) + newOpsStandaloneCost;
+        };
+
+        vfOpsRestriction = [](mlir::Operation* op) -> bool {
+            return mlir::isa<VPU::VerticalFusionOpInterface>(op);
         };
     }
 };

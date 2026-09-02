@@ -24,8 +24,8 @@ public:
         ASSERT_EQ(actualTensors.size(), 1);
         ASSERT_EQ(expectedTensors.size(), 1);
 
-        const auto expected = expectedTensors[0];
-        const auto actual = actualTensors[0];
+        const auto& expected = expectedTensors[0];
+        const auto& actual = actualTensors[0];
         ASSERT_EQ(expected.get_size(), actual.get_size());
 
         const float absThreshold = 0.5f;
@@ -87,8 +87,8 @@ public:
         std::memset(weightsData, 0, weightsTensor.get_byte_size());
         std::memset(zpData, 0, zpTensor.get_byte_size());
 
-        for (int channelIdx = 0; channelIdx < testParams.numChannels; ++channelIdx) {
-            for (int groupIdx = 0; groupIdx < testParams.numGroupsPerChannel; ++groupIdx) {
+        for (size_t channelIdx = 0; channelIdx < testParams.numChannels; ++channelIdx) {
+            for (size_t groupIdx = 0; groupIdx < testParams.numGroupsPerChannel; ++groupIdx) {
                 // Generate random subrange [rangeLo, rangeHi] within [-1, 1]
                 const float firstEndpoint = unitDist(gen) * 2.0f - 1.0f;
                 const float secondEndpoint = unitDist(gen) * 2.0f - 1.0f;
@@ -116,7 +116,7 @@ public:
 
                 // Generate float weights in [rangeLo, rangeHi], quantize, store as U2
                 const float range = rangeHi - rangeLo;
-                for (int elemIdx = 0; elemIdx < testParams.groupSize; ++elemIdx) {
+                for (size_t elemIdx = 0; elemIdx < testParams.groupSize; ++elemIdx) {
                     const float floatWeight = rangeLo + range * unitDist(gen);
                     const int quantVal = std::clamp(static_cast<int>(std::round(floatWeight * invScale + zeroPoint)),
                                                     quantMin, quantMax);

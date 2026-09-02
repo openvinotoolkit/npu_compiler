@@ -58,7 +58,7 @@ module @NCEDepthConvWithUnpaddedOutputChannels {
     }
     // CHECK: ([[INPUT:%.+]]: tensor<1x16x512x512xf16, {order = #NHWC}>, [[WEIGHTS:%.+]]: tensor<3x1x4x8xf16, {order = #NHWC}>, [[WEIGHTS_TABLE:%.+]]: tensor<16x1x1x4xsi32>)
     func.func @main(%input: tensor<1x16x512x512xf16, {order = #NHWC}>, %weights: tensor<3x1x4x8xf16, {order = #NHWC}>, %weights_table: tensor<16x1x1x4xsi32>) -> tensor<1x3x509x505xf16, {order = #NHWC}> {
-        %0 = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) rawFilterShape [3, 1, 4, 8] {
+        %0 = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) rawFilterShape [3, 1, 4, 8] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             input_padding = [0, 13, 0, 0],
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
@@ -178,7 +178,7 @@ module @NCEEltwiseWithUnpaddedOutputChannels {
     }
     // CHECK: ([[INPUT0:%.+]]: tensor<1x16x512x512xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x16x512x512xf16, {order = #NHWC}>)
     func.func @main(%arg0: tensor<1x16x512x512xf16, {order = #NHWC}>, %arg1: tensor<1x16x512x512xf16, {order = #NHWC}>) -> tensor<1x3x512x512xf16, {order = #NHWC}> {
-        %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+        %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             input_padding = [0, 13, 0, 0],
             op_type = #VPU.eltwise_type<SUBTRACT>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,

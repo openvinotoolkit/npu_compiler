@@ -298,29 +298,37 @@ using uniformDistribution = typename std::conditional<
         std::is_floating_point<T>::value, std::uniform_real_distribution<T>,
         typename std::conditional<std::is_integral<T>::value, std::uniform_int_distribution<T>, void>::type>::type;
 
-// Fills a sub-byte (u4/i4) tensor with random values.
-// 4-bit types are packed as two nibbles per byte, so tensor.data<T>() is unavailable.
-// The raw byte buffer is filled directly via tensor.data() (void*), with each byte
-// holding two independently sampled 4-bit values: low nibble in bits [3:0], high in [7:4].
-void fillRandom4bit(ov::Tensor& tensor, bool isSigned) {
+// Fills a sub-byte tensor with random values.
+// Sub-byte types are packed (bitWidth values per byte), so tensor.data<T>() is unavailable.
+// The raw byte buffer is filled directly via tensor.data() (void*), with each byte holding
+// (8 / bitWidth) independently sampled values packed from LSB to MSB.
+// Supported widths: 4 (u4/i4, ranges [0,15]/[-8,7]) and 2 (u2/i2, ranges [0,3]/[-2,1]).
+void fillRandomSubByte(ov::Tensor& tensor, bool isSigned, int bitWidth) {
     std::mt19937 gen(std::mt19937::default_seed);
     const size_t byteSize = tensor.get_byte_size();
     auto* data = static_cast<uint8_t*>(tensor.data());
+    const int valuesPerByte = 8 / bitWidth;
+    const auto mask = static_cast<uint8_t>((1 << bitWidth) - 1);
     if (isSigned) {
-        // i4: range [-8, 7], stored as 4-bit two's complement
-        std::uniform_int_distribution<int32_t> distribution(-8, 7);
+        const auto minVal = -(1 << (bitWidth - 1));
+        const auto maxVal = (1 << (bitWidth - 1)) - 1;
+        std::uniform_int_distribution<int32_t> distribution(minVal, maxVal);
         for (size_t i = 0; i < byteSize; i++) {
-            const uint8_t lo = static_cast<uint8_t>(distribution(gen)) & 0xF;
-            const uint8_t hi = static_cast<uint8_t>(distribution(gen)) & 0xF;
-            data[i] = static_cast<uint8_t>((hi << 4) | lo);
+            uint8_t byte = 0;
+            for (int j = 0; j < valuesPerByte; j++) {
+                byte |= (static_cast<uint8_t>(distribution(gen)) & mask) << (j * bitWidth);
+            }
+            data[i] = byte;
         }
     } else {
-        // u4: range [0, 15]
-        std::uniform_int_distribution<uint32_t> distribution(0, 15);
+        const auto maxVal = static_cast<uint32_t>((1 << bitWidth) - 1);
+        std::uniform_int_distribution<uint32_t> distribution(0, maxVal);
         for (size_t i = 0; i < byteSize; i++) {
-            const uint8_t lo = static_cast<uint8_t>(distribution(gen));
-            const uint8_t hi = static_cast<uint8_t>(distribution(gen));
-            data[i] = static_cast<uint8_t>((hi << 4) | lo);
+            uint8_t byte = 0;
+            for (int j = 0; j < valuesPerByte; j++) {
+                byte |= static_cast<uint8_t>(distribution(gen)) << (j * bitWidth);
+            }
+            data[i] = byte;
         }
     }
 }
@@ -371,12 +379,16 @@ inline void fillTensorRandom(ov::Tensor tensor) {
         fillRandom<int8_t, int32_t>(tensor, std::numeric_limits<int8_t>::min(), std::numeric_limits<int8_t>::max());
         break;
     case ov::element::u4:
-        // u4/i4 are sub-byte types; packed nibble filling is required.
-        fillRandom4bit(tensor, false);
+        // u4: 2 values per byte, range [0, 15].
+        fillRandomSubByte(tensor, false, 4);
         break;
     case ov::element::i4:
-        // u4/i4 are sub-byte types; packed nibble filling is required.
-        fillRandom4bit(tensor, true);
+        // i4: 2 values per byte, range [-8, 7].
+        fillRandomSubByte(tensor, true, 4);
+        break;
+    case ov::element::u2:
+        // u2: 4 values per byte, range [0, 3].
+        fillRandomSubByte(tensor, false, 2);
         break;
     case ov::element::u16:
         fillRandom<uint16_t, uint16_t>(tensor);

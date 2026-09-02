@@ -44,6 +44,7 @@ std::optional<BufferHandle> intel_npu::vm::extractMemRef(
         NPU_VM_LOG_ERROR("Null pointer provided for memref argument");
         return std::nullopt;
     }
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     auto& memRef = *reinterpret_cast<npu_vm_runtime_mem_ref*>(handle);
     if (memRef.basePtr == nullptr || memRef.data == nullptr) {
         NPU_VM_LOG_ERROR("Invalid memref argument: basePtr ({}) and data ({}) must not be null", memRef.basePtr,
@@ -71,9 +72,9 @@ std::optional<BufferHandle> intel_npu::vm::extractMemRef(
                 formatVector(memRef.sizes), formatVector(memRef.strides), elemByteSize);
         return std::nullopt;
     }
-    const auto address = reinterpret_cast<const uint8_t*>(memRef.data);
-    auto bufferHandle = bufferManager.createFromMemory(const_cast<uint8_t*>(address),
-                                                       static_cast<size_t>(bufferByteSize), permission);
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+    auto* address = static_cast<uint8_t*>(const_cast<void*>(memRef.data));
+    auto bufferHandle = bufferManager.createFromMemory(address, static_cast<size_t>(bufferByteSize), permission);
 
     BufferMetadata metadata{type.typeSectionIndex, memRef.sizes, memRef.strides, elemByteSize};
     bufferMetadata.emplace(bufferHandle, metadata);

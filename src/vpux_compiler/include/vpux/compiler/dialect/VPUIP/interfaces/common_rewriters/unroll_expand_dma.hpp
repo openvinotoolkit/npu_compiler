@@ -24,11 +24,11 @@ public:
     mlir::LogicalResult matchAndRewrite(VPUIP::ExpandDMAOp expandDmaOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    void createTilesForLargeSize(VPUIP::ExpandDMAOp origOp, VPUIP::ExpandDmaDescriptorGenerator dmaDescriptorGenerator,
+    void createTilesForLargeSize(VPUIP::ExpandDMAOp origOp, VPUIP::ExpandDmaDescriptorGenerator& dmaDescriptorGenerator,
                                  mlir::PatternRewriter& rewriter) const;
 
-    mlir::LogicalResult unrollSingleTile(VPUIP::ExpandDMAOp origOp,
-                                         VPUIP::ExpandDmaDescriptorGenerator dmaDescriptorGenerator,
+    mlir::LogicalResult unrollSingleTile(VPUIP::ExpandDMAOp expandDmaOp,
+                                         VPUIP::ExpandDmaDescriptorGenerator& dmaDescriptorGenerator,
                                          mlir::PatternRewriter& rewriter) const;
 
     Logger _log;
@@ -49,13 +49,13 @@ public:
     mlir::LogicalResult matchAndRewrite(VPUIP::ExpandDMAOp expandDmaOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    void unrollSegmentedOrOverlapped(mlir::Location loc, VPUIP::ExpandDMAOp origOp, VPURT::TaskOp vpurtTask,
+    void unrollSegmentedOrOverlapped(mlir::Location loc, VPUIP::ExpandDMAOp expandDmaOp, VPURT::TaskOp vpurtTask,
                                      VPUIP::DistributedBufferType distributedType,
-                                     VPUIP::ExpandDmaDescriptorGenerator dmaDescriptorGenerator,
+                                     VPUIP::ExpandDmaDescriptorGenerator& dmaDescriptorGenerator,
                                      mlir::PatternRewriter& rewriter) const;
-    void unrollDuplicated(mlir::Location loc, VPUIP::ExpandDMAOp origOp, VPURT::TaskOp vpurtTask,
+    void unrollDuplicated(mlir::Location loc, VPUIP::ExpandDMAOp expandDmaOp, VPURT::TaskOp vpurtTask,
                           VPUIP::DistributedBufferType distributedType,
-                          VPUIP::ExpandDmaDescriptorGenerator dmaDescriptorGenerator,
+                          VPUIP::ExpandDmaDescriptorGenerator& dmaDescriptorGenerator,
                           mlir::PatternRewriter& rewriter) const;
 
     Logger _log;

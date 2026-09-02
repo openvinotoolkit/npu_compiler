@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
@@ -64,6 +65,9 @@ std::optional<Shape> canConvertToMVN1(ShapeRef inputShapeRef, ArrayRef<int64_t> 
             return inputShape;
         } else if (axes.size() == 2 && axes[0] == 2 && axes[1] == 3) {
             return inputShape;
+        } else if (axes.size() == 1 && axes[0] == 3) {
+            // Merged other dims into the batch dim if the normalization happens on the last dim
+            return Shape{inputShape[0] * inputShape[1] * inputShape[2], 1, 1, inputShape[3]};
         }
     }
     return std::nullopt;
@@ -84,15 +88,6 @@ std::optional<double> getEpsValue(mlir::Value epsInput, bool isOutsideEps) {
         return std::nullopt;
     }
     return epsValue;
-}
-
-void normalizeAndSortAxes(SmallVector<int64_t>& axes, int64_t rank) {
-    for (size_t i = 0; i < axes.size(); i++) {
-        if (axes[i] < 0) {
-            axes[i] += rank;
-        }
-    }
-    std::sort(axes.begin(), axes.end());
 }
 
 mlir::Value skipShapeOpsBackward(mlir::Value val) {
@@ -116,9 +111,9 @@ mlir::Value skipShapeOpsForward(mlir::Value val) {
     return val;
 }
 
-// Returns true when val is a scalar splat constant with value 0.
+// Returns true when val is a scalar splat constant with expected value.
 // Handles optional ConvertOp wrapping a Const::DeclareOp.
-bool isZeroSplatConst(mlir::Value val) {
+bool isExpectedSplatConst(mlir::Value val, double expectedValue) {
     auto convertOp = val.getDefiningOp<IE::ConvertOp>();
     auto constOp = val.getDefiningOp<Const::DeclareOp>();
     if (convertOp != nullptr) {
@@ -128,7 +123,7 @@ bool isZeroSplatConst(mlir::Value val) {
         return false;
     }
 
-    return isDoubleEqual(constOp.getContent().getSplatValue<double>(), 0.0);
+    return isDoubleEqual(constOp.getContent().getSplatValue<double>(), expectedValue);
 }
 
 //
@@ -168,7 +163,7 @@ mlir::LogicalResult MVNFusion::matchAndRewrite(IE::DivideOp origOp, mlir::Patter
     if (inputMeanOp == nullptr) {
         return matchFailed(rewriter, origOp, "No x ReduceMeanOp found");
     }
-    auto inputMeanAxesValue = IE::extractAxes(origOp.getLoc(), inputMeanOp);
+    auto inputMeanAxesValue = parseIntArrayAttr<int64_t>(inputMeanOp.getAxesValue());
 
     if (inputMeanOp.getInput() != meanSubOp.getInput1()) {
         return matchFailed(rewriter, origOp, "Not the same input");
@@ -233,7 +228,7 @@ mlir::LogicalResult MVNFusion::matchAndRewrite(IE::DivideOp origOp, mlir::Patter
     if (squareMeanOp == nullptr) {
         return matchFailed(rewriter, origOp, "No square ReduceMeanOp found");
     }
-    auto squareMeanAxesValue = IE::extractAxes(origOp.getLoc(), squareMeanOp);
+    auto squareMeanAxesValue = parseIntArrayAttr<int64_t>(squareMeanOp.getAxesValue());
 
     if (inputMeanAxesValue != squareMeanAxesValue) {
         return matchFailed(rewriter, origOp, "ReduceMean ops have different axes");
@@ -264,8 +259,6 @@ mlir::LogicalResult MVNFusion::matchAndRewrite(IE::DivideOp origOp, mlir::Patter
     if (meanToSquareOp != inputMeanOp) {
         return matchFailed(rewriter, origOp, "Not the same ReduceMean input");
     }
-
-    normalizeAndSortAxes(inputMeanAxesValue, inputRank);
 
     bool isAcrossChannel;
     const auto newShapeOpt = canConvertToMVN1(inputShape, inputMeanAxesValue, isAcrossChannel);
@@ -327,7 +320,7 @@ mlir::LogicalResult MVNFusionOvRef::matchAndRewrite(IE::DivideOp origOp, mlir::P
     if (inputMeanOp == nullptr) {
         return matchFailed(rewriter, origOp, "No ReduceMeanOp(x) found");
     }
-    auto inputMeanAxesValue = IE::extractAxes(origOp.getLoc(), inputMeanOp);
+    auto inputMeanAxesValue = parseIntArrayAttr<int64_t>(inputMeanOp.getAxesValue());
 
     if (inputMeanOp.getInput() != meanSubOp.getInput1()) {
         return matchFailed(rewriter, origOp, "No (x - ReduceMeanOp(x)) found");
@@ -378,7 +371,7 @@ mlir::LogicalResult MVNFusionOvRef::matchAndRewrite(IE::DivideOp origOp, mlir::P
     if (squareMeanOp == nullptr) {
         return matchFailed(rewriter, origOp, "No square ReduceMeanOp found");
     }
-    auto squareMeanAxesValue = IE::extractAxes(origOp.getLoc(), squareMeanOp);
+    auto squareMeanAxesValue = parseIntArrayAttr<int64_t>(squareMeanOp.getAxesValue());
 
     if (inputMeanAxesValue != squareMeanAxesValue) {
         return matchFailed(rewriter, origOp, "ReduceMean ops have different axes");
@@ -414,12 +407,10 @@ mlir::LogicalResult MVNFusionOvRef::matchAndRewrite(IE::DivideOp origOp, mlir::P
         auto squareSubMeanOp = squareSubOp.getInput2().getDefiningOp<IE::ReduceMeanOp>();
         if (squareSubMeanOp == nullptr || squareSubOp.getInput1() != meanSubOp.getInput1() ||
             squareSubMeanOp.getInput() != inputMeanOp.getInput() ||
-            IE::extractAxes(origOp.getLoc(), squareSubMeanOp) != inputMeanAxesValue) {
+            parseIntArrayAttr<int64_t>(squareSubMeanOp.getAxesValue()) != inputMeanAxesValue) {
             return matchFailed(rewriter, origOp, "Subtract->SquareOp link not found");
         }
     }
-
-    normalizeAndSortAxes(inputMeanAxesValue, inputRank);
 
     bool isAcrossChannel;
     const auto newShapeOpt = canConvertToMVN1(inputShape, inputMeanAxesValue, isAcrossChannel);
@@ -493,6 +484,209 @@ static std::optional<MVN1Mapping> getMVN1Mapping(ShapeRef inputShape, ArrayRef<i
 }
 
 //
+// MVNFusionWithAffine
+//
+
+class MVNFusionWithAffine final : public mlir::OpRewritePattern<IE::AddOp> {
+public:
+    MVNFusionWithAffine(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::AddOp>(ctx), _log(log) {
+        setDebugName("MVNFusionWithAffine");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::AddOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+// Matches the affine-expanded LayerNorm form:
+//
+//   mean     = ReduceMean(x, axes)
+//   centered = x - mean
+//   var      = ReduceMean(centered * centered, axes)
+//   rsqrt    = 1 / Sqrt(var + eps)
+//   scale    = rsqrt * gamma
+//   output   = x * scale + (beta - mean * scale)
+//
+// and replaces it with MVN(x) * gamma + beta.
+mlir::LogicalResult MVNFusionWithAffine::matchAndRewrite(IE::AddOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got Add '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
+
+    IE::SubtractOp affineSubOp = nullptr;
+    mlir::Value xScaleValue;
+    for (auto input : {origOp.getInput1(), origOp.getInput2()}) {
+        if (auto subOp = input.getDefiningOp<IE::SubtractOp>()) {
+            if (affineSubOp != nullptr) {
+                return matchFailed(rewriter, origOp, "Multiple SubtractOps in final affine Add");
+            }
+            affineSubOp = subOp;
+        } else {
+            if (xScaleValue) {
+                return matchFailed(rewriter, origOp, "Final affine Add has multiple non-Subtract inputs");
+            }
+            xScaleValue = input;
+        }
+    }
+    if (affineSubOp == nullptr || !xScaleValue) {
+        return matchFailed(rewriter, origOp, "Expected x*scale and beta-mean*scale branches");
+    }
+    if (!vpux::Const::isConstValue(affineSubOp.getInput1())) {
+        return matchFailed(rewriter, origOp, "Expected a constant beta in affine Subtract");
+    }
+
+    auto xScaleOp = xScaleValue.getDefiningOp<IE::MultiplyOp>();
+    if (xScaleOp == nullptr) {
+        return matchFailed(rewriter, origOp, "Expected Multiply(x, scale) before final Add");
+    }
+    auto meanScaleOp = affineSubOp.getInput2().getDefiningOp<IE::MultiplyOp>();
+    if (meanScaleOp == nullptr) {
+        return matchFailed(rewriter, origOp, "Expected Multiply(mean, scale) in affine Subtract");
+    }
+
+    IE::ReduceMeanOp meanOp = meanScaleOp.getInput1().getDefiningOp<IE::ReduceMeanOp>();
+    if (meanOp == nullptr) {
+        meanOp = meanScaleOp.getInput2().getDefiningOp<IE::ReduceMeanOp>();
+    }
+    if (meanOp == nullptr) {
+        return matchFailed(rewriter, origOp, "Expected ReduceMean(x) in mean branch");
+    }
+    const auto meanResult = meanOp.getOutput();
+    if (meanScaleOp.getInput1() != meanResult && meanScaleOp.getInput2() != meanResult) {
+        return matchFailed(rewriter, origOp, "Mean branch does not use ReduceMean(x)");
+    }
+    const auto beta = affineSubOp.getInput1();
+    const auto scale = meanScaleOp.getInput1() == meanResult ? meanScaleOp.getInput2() : meanScaleOp.getInput1();
+    if (xScaleOp.getInput1() != scale && xScaleOp.getInput2() != scale) {
+        return matchFailed(rewriter, origOp, "x branch does not use the same scale as mean branch");
+    }
+
+    const auto x = xScaleOp.getInput1() == scale ? xScaleOp.getInput2() : xScaleOp.getInput1();
+    if (meanOp.getInput() != x) {
+        return matchFailed(rewriter, origOp, "Mean and x-scale branches do not share the same input");
+    }
+
+    IE::SubtractOp centered = nullptr;
+    for (auto* user : x.getUsers()) {
+        auto candidate = mlir::dyn_cast<IE::SubtractOp>(user);
+        if (candidate != nullptr && candidate.getInput1() == x && candidate.getInput2() == meanResult) {
+            centered = candidate;
+            break;
+        }
+    }
+    if (centered == nullptr) {
+        return matchFailed(rewriter, origOp, "Could not find centered value x-ReduceMean(x)");
+    }
+
+    IE::MultiplyOp square = nullptr;
+    for (auto* user : centered->getUsers()) {
+        auto candidate = mlir::dyn_cast<IE::MultiplyOp>(user);
+        if (candidate != nullptr && candidate.getInput1() == centered.getOutput() &&
+            candidate.getInput2() == centered.getOutput()) {
+            square = candidate;
+            break;
+        }
+    }
+    if (square == nullptr || !square->hasOneUse()) {
+        return matchFailed(rewriter, origOp, "Expected single-use Multiply(centered, centered)");
+    }
+
+    auto varianceOp = mlir::dyn_cast<IE::ReduceMeanOp>(*square->getUsers().begin());
+    if (varianceOp == nullptr || !varianceOp->hasOneUse()) {
+        return matchFailed(rewriter, origOp, "Expected single-use ReduceMean(centered²)");
+    }
+    const auto meanAxes = parseIntArrayAttr<int64_t>(meanOp.getAxesValue());
+    if (meanAxes != parseIntArrayAttr<int64_t>(varianceOp.getAxesValue())) {
+        return matchFailed(rewriter, origOp, "Mean and variance ReduceMean ops have different axes");
+    }
+
+    auto epsAddOp = mlir::dyn_cast<IE::AddOp>(*varianceOp->getUsers().begin());
+    if (epsAddOp == nullptr || !epsAddOp->hasOneUse()) {
+        return matchFailed(rewriter, origOp, "Expected single-use Add(variance, eps)");
+    }
+    mlir::Value epsInput;
+    if (epsAddOp.getInput1().getDefiningOp() == varianceOp) {
+        epsInput = epsAddOp.getInput2();
+    } else if (epsAddOp.getInput2().getDefiningOp() == varianceOp) {
+        epsInput = epsAddOp.getInput1();
+    } else {
+        return matchFailed(rewriter, origOp, "Add after variance does not consume variance");
+    }
+    const auto epsValue = getEpsValue(epsInput, /*isOutsideEps=*/false);
+    if (!epsValue.has_value()) {
+        return matchFailed(rewriter, origOp, "Cannot extract epsilon value");
+    }
+
+    auto sqrtOp = mlir::dyn_cast<IE::SqrtOp>(*epsAddOp->getUsers().begin());
+    if (sqrtOp == nullptr || !sqrtOp->hasOneUse()) {
+        return matchFailed(rewriter, origOp, "Expected single-use Sqrt after epsilon Add");
+    }
+    auto rsqrtOp = mlir::dyn_cast<IE::DivideOp>(*sqrtOp->getUsers().begin());
+    if (rsqrtOp == nullptr || !isExpectedSplatConst(rsqrtOp.getInput1(), 1.0f) ||
+        rsqrtOp.getInput2() != sqrtOp.getOutput()) {
+        return matchFailed(rewriter, origOp, "Expected Divide(1, Sqrt(variance + eps))");
+    }
+
+    mlir::Value gamma;
+    auto scaleOp = scale.getDefiningOp<IE::MultiplyOp>();
+    if (scale == rsqrtOp.getOutput()) {
+        gamma = nullptr;
+    } else if (scaleOp != nullptr &&
+               (scaleOp.getInput1() == rsqrtOp.getOutput() || scaleOp.getInput2() == rsqrtOp.getOutput())) {
+        gamma = scaleOp.getInput1() == rsqrtOp.getOutput() ? scaleOp.getInput2() : scaleOp.getInput1();
+        if (!vpux::Const::isConstValue(gamma)) {
+            return matchFailed(rewriter, origOp, "Expected a constant gamma in affine scale");
+        }
+    } else {
+        return matchFailed(rewriter, origOp, "Scale is not reciprocal-sqrt optionally multiplied by gamma");
+    }
+
+    const auto mappingOpt = getMVN1Mapping(getShape(x), meanAxes);
+    if (!mappingOpt.has_value()) {
+        return matchFailed(rewriter, origOp, "Cannot convert LayerNorm axes to MVN1");
+    }
+    const auto& mapping = mappingOpt.value();
+    const auto ctx = origOp.getContext();
+    const auto loc = origOp.getLoc();
+
+    mlir::Value mvnInput = x;
+    if (!mapping.preTransposePerm.empty()) {
+        const auto order = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(mapping.preTransposePerm, ctx));
+        mvnInput =
+                rewriter.create<IE::TransposeOp>(appendLoc(loc, "pre_transpose"), mvnInput, nullptr, order).getOutput();
+    }
+    auto preReshape = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "in_reshape"), mvnInput,
+                                                     getIntArrayAttr(ctx, mapping.mvnShape));
+    auto mvn = rewriter.create<IE::MVNOp>(appendLoc(loc, "mvn"), preReshape.getOutput(),
+                                          mlir::BoolAttr::get(ctx, mapping.isAcrossChannel),
+                                          mlir::BoolAttr::get(ctx, true), getFPAttr(ctx, epsValue.value()));
+
+    mlir::Value normalized = mvn.getOutput();
+    if (mapping.postTransposePerm.empty()) {
+        normalized = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "out_reshape"), normalized,
+                                                    getIntArrayAttr(ctx, getShape(origOp.getOutput())))
+                             .getOutput();
+    } else {
+        auto outReshape = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "out_reshape"), normalized,
+                                                         getIntArrayAttr(ctx, mapping.postReshapeShape));
+        const auto order = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(mapping.postTransposePerm, ctx));
+        normalized = rewriter.create<IE::TransposeOp>(appendLoc(loc, "post_transpose"), outReshape.getOutput(), nullptr,
+                                                      order)
+                             .getOutput();
+    }
+
+    mlir::Value affineValue = normalized;
+    if (gamma) {
+        affineValue = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "gamma"), affineValue, gamma,
+                                                      IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
+                              .getOutput();
+    }
+    auto result = rewriter.create<IE::AddOp>(appendLoc(loc, "beta"), affineValue, beta, IE::AutoBroadcastType::NUMPY,
+                                             nullptr, nullptr, nullptr, nullptr);
+    rewriter.replaceOp(origOp, result.getOutput());
+    return mlir::success();
+}
+
+//
 // MVNFusionWithSquaredDiff
 //
 
@@ -555,8 +749,8 @@ mlir::LogicalResult MVNFusionWithSquaredDiff::matchAndRewrite(IE::SquaredDiffere
     if (varMeanOp == nullptr || !varMeanOp->hasOneUse()) {
         return matchFailed(rewriter, sqDiffOp, "Expected single-use ReduceMeanOp after SquaredDifference");
     }
-    auto inputMeanAxes = IE::extractAxes(sqDiffOp.getLoc(), inputMeanOp);
-    auto varMeanAxes = IE::extractAxes(sqDiffOp.getLoc(), varMeanOp);
+    auto inputMeanAxes = parseIntArrayAttr<int64_t>(inputMeanOp.getAxesValue());
+    auto varMeanAxes = parseIntArrayAttr<int64_t>(varMeanOp.getAxesValue());
     if (inputMeanAxes != varMeanAxes) {
         return matchFailed(rewriter, sqDiffOp, "Mean and variance ReduceMean ops have different axes");
     }
@@ -640,7 +834,7 @@ mlir::LogicalResult MVNFusionWithSquaredDiff::matchAndRewrite(IE::SquaredDiffere
     if (subZeroOp.getInput2() != mulMeanRsqrtOp.getOutput()) {
         return matchFailed(rewriter, sqDiffOp, "SubtractOp port1 is not Multiply(mean, rsqrt)");
     }
-    if (!isZeroSplatConst(subZeroOp.getInput1())) {
+    if (!isExpectedSplatConst(subZeroOp.getInput1(), 0.0f)) {
         return matchFailed(rewriter, sqDiffOp, "SubtractOp minuend is not a zero constant");
     }
 
@@ -681,7 +875,6 @@ mlir::LogicalResult MVNFusionWithSquaredDiff::matchAndRewrite(IE::SquaredDiffere
     }
 
     // --- 13. Resolve MVN1 shape mapping (with optional Transpose for non-reshape-friendly axes) ---
-    normalizeAndSortAxes(inputMeanAxes, static_cast<int64_t>(inputRank));
     const auto mappingOpt = getMVN1Mapping(inputShape, inputMeanAxes);
     if (!mappingOpt.has_value()) {
         return matchFailed(rewriter, sqDiffOp, "Cannot reshape to MVN1-compatible shape");
@@ -758,7 +951,11 @@ void MVNFusionPass::safeRunOnFunc() {
     patterns.add<MVNFusion>(&ctx, _log);
     patterns.add<MVNFusionOvRef>(&ctx, _log);
     patterns.add<MVNFusionWithSquaredDiff>(&ctx, _log);
-    collectOpsAndApplyPatterns(func, std::move(patterns));
+    patterns.add<MVNFusionWithAffine>(&ctx, _log);
+
+    if (mlir::failed(applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+        signalPassFailure();
+    }
 }
 
 }  // namespace

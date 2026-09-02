@@ -46,10 +46,17 @@ mlir::LogicalResult vpux::IE::NormalizeL2Op::verify() {
         return mlir::failure();
     }
     const auto axes = Const::getConstOrArrAttrValue(axes_tensor, axes_attribute);
+    if (mlir::failed(axes)) {
+        return errorAt(*this, "Axes must be provided either as axes_value or as a constant tensor operand");
+    }
+
     auto axesVec{axes.value()};
     for (auto& axis : axesVec) {
         if (axis < 0) {
             axis += inRank;
+        }
+        if (axis < 0 || axis >= inRank) {
+            return errorAt(*this, "Axis {0} is out of the tensor rank range [0, {1})", axis, inRank);
         }
     }
 
@@ -93,6 +100,12 @@ mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::NormalizeL2Op normal
     llvm::for_each(axesVec, [&](auto& axis) {
         axis = axis < 0 ? axis + inRank : axis;
     });
+
+    if (llvm::any_of(axesVec, [&](int64_t axis) {
+            return axis < 0 || axis >= inRank;
+        })) {
+        return mlir::failure();
+    }
 
     const auto axesAttr = getIntArrayAttr(rewriter.getContext(), axesVec);
 

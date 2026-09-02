@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --mlir-print-elementsattrs-with-hex-if-larger=-1 --convolution-split-over-input-channel %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --mlir-print-elementsattrs-with-hex-if-larger=-1 --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --convolution-split-over-input-channel %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
 

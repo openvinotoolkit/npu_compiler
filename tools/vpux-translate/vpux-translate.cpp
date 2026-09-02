@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/act_kernels/shave_binary_resources.h"
 #include "vpux/compiler/dialect/ELF/IR/export.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/export.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/serialize.hpp"
@@ -82,11 +81,6 @@ llvm::cl::opt<bool> dynamicShapeToStatic{
 llvm::cl::opt<bool> enableWeightsSeparationPath{
         "weights-separation-path",
         llvm::cl::desc("Disables constants folding for more \"Const->Convert->{Op}\" patterns"), llvm::cl::init(false)};
-
-llvm::cl::opt<bool> enableShaveCodeGen{
-        "enable-shave-code-gen",
-        llvm::cl::desc("Enable Shave Code Generation pipeline. The kernels will be compile at runtime"),
-        llvm::cl::init(false)};
 
 llvm::cl::opt<bool> enableDecomposeSDPA{"enable-decompose-sdpa",
                                         llvm::cl::desc("Enable Attention operators decomposition during IE import"),
@@ -182,9 +176,6 @@ mlir::OwningOpRef<mlir::ModuleOp> importIE(llvm::SourceMgr& sourceMgr, mlir::MLI
 
 mlir::LogicalResult exportELF(mlir::ModuleOp module, llvm::raw_ostream& output) {
     mlir::DefaultTimingManager tm;
-    if (enableShaveCodeGen) {  // --enable-shave-code-gen=true
-        ShaveBinaryResources::loadElfData(module);
-    }
 
     auto arch = config::getArch(module.getOperation());
 

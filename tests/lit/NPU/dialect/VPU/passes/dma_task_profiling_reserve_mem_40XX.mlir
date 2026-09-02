@@ -20,7 +20,7 @@ module @SimpleGraph {
     // CHECK-DAG:   {{  }}config.Resources
     // CHECK-DAG:   {{    }}@ReservedMemory
     // CHECK-DAG:   {{      }}@DmaProfilingReservedMemory
-    // CHECK-DAG:   {{        }}config.MemoryResource 512 bytes of @CMX_NN offset 1473024
+    // CHECK-DAG:   {{        }}config.MemoryResource 512 bytes of @CMX_NN offset 1571328
 
     // CHECK-DAG:   {{  }}config.Resources
     // CHECK-DAG:   {{    }}@ReservedMemory
@@ -43,7 +43,7 @@ module @SimpleGraphWithReservedMemory {
   config.Resources 2 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
       module @CMXCustomReservedMemory {
-        config.MemoryResource 40 bytes of @CMX_NN offset 1473024
+        config.MemoryResource 40 bytes of @CMX_NN offset 1571800
       }
     }
   }
@@ -66,7 +66,7 @@ module @SimpleGraphWithReservedMemory {
     // CHECK-DAG:   {{  }}config.Resources
     // CHECK-DAG:   {{    }}@ReservedMemory
     // CHECK-DAG:   {{      }}@DmaProfilingReservedMemory
-    // CHECK-DAG:   {{        }}config.MemoryResource 512 bytes of @CMX_NN offset 1472512
+    // CHECK-DAG:   {{        }}config.MemoryResource 512 bytes of @CMX_NN offset 1571264
     // CHECK-DAG:   {{      }}@CMXCustomReservedMemory
-    // CHECK-DAG:   {{        }}config.MemoryResource 40 bytes of @CMX_NN offset 1473024
+    // CHECK-DAG:   {{        }}config.MemoryResource 40 bytes of @CMX_NN offset 1571800
 }

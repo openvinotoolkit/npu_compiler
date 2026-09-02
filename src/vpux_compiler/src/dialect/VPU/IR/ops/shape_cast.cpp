@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 using namespace vpux;
 using namespace VPU;
@@ -41,19 +42,36 @@ mlir::LogicalResult vpux::VPU::ShapeCastOp::inferReturnTypes(mlir::MLIRContext* 
     const auto outShape = parseIntArrayAttr<int64_t>(shapeCast.getShape());
     const auto inType = mlir::cast<vpux::NDTypeInterface>(shapeCast.getInput().getType());
 
-    auto getDistType = [&](VPU::DistributedTypeInterface inDistInterface) {
+    auto getDistType = [&](VPU::DistributedTypeInterface inDistInterface, bool hasNewElementType,
+                           mlir::quant::UniformQuantizedPerAxisType newElementType) {
         const auto arch = config::getArch(mlir::isa<mlir::BlockArgument>(operands[0])
                                                   ? operands[0].getParentRegion()->getParentOfType<mlir::ModuleOp>()
                                                   : operands[0].getDefiningOp());
         const auto distAttr =
                 VPUIP::getDistributedAttrAfterShapeCast<VPU::DistributedTensorType>(inDistInterface, outShape, arch);
+        if (hasNewElementType) {
+            return inDistInterface.changeShapeElemTypeForExplicitDistribution(ShapeRef(outShape), newElementType,
+                                                                              distAttr);
+        }
         return inDistInterface.changeShapeForExplicitDistribution(ShapeRef(outShape), distAttr);
     };
 
     vpux::NDTypeInterface outType;
+    mlir::quant::UniformQuantizedPerAxisType newElementType;
+    bool hasNewElementType = false;
+
+    if (const auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(inType.getElementType())) {
+        if (inType.getDimsOrder() == DimsOrder::NHWC) {
+            newElementType = vpux::inferPerAxisQuantizedTypeAfterShapeCast(inType, outShape);
+            hasNewElementType = (newElementType != perAxisType);
+        }
+    }
+
     const auto distributedIn = mlir::dyn_cast<VPU::DistributedTypeInterface>(inType);
     if (distributedIn != nullptr && distributedIn.containsDistributedTypes()) {
-        outType = getDistType(distributedIn);
+        outType = getDistType(distributedIn, hasNewElementType, newElementType);
+    } else if (hasNewElementType) {
+        outType = inType.changeShapeElemType(ShapeRef(outShape), newElementType);
     } else {
         outType = inType.changeShape(ShapeRef(outShape));
     }

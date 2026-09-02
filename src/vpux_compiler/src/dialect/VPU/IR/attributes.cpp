@@ -48,16 +48,13 @@ const VPU::PlatformCapabilities& vpux::VPU::getPlatformCapabilities(config::Plat
     static const Entry table[] = {
             {config::Platform::NPU3720,
              {DPU_GROUPS_2, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_32,
-              CMX_WORKSPACE_SIZE_1936KB}},
+              COMPILER_CMX_SIZE_NPU3720}},
             {config::Platform::NPU4000,
-             {DPU_GROUPS_6, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_16,
-              CMX_WORKSPACE_SIZE_1439KB}},
+             {DPU_GROUPS_6, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_16, COMPILER_CMX_SIZE_1_5MB}},
             {config::Platform::NPU5010,
-             {DPU_GROUPS_3, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_16,
-              CMX_WORKSPACE_SIZE_1439KB}},
+             {DPU_GROUPS_3, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_16, COMPILER_CMX_SIZE_1_5MB}},
             {config::Platform::NPU5020,
-             {DPU_GROUPS_1, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_16,
-              CMX_WORKSPACE_SIZE_1951KB}},
+             {DPU_GROUPS_1, MAX_DMA_PORTS_2, MAX_SHAVES_PER_TILE_2, MAX_BARRIERS_PER_TILE_16, COMPILER_CMX_SIZE_2MB}},
     };
     for (const auto& entry : table) {
         if (entry.first == platform) {
@@ -436,7 +433,7 @@ mlir::LogicalResult vpux::VPU::verify(FuncRef<mlir::InFlightDiagnostic()> emitEr
         if (axis != Dims4D::Act::C.ind()) {
             return printTo(emitError(), "SEGMENTED|OVERLAPPED mode requires compute axis to be C");
         }
-        if (!(memAxis == Dims4D::Act::H.ind() || memAxis == Dims4D::Act::W.ind())) {
+        if (memAxis != Dims4D::Act::H.ind() && memAxis != Dims4D::Act::W.ind()) {
             return printTo(emitError(), "SEGMENTED|OVERLAPPED mode requires memory axis to be H or W");
         }
     }
@@ -593,7 +590,10 @@ bool vpux::VPU::isHaloAssistedSliceOptimizationSupported(mlir::Operation* op) {
 }
 
 bool vpux::VPU::isPipelineAwareConvSplitOverICSupported(config::Platform platform) {
-    return platform == config::Platform::NPU5010;
+    if (platform == config::Platform::NPU5010) {
+        return true;
+    }
+    return false;
 }
 
 bool vpux::VPU::isPipelineAwareConvSplitOverICSupported(mlir::Operation* op) {
@@ -604,47 +604,18 @@ bool vpux::VPU::isPipelineAwareConvSplitOverICSupported(mlir::Operation* op) {
 // Tiling utils
 //
 
-namespace {
-// Helper function to compute alignment requirement for sub-byte types.
-// For types like ui4, ui2, ui1, we need to ensure that the total bits
-// can be evenly divided by CHAR_BIT (8) to convert to bytes.
-// Returns alignment factor: ui4->2, ui2->4, ui1->8, others->1
-int64_t getSubByteAlignment(mlir::Type elementType) {
-    if (elementType == nullptr || !elementType.isIntOrFloat()) {
-        return 1;
-    }
-
-    const auto bitWidth = elementType.getIntOrFloatBitWidth();
-    if (elementType.isSignedInteger(4)) {
-        return 1;
-    }
-
-    return vpux::Const::isSubByte(bitWidth) ? (CHAR_BIT / bitWidth) : 1;
-}
-
-int64_t alignToSubByte(int64_t subByteAlignment, int64_t existingAlignment) {
-    if (existingAlignment % subByteAlignment != 0) {
-        existingAlignment = std::max(existingAlignment, subByteAlignment);
-        existingAlignment = alignValUp(existingAlignment, subByteAlignment);
-    }
-    return existingAlignment;
-}
-}  // namespace
-
 // Segmentation logic operates on schema and runtime assumption that a segmented tensor should be split equally
 // across the axis, with the remainder cluster possibly having a smaller tile.
 std::optional<SmallVector<Shape>> VPU::splitSegmentedShape(ArrayRef<int64_t> shape, ArrayRef<int64_t> tilingScheme,
                                                            const int64_t numClusters, const int64_t axis,
                                                            std::optional<ArrayRef<int64_t>> alignment,
-                                                           bool uniformDistributedSegments, mlir::Type elementType) {
+                                                           bool uniformDistributedSegments) {
     VPUX_THROW_UNLESS(axis < int64_t(shape.size()),
                       "An invalid split axis {0} specified, the shape tensor is {1} dimensional", axis, shape.size());
     VPUX_THROW_UNLESS(tilingScheme[axis] == numClusters,
                       "The number of tiles on axis {0} must be equal to the number of clusters specified for "
                       "compilation {1} but got {2}",
                       axis, tilingScheme[axis], numClusters);
-
-    const int64_t subByteAlignment = getSubByteAlignment(elementType);
 
     SmallVector<Shape> segmentedTiles;
     auto tiledShape = to_small_vector(shape);
@@ -669,7 +640,6 @@ std::optional<SmallVector<Shape>> VPU::splitSegmentedShape(ArrayRef<int64_t> sha
 
         // Compute baseline tile, specifically also align it down to sub-byte alignment
         tiledShape[axis] = tiledShape[axis] / tilingScheme[axis];
-        tiledShape[axis] = alignValDown(tiledShape[axis], subByteAlignment);
 
         tiledShape = alignShape(tiledShape, alignment, alignValDown<int64_t>);
         if (tiledShape[axis] <= 0) {
@@ -687,13 +657,6 @@ std::optional<SmallVector<Shape>> VPU::splitSegmentedShape(ArrayRef<int64_t> sha
 
             // Get axis alignment and ensure it meets sub-byte requirement
             int64_t axisAlignment = alignment.has_value() ? alignment.value()[axis] : 1;
-
-            if (subByteAlignment > 1) {
-                axisAlignment = alignToSubByte(subByteAlignment, axisAlignment);
-                if (remainderCount % axisAlignment) {
-                    return std::nullopt;
-                }
-            }
 
             auto remainderElements = remainderCount / axisAlignment;
             remainderTileShape[axis] = tiledShape[axis] + axisAlignment;
@@ -718,6 +681,7 @@ std::optional<SmallVector<Shape>> VPU::splitSegmentedShape(ArrayRef<int64_t> sha
     return segmentedTiles;
 }
 
+namespace {
 std::optional<SmallVector<DimRange>> getOverlappedInputTileDimRanges(
         ArrayRef<int64_t> shape, ArrayRef<int64_t> tilingScheme, ArrayRef<int64_t> kernel, ArrayRef<int64_t> strides,
         const std::optional<VPU::Padding>& pad, const int64_t axis, const int64_t numClusters,
@@ -747,13 +711,13 @@ std::optional<SmallVector<DimRange>> getOverlappedInputTileDimRanges(
     // not the intermediary output shape
 
     const auto segmentedShape = VPU::splitSegmentedShape(outputShape, tilingScheme, numClusters, axis, std::nullopt,
-                                                         uniformDistributedSegments, nullptr);
+                                                         uniformDistributedSegments);
 
     if (!segmentedShape.has_value()) {
         return std::nullopt;
     }
 
-    const auto outputTiles = segmentedShape.value();
+    const auto& outputTiles = segmentedShape.value();
 
     int64_t offset = 0;
     VPUX_THROW_WHEN(kernel.empty(), "Kernel shouldn't be empty");
@@ -789,14 +753,13 @@ std::optional<SmallVector<DimRange>> getOverlappedInputTileDimRanges(
     }
     return inputTileDimRanges;
 }
+}  // namespace
 
-SmallVector<Shape> vpux::VPU::getPerClusterComputeShapes(ShapeRef shapeRef, DistributionInfoAttr distributionAttr,
-                                                         mlir::Type elementType) {
-    return getPerClusterComputeShapes(shapeRef, VPU::DistributionInfo::getClassFromAttr(distributionAttr), elementType);
+SmallVector<Shape> vpux::VPU::getPerClusterComputeShapes(ShapeRef shapeRef, DistributionInfoAttr distributionAttr) {
+    return getPerClusterComputeShapes(shapeRef, VPU::DistributionInfo::getClassFromAttr(distributionAttr));
 }
 
-SmallVector<Shape> vpux::VPU::getPerClusterComputeShapes(ShapeRef shapeRef, const VPU::DistributionInfo& distribution,
-                                                         mlir::Type elementType) {
+SmallVector<Shape> vpux::VPU::getPerClusterComputeShapes(ShapeRef shapeRef, const VPU::DistributionInfo& distribution) {
     auto shape = to_small_vector(shapeRef.raw());
     const auto distributionMode = distribution.getDistributionMode();
 
@@ -815,7 +778,7 @@ SmallVector<Shape> vpux::VPU::getPerClusterComputeShapes(ShapeRef shapeRef, cons
         VPUX_THROW_UNLESS(axis < int64_t(tilingScheme.size()), "Segmented tiling scheme requires at least 1 dimension "
                                                                "to be segmented but the tiling schema is [1, 1, 1, 1]");
         const auto segmentedShape = VPU::splitSegmentedShape(shape, tilingScheme, numClusters, axis, optionalAlignment,
-                                                             distribution.hasUniformDistributedSegments(), elementType);
+                                                             distribution.hasUniformDistributedSegments());
         VPUX_THROW_UNLESS(segmentedShape.has_value(), "Improper split, '{0}' over '{1}' tiles", shape[axis],
                           tilingScheme[axis]);
         return segmentedShape.value();
@@ -827,7 +790,7 @@ SmallVector<Shape> vpux::VPU::getPerClusterComputeShapes(ShapeRef shapeRef, cons
 
     if (VPU::bitEnumContainsAny(distributionMode, VPU::DistributionMode::OVERLAPPED)) {
         if (distribution.hasEqualMemoryAndComputeView()) {
-            const auto optionalPerClusterMemoryShapes = getPerClusterMemoryShapes(shapeRef, distribution, elementType);
+            const auto optionalPerClusterMemoryShapes = getPerClusterMemoryShapes(shapeRef, distribution);
 
             VPUX_THROW_UNLESS(optionalPerClusterMemoryShapes.has_value(),
                               "Cannot get per cluster memory shapes. Unsupported distribution: {0}", distribution);
@@ -847,15 +810,13 @@ SmallVector<Shape> vpux::VPU::getPerClusterComputeShapes(ShapeRef shapeRef, cons
     VPUX_THROW("Cannot get per cluster memory shapes. Unsupported distribution: {0}", distribution);
 }
 
-SmallVector<Shape> vpux::VPU::getPerClusterComputeShapeOffsets(ShapeRef shapeRef, DistributionInfoAttr distributionAttr,
-                                                               mlir::Type elementType) {
-    return getPerClusterComputeShapeOffsets(shapeRef, VPU::DistributionInfo::getClassFromAttr(distributionAttr),
-                                            elementType);
+SmallVector<Shape> vpux::VPU::getPerClusterComputeShapeOffsets(ShapeRef shapeRef,
+                                                               DistributionInfoAttr distributionAttr) {
+    return getPerClusterComputeShapeOffsets(shapeRef, VPU::DistributionInfo::getClassFromAttr(distributionAttr));
 }
 
 SmallVector<Shape> vpux::VPU::getPerClusterComputeShapeOffsets(ShapeRef shapeRef,
-                                                               const VPU::DistributionInfo& distribution,
-                                                               mlir::Type elementType) {
+                                                               const VPU::DistributionInfo& distribution) {
     const auto shape = to_small_vector(shapeRef.raw());
     const auto distributionMode = distribution.getDistributionMode();
 
@@ -863,7 +824,7 @@ SmallVector<Shape> vpux::VPU::getPerClusterComputeShapeOffsets(ShapeRef shapeRef
     auto tiledComputeShapeOffsets = SmallVector<Shape>(numClusters, Shape(shapeRef.size(), 0));
 
     auto getOffsetsForSegments = [&](SmallVector<Shape>& perClusterOffsets) -> SmallVector<Shape> {
-        const auto tiledComputeShapes = getPerClusterComputeShapes(shapeRef, distribution, elementType);
+        const auto tiledComputeShapes = getPerClusterComputeShapes(shapeRef, distribution);
         const auto tilingScheme = distribution.getNumTiles();
         const auto axis = vpux::VPU::getDistributedTilingAxis(tilingScheme);
 
@@ -882,7 +843,7 @@ SmallVector<Shape> vpux::VPU::getPerClusterComputeShapeOffsets(ShapeRef shapeRef
 
     if (VPU::bitEnumContainsAny(distributionMode, VPU::DistributionMode::OVERLAPPED)) {
         if (distribution.hasEqualMemoryAndComputeView()) {
-            return getPerClusterMemoryShapeOffsets(shapeRef, distribution, elementType);
+            return getPerClusterMemoryShapeOffsets(shapeRef, distribution);
         }
 
         return getOffsetsForSegments(tiledComputeShapeOffsets);
@@ -897,14 +858,12 @@ SmallVector<Shape> vpux::VPU::getPerClusterComputeShapeOffsets(ShapeRef shapeRef
 }
 
 std::optional<SmallVector<Shape>> vpux::VPU::getPerClusterMemoryShapes(ShapeRef shapeRef,
-                                                                       DistributionInfoAttr distributionAttr,
-                                                                       mlir::Type elementType) {
-    return getPerClusterMemoryShapes(shapeRef, VPU::DistributionInfo::getClassFromAttr(distributionAttr), elementType);
+                                                                       DistributionInfoAttr distributionAttr) {
+    return getPerClusterMemoryShapes(shapeRef, VPU::DistributionInfo::getClassFromAttr(distributionAttr));
 }
 
 std::optional<SmallVector<Shape>> vpux::VPU::getPerClusterMemoryShapes(ShapeRef shapeRef,
-                                                                       const VPU::DistributionInfo& distribution,
-                                                                       mlir::Type elementType) {
+                                                                       const VPU::DistributionInfo& distribution) {
     auto& cache = VPU::getGlobalOpTilingCache();
     auto hash = cache.calculateShapeAndDistributionHash(shapeRef, distribution);
     auto cacheResult = cache.getPerClusterMemoryShapes(hash);
@@ -937,7 +896,7 @@ std::optional<SmallVector<Shape>> vpux::VPU::getPerClusterMemoryShapes(ShapeRef 
         VPUX_THROW_UNLESS(axis < int64_t(tilingScheme.size()), "Segmented tiling scheme requires at least 1 dimension "
                                                                "to be segmented but the tiling schema is [1, 1, 1, 1]");
         auto tiledShapes = vpux::VPU::splitSegmentedShape(shape, tilingScheme, numClusters, axis, optionalAlignment,
-                                                          distribution.hasUniformDistributedSegments(), elementType);
+                                                          distribution.hasUniformDistributedSegments());
 
         cache.updatePerClusterShape(hash, tiledShapes);
         return tiledShapes;
@@ -978,15 +937,13 @@ std::optional<SmallVector<Shape>> vpux::VPU::getPerClusterMemoryShapes(ShapeRef 
     VPUX_THROW("Cannot get per cluster memory shapes. Unsupported distribution: {0}", distribution);
 }
 
-SmallVector<Shape> vpux::VPU::getPerClusterMemoryShapeOffsets(ShapeRef shapeRef, DistributionInfoAttr distributionAttr,
-                                                              mlir::Type elementType) {
-    return getPerClusterMemoryShapeOffsets(shapeRef, VPU::DistributionInfo::getClassFromAttr(distributionAttr),
-                                           elementType);
+SmallVector<Shape> vpux::VPU::getPerClusterMemoryShapeOffsets(ShapeRef shapeRef,
+                                                              DistributionInfoAttr distributionAttr) {
+    return getPerClusterMemoryShapeOffsets(shapeRef, VPU::DistributionInfo::getClassFromAttr(distributionAttr));
 }
 
 SmallVector<Shape> vpux::VPU::getPerClusterMemoryShapeOffsets(ShapeRef shapeRef,
-                                                              const VPU::DistributionInfo& distribution,
-                                                              mlir::Type elementType) {
+                                                              const VPU::DistributionInfo& distribution) {
     const auto shape = to_small_vector(shapeRef.raw());
     const auto distributionMode = distribution.getDistributionMode();
 
@@ -1002,7 +959,7 @@ SmallVector<Shape> vpux::VPU::getPerClusterMemoryShapeOffsets(ShapeRef shapeRef,
     }
 
     if (distributionMode == VPU::DistributionMode::SEGMENTED) {
-        const auto optionalPerClusterMemoryShapes = getPerClusterMemoryShapes(shapeRef, distribution, elementType);
+        const auto optionalPerClusterMemoryShapes = getPerClusterMemoryShapes(shapeRef, distribution);
 
         VPUX_THROW_UNLESS(optionalPerClusterMemoryShapes.has_value(),
                           "Cannot get per cluster memory shape offsets. Unsupported distribution: {0}", distribution);

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024-2025 Intel Corporation
+// Copyright (C) 2024-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -17,12 +17,14 @@
 namespace ov {
 namespace test {
 
-enum class LowFpType { NF4, Undefined };
+enum class LowFpType { NF4, F4E2M1, Undefined };
 
 inline std::string lowFpType2String(LowFpType lowFpType) {
     switch (lowFpType) {
     case LowFpType::NF4:
         return "NF4";
+    case LowFpType::F4E2M1:
+        return "F4E2M1";
     case LowFpType::Undefined:
         return "Undefined";
     default:

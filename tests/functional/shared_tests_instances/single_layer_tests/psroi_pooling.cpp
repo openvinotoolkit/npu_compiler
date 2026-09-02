@@ -43,7 +43,7 @@ class PSROIPoolingLayerTestCommon : public PSROIPoolingLayerTest, public VpuOv2L
 
 TEST_P(PSROIPoolingLayerTestCommon, NPU3720_HW) {
     VpuOv2LayerTest::abs_threshold = 0.016f;
-    VpuOv2LayerTest::setSkipCompilationCallback([this](std::stringstream& skip) {
+    VpuOv2LayerTest::setSkipCompilationCallback([](std::stringstream& skip) {
         std::string psROIPoolingMode = std::get<7>(GetParam());
         if (psROIPoolingMode == "bilinear") {
             skip << "BILINEAR mode is unsupported for now";
@@ -55,7 +55,7 @@ TEST_P(PSROIPoolingLayerTestCommon, NPU3720_HW) {
 
 TEST_P(PSROIPoolingLayerTestCommon, NPU4000_SW) {
     VpuOv2LayerTest::abs_threshold = 0.016f;
-    VpuOv2LayerTest::setSkipCompilationCallback([this](std::stringstream& skip) {
+    VpuOv2LayerTest::setSkipCompilationCallback([](std::stringstream& skip) {
         std::string psROIPoolingMode = std::get<7>(GetParam());
         if (psROIPoolingMode == "bilinear") {
             skip << "BILINEAR mode is unsupported for now";
@@ -67,7 +67,7 @@ TEST_P(PSROIPoolingLayerTestCommon, NPU4000_SW) {
 
 TEST_P(PSROIPoolingLayerTestCommon, NPU5010_SW) {
     VpuOv2LayerTest::abs_threshold = 0.016f;
-    VpuOv2LayerTest::setSkipCompilationCallback([this](std::stringstream& skip) {
+    VpuOv2LayerTest::setSkipCompilationCallback([](std::stringstream& skip) {
         std::string psROIPoolingMode = std::get<7>(GetParam());
         if (psROIPoolingMode == "bilinear") {
             skip << "BILINEAR mode is unsupported for now";
@@ -76,9 +76,10 @@ TEST_P(PSROIPoolingLayerTestCommon, NPU5010_SW) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU5010);
 }
+
 TEST_P(PSROIPoolingLayerTestCommon, NPU5020_SW) {
     VpuOv2LayerTest::abs_threshold = 0.016f;
-    VpuOv2LayerTest::setSkipCompilationCallback([this](std::stringstream& skip) {
+    VpuOv2LayerTest::setSkipCompilationCallback([](std::stringstream& skip) {
         std::string psROIPoolingMode = std::get<7>(GetParam());
         if (psROIPoolingMode == "bilinear") {
             skip << "BILINEAR mode is unsupported for now";

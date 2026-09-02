@@ -80,7 +80,7 @@ protected:
     }
 
     template <class T>
-    void CompareIou(const T* expected, const T* actual, std::size_t size, T threshold) {
+    void CompareIou(const T* expected, const T* actual, std::size_t size) {
         const T c0 = T(0.0f);
         const float OVERLAP_ROI_COEF = 0.9f;
         const int OUTPUT_ROI_ELEMENT_SIZE = 5;
@@ -88,18 +88,18 @@ protected:
         // It will be recalculated base on real num_gt value
         unsigned int THRESHOLD_NUM_MATCH = num_gt * OVERLAP_ROI_COEF;  // Threshold for the number of matched roi
         T THRESHOLD_ROI_OVERLAP = T(0.9);                              // Threshold for ROI overlap restrictions
-        int32_t count = 0;
+        unsigned int count = 0;
         bool threshold_test_failed = false;
         const auto res = actual;
         const auto& ref = expected;
-        for (int i = 0; i < (int)num_gt; i++) {
+        for (int i = 0; i < static_cast<int>(num_gt); i++) {
             T max_iou = c0;
             if (res[i * OUTPUT_ROI_ELEMENT_SIZE] < c0) {  // check if num of roy not finished as was not found
                 // expected match just on the real size of the output
                 num_gt = i - 1;
                 break;
             }
-            for (int j = 0; j < num_gt; j++) {
+            for (int j = 0; j < static_cast<int>(num_gt); j++) {
                 // if reference finish list signal was found, not use anymore max end of roy size
                 if (ref[j * OUTPUT_ROI_ELEMENT_SIZE] < c0) {
                     num_gt = j - 1;
@@ -115,7 +115,7 @@ protected:
             }
         }
         THRESHOLD_NUM_MATCH = num_gt * OVERLAP_ROI_COEF;  // Threshold for the number of matched roi
-        threshold_test_failed = (count < (int)THRESHOLD_NUM_MATCH) ? true : false;
+        threshold_test_failed = count < THRESHOLD_NUM_MATCH;
         outputSize = num_gt;
         ASSERT_TRUE(!threshold_test_failed)
                 << "Relative Proposal Iou comparison failed. "
@@ -126,7 +126,7 @@ protected:
     template <class T>
     void CompareScores(const T* actual, std::size_t size) {
         bool scoreDecrease = true;
-        int i = 1;
+        std::size_t i = 1;
         for (i = 1; i < size; i++) {
             if (actual[i - 1] < actual[i]) {
                 scoreDecrease = false;
@@ -166,15 +166,15 @@ protected:
         switch (precision) {
         case ov::element::bf16:
             CompareIou(reinterpret_cast<const ov::bfloat16*>(expectedBuffer),
-                       reinterpret_cast<const ov::bfloat16*>(actualBuffer), size, ov::bfloat16(rel_threshold));
+                       reinterpret_cast<const ov::bfloat16*>(actualBuffer), size);
             break;
         case ov::element::f16:
             CompareIou(reinterpret_cast<const ov::float16*>(expectedBuffer),
-                       reinterpret_cast<const ov::float16*>(actualBuffer), size, ov::float16(rel_threshold));
+                       reinterpret_cast<const ov::float16*>(actualBuffer), size);
             break;
         case ov::element::f32:
             CompareIou<float>(reinterpret_cast<const float*>(expectedBuffer),
-                              reinterpret_cast<const float*>(actualBuffer), size, rel_threshold);
+                              reinterpret_cast<const float*>(actualBuffer), size);
             break;
         default:
             FAIL() << "Comparator for " << precision << " precision isn't supported";
@@ -218,6 +218,7 @@ TEST_P(ProposalLayerTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(ProposalLayerTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

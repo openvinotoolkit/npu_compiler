@@ -64,7 +64,6 @@ add_npu_library(npu_compiler_npu40xx
         npu_elf
         npu_costmodel
         MLIRFuncDialect
-        openvino::npu_al
     DEPENDS
         cost_model_data_4_0
         cost_model_data_4_0_fast

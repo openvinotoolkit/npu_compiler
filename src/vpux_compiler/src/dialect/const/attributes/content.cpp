@@ -13,7 +13,6 @@
 
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/dialect/const/utils/constant_folding_cache.hpp"
 #include "vpux/compiler/dialect/const/utils/sub_byte.hpp"
 #include "vpux/compiler/dialect/const/utils/transformations.hpp"
 #include "vpux/compiler/utils/types.hpp"
@@ -469,31 +468,12 @@ mlir::DenseElementsAttr Const::detail::createConstContentWithConversion(mlir::Sh
 // ContentAttr::fold
 //
 
-Const::Content vpux::Const::ContentAttr::fold(bool bypassCache) const {
+Const::Content vpux::Const::ContentAttr::fold() const {
     auto baseContent = getBaseContent();
-
-#ifdef BACKGROUND_FOLDING_ENABLED
-    if (!bypassCache) {
-        auto& cacheManager = Const::ConstantFoldingCacheManager::getInstance();
-        auto ctx = baseContent.getContext();
-        if (cacheManager.contains(ctx)) {
-            auto& cache = cacheManager.get(ctx);
-            auto content = cache.getContent(*this);
-            if (content.has_value()) {
-                return std::move(content.value());
-            }
-        }
-    }
-#else
-    VPUX_UNUSED(bypassCache);
-#endif
-
     auto res = wrapBaseContent(baseContent);
-
     for (const auto& attr : getTransformations()) {
         res = attr.transform(res);
     }
-
     return res;
 }
 
@@ -666,11 +646,13 @@ void vpux::Const::detail::ContentSetupTracingBase::updateConstantCallStack(
     }
     auto& csCache = vpux::getCache<vpux::Const::CallStackCache, vpux::Const::ConstDialect>(ctx);
     auto trace = vpux::Const::gatherTrace();
+    if (trace.empty()) {
+        return;
+    }
 
     {
-        std::lock_guard<std::mutex> lock(csCache.callStackCacheMutex());
-        auto& callStack = csCache.getCallStack();
-        auto& currentTransformations = callStack[id];
+        auto callStack = csCache.lockCallStack();
+        auto& currentTransformations = (*callStack)[id];
         auto tempTransformations = currentTransformations;
 
         // Add new elements or update existing ones if changed

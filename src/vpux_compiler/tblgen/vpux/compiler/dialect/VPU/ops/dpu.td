@@ -31,7 +31,9 @@ def VPU_DPUWorkloadOp :
                     "vpux::VPU::NCECompressConvolutionOp",
                     "vpux::VPU::NCEInterpolateOp",
                     "vpux::VPU::NCEPermuteOp",
-                    "vpux::VPU::NCEReduceOp"
+                    "vpux::VPU::NCEReduceOp",
+                    "mlir::scf::ForOp",
+                    "mlir::scf::IfOp"
                 ]>
             ]
         > {
@@ -96,12 +98,24 @@ def VPU_DPUWorkloadOp :
             "VPU::PaddingAttr":$pad,
             "vpux::VPU::MPEMode":$mpe_mode,
             "mlir::IntegerAttr":$cluster_id
+        )>,
+
+        OpBuilder<(ins
+            "mlir::ArrayRef<mlir::OpFoldResult>":$outOffsets,
+            "mlir::ArrayRef<mlir::OpFoldResult>":$outSizes,
+            "mlir::ArrayRef<mlir::OpFoldResult>":$inOffsets,
+            "mlir::ArrayRef<mlir::OpFoldResult>":$inSizes,
+            "mlir::ArrayRef<mlir::OpFoldResult>":$pad,
+            "vpux::VPU::MPEModeAttr":$mpe_mode,
+            "mlir::IntegerAttr":$cluster_id
         )>
     ];
 
     let assemblyFormat = [{
         ( `inOffsets` custom<DynamicIndexList>($inOffsets, $static_in_offsets)^ )? ( `inSizes` custom<DynamicIndexList>($inSizes, $static_in_sizes)^ )? `outOffsets` custom<DynamicIndexList>($outOffsets, $static_out_offsets) `outSizes` custom<DynamicIndexList>($outSizes, $static_out_sizes) `pad` custom<DynamicIndexList>($pad, $static_pad) $mpe_mode attr-dict-with-keyword
     }];
+
+    let hasVerifier = 1;
 
     let extraClassDeclaration = [{
         VPU::PaddingAttr getPadAttribute();
@@ -128,7 +142,8 @@ def VPU_NCEConvolutionOp :
                 NoRegionArguments,
                 NoTerminator,
                 SingleBlock,
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getOutputTiling",
+                                                                         "getMainOutputTile"]>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
                                                                      "isOperationSplitOverWidthCompatible",
                                                                      "isOperationSplitOverKernelCompatible",
@@ -137,18 +152,38 @@ def VPU_NCEConvolutionOp :
                                                                      "doesLayerChangeOutputAlignmentFitIntoCMX",
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ShapeInfoOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "NCE version of Convolution layer";
 
+    let description = [{
+        NCE-mapped convolution executed on DPU.
+
+        In addition to the primary `output` result, the op optionally produces up to three extra
+        reduce results driven by the ODU per-cluster reduction logic:
+
+        * `reduce_xy_max` — element-wise maximum over the channel axis (`axes_value = [1]` in
+          NCHW/NHWC), shape `[N, 1, H, W]`.
+        * `reduce_xy_min` — element-wise minimum over the same axis, same shape.
+        * `reduce_tensor_min_max` — per-tensor scalar minimum/maximum (all axes), shape `[1,1,1,1]`.
+          Not yet supported with tiling (E#207252).
+
+        Post-tile reconstruction contract:
+        * Tiling along H, W, or N — tile reduce outputs have distinct offsets;
+          `applyTileStrategy` combines them with `VPU.Concat`.
+
+        Multi-cluster strategies that split the channel axis - SOK - are incompatible with
+        the per-cluster ODU reduce output and are rejected for now by `checkStrategyCompatibility` when any
+        reduce result is present.
+    }];
+
     let arguments = (ins
         AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$input,
         AnyTypeOf<[4DTensorOf<[AnyInteger, F16, BF16, vpux_QuantileType, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$filter,
         Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weightsTable,
-        Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_data_ptr,
-        Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_sp_ptr,
         Optional<AnyTypeOf<[4DTensorOf<[F32, F8E8M0FNU, F8E5M2, F8E4M3FN]>, VPU_DistributedTensor]>>:$weight_table_scale,
         Optional<AnyTypeOf<[4DTensorOf<[F32]>, VPU_DistributedTensor]>>:$weight_table_bias,
         Optional<AnyTypeOf<[4DTensorOf<[I8, I4]>, VPU_DistributedTensor]>>:$weight_zero_points,
@@ -171,9 +206,9 @@ def VPU_NCEConvolutionOp :
 
     let results = (outs
         AnyTypeOf<[4DTensorOf<[F16, BF16, F32, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$output,
-        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_xy_max,
-        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_xy_min,
-        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_tensor_min_max
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_xy_max,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_xy_min,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_tensor_min_max
     );
 
     let regions = (region
@@ -185,8 +220,6 @@ def VPU_NCEConvolutionOp :
             $input `,`
             $filter
             (`,` $weightsTable^)?
-            (`,` $weight_table_data_ptr^)?
-            (`,` $weight_table_sp_ptr^)?
             (`,` $weight_table_scale^)?
             (`,` $weight_table_bias^)?
             (`,` $weight_zero_points^)?
@@ -209,6 +242,7 @@ def VPU_NCEConvolutionOp :
         vpux::Shape inferAlignedFilterShape(vpux::NDTypeInterface input, vpux::NDTypeInterface output, vpux::NDTypeInterface filter);
 
         DimArr restrictedFusionAxes();
+        bool isVFSupported();
 
         SmallVector<mlir::OpFoldResult> getMixedRawFilterShape();
         SmallVector<int64_t> getConstRawFilterShape();
@@ -235,7 +269,8 @@ def VPU_NCEMatMulOp :
                 NoRegionArguments,
                 NoTerminator,
                 SingleBlock,
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getOutputTiling",
+                                                                         "getMainOutputTile"]>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
                                                                      "isOperationSplitOverWidthCompatible",
                                                                      "isOperationSplitOverKernelCompatible",
@@ -297,6 +332,18 @@ def VPU_NCEMatMulOp :
                            VPU.AffineReshape
 
         See E#125047 for more information.
+
+        In addition to the primary `output` result, the op optionally produces up to three extra
+        reduce results driven by the ODU per-cluster reduction logic:
+
+        * `reduce_xy_max` — element-wise maximum over the channel axis (`axes_value = [2]` in
+          GNHWC, corresponding to the C dimension in DimsGroups5D), shape `[G, N, 1, H, W]`.
+        * `reduce_xy_min` — element-wise minimum over the same axis, same shape.
+        * `reduce_tensor_min_max` — per-tensor scalar minimum/maximum; not yet supported with
+          tiling (E#207252).
+
+        Post-tile reconstruction contract:
+        * Tiling along any axis other than C — `applyTileStrategy` combines them with `VPU.Concat`.
     }];
 
     let arguments = (ins
@@ -304,8 +351,6 @@ def VPU_NCEMatMulOp :
         AnyTypeOf<[5DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$weights,
 
         Optional<AnyTypeOf<[5DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weightsTable,
-        Optional<AnyTypeOf<[5DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_data_ptr,
-        Optional<AnyTypeOf<[5DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_sp_ptr,
         Optional<AnyTypeOf<[5DTensorOf<[F32, F8E8M0FNU, F8E5M2, F8E4M3FN]>, VPU_DistributedTensor]>>:$weight_table_scale,
         Optional<AnyTypeOf<[5DTensorOf<[F32]>, VPU_DistributedTensor]>>:$weight_table_bias,
         Optional<AnyTypeOf<[5DTensorOf<[I8, I4]>, VPU_DistributedTensor]>>:$weight_zero_points,
@@ -325,9 +370,9 @@ def VPU_NCEMatMulOp :
 
     let results = (outs
         AnyTypeOf<[5DTensorOf<[F16, BF16, F32, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$output,
-        Optional<AnyTypeOf<[5DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_xy_max,
-        Optional<AnyTypeOf<[5DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_xy_min,
-        Optional<AnyTypeOf<[5DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_tensor_min_max
+        Optional<AnyTypeOf<[5DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_xy_max,
+        Optional<AnyTypeOf<[5DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_xy_min,
+        Optional<AnyTypeOf<[5DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_tensor_min_max
     );
 
     let regions = (region
@@ -339,8 +384,6 @@ def VPU_NCEMatMulOp :
             $input `,`
             $weights
             (`,` $weightsTable^ `` custom<OptionalTypes>(type($weightsTable)))?
-            (`,` $weight_table_data_ptr^ `` custom<OptionalTypes>(type($weight_table_data_ptr)))?
-            (`,` $weight_table_sp_ptr^ `` custom<OptionalTypes>(type($weight_table_sp_ptr)))?
             (`,` $weight_table_scale^ `` custom<OptionalTypes>(type($weight_table_scale)))?
             (`,` $weight_table_bias^ `` custom<OptionalTypes>(type($weight_table_bias)))?
             (`,` $weight_zero_points^ `` custom<OptionalTypes>(type($weight_zero_points)))?
@@ -363,6 +406,9 @@ def VPU_NCEMatMulOp :
         bool fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter, vpux::NDTypeInterface output, Byte reservedMem);
         bool fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter, vpux::NDTypeInterface output);
 
+        DimArr restrictedFusionAxes();
+        bool isVFSupported();
+
         SmallVector<mlir::OpFoldResult> getMixedRawFilterShape();
         SmallVector<int64_t> getConstRawFilterShape();
 
@@ -383,10 +429,12 @@ def VPU_NCEDepthConvolutionOp :
             "NCE.DepthConvolution",
             [
                 AttrSizedOperandSegments,
+                AttrSizedResultSegments,
                 NoRegionArguments,
                 NoTerminator,
                 SingleBlock,
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getOutputTiling",
+                                                                         "getMainOutputTile"]>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
                                                                      "isOperationSplitOverWidthCompatible",
                                                                      "isOperationSplitOverKernelCompatible",
@@ -394,6 +442,7 @@ def VPU_NCEDepthConvolutionOp :
                                                                      "doesLayerChangeOutputAlignmentFitIntoCMX",
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ShapeInfoOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
@@ -405,10 +454,8 @@ def VPU_NCEDepthConvolutionOp :
         AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$filter,
         Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weightsTable,
         Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_data_ptr,
-        Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_sp_ptr,
         Optional<AnyTypeOf<[4DTensorOf<[F32, F8E8M0FNU, F8E5M2, F8E4M3FN]>, VPU_DistributedTensor]>>:$weight_table_scale,
         Optional<AnyTypeOf<[4DTensorOf<[F32]>, VPU_DistributedTensor]>>:$weight_table_bias,
-        Optional<AnyTypeOf<[4DTensorOf<[I8, I4]>, VPU_DistributedTensor]>>:$weight_zero_points,
 
         ConfinedAttr<I64ArrayAttr, [ArrayCount<2>]>:$strides,
         VPU_PaddingAttr:$pad,
@@ -421,11 +468,15 @@ def VPU_NCEDepthConvolutionOp :
 
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
         OptionalAttr<I64ArrayAttr>:$output_padding,
-        OptionalAttr<I64ArrayAttr>:$input_padding
+        OptionalAttr<I64ArrayAttr>:$input_padding,
+        OptionalAttr<I64ArrayAttr>:$axes_value
     );
 
     let results = (outs
-        AnyTypeOf<[4DTensorOf<[F16, BF16, F32, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$output
+        AnyTypeOf<[4DTensorOf<[F16, BF16, F32, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$output,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_xy_max,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_xy_min,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_tensor_min_max
     );
 
     let regions = (region
@@ -438,10 +489,8 @@ def VPU_NCEDepthConvolutionOp :
             $filter
             (`,` $weightsTable^ `` custom<OptionalTypes>(type($weightsTable)))?
             (`,` $weight_table_data_ptr^ `` custom<OptionalTypes>(type($weight_table_data_ptr)))?
-            (`,` $weight_table_sp_ptr^ `` custom<OptionalTypes>(type($weight_table_sp_ptr)))?
             (`,` $weight_table_scale^ `` custom<OptionalTypes>(type($weight_table_scale)))?
             (`,` $weight_table_bias^ `` custom<OptionalTypes>(type($weight_table_bias)))?
-            (`,` $weight_zero_points^ `` custom<OptionalTypes>(type($weight_zero_points)))?
         `)`
         `rawFilterShape` custom<DynamicIndexList>($rawFilterShape, $static_raw_filter_shape)
         attr-dict
@@ -469,6 +518,9 @@ def VPU_NCEDepthConvolutionOp :
                                                   vpux::NDTypeInterface outputType, mlir::ArrayAttr kernelStrides,
                                                   Logger log = Logger::global());
 
+        DimArr restrictedFusionAxes();
+        bool isVFSupported();
+
         SmallVector<mlir::OpFoldResult> getMixedRawFilterShape();
         SmallVector<int64_t> getConstRawFilterShape();
     }] # baseExtraClassDeclaration;
@@ -494,6 +546,7 @@ def VPU_NCECompressConvolutionOp :
                                                                      "doesLayerChangeOutputAlignmentFitIntoCMX",
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ShapeInfoOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
 ]
@@ -572,7 +625,7 @@ def VPU_NCEMaxPoolOp :
                 NoRegionArguments,
                 NoTerminator,
                 SingleBlock,
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getOutputTiling", "getMainOutputTile"]>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
                                                                      "isOperationSplitOverWidthCompatible",
                                                                      "isOperationSplitOverKernelCompatible",
@@ -581,11 +634,33 @@ def VPU_NCEMaxPoolOp :
                                                                      "doesLayerChangeOutputAlignmentFitIntoCMX",
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ShapeInfoOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "NCE version of MaxPool layer";
+
+    let description = [{
+        NCE-mapped max-pooling executed on DPU.
+
+        In addition to the primary `output` result, the op optionally produces up to three extra
+        reduce results driven by the ODU per-cluster reduction logic:
+
+        * `reduce_xy_max` — element-wise maximum over the channel axis (`axes_value = [1]` in
+          NCHW/NHWC), shape `[N, 1, H, W]`.
+        * `reduce_xy_min` — element-wise minimum over the same axis, same shape.
+        * `reduce_tensor_min_max` — per-tensor scalar minimum/maximum (all axes), shape `[1,1,1,1]`.
+          Not yet supported with tiling (E#207252).
+
+        Post-tile reconstruction contract:
+        * Tiling along H, W, or N — tile reduce outputs have distinct offsets;
+          `applyTileStrategy` combines them with `VPU.Concat`.
+
+        Multi-cluster strategies that split the channel axis (SOK) are incompatible with
+        the per-cluster ODU reduce output and are rejected by `checkStrategyCompatibility` when any
+        reduce result is present.
+    }];
 
     let arguments = (ins
         AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$input,
@@ -609,9 +684,9 @@ def VPU_NCEMaxPoolOp :
 
     let results = (outs
         AnyTypeOf<[4DTensorOf<[F16, BF16, F32, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$output,
-        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_xy_max,
-        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_xy_min,
-        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>>:$reduce_tensor_min_max
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_xy_max,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_xy_min,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_tensor_min_max
     );
 
     let regions = (region
@@ -637,6 +712,9 @@ def VPU_NCEMaxPoolOp :
 
         bool fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface output);
 
+        DimArr restrictedFusionAxes();
+        bool isVFSupported();
+
         static bool isSupported(vpux::IE::MaxPoolOp origOp, vpux::LogCb logCb, bool checkLayout = false,
                                 bool checkChannelAlignment = false);
 
@@ -661,9 +739,11 @@ def VPU_NCEAveragePoolOp :
                                                                      "isOperationSplitOverWidthCompatible",
                                                                      "isOperationSplitOverKernelCompatible",
                                                                      "isOperationSplitOverBatchCompatible",
+                                                                     "doesLayerFitIntoCMX",
                                                                      "doesLayerChangeOutputAlignmentFitIntoCMX",
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ShapeInfoOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
@@ -730,17 +810,20 @@ def VPU_NCEEltwiseOp :
             "NCE.Eltwise",
             [
                 AttrSizedOperandSegments,
+                AttrSizedResultSegments,
                 NoRegionArguments,
                 NoTerminator,
                 SingleBlock,
                 VPU_EltwiseOp,
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getOutputTiling",
+                                                                         "getMainOutputTile"]>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
                                                                      "isOperationSplitOverWidthCompatible",
                                                                      "isOperationSplitOverKernelCompatible",
                                                                      "doesLayerFitIntoCMX",
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ShapeInfoOpInterface>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
@@ -761,11 +844,15 @@ def VPU_NCEEltwiseOp :
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
         OptionalAttr<BoolAttr>:$is_inplace,
         OptionalAttr<I64ArrayAttr>:$output_padding,
-        OptionalAttr<I64ArrayAttr>:$input_padding
+        OptionalAttr<I64ArrayAttr>:$input_padding,
+        OptionalAttr<I64ArrayAttr>:$axes_value
     );
 
     let results = (outs
-        AnyTypeOf<[4DTensorOf<[F16, BF16, F32, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$output
+        AnyTypeOf<[4DTensorOf<[F16, BF16, F32, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$output,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_xy_max,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_xy_min,
+        Optional<AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_DistributedTensor]>>:$reduce_tensor_min_max
     );
 
     let regions = (region
@@ -806,6 +893,9 @@ def VPU_NCEEltwiseOp :
                                                 vpux::NDTypeInterface firstInputType,
                                                 vpux::NDTypeInterface secondInputType, vpux::NDTypeInterface outputType,
                                                 Logger log = Logger::global());
+
+        DimArr restrictedFusionAxes();
+        bool isVFSupported();
     }] # baseExtraClassDeclaration;
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_GROUPED_OUTPUT, IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
@@ -827,6 +917,7 @@ def VPU_NCEReduceOp :
                                                                      "doesLayerChangeOutputAlignmentFitIntoCMX",
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ShapeInfoOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
@@ -891,6 +982,7 @@ def VPU_NCEPermuteOp :
                                                                  "isOperationSplitOverKernelCompatible",
                                                                  "getDistributedTypeForOpOperand"]>,
             DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
+            DeclareOpInterfaceMethods<VPU_ShapeInfoOpInterface>,
             DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
         ]
         > {
@@ -960,7 +1052,8 @@ def VPU_NCEInterpolateOp :
                                                                      "doesLayerFitIntoCMX",
                                                                      "doesLayerChangeOutputAlignmentFitIntoCMX",
                                                                      "getDistributedTypeForOpOperand"]>,
-                DeclareOpInterfaceMethods<VPU_SparseOpInterface>
+                DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ShapeInfoOpInterface>
             ]
         > {
     let summary = "NCE version of Interpolate layer";
@@ -970,10 +1063,8 @@ def VPU_NCEInterpolateOp :
         Optional<AnyTypeOf<[AnyRankedTensor, VPU_SparseTensor, VPU_DistributedTensor]>>:$weights,
         Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weightsTable,
         Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_data_ptr,
-        Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_sp_ptr,
         Optional<AnyTypeOf<[4DTensorOf<[F32, F8E8M0FNU, F8E5M2, F8E4M3FN]>, VPU_DistributedTensor]>>:$weight_table_scale,
         Optional<AnyTypeOf<[4DTensorOf<[F32]>, VPU_DistributedTensor]>>:$weight_table_bias,
-        Optional<AnyTypeOf<[4DTensorOf<[I8, I4]>, VPU_DistributedTensor]>>:$weight_zero_points,
 
         ConfinedAttr<I64ArrayAttr, [ArrayCount<2>]>:$strides,
 
@@ -983,6 +1074,8 @@ def VPU_NCEInterpolateOp :
         Variadic<Index>:$rawFilterShape,
         DenseI64ArrayAttr:$static_raw_filter_shape,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
+        OptionalAttr<I64ArrayAttr>:$output_padding,
+        OptionalAttr<I64ArrayAttr>:$input_padding,
         OptionalAttr<VPU_NCEInterpolateModeAttr>:$mode
     );
 
@@ -999,10 +1092,8 @@ def VPU_NCEInterpolateOp :
             (`,` $weights^ `` custom<OptionalTypes>(type($weights)))?
             (`,` $weightsTable^ `` custom<OptionalTypes>(type($weightsTable)))?
             (`,` $weight_table_data_ptr^ `` custom<OptionalTypes>(type($weight_table_data_ptr)))?
-            (`,` $weight_table_sp_ptr^ `` custom<OptionalTypes>(type($weight_table_sp_ptr)))?
             (`,` $weight_table_scale^ `` custom<OptionalTypes>(type($weight_table_scale)))?
             (`,` $weight_table_bias^ `` custom<OptionalTypes>(type($weight_table_bias)))?
-            (`,` $weight_zero_points^ `` custom<OptionalTypes>(type($weight_zero_points)))?
         `)`
         `rawFilterShape` custom<DynamicIndexList>($rawFilterShape, $static_raw_filter_shape)
         attr-dict

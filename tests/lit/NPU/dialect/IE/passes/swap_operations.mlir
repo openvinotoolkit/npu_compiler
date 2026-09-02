@@ -449,6 +449,30 @@ func.func @SwapWithBiasOrderChanged(%arg0: tensor<8x64x1x1xf16, {order = #NHWC}>
 
 // -----
 
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWC = affine_map<(d0, d1, d2) -> (d0, d2, d1)>
+
+// CHECK-LABEL: @SwapWithSingleValueBiasOrderChanged
+// CHECK-SAME:      [[ARG_0:%[^:]+]]: tensor<8x64x1x1xf16, {order = #NHWC}>
+// CHECK-SAME:      -> tensor<8x64x1xf16, {order = [[OUTPUT_ORDER:#[A-Za-z0-9_]+]]}>
+func.func @SwapWithSingleValueBiasOrderChanged(%arg0: tensor<8x64x1x1xf16, {order = #NHWC}>) -> tensor<8x64x1xf16, {order = #NWC}> {
+   %bias = const.Declare tensor<1x1x1xf16, {order = #NWC}> = dense<1.000000e+00> : tensor<1x1x1xf16>, [#const.Reorder<#NWC>]
+
+   %1 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [1], [2], [2]], shape_value = [8, 64, 1]} : tensor<8x64x1x1xf16, {order = #NHWC}> -> tensor<8x64x1xf16, {order = #NWC}>
+   %2 = IE.Add(%1, %bias) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x64x1xf16, {order = #NWC}>, tensor<1x1x1xf16, {order = #NWC}> -> tensor<8x64x1xf16, {order = #NWC}>
+
+   return %2 : tensor<8x64x1xf16, {order = #NWC}>
+
+   // CHECK-DAG: [[BIAS:%.+]] = const.Declare tensor<1x1x1x1xf16, {order = #NHWC}>
+   // CHECK: [[ADD:%.+]] = IE.Add([[ARG_0]], [[BIAS]])
+   // CHECK-SAME: tensor<8x64x1x1xf16, {order = #NHWC}>, tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<8x64x1x1xf16, {order = #NHWC}>
+   // CHECK: [[RESHAPE:%.+]] = IE.AffineReshape([[ADD]])
+   // CHECK-SAME: tensor<8x64x1x1xf16, {order = #NHWC}> -> tensor<8x64x1xf16, {order = [[OUTPUT_ORDER]]}>
+   // CHECK: return [[RESHAPE]] : tensor<8x64x1xf16, {order = [[OUTPUT_ORDER]]}>
+}
+
+// -----
+
 // CHECK-LABEL: @SwapConcatWithClamp
 // CHECK-SAME:      [[ARG_0:%[^:]+]]: tensor<4x512x1x1xf16>
 // CHECK-SAME:      [[ARG_1:%[^:]+]]: tensor<4x512x1x1xf16>
@@ -769,7 +793,7 @@ func.func @SwapWithFQBias(%arg0: tensor<77x1024x1x1xf16>) -> tensor<1x1024x77x1x
    // CHECK-SAME: tensor<77x1024x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<77x1024x1x1xf16>
    // CHECK-NEXT: IE.Add
    // CHECK-SAME: tensor<77x1024x1x1xf16>, tensor<1x1024x1x1xf16> -> tensor<77x1024x1x1xf16>
-   // CHECK-NEXT: IE.Reshape
+   // CHECK-NEXT: IE.AffineReshape
    // CHECK-SAME: tensor<77x1024x1x1xf16> -> tensor<1x77x1024x1xf16>
    // CHECK-NEXT: IE.Transpose
    // CHECK-SAME: tensor<1x77x1024x1xf16> -> tensor<1x1024x77x1xf16>
@@ -1080,7 +1104,7 @@ func.func @NotSwapGatherChannelWiseQuantizeCast(%arg0: tensor<184320x2880xsi4>, 
 module @SwapReLUwithInterpolate {
 
 config.PipelineOptions @Options {
-        config.Option @config.EnableSEPtrsOperations : true 
+        config.Option @config.EnableSEPtrsOperations : true
     }
 
 // CHECK: func.func @main

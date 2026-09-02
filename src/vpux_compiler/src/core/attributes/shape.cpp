@@ -4,19 +4,21 @@
 //
 
 #include "vpux/compiler/core/attributes/shape.hpp"
-#include <mlir/IR/Types.h>
-#include <mlir/IR/Value.h>
-#include <mlir/Support/LLVM.h>
 
 #include "vpux/compiler/core/attributes/dim.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
+#include "vpux/compiler/dialect/core/IR/memref_attr.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 
 #include "vpux/utils/core/array_ref.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/range.hpp"
+
+#include <mlir/IR/Types.h>
+#include <mlir/IR/Value.h>
+#include <mlir/Support/LLVM.h>
 
 #include <algorithm>
 #include <numeric>
@@ -65,8 +67,8 @@ ShapeRef vpux::getBoundedShape(mlir::Value val) {
 
 ShapeRef vpux::getBoundedShape(mlir::Type type) {
     auto ndType = mlir::cast<vpux::NDTypeInterface>(type);
-    if (auto boundedShape = mlir::dyn_cast<Core::BoundedTensorType>(type)) {
-        return ShapeRef{boundedShape.getBounds().raw()};
+    if (auto boundedTensor = mlir::dyn_cast<Core::BoundedTensorType>(type)) {
+        return ShapeRef{boundedTensor.getBounds().raw()};
     }
 
     if (auto sparseType = mlir::dyn_cast<VPU::SparseTensorType>(type)) {
@@ -76,6 +78,14 @@ ShapeRef vpux::getBoundedShape(mlir::Type type) {
 
         auto dynEffectiveShape = mlir::cast<Core::BoundedTensorType>(VPU::getEffectiveSparseOutputType(sparseType));
         return ShapeRef{dynEffectiveShape.getBounds().raw()};
+    }
+
+    if (auto memrefType = mlir::dyn_cast<mlir::MemRefType>(type)) {
+        if (auto memrefAttr = mlir::dyn_cast_or_null<vpux::MemRefAttr>(memrefType.getLayout())) {
+            if (auto bounds = memrefAttr.bounds(); !bounds.empty()) {
+                return ShapeRef{bounds.raw()};
+            }
+        }
     }
 
     return ndType.getShape();

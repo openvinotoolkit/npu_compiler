@@ -11,23 +11,30 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/logical.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/convert_op_types.hpp"
+#include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/power_utils.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/dialect/net/utils/precision_info_utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <llvm/ADT/DenseSet.h>
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+#include <optional>
+#include <utility>
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_CONVERTPRECISIONTOFP
@@ -75,11 +82,18 @@ Const::ContentAttr clampF16Splat(const Const::ContentAttr& input) {
 }
 
 void insertEpsilonClamp(mlir::OpBuilder& builder, mlir::Operation* divLikeOp, mlir::Operation* op) {
-    // Return if there is a subsequent Select designed to screen out Inf/NaN
+    // Return if there is a subsequent Select designed to screen out Inf/NaN,
+    // possibly through a chain of ConvertOps between divide and Select.
     if (divLikeOp != nullptr && divLikeOp->hasOneUse()) {
-        auto& dataOperand = *divLikeOp->getUses().begin();
-        if (auto selOp = mlir::dyn_cast_or_null<IE::SelectOp>(dataOperand.getOwner())) {
-            auto dataIndex = dataOperand.getOperandNumber();
+        mlir::OpOperand* dataOperand = &*divLikeOp->getUses().begin();
+        // Walk through any number of ConvertOps to find the Select
+        auto* user = dataOperand->getOwner();
+        while (mlir::isa_and_nonnull<IE::ConvertOp>(user) && user->hasOneUse()) {
+            dataOperand = &*user->getUses().begin();
+            user = dataOperand->getOwner();
+        }
+        if (auto selOp = mlir::dyn_cast_or_null<IE::SelectOp>(dataOperand->getOwner())) {
+            auto dataIndex = dataOperand->getOperandNumber();
             auto maybeZeros = dataIndex == 1 ? selOp.getInput3().getDefiningOp<Const::DeclareOp>()
                                              : selOp.getInput2().getDefiningOp<Const::DeclareOp>();
             if (dataIndex > 0 && maybeZeros != nullptr && Const::hasAllZeroValues(maybeZeros.getContent())) {
@@ -134,6 +148,266 @@ bool isAddBeforeRMSNorm(IE::AddOp addOp) {
     return false;
 }
 
+// Keeps the scales operand of a scales-as-parameter Interpolate at f32 through
+// the precision conversion instead of round-tripping it via f16.
+//
+// Why f32 matters: InterpolateDMA mirrors OpenVINO's epsilon-tolerant shape
+// inference outShape = floor((scale + 1e-6) * inShape); an fp16 scale loses
+// the epsilon (e.g. fp16(1.1) * 320 = 351.87 -> 351 instead of 352).
+//
+// Preservation only applies when the scales root at an originally-f32 network
+// input whose forward uses are exclusively Interpolate scales operands, possibly
+// relayed through func.call chains (e.g. after outlining). Every func arg and
+// call operand on that chain stays f32; any non-forwarding, non-Interpolate use
+// disqualifies the whole chain.
+//
+// Collection records, per func, the preserved arg indices and, per Interpolate/
+// CallOp, the preserved operand indices. These feed:
+//   - PreserveArgType / PreserveOperand callbacks driving the rewrite,
+//   - getInterpolateLegality / getCallLegality / getFuncSignatureLegality driving
+//     dynamic legality.
+// Legality is keyed structurally (operand precision + callee symbol, not op
+// pointers), so it stays correct for the clones the dialect-conversion driver
+// produces, and the f32 scales is never materialized as f16.
+// Preserver functionality can be optimized further - TODO: E#221311
+class InterpolateScalesPreserver {
+public:
+    InterpolateScalesPreserver(mlir::ModuleOp module, Logger log): _log(log) {
+        collectPreservedScales(module);
+    }
+
+    // Original (f32) type for a preserved scales argument; nullptr otherwise.
+    // Consumed by the function-signature conversion (PreserveArgTypeCb).
+    mlir::Type getPreservedArgType(mlir::func::FuncOp funcOp, unsigned argIdx) const {
+        const auto it = _preservedArgIndices.find(funcOp.getOperation());
+        if (it != _preservedArgIndices.end() && it->second.contains(argIdx)) {
+            return funcOp.getFunctionType().getInput(argIdx);
+        }
+        return nullptr;
+    }
+
+    // Whether the operand is the preserved f32 scales of a SAP Interpolate.
+    // Consumed by the operand conversion (PreserveOperandCb).
+    bool isPreservedScalesOperand(mlir::Operation* op, unsigned operandIdx) const {
+        const auto it = _preservedScalesOperandIdx.find(op);
+        return it != _preservedScalesOperandIdx.end() && it->second.contains(operandIdx);
+    }
+
+    // Legality of an Interpolate during conversion: nullopt when its scales is not a
+    // preserved f32 block argument (caller defers to the default type-legality check),
+    // otherwise legal once data and output are f16 with scales kept f32.
+    std::optional<bool> getInterpolateLegality(IE::InterpolateOp interpOp) const {
+        const auto scalesVal = interpOp.getScales();
+        // Interpolate may carry scales as an attribute instead of an operand, leaving getScales() null.
+        // Such ops are never preserved, so defer to the default type-legality check.
+        if (scalesVal == nullptr) {
+            return std::nullopt;
+        }
+        const auto scalesElem = mlir::cast<NDTypeInterface>(scalesVal.getType()).getElementType();
+        // A preserved scales is the only f32 block-argument scales that survives
+        if (!scalesElem.isF32() || !mlir::isa<mlir::BlockArgument>(scalesVal)) {
+            return std::nullopt;
+        }
+        const auto inElem = mlir::cast<NDTypeInterface>(interpOp.getInput().getType()).getElementType();
+        const auto outElem = mlir::cast<NDTypeInterface>(interpOp.getOutput().getType()).getElementType();
+        return inElem.isF16() && outElem.isF16();
+    }
+
+    // Legality of a CallOp forwarding preserved f32 scales: defers to the default
+    // type-legality check when the callee has no preserved argument; otherwise legal
+    // once every operand feeding a preserved callee argument stays f32 and every
+    // other operand/result is converted.
+    bool getCallLegality(mlir::func::CallOp callOp, const mlir::TypeConverter& typeConverter) const {
+        auto module = callOp->getParentOfType<mlir::ModuleOp>();
+        auto callee = module.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
+        VPUX_THROW_WHEN(callee == nullptr, "CallOp callee '{0}' not found in module", callOp.getCallee());
+        const auto entry = _preservedArgIndices.find(callee.getOperation());
+        if (entry == _preservedArgIndices.end()) {
+            return typeConverter.isLegal(callOp);
+        }
+        const auto& preservedIndices = entry->second;
+        for (const auto& operand : llvm::enumerate(callOp.getOperands())) {
+            const auto operandIdx = static_cast<unsigned>(operand.index());
+            const auto operandType = operand.value().getType();
+            if (preservedIndices.contains(operandIdx)) {
+                const auto ndType = mlir::dyn_cast<NDTypeInterface>(operandType);
+                if (ndType == nullptr || !ndType.getElementType().isF32()) {
+                    return false;
+                }
+            } else if (!typeConverter.isLegal(operandType)) {
+                return false;
+            }
+        }
+        return llvm::all_of(callOp.getResultTypes(), [&](mlir::Type resultType) {
+            return typeConverter.isLegal(resultType);
+        });
+    }
+
+    // Legality of a func during conversion: defers to the default signature legality
+    // when it has no preserved args; otherwise legal once preserved inputs stay f32
+    // and every other input/result is converted.
+    bool getFuncSignatureLegality(mlir::func::FuncOp funcOp, const mlir::TypeConverter& typeConverter) const {
+        const auto entry = _preservedArgIndices.find(funcOp.getOperation());
+        if (entry == _preservedArgIndices.end()) {
+            return typeConverter.isSignatureLegal(funcOp.getFunctionType());
+        }
+        const auto& preservedIndices = entry->second;
+        const auto funcType = funcOp.getFunctionType();
+        for (const auto& [funcInputIndex, funcInputType] : llvm::enumerate(funcType.getInputs())) {
+            if (preservedIndices.contains(static_cast<unsigned>(funcInputIndex))) {
+                const auto ndType = mlir::dyn_cast<NDTypeInterface>(funcInputType);
+                if (ndType == nullptr || !ndType.getElementType().isF32()) {
+                    return false;
+                }
+            } else if (!typeConverter.isLegal(funcInputType)) {
+                return false;
+            }
+        }
+        return llvm::all_of(funcType.getResults(), [&](mlir::Type resultType) {
+            return typeConverter.isLegal(resultType);
+        });
+    }
+
+private:
+    using ArgIndexMap = mlir::DenseMap<mlir::Operation*, llvm::SmallDenseSet<unsigned>>;
+    using OperandIndexMap = mlir::DenseMap<mlir::Operation*, llvm::SmallDenseSet<unsigned>>;
+    using VisitedSet = llvm::DenseSet<std::pair<mlir::Operation*, unsigned>>;
+
+    // For each originally-f32 entry input, trace its forward uses and commit
+    // the marks all-or-nothing.
+    void collectPreservedScales(mlir::ModuleOp module) {
+        // Cheap guard: inspect the network signature only when at least one SAP
+        // Interpolate reads its scales from a block argument
+        bool hasInterpolateSAP = false;
+        module.walk([&](IE::InterpolateOp interpOp) {
+            const auto scales = interpOp.getScales();
+            if (IE::isScalesAsParameter(scales, interpOp.getScalesAttr()) &&
+                mlir::isa_and_nonnull<mlir::BlockArgument>(scales)) {
+                hasInterpolateSAP = true;
+                return mlir::WalkResult::interrupt();
+            }
+            return mlir::WalkResult::advance();
+        });
+        if (!hasInterpolateSAP) {
+            return;
+        }
+
+        auto [netInfo, netFunc] = net::getFromModule(module);
+        auto inputsInfo = netInfo.getInputsDataInfo();
+        for (unsigned inputIdx = 0; inputIdx < netFunc.getNumArguments(); ++inputIdx) {
+            VPUX_THROW_UNLESS(inputIdx < inputsInfo.size(), "Input index {0} out of range {1}", inputIdx,
+                              inputsInfo.size());
+            const auto userType = mlir::cast<vpux::NDTypeInterface>(inputsInfo[inputIdx].getUserType());
+            if (!userType.getElementType().isF32()) {
+                continue;
+            }
+            // Stage the marks; commit only when every forward use qualifies.
+            ArgIndexMap argMarks;
+            OperandIndexMap operandMarks;
+            VisitedSet visited;
+            if (tryTraceScalesCone(netFunc, inputIdx, module, visited, argMarks, operandMarks)) {
+                for (const auto& [op, indices] : argMarks) {
+                    _preservedArgIndices[op].insert(indices.begin(), indices.end());
+                }
+                for (const auto& [op, indices] : operandMarks) {
+                    _preservedScalesOperandIdx[op].insert(indices.begin(), indices.end());
+                }
+            } else {
+                _log.trace("Network input #{0} feeds a non-Interpolate consumer; leaving as f16", inputIdx);
+            }
+        }
+    }
+
+    // Forward DFS over uses: every use must be a SAP Interpolate scales operand
+    // or a func.call forwarding into another preservable callee argument; any
+    // other consumer fails the trace.
+    bool tryTraceScalesCone(mlir::func::FuncOp funcOp, unsigned argIdx, mlir::ModuleOp module, VisitedSet& visited,
+                            ArgIndexMap& argMarks, OperandIndexMap& operandMarks) const {
+        if (!visited.insert({funcOp.getOperation(), argIdx}).second) {
+            return true;
+        }
+        const auto arg = funcOp.getArgument(argIdx);
+        // An argument with no uses should not be preserved,
+        // it is not target for preserver.
+        if (arg.use_empty()) {
+            return false;
+        }
+        for (mlir::OpOperand& use : arg.getUses()) {
+            auto* owner = use.getOwner();
+            const auto operandIdx = use.getOperandNumber();
+            if (auto interpOp = mlir::dyn_cast<IE::InterpolateOp>(owner)) {
+                if (interpOp.getScales() == arg &&
+                    IE::isScalesAsParameter(interpOp.getScales(), interpOp.getScalesAttr())) {
+                    operandMarks[interpOp.getOperation()].insert(operandIdx);
+                    continue;
+                }
+                return false;
+            }
+            if (auto callOp = mlir::dyn_cast<mlir::func::CallOp>(owner)) {
+                auto callee = module.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
+                if (callee == nullptr || callee.isExternal() || operandIdx >= callee.getNumArguments()) {
+                    return false;
+                }
+                if (!tryTraceScalesCone(callee, operandIdx, module, visited, argMarks, operandMarks)) {
+                    return false;
+                }
+                // Staged in local maps; caller discards the whole batch if any use fails.
+                operandMarks[callOp.getOperation()].insert(operandIdx);
+                continue;
+            }
+            return false;
+        }
+        argMarks[funcOp.getOperation()].insert(argIdx);
+        return true;
+    }
+
+    Logger _log;
+    ArgIndexMap _preservedArgIndices;
+    OperandIndexMap _preservedScalesOperandIdx;
+};
+
+bool isReduceSquareCoreOp(mlir::Operation* op) {
+    return mlir::isa<IE::PowerOp, IE::ReduceSumOp, IE::SqrtOp>(op);
+}
+
+bool hasReduceSquareCoreProducer(mlir::Operation* producer) {
+    if (producer != nullptr && isReduceSquareCoreOp(producer)) {
+        return true;
+    }
+
+    auto prevConvert = mlir::dyn_cast_or_null<IE::ConvertOp>(producer);
+    if (prevConvert == nullptr) {
+        return false;
+    }
+
+    return isReduceSquareCoreOp(prevConvert.getInput().getDefiningOp());
+}
+
+bool hasReduceSquareCoreUser(mlir::Value output) {
+    for (auto* user : output.getUsers()) {
+        if (isReduceSquareCoreOp(user)) {
+            return true;
+        }
+
+        auto nextConvert = mlir::dyn_cast<IE::ConvertOp>(user);
+        if (nextConvert == nullptr) {
+            continue;
+        }
+
+        if (llvm::any_of(nextConvert.getOutput().getUsers(), [](mlir::Operation* nextUser) {
+                return isReduceSquareCoreOp(nextUser);
+            })) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool isConvertConnectedToReduceSquare(IE::ConvertOp op) {
+    return hasReduceSquareCoreProducer(op.getInput().getDefiningOp()) || hasReduceSquareCoreUser(op.getOutput());
+}
+
 //
 // ConvertPrecisionToFPPass
 //
@@ -184,9 +458,22 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
     auto module = getOperation();
     auto rtPrecision = net::PrecisionSensitiveOps{module, _log};
 
+    // Keeps scales-as-parameter Interpolate inputs at f32 across the conversion.
+    // Owns the function arguments and operands to preserve, plus the legality
+    // predicates that protect them.
+    const InterpolateScalesPreserver scalesPreserver{module, _log};
+
     const auto isLegalOp = [&](mlir::Operation* op) {
         if (rtPrecision.isPrecisionSensitiveOp(op)) {
             return true;
+        }
+        if (auto interpOp = mlir::dyn_cast<IE::InterpolateOp>(op)) {
+            if (const auto legal = scalesPreserver.getInterpolateLegality(interpOp)) {
+                return *legal;
+            }
+        }
+        if (auto callOp = mlir::dyn_cast<mlir::func::CallOp>(op)) {
+            return scalesPreserver.getCallLegality(callOp, fp16TypeConverter);
         }
         return fp16TypeConverter.isLegal(op);
     };
@@ -234,35 +521,45 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
     target.addLegalOp<IE::RangeOp>();
     target.addLegalOp<IE::ReduceL2Op>();
     target.addLegalOp<IE::InverseOp>();
+    target.addLegalOp<IE::SelectOp>();
     target.addDynamicallyLegalOp<mlir::func::FuncOp>([&](mlir::func::FuncOp funcOp) {
-        return fp16TypeConverter.isSignatureLegal(funcOp.getFunctionType());
+        return scalesPreserver.getFuncSignatureLegality(funcOp, fp16TypeConverter);
     });
 
     SmallVector<mlir::OperationName> highPrecisionOps;
     const auto internalHintPrefix = "internal_";
     auto internalMvnHighNorm = false;
+    auto hasReduceSquareHigherPrecision = false;
 
-    // Supported Add-related values for compute-layers-with-higher-precision:
+    // Supported values for compute-layers-with-higher-precision:
     //   "Add"               — keep ALL Add ops in f32
     //   "Add_RMSNorm"       — keep only the epsilon Add inside RMS decomposition
     //                         (ReduceMean -> Add -> Sqrt)
     //   "Add_BeforeRMSNorm" — keep only the residual Add whose output feeds into
     //                         IE.RMSOp. Should be used together with "RMS" to
     //                         ensure the full Add -> RMS path stays in f32.
+    //   "ReduceSquare"      — keep Power, ReduceSum and Sqrt in the
+    //                         Power(x,2) -> ReduceSum -> Sqrt pattern in f32
 
     if (!_computeLayersWithHigherPrecision.empty()) {
         std::istringstream optionsStream(_computeLayersWithHigherPrecision);
         std::string dialectNamespace = IE::IEDialect::getDialectNamespace().str() + ".";
         const std::string addRMSNormOption = "Add_RMSNorm";
         const std::string addBeforeRMSNormOption = "Add_BeforeRMSNorm";
+        const std::string reduceSquareOption = "ReduceSquare";
         std::string option;
         while (std::getline(optionsStream, option, ',')) {
             bool isAddRMSNorm = option == addRMSNormOption;
             bool isAddBeforeRMSNormOption = option == addBeforeRMSNormOption;
+            bool isReduceSquare = option == reduceSquareOption;
             // Both Add_RMSNorm and Add_BeforeRMSNorm are sub-options of "Add" op,
             // so map them to "Add" for opname validation
             if (isAddRMSNorm || isAddBeforeRMSNormOption) {
                 option = std::string("Add");
+            }
+            // ReduceSquare is a virtual op name — the actual pattern is Power+ReduceSum+Sqrt
+            if (isReduceSquare) {
+                option = std::string("Power");
             }
 
             if (option.find(internalHintPrefix, 0) != std::string::npos) {
@@ -300,6 +597,59 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
                     }
                     return isLegalOp(op);
                 });
+            } else if (isReduceSquare) {
+                hasReduceSquareHigherPrecision = true;
+                // ReduceSquare pattern: Power(x,2) -> ReduceSum -> Sqrt
+                // Keep all three ops at higher precision
+                target.addDynamicallyLegalOp<IE::PowerOp>([&](IE::PowerOp op) {
+                    auto constOp = op.getInput2().getDefiningOp<Const::DeclareOp>();
+                    if (constOp == nullptr || !constOp.getContentAttr().isSplat()) {
+                        return isLegalOp(op);
+                    }
+                    if (constOp.getContent().getSplatValue<double>() != 2.0) {
+                        return isLegalOp(op);
+                    }
+                    if (!op->hasOneUse() || !mlir::isa<IE::ReduceSumOp>(*op->getUsers().begin())) {
+                        return isLegalOp(op);
+                    }
+                    return true;
+                });
+                target.addDynamicallyLegalOp<IE::ReduceSumOp>([&](IE::ReduceSumOp op) {
+                    auto inputOp = op.getInput().getDefiningOp<IE::PowerOp>();
+                    if (inputOp == nullptr || !inputOp->hasOneUse()) {
+                        return isLegalOp(op);
+                    }
+                    auto constOp = inputOp.getInput2().getDefiningOp<Const::DeclareOp>();
+                    if (constOp == nullptr || !constOp.getContentAttr().isSplat() ||
+                        constOp.getContent().getSplatValue<double>() != 2.0) {
+                        return isLegalOp(op);
+                    }
+                    if (!op->hasOneUse() || !mlir::isa<IE::SqrtOp>(*op->getUsers().begin())) {
+                        return isLegalOp(op);
+                    }
+                    return true;
+                });
+                target.addDynamicallyLegalOp<IE::SqrtOp>([&](IE::SqrtOp op) {
+                    auto reduceSumOp = op.getInput().getDefiningOp<IE::ReduceSumOp>();
+                    if (reduceSumOp == nullptr || !reduceSumOp->hasOneUse()) {
+                        return isLegalOp(op);
+                    }
+                    auto inputOp = reduceSumOp.getInput().getDefiningOp<IE::PowerOp>();
+                    if (inputOp == nullptr || !inputOp->hasOneUse()) {
+                        return isLegalOp(op);
+                    }
+                    auto constOp = inputOp.getInput2().getDefiningOp<Const::DeclareOp>();
+                    if (constOp == nullptr || !constOp.getContentAttr().isSplat() ||
+                        constOp.getContent().getSplatValue<double>() != 2.0) {
+                        return isLegalOp(op);
+                    }
+                    return true;
+                });
+
+                // if any of these remain in FP64, convert them to FP32.
+                highPrecisionOps.push_back(mlir::OperationName(IE::PowerOp::getOperationName(), &ctx));
+                highPrecisionOps.push_back(mlir::OperationName(IE::ReduceSumOp::getOperationName(), &ctx));
+                highPrecisionOps.push_back(mlir::OperationName(IE::SqrtOp::getOperationName(), &ctx));
             } else {
                 target.addLegalOp(opname);
                 highPrecisionOps.push_back(opname);
@@ -348,7 +698,15 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
                 });
     });
 
-    if (mlir::failed(runConvertPrecision(module, fp16TypeConverter, target, _log))) {
+    const auto getPreservedArgType = [&](mlir::func::FuncOp funcOp, unsigned argIdx) {
+        return scalesPreserver.getPreservedArgType(funcOp, argIdx);
+    };
+    const auto shouldPreserveOperand = [&](mlir::Operation* op, unsigned operandIdx) {
+        return scalesPreserver.isPreservedScalesOperand(op, operandIdx);
+    };
+
+    if (mlir::failed(runConvertPrecision(module, fp16TypeConverter, target, _log, getPreservedArgType,
+                                         shouldPreserveOperand))) {
         signalPassFailure();
     }
 
@@ -371,7 +729,36 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
                 return fp32TypeConverter.isLegal(op);
             });
         }
-        if (mlir::failed(runConvertPrecision(module, fp32TypeConverter, fp32Target, _log))) {
+
+        if (hasReduceSquareHigherPrecision) {
+            // IE.Convert infers its output type from dstElemType. When FP64->FP32 conversion
+            // rewrites result types in ReduceSquare path, keep dstElemType in sync.
+            module.walk([&](IE::ConvertOp op) {
+                if (!isConvertConnectedToReduceSquare(op)) {
+                    return;
+                }
+                if (op.getDstElemType().isF64()) {
+                    op.setDstElemType(mlir::Float32Type::get(op.getContext()));
+                }
+            });
+
+            fp32Target.addDynamicallyLegalOp<IE::ConvertOp>([&](IE::ConvertOp op) {
+                if (!isConvertConnectedToReduceSquare(op)) {
+                    return true;
+                }
+
+                return fp32TypeConverter.isLegal(op.getOperation());
+            });
+        }
+
+        // When ReduceSquare higher precision is active we have set a custom dynamic legality
+        // predicate for IE::ConvertOp on fp32Target. runConvertPrecision() would unconditionally
+        // call target.addLegalOp<IE::ConvertOp>(), overriding that predicate, so call
+        // runConvertOpTypes() directly to preserve it.
+        const auto fp32ConversionResult = hasReduceSquareHigherPrecision
+                                                  ? runConvertOpTypes(module, fp32TypeConverter, fp32Target, _log)
+                                                  : runConvertPrecision(module, fp32TypeConverter, fp32Target, _log);
+        if (mlir::failed(fp32ConversionResult)) {
             signalPassFailure();
         }
     }
@@ -454,45 +841,30 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
     // SelectOp
     mlir::TypeConverter selectOpConverter;
     setupConvertPrecision(selectOpConverter, [](mlir::Type elemType) -> mlir::Type {
-        if (elemType.isF32() || elemType.isF64() || elemType.isSignlessInteger(8) || elemType.isSignedInteger(16)) {
-            return mlir::Float16Type::get(elemType.getContext());
-        } else {
-            return elemType;
-        }
+        return mlir::Float16Type::get(elemType.getContext());
     });
 
-    const auto isLegalSelectOp = [&](mlir::Operation* op) {
-        if (rtPrecision.isPrecisionSensitiveOp(op)) {
+    const auto isLegalSelectOp = [&](IE::SelectOp op) {
+        if (rtPrecision.isPrecisionSensitiveOp(op.getOperation())) {
             return true;
         }
-        return selectOpConverter.isLegal(op);
+        const auto dataElemType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType()).getElementType();
+        if (dataElemType.isFloat()) {
+            return selectOpConverter.isLegal(op.getOperation());
+        }
+        return true;
     };
 
     mlir::ConversionTarget selectOpTarget(ctx);
     selectOpTarget.addDynamicallyLegalOp<IE::SelectOp>(isLegalSelectOp);
-    selectOpTarget.addLegalOp<mlir::ModuleOp>();
+    selectOpTarget.markUnknownOpDynamicallyLegal([](mlir::Operation*) {
+        return true;
+    });
     if (mlir::failed(runConvertPrecision(module, selectOpConverter, selectOpTarget, _log))) {
         signalPassFailure();
     }
-    // SelectOp does not support mixed precision, only all FP or all INT input types.
-    // When data operands (then/else) are f16, convert the condition to f16 as well.
-    // When only the condition is f16 (e.g. BOOL i8 → f16) but data is integer,
-    // the I32 pass will align the condition to the data type instead.
-    // E-213563 to simplify conversion into one-step approach
-    mlir::OpBuilder builder(module);
-    module.walk([&](IE::SelectOp selectOp) {
-        auto condElemType = mlir::cast<NDTypeInterface>(selectOp.getInput1().getType()).getElementType();
-        auto thenElemType = mlir::cast<NDTypeInterface>(selectOp.getInput2().getType()).getElementType();
-        auto elseElemType = mlir::cast<NDTypeInterface>(selectOp.getInput3().getType()).getElementType();
-        if (!condElemType.isF16() && thenElemType.isF16() && elseElemType.isF16()) {
-            builder.setInsertionPoint(selectOp);
-            auto convertOp =
-                    builder.create<IE::ConvertOp>(appendLoc(selectOp.getLoc(), "convert_cond"), selectOp.getInput1(),
-                                                  mlir::Float16Type::get(builder.getContext()));
-            selectOp.setOperand(0, convertOp.getResult());
-        }
-    });
 
+    mlir::OpBuilder builder(module);
     // Insert Clamp Ops to prevent divide-by-zero in low precision Divide and Divide-like Power Ops
     // to ensure accurate results (e.g. when comparing to CPU inference).
     module.walk([&](IE::DivideOp divideOp) {

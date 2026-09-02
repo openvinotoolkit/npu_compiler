@@ -14,6 +14,7 @@
 
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/utils/types.hpp"
 
 #include <mlir/Dialect/Quant/IR/Quant.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
@@ -133,6 +134,46 @@ bool isValidToPropagateQuantize(mlir::Operation* op, bool seOpsEnabled, mlir::Ty
     return true;
 }
 
+// Whether splitting Quantize across multiOperandOp's operands pays off: either the quantized
+// type is narrower than origElemType, or an operand traces back to a Dequantize that can fold
+// or fuse with the inserted Quantize.
+bool shouldSplitQuantizeAcrossOperands(mlir::Operation* multiOperandOp, mlir::Type quantizedElemType,
+                                       mlir::Type origElemType, bool seOpsEnabled, Logger log) {
+    if (vpux::getElemTypeSize(quantizedElemType) < vpux::getElemTypeSize(origElemType)) {
+        return true;
+    }
+
+    const auto reachesFusableDequantize = [&](mlir::Value operand) {
+        auto* op = operand.getDefiningOp();
+        auto hopElemType = quantizedElemType;
+        while (op != nullptr) {
+            if (auto dequantizeOp = mlir::dyn_cast<IE::DequantizeOp>(op)) {
+                auto inType = mlir::dyn_cast<vpux::NDTypeInterface>(dequantizeOp.getInput().getType());
+                return inType != nullptr && inType.getElementType() == hopElemType &&
+                       dequantizeOp.getOutput().hasOneUse();
+            }
+            if (op->getNumOperands() != 1 || op->getNumResults() != 1 || !op->getResult(0).hasOneUse() ||
+                !isValidToPropagateQuantize(op, seOpsEnabled, hopElemType, log)) {
+                break;
+            }
+            op = op->getOperand(0).getDefiningOp();
+        }
+        return false;
+    };
+
+    const auto operands = multiOperandOp->getOperands();
+    const auto fusableCount = llvm::count_if(operands, reachesFusableDequantize);
+    const auto totalCount = static_cast<int64_t>(operands.size());
+    if (2 * fusableCount >= totalCount) {
+        return true;
+    }
+
+    log.trace("Splitting Quantize at '{0}' is not beneficial: no storage size reduction and only {1}/{2} "
+              "operands reach a fusable Dequantize",
+              multiOperandOp->getLoc(), fusableCount, totalCount);
+    return false;
+}
+
 }  // namespace
 
 namespace vpux::IE {
@@ -210,17 +251,26 @@ mlir::LogicalResult PropagateQuantize::matchAndRewrite(IE::QuantizeOp origOp, ml
 
     // 1. Check the parentOp is ElemTypeInfoOpInterface
     auto quantizedElemType = origOp.getDstElemType();
+    const auto origElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getElementType();
     auto prevOp = origOp.getOperand().getDefiningOp();
     mlir::Operation* firstUser = nullptr;
     while (prevOp) {
+        // Snapshot the type valid at the previously accepted op, in case prevOp is a
+        // rejected multi-operand op and this needs to be restored.
+        const auto quantizedElemTypeBeforeThisOp = quantizedElemType;
         if (!isValidToPropagateQuantize(prevOp, _seOpsEnabled, quantizedElemType, _log)) {
             break;
         }
-        firstUser = prevOp;
-        // Not backward for multiple operands
+        // Not backward for multiple operands, unless splitting pays off.
         if (prevOp->getOperands().size() > 1) {
+            if (shouldSplitQuantizeAcrossOperands(prevOp, quantizedElemType, origElemType, _seOpsEnabled, _log)) {
+                firstUser = prevOp;
+            } else {
+                quantizedElemType = quantizedElemTypeBeforeThisOp;
+            }
             break;
         }
+        firstUser = prevOp;
         prevOp = prevOp->getOperand(0).getDefiningOp();
     }
     if (!firstUser) {

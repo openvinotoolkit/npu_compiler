@@ -13,7 +13,7 @@
 func.func @RemoveDuplicatedSparsify(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
     %0 = VPU.Sparsify(%arg0) : tensor<1x16x16x16xf16, {order = #NHWC}> -> !VPU.SparseTensor<data=tensor<1x16x16x16xf16, {order = #NHWC}>>
     %1 = VPU.Sparsify(%arg0) : tensor<1x16x16x16xf16, {order = #NHWC}> -> !VPU.SparseTensor<data=tensor<1x16x16x16xf16, {order = #NHWC}>>
-    %2 = VPU.NCE.Eltwise(%0, %1) {
+    %2 = VPU.NCE.Eltwise(%0, %1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
     } -> tensor<1x16x16x16xf16, {order = #NHWC}>
@@ -41,7 +41,7 @@ func.func @RemoveDuplicatedSparsify(%arg0: tensor<1x16x16x16xf16, {order = #NHWC
 func.func @RemoveSparsifyOps(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %arg1: tensor<1x16x16x16xf16, {order = #NHWC}>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
     %0 = VPU.Sparsify(%arg0) : tensor<1x16x16x16xf16, {order = #NHWC}> -> !VPU.SparseTensor<data=tensor<1x16x16x16xf16, {order = #NHWC}>>
     %1 = VPU.Sparsify(%arg1) : tensor<1x16x16x16xf16, {order = #NHWC}> -> !VPU.SparseTensor<data=tensor<1x16x16x16xf16, {order = #NHWC}>>
-    %2 = VPU.NCE.Eltwise(%0, %1) {
+    %2 = VPU.NCE.Eltwise(%0, %1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
     } -> tensor<1x16x16x16xf16, {order = #NHWC}>
@@ -67,7 +67,7 @@ func.func @RemoveSparsifyOps(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %ar
 // CHECK-LABEL: @RemoveExtraDesparsify
 // CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x16x16x16xf16, {order = #NHWC}>)
 func.func @RemoveExtraDesparsify(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
     } -> !VPU.SparseTensor<data=tensor<1x16x16x16xf16, {order = #NHWC}>>

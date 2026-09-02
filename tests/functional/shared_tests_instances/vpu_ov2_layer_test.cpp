@@ -527,7 +527,7 @@ ov::PartialShape getBoundedShape(const ov::test::InputShape& shape) {
             if (networkDim == ov::Dimension::dynamic()) {
                 boundedShape.push_back(ov::Dimension(1, upperBound));
             } else {
-                VPUX_THROW_UNLESS(networkDim.get_max_length() >= upperBound,
+                VPUX_THROW_UNLESS(networkDim.get_max_length() >= static_cast<int64_t>(upperBound),
                                   "Input partial shape has insufficient upper bounds to fit a static shape");
             }
         } else {

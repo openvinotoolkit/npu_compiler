@@ -39,14 +39,14 @@ mlir::LogicalResult vpux::VPU::LogSoftmaxPeakOp::inferReturnTypes(
         // Create new distribution with updated shapes for width=1
         auto newDistributionOut = VPU::getNonOverlappedDistributedAttr(
                 ShapeRef(topKShape), distribution.getMode(), distribution.getNumTiles(), distribution.getNumClusters(),
-                distribution.getAlignment(), distribution.getUniformDistributedSegments(), dstElemType, ctx);
+                distribution.getAlignment(), distribution.getUniformDistributedSegments(), ctx);
 
         ouputType = VPU::DistributedTensorType::get(ctx, topKShape, dstElemType, distributedType.getOrder(),
                                                     distributedType.getMemSpace(), newDistributionOut);
 
         auto newDistributionTopK = VPU::getNonOverlappedDistributedAttr(
                 ShapeRef(topKShape), distribution.getMode(), distribution.getNumTiles(), distribution.getNumClusters(),
-                distribution.getAlignment(), distribution.getUniformDistributedSegments(), si64Type, ctx);
+                distribution.getAlignment(), distribution.getUniformDistributedSegments(), ctx);
 
         topKOutType = VPU::DistributedTensorType::get(ctx, topKShape, si64Type, distributedType.getOrder(),
                                                       distributedType.getMemSpace(), newDistributionTopK);
@@ -98,7 +98,13 @@ vpux::InputTiling vpux::VPU::LogSoftmaxPeakOp::backInferTileInfo(const vpux::Til
 
 vpux::OutputTiling vpux::VPU::LogSoftmaxPeakOp::getOutputTiling(const vpux::TileInfo& firstOutputTile,
                                                                 vpux::Logger /*log*/) {
-    return logSoftmaxPeakOutputTiling(firstOutputTile);
+    return OutputTiling({firstOutputTile, firstOutputTile});
+}
+
+vpux::TileInfo vpux::VPU::LogSoftmaxPeakOp::getMainOutputTile(mlir::OpResult /*secondaryOutput*/,
+                                                              const vpux::TileInfo& secondaryOutputTile,
+                                                              vpux::Logger /*log*/) {
+    return secondaryOutputTile;
 }
 
 void vpux::VPU::LogSoftmaxPeakOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const TileInfo& /*outputTile*/) {

@@ -9,10 +9,10 @@
 #include <vector>
 
 #include "common/utils.hpp"
-#include "intel_npu/config/options.hpp"
-#include "intel_npu/npu_private_properties.hpp"
 #include "vpux/compiler/frontend/ov_batch_detection.hpp"
 #include "vpux/compiler/utils/batch.hpp"
+#include "vpux/utils/ov/config.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 namespace {
 
@@ -24,12 +24,12 @@ public:
     void SetUp() override {
         auto [compileParams, isOptionMustBeFound] = GetParam();
 
-        auto optionDesc = std::make_shared<intel_npu::OptionsDesc>();
-        optionDesc->add<intel_npu::BATCH_COMPILER_MODE_SETTINGS>();
-        configurationPtr.reset(new intel_npu::Config(optionDesc));
+        auto optionDesc = std::make_shared<vpux::OV::OptionsDesc>();
+        optionDesc->add<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>();
+        configurationPtr.reset(new vpux::OV::Config(optionDesc));
 
         std::map<std::string, std::string> rawConfig{
-                {{ov::intel_npu::batch_compiler_mode_settings.name(), compileParams}}};
+                {{vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data(), compileParams}}};
         configurationPtr->update(rawConfig);
         explicitCfgBatchMethodOptionExpected = isOptionMustBeFound;
     }
@@ -45,7 +45,7 @@ public:
     }
 
 protected:
-    std::unique_ptr<intel_npu::Config> configurationPtr;
+    std::unique_ptr<vpux::OV::Config> configurationPtr;
     bool explicitCfgBatchMethodOptionExpected;
     vpux::Logger logger = vpux::Logger::global();
 };

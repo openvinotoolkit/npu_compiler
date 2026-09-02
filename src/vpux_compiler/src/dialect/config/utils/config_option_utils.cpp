@@ -15,6 +15,7 @@
 
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/function_outlining_splitter.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 
 using namespace vpux;
 
@@ -126,6 +127,27 @@ bool config::hasVPUNNPreSplit(mlir::Operation* op) {
     return config::getConstraint<bool>(op, VPUNN_PRE_SPLIT);
 }
 
+// Preferred Spatial (H W) Alignment
+int64_t config::getPreferredSpatialAlignment(mlir::Operation* op) {
+    // The option may not be set for every pipeline (e.g. IE-only flows), so fall back to
+    // VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT instead of throwing when the option is absent.
+    auto module = getModuleOp(op);
+    auto pipelineOptionOp = module.lookupSymbol<config::PipelineOptionsOp>(config::PIPELINE_OPTIONS);
+    if (pipelineOptionOp == nullptr) {
+        return VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT;
+    }
+    auto attrValue = pipelineOptionOp.lookupSymbol<config::OptionOp>(PREFERRED_SPATIAL_ALIGNMENT);
+    if (attrValue == nullptr) {
+        return VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT;
+    }
+    auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attrValue.getOptionValue());
+    if (intAttr == nullptr) {
+        return VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT;
+    }
+    const auto value = intAttr.getValue().getSExtValue();
+    return value > 0 ? value : VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT;
+}
+
 // ODU Configurations
 bool config::hasODULocalRegion(mlir::Operation* op) {
     return config::getConstraint<bool>(op, ODU_LOCAL_REGION);
@@ -193,4 +215,9 @@ double config::getSoftmaxMaskAwareThreshold(mlir::Operation* op) {
 
 bool config::isBarrierFifoDummyEntrySupported([[maybe_unused]] config::ArchKind arch) {
     return false;
+}
+
+bool config::isFinalBarrierConsumerRequired([[maybe_unused]] config::ArchKind arch,
+                                            [[maybe_unused]] bool is4kWlmBarrierProgrammingMode) {
+    return true;
 }

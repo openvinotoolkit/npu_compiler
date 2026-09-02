@@ -417,4 +417,28 @@ def ABIVersionOp :
         ];
 }
 
+//
+// CompatibilityStringOp
+//
+
+def CompatibilityStringOp :
+        ELFNPU37XX_Op<"CompatibilityString",
+            [
+                DeclareOpInterfaceMethods<ELFNPU37XX_BinaryOpInterface>
+            ]
+        > {
+    let summary = "Represents a compatibility string used by ELF loader checks";
+
+    let arguments = (ins
+          StrAttr:$compatibilityString
+        );
+
+    let results = (outs);
+
+    let assemblyFormat = [{
+        `compatibilityString` `(` $compatibilityString `)`
+        attr-dict
+    }];
+}
+
 #endif

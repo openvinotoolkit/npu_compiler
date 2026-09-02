@@ -226,7 +226,7 @@ mlir::LogicalResult ConvertGroupConvToConvPass::DepthwiseConvSinglePixelInputToM
     const auto repeatsAttr = getIntArrayAttr(rewriter.getContext(), ArrayRef<int64_t>{1, 1, OH, OW});
 
     auto tileLoc = appendLoc(origOp->getLoc(), "_tile_input");
-    auto tiledInput = rewriter.create<IE::TileOp>(tileLoc, origOp.getInput(), /*repeats=*/nullptr, repeatsAttr);
+    auto tiledInput = rewriter.create<IE::TileOp>(tileLoc, origOp.getInput(), repeatsAttr);
 
     // Step 2: Create reorganized weights based on kernel dimension
     SmallVector<mlir::Value> weightSlices;
@@ -261,16 +261,14 @@ mlir::LogicalResult ConvertGroupConvToConvPass::DepthwiseConvSinglePixelInputToM
         // Y-dim kernel: need to tile in W dimension
         const auto weightTileRepeats = getIntArrayAttr(rewriter.getContext(), ArrayRef<int64_t>{1, 1, 1, OW});
         auto tileLoc = appendLoc(origOp->getLoc(), "_tile_weights");
-        weightsForMultiply = rewriter.create<IE::TileOp>(tileLoc, reshapedWeights.getOutput(),
-                                                         /*repeats=*/nullptr, weightTileRepeats)
-                                     .getResult();
+        weightsForMultiply =
+                rewriter.create<IE::TileOp>(tileLoc, reshapedWeights.getOutput(), weightTileRepeats).getResult();
     } else if (isXDimKernel && OH > 1) {
         // X-dim kernel: need to tile in H dimension
         const auto weightTileRepeats = getIntArrayAttr(rewriter.getContext(), ArrayRef<int64_t>{1, 1, OH, 1});
         auto tileLoc = appendLoc(origOp->getLoc(), "_tile_weights");
-        weightsForMultiply = rewriter.create<IE::TileOp>(tileLoc, reshapedWeights.getOutput(),
-                                                         /*repeats=*/nullptr, weightTileRepeats)
-                                     .getResult();
+        weightsForMultiply =
+                rewriter.create<IE::TileOp>(tileLoc, reshapedWeights.getOutput(), weightTileRepeats).getResult();
     }
 
     // Step 3: Element-wise multiply

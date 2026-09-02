@@ -114,8 +114,8 @@ VPUIP::DistributedBufferType getDistributedBufferTypeWithSwizzling(VPUIP::Distri
     const auto ctx = origDistType.getContext();
     const auto order = origDistType.getDimsOrder();
     const auto orderAttr = mlir::AffineMapAttr::get(order.toAffineMap(ctx));
-    const auto layoutAttr =
-            vpux::MemRefAttr::get(orderAttr, nullptr, /*allocSize=*/nullptr, {swizzlingSchemeAttr}, ctx);
+    const auto layoutAttr = vpux::MemRefAttr::get(orderAttr, nullptr, /*allocSize=*/nullptr, /*optionalBounds=*/{},
+                                                  {swizzlingSchemeAttr}, ctx);
 
     return VPUIP::DistributedBufferType::get(ctx, origDistType.getShape().raw(), origDistType.getElementType(),
                                              layoutAttr, origDistType.getMemSpace(), origDistType.getDistribution(),
@@ -529,8 +529,10 @@ void Swizzling::constantBufferSwizzling(mlir::OpBuilder& builder, VPUIP::NCEClus
         updateConstantTypeForSwizzling(decOp, copyOp.getOperation(), SWIZZLING_KEY_5, deviceInfo);
 
         auto origType = mlir::cast<vpux::NDTypeInterface>(allocOp.getType());
+        // E#224862: it is not clear whether swizzling works with dynamism /
+        // bounds, so for now just use empty bounds (same as empty strides).
         newType = getMemRefType(origType.getShape(), origType.getElementType(), origType.getDimsOrder(),
-                                origType.getMemSpace(), StridesRef(), swizzlingSchemeAttr,
+                                origType.getMemSpace(), StridesRef(), BoundsRef(), swizzlingSchemeAttr,
                                 VPUIP::getSparsityCompressionAttr(origType));
 
         addSwizzlingAttributesToBuffer<mlir::memref::AllocOp, VPURT::Alloc>(builder, allocOp, newType,
@@ -708,8 +710,11 @@ void Swizzling::activationBufferSwizzling(mlir::OpBuilder& builder, VPUIP::NCECl
 
         if (auto allocOp = mlir::dyn_cast<mlir::memref::AllocOp>(sourceAllocOp)) {
             // Create new MemRefType which as part of layout will have swizzling set
+
+            // E#224862: it is not clear whether swizzling works with dynamism /
+            // bounds, so for now just use empty bounds (same as empty strides).
             auto newType = getMemRefType(origType.getShape(), origType.getElementType(), origType.getDimsOrder(),
-                                         origType.getMemSpace(), StridesRef(), swizzlingSchemeAttr,
+                                         origType.getMemSpace(), StridesRef(), BoundsRef(), swizzlingSchemeAttr,
                                          VPUIP::getSparsityCompressionAttr(origType));
 
             // Create new allocation with swizzling enabled and required alignment setting

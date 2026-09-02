@@ -8,6 +8,7 @@
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/act_shave_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/barrier_configure_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/dma_rewriter.hpp"
+#include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/dpu_pvp_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/managed_barrier_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/managed_mapped_inference_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/mapped_inference_rewriter.hpp"
@@ -15,14 +16,12 @@
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/nnrt_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/work_item_rewriter.hpp"
 #include "vpux/compiler/dialect/ELF/utils/utils.hpp"
-#include "vpux/compiler/dialect/VPUIPDPU/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 
-#include "vpux/compiler/conversion.hpp"
-
 #include <mlir/Transforms/DialectConversion.h>
+#include "vpux/compiler/conversion.hpp"
 
 namespace vpux {
 #define GEN_PASS_DECL_CONVERTVPUASM2NPUREG40XX
@@ -66,10 +65,6 @@ void ConvertVPUASM2NPUReg40XXPass::safeRunOnModule() {
 
     ELF::SymbolReferenceMap symRefMap(elfMain, true);
 
-    if (_log.isActive(LogLevel::Info)) {
-        VPUIPDPU::computeDpuPvpCounts(elfMain, _log);
-    }
-
     mlir::RewritePatternSet patternNNDMA(&ctx);
     patternNNDMA.add<NNDMARewriter>(&ctx, _log, symRefMap);
     target.addIllegalOp<VPUASM::NNDMAOp>();
@@ -88,6 +83,7 @@ void ConvertVPUASM2NPUReg40XXPass::safeRunOnModule() {
     patterns.add<ManagedMappedInferenceRewriter>(&ctx, _log, _modelIdentifier);
     patterns.add<MappedInferenceVersionRewriter>(&ctx, _log);
     patterns.add<WorkItemRewriter>(&ctx, _log);
+    patterns.add<DpuPVPRewriter>(&ctx, _log, elfMain);
 
     target.addIllegalOp<VPUASM::WorkItemOp>();
     target.addIllegalOp<VPUASM::MappedInferenceOp>();
@@ -99,6 +95,7 @@ void ConvertVPUASM2NPUReg40XXPass::safeRunOnModule() {
     target.addIllegalOp<VPUASM::ManagedBarrierOp>();
     target.addIllegalOp<VPUASM::ManagedMappedInferenceOp>();
     target.addIllegalOp<VPUASM::MappedInferenceVersionOp>();
+    target.addIllegalOp<VPUASM::DpuPVPOp>();
 
     target.addDynamicallyLegalOp<VPUASM::PlatformInfoOp>([&](VPUASM::PlatformInfoOp op) {
         return config::getArch(op.getOperation()) != config::ArchKind::UNKNOWN;

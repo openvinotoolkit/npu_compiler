@@ -90,11 +90,6 @@ mlir::LogicalResult SwapEltwiseAndReduce<EltwiseOp, ReduceOp>::matchAndRewrite(R
                                                                                mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), reduceOp->getName(), reduceOp->getLoc());
 
-    auto axesValueAttr = reduceOp.getAxesValue();
-    if (!axesValueAttr) {
-        return matchFailed(_log, rewriter, reduceOp, "ReduceOp has dynamic axes");
-    }
-
     auto eltwiseOp = reduceOp.getInput().template getDefiningOp<EltwiseOp>();
     if (eltwiseOp == nullptr) {
         return matchFailed(_log, rewriter, reduceOp, "Input is not the expected EltwiseOp");
@@ -113,7 +108,7 @@ mlir::LogicalResult SwapEltwiseAndReduce<EltwiseOp, ReduceOp>::matchAndRewrite(R
         return matchFailed(_log, rewriter, reduceOp, "ReduceOp has padding attrs; cannot safely hoist");
     }
 
-    auto axes = parseIntArrayAttr<int64_t>(axesValueAttr.value());
+    auto axes = parseIntArrayAttr<int64_t>(reduceOp.getAxesValue());
     auto input1 = eltwiseOp.getInput1();
     auto input2 = eltwiseOp.getInput2();
     auto shape1 = getShape(input1);

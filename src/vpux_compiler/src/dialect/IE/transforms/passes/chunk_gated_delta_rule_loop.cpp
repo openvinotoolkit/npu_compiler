@@ -1311,6 +1311,552 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
 }
 
 //===----------------------------------------------------------------------===//
+// Linear State Recurrence Chunked Loop
+//
+// Matches loops implementing:  h_t = gate_t * h_{t-1} + u_t
+//                               y_t = ReduceSum(h_t * q_t, axis)  → ScatterUpdate
+// and rewrites Loop(N) → Loop(N/L) where the new body unrolls L timesteps
+// sequentially.  No mathematical transformation — pure sequential unrolling.
+//===----------------------------------------------------------------------===//
+
+struct SimplifiedGDRDescriptor {
+    int64_t gateIdx = -1;    // body arg: gate [B,H,1,1,1]  rank-5
+    int64_t updateIdx = -1;  // body arg: u = k⊗(β·v) [B,H,1,dK,dV]  rank-5
+    int64_t qIdx = -1;       // body arg: query [B,H,1,dV]  rank-4
+
+    int64_t stateIdx = -1;  // feedback: h_state [B,H,dK,dV]
+    int64_t accumIdx = -1;  // feedback: accum [B,H,seqLen,dK]
+
+    int64_t iterIdx = -1;
+    int64_t batch = -1, heads = -1, seqLen = -1, dK = -1, dV = -1;
+};
+
+/// Match the linear state recurrence loop:
+///   h_t = gate_t * h_{t-1} + u_t
+///   y_t = ReduceSum(h_t * q_t, axis=dV) -> ScatterUpdate(accum, iter, y_t)
+static bool matchSimplifiedGDRPattern(IE::LoopOp loopOp, SimplifiedGDRDescriptor& desc, Logger log) {
+    auto& bodyRegion = loopOp.getBodyModule();
+    if (bodyRegion.getBlocks().size() != 1) {
+        return false;
+    }
+
+    auto& bodyBlock = bodyRegion.front();
+    auto bodyArgs = bodyBlock.getArguments();
+    auto sliceDescs = parseCustomAttrArray<IE::SliceInputPortMapAttr>(loopOp.getSliceInputDescsAttr());
+    auto feedbackDescs = parseCustomAttrArray<IE::MergedInputPortMapAttr>(loopOp.getFeedbackInputDescsAttr());
+
+    if (bodyArgs.size() != 6 || sliceDescs.size() != 3 || feedbackDescs.size() != 2) {
+        log.trace("SimplifiedGDR match failed: args={0} slices={1} feedbacks={2}", bodyArgs.size(), sliceDescs.size(),
+                  feedbackDescs.size());
+        return false;
+    }
+
+    int64_t iterArgIdx = loopOp.getCurrentIterIndex();
+    if (iterArgIdx < 0 || iterArgIdx >= static_cast<int64_t>(bodyArgs.size())) {
+        log.trace("SimplifiedGDR match failed: current_iter_index={0} is out of body arg range", iterArgIdx);
+        return false;
+    }
+
+    const auto isValidBodyArgIdx = [&](int64_t idx, llvm::StringRef kind) {
+        if (idx < 0 || idx >= static_cast<int64_t>(bodyArgs.size())) {
+            log.trace("SimplifiedGDR match failed: {0} internal_layer_id={1} is out of body arg range", kind, idx);
+            return false;
+        }
+        return true;
+    };
+
+    SmallVector<int64_t> slicedArgIndices, feedbackArgIndices;
+    for (auto s : sliceDescs) {
+        const auto idx = s.getInternalLayerId().getValue().getSExtValue();
+        if (!isValidBodyArgIdx(idx, "slice")) {
+            return false;
+        }
+        slicedArgIndices.push_back(idx);
+    }
+    for (auto f : feedbackDescs) {
+        const auto idx = f.getInternalLayerId().getValue().getSExtValue();
+        if (!isValidBodyArgIdx(idx, "feedback")) {
+            return false;
+        }
+        feedbackArgIndices.push_back(idx);
+    }
+
+    // 2 rank-5 sliced inputs, 1 rank-4
+    SmallVector<int64_t> rank5, rank4;
+    for (auto idx : slicedArgIndices) {
+        int64_t r = mlir::cast<mlir::RankedTensorType>(bodyArgs[idx].getType()).getRank();
+        if (r == 5) {
+            rank5.push_back(idx);
+        } else if (r == 4) {
+            rank4.push_back(idx);
+        }
+    }
+    if (rank5.size() != 2 || rank4.size() != 1) {
+        log.trace("SimplifiedGDR match failed: rank5={0} rank4={1}", rank5.size(), rank4.size());
+        return false;
+    }
+
+    // gate: rank-5 with trailing dims [1,1]; update: rank-5 with trailing [dK,dV]
+    int64_t gateArgIdx = -1, updateArgIdx = -1;
+    for (auto idx : rank5) {
+        auto shape = mlir::cast<mlir::RankedTensorType>(bodyArgs[idx].getType()).getShape();
+        if (shape[3] == 1 && shape[4] == 1) {
+            gateArgIdx = idx;
+        } else {
+            updateArgIdx = idx;
+        }
+    }
+    if (gateArgIdx == -1 || updateArgIdx == -1) {
+        log.trace("SimplifiedGDR match failed: cannot distinguish gate from update");
+        return false;
+    }
+
+    const auto updateShape = mlir::cast<mlir::RankedTensorType>(bodyArgs[updateArgIdx].getType()).getShape();
+
+    int64_t stateArgIdx = -1, accumArgIdx = -1;
+    for (auto idx : feedbackArgIndices) {
+        auto type = mlir::cast<mlir::RankedTensorType>(bodyArgs[idx].getType());
+        if (type.getRank() != 4) {
+            return false;
+        }
+
+        const auto feedbackShape = type.getShape();
+        const auto isState = feedbackShape[0] == updateShape[0] && feedbackShape[1] == updateShape[1] &&
+                             feedbackShape[2] == updateShape[3] && feedbackShape[3] == updateShape[4];
+        const auto isAccum = feedbackShape[0] == updateShape[0] && feedbackShape[1] == updateShape[1] &&
+                             feedbackShape[2] == loopOp.getNumIterations() && feedbackShape[3] == updateShape[3];
+        if (isState == isAccum) {
+            return false;
+        }
+        if (isState) {
+            if (stateArgIdx != -1) {
+                return false;
+            }
+            stateArgIdx = idx;
+        } else {
+            if (accumArgIdx != -1) {
+                return false;
+            }
+            accumArgIdx = idx;
+        }
+    }
+    if (stateArgIdx == -1 || accumArgIdx == -1) {
+        return false;
+    }
+
+    auto stateShape = mlir::cast<mlir::RankedTensorType>(bodyArgs[stateArgIdx].getType()).getShape();
+    auto accumShape = mlir::cast<mlir::RankedTensorType>(bodyArgs[accumArgIdx].getType()).getShape();
+
+    desc.batch = stateShape[0];
+    desc.heads = stateShape[1];
+    desc.dK = stateShape[2];
+    desc.dV = stateShape[3];
+    desc.seqLen = accumShape[2];
+    desc.gateIdx = gateArgIdx;
+    desc.updateIdx = updateArgIdx;
+    desc.qIdx = rank4[0];
+    desc.stateIdx = stateArgIdx;
+    desc.accumIdx = accumArgIdx;
+    desc.iterIdx = iterArgIdx;
+
+    auto terminator = mlir::dyn_cast<IE::LoopTerminatorOp>(bodyBlock.getTerminator());
+    if (!terminator) {
+        return false;
+    }
+
+    int64_t stateBodyOutputIdx = -1;
+    int64_t accumBodyOutputIdx = -1;
+    for (auto f : feedbackDescs) {
+        const auto bodyArgIdx = f.getInternalLayerId().getValue().getSExtValue();
+        if (bodyArgIdx == stateArgIdx) {
+            stateBodyOutputIdx = f.getBodyInputIndex().getValue().getSExtValue();
+        } else if (bodyArgIdx == accumArgIdx) {
+            accumBodyOutputIdx = f.getBodyInputIndex().getValue().getSExtValue();
+        }
+    }
+    if (stateBodyOutputIdx < 0 || accumBodyOutputIdx < 0 ||
+        stateBodyOutputIdx >= static_cast<int64_t>(terminator.getNumOperands()) ||
+        accumBodyOutputIdx >= static_cast<int64_t>(terminator.getNumOperands())) {
+        return false;
+    }
+
+    auto stateAdd = terminator.getOperand(stateBodyOutputIdx).getDefiningOp<IE::AddOp>();
+    if (!stateAdd) {
+        log.trace("SimplifiedGDR match failed: feedback state is not produced by Add");
+        return false;
+    }
+
+    auto isReshapeDerivedFrom = [](mlir::Value value, int64_t argIdx) {
+        const auto blockArg = traceToBlockArg(value);
+        return blockArg && blockArg.getArgNumber() == static_cast<unsigned>(argIdx);
+    };
+
+    bool hasStateRecurrence = false;
+    for (const auto addInput : stateAdd->getOperands()) {
+        auto decayedState = addInput.getDefiningOp<IE::MultiplyOp>();
+        if (!decayedState) {
+            continue;
+        }
+
+        const auto hasStateInput = isReshapeDerivedFrom(decayedState.getInput1(), stateArgIdx) ||
+                                   isReshapeDerivedFrom(decayedState.getInput2(), stateArgIdx);
+        const auto hasGateInput = isReshapeDerivedFrom(decayedState.getInput1(), gateArgIdx) ||
+                                  isReshapeDerivedFrom(decayedState.getInput2(), gateArgIdx);
+        const auto otherAddInput = addInput == stateAdd.getInput1() ? stateAdd.getInput2() : stateAdd.getInput1();
+        if (hasStateInput && hasGateInput && isReshapeDerivedFrom(otherAddInput, updateArgIdx)) {
+            hasStateRecurrence = true;
+            break;
+        }
+    }
+    if (!hasStateRecurrence) {
+        log.trace("SimplifiedGDR match failed: state feedback does not match gate * state + update");
+        return false;
+    }
+
+    auto scatter = terminator.getOperand(accumBodyOutputIdx).getDefiningOp<IE::ScatterUpdateOp>();
+    if (!scatter || !isReshapeDerivedFrom(scatter->getOperand(0), accumArgIdx)) {
+        log.trace("SimplifiedGDR match failed: accumulator feedback is not produced by ScatterUpdate");
+        return false;
+    }
+    const auto iterArg = traceScatterIndicesToBlockArg(scatter.getIndices());
+    const auto axisAttr = scatter.getAxisValueAttr();
+    if (!iterArg || iterArg.getArgNumber() != static_cast<unsigned>(iterArgIdx) ||
+        (axisAttr && axisAttr.getValue().getSExtValue() != 2)) {
+        log.trace("SimplifiedGDR match failed: ScatterUpdate does not use the loop iteration on axis 2");
+        return false;
+    }
+
+    auto updates = scatter->getOperand(2);
+    while (const auto producer = updates.getDefiningOp()) {
+        if (!isReshapeKindOp(producer)) {
+            break;
+        }
+        updates = producer->getOperand(0);
+    }
+    auto reduce = updates.getDefiningOp<IE::ReduceSumOp>();
+    if (!reduce) {
+        log.trace("SimplifiedGDR match failed: ScatterUpdate value is not produced by ReduceSum");
+        return false;
+    }
+    const auto reduceAxes = parseIntArrayAttr<int64_t>(reduce.getAxesValueAttr());
+    if (reduceAxes.size() != 1 || reduceAxes.front() != 3 || reduce.getKeepDims() || reduce.getInputPadding() ||
+        reduce.getOutputPadding()) {
+        log.trace("SimplifiedGDR match failed: ReduceSum must reduce axis 3 without padding or keep_dims");
+        return false;
+    }
+    auto queryMul = reduce->getOperand(0).getDefiningOp<IE::MultiplyOp>();
+    if (!queryMul || (queryMul.getInput1() != stateAdd.getOutput() && queryMul.getInput2() != stateAdd.getOutput()) ||
+        !isReshapeDerivedFrom(
+                queryMul.getInput1() == stateAdd.getOutput() ? queryMul.getInput2() : queryMul.getInput1(),
+                desc.qIdx)) {
+        log.trace("SimplifiedGDR match failed: ScatterUpdate value does not use the new state and query");
+        return false;
+    }
+
+    if (loopOp.getNumIterations() != desc.seqLen) {
+        log.trace("SimplifiedGDR match failed: num_iterations={0} seqLen={1}", loopOp.getNumIterations(), desc.seqLen);
+        return false;
+    }
+
+    // Exec cond must be constant true
+    auto execCondIndex = loopOp.getExecCondIndex();
+    auto condConst = terminator.getOperands()[execCondIndex].getDefiningOp<Const::DeclareOp>();
+    if (!condConst) {
+        return false;
+    }
+    auto condContent = condConst.getContentAttr().fold();
+    if (condContent.isSplat() && condContent.getSplatValue<int64_t>() == 0) {
+        return false;
+    }
+
+    for (auto s : sliceDescs) {
+        if (s.getAxis().getValue().getSExtValue() != 2) {
+            return false;
+        }
+    }
+
+    log.trace("SimplifiedGDR matched: B={0} H={1} N={2} dK={3} dV={4}", desc.batch, desc.heads, desc.seqLen, desc.dK,
+              desc.dV);
+    return true;
+}
+
+/// Build Loop(C) where each body unrolls L timesteps of:
+///   h = gate[t] * h + u[t]
+///   y[t] = ReduceSum(h * q[t], axis=dV)
+/// Inputs [B,H,N,...] reshaped to [B,H,C,L,...], sliced per chunk.
+/// Output y concat [B,H,C,L,dK] reshaped to [B,H,N,dK].
+static mlir::LogicalResult buildChunkedSimplifiedGDR(IE::LoopOp origLoop, const SimplifiedGDRDescriptor& desc,
+                                                     int64_t chunkSize, mlir::PatternRewriter& rewriter, Logger log) {
+    auto loc = origLoop.getLoc();
+    auto* ctx = rewriter.getContext();
+
+    const int64_t N = desc.seqLen;
+    const int64_t L = chunkSize;
+    const int64_t C = N / L;
+    const int64_t B = desc.batch;
+    const int64_t H = desc.heads;
+    const int64_t dK = desc.dK;
+    const int64_t dV = desc.dV;
+
+    auto opInputs = origLoop.getInputs();
+    auto elemType =
+            mlir::cast<mlir::RankedTensorType>(origLoop.getBodyModule().front().getArgument(desc.stateIdx).getType())
+                    .getElementType();
+
+    // Identify external inputs for the 3 sliced sequences
+    auto sliceDescs = parseCustomAttrArray<IE::SliceInputPortMapAttr>(origLoop.getSliceInputDescsAttr());
+    mlir::DenseMap<int64_t, mlir::Value> bodyArgToExt;
+    for (auto s : sliceDescs) {
+        const auto exId = s.getExternalPortId().getValue().getSExtValue();
+        if (exId < 0 || exId >= static_cast<int64_t>(opInputs.size())) {
+            return mlir::failure();
+        }
+        bodyArgToExt[s.getInternalLayerId().getValue().getSExtValue()] = opInputs[exId];
+    }
+
+    mlir::Value fullGate = bodyArgToExt[desc.gateIdx];      // [B,H,N,1,1]
+    mlir::Value fullUpdate = bodyArgToExt[desc.updateIdx];  // [B,H,N,dK,dV]
+    mlir::Value fullQ = bodyArgToExt[desc.qIdx];            // [B,H,N,dV]
+    if (!fullGate || !fullUpdate || !fullQ) {
+        return mlir::failure();
+    }
+
+    auto feedbackDescs = parseCustomAttrArray<IE::MergedInputPortMapAttr>(origLoop.getFeedbackInputDescsAttr());
+    mlir::Value initState, initAccum;
+    for (auto f : feedbackDescs) {
+        auto exId = f.getExternalPortId().getValue().getSExtValue();
+        auto bodyArgIdx = f.getInternalLayerId().getValue().getSExtValue();
+        if (bodyArgIdx == desc.stateIdx) {
+            initState = opInputs[exId];
+        } else if (bodyArgIdx == desc.accumIdx) {
+            initAccum = opInputs[exId];
+        }
+    }
+    if (!initState || !initAccum) {
+        return mlir::failure();
+    }
+
+    const auto validateShape = [&](mlir::Value value, ArrayRef<int64_t> expectedDims, llvm::StringRef name) {
+        const auto type = mlir::dyn_cast<mlir::RankedTensorType>(value.getType());
+        if (!type || type.getRank() != static_cast<int64_t>(expectedDims.size())) {
+            log.trace("SimplifiedGDR: {0} rank mismatch", name);
+            return false;
+        }
+        const auto shape = type.getShape();
+        for (auto [idx, dim] : llvm::enumerate(expectedDims)) {
+            if (shape[idx] != dim) {
+                log.trace("SimplifiedGDR: {0} shape mismatch at dim {1}: expected {2}, got {3}", name, idx, dim,
+                          shape[idx]);
+                return false;
+            }
+        }
+        return true;
+    };
+
+    if (!validateShape(fullGate, {B, H, N, 1, 1}, "fullGate") ||
+        !validateShape(fullUpdate, {B, H, N, dK, dV}, "fullUpdate") || !validateShape(fullQ, {B, H, N, dV}, "fullQ") ||
+        !validateShape(initState, {B, H, dK, dV}, "initState") ||
+        !validateShape(initAccum, {B, H, N, dK}, "initAccum")) {
+        return mlir::failure();
+    }
+
+    const auto origInvariantDescs =
+            parseCustomAttrArray<IE::InvariantOutputPortMapAttr>(origLoop.getInvariantOutputDescsAttr());
+    const auto origConcatDescs = parseCustomAttrArray<IE::ConcatOutputPortMapAttr>(origLoop.getConcatOutputDescsAttr());
+    if (!origConcatDescs.empty()) {
+        log.trace("SimplifiedGDR: original loop has concat output descs, not supported");
+        return mlir::failure();
+    }
+
+    mlir::DenseMap<int64_t, int64_t> bodyOutputToBodyArg;
+    for (auto f : feedbackDescs) {
+        const auto bodyArgIdx = f.getInternalLayerId().getValue().getSExtValue();
+        if (bodyArgIdx != desc.stateIdx && bodyArgIdx != desc.accumIdx) {
+            continue;
+        }
+
+        const auto bodyOutIdx = f.getBodyInputIndex().getValue().getSExtValue();
+        if (!bodyOutputToBodyArg.try_emplace(bodyOutIdx, bodyArgIdx).second) {
+            log.trace("SimplifiedGDR: duplicate feedback body output {0}", bodyOutIdx);
+            return mlir::failure();
+        }
+    }
+
+    SmallVector<int64_t> resultToBodyOutput(origLoop.getResults().size(), -1);
+    for (auto inv : origInvariantDescs) {
+        const auto extPort = inv.getExternalPortId().getValue().getSExtValue();
+        const auto bodyOutIdx = inv.getInternalLayerId().getValue().getSExtValue();
+        if (extPort < 0 || extPort >= static_cast<int64_t>(resultToBodyOutput.size()) ||
+            resultToBodyOutput[extPort] != -1 || !bodyOutputToBodyArg.contains(bodyOutIdx)) {
+            log.trace("SimplifiedGDR: unsupported invariant output extPort={0} internalLayer={1}", extPort, bodyOutIdx);
+            return mlir::failure();
+        }
+        resultToBodyOutput[extPort] = bodyOutIdx;
+    }
+    for (const auto bodyOutIdx : resultToBodyOutput) {
+        if (bodyOutIdx == -1) {
+            log.trace("SimplifiedGDR: every loop result must have an invariant output descriptor");
+            return mlir::failure();
+        }
+    }
+
+    // Reshape inputs into chunks: [B,H,N,...] -> [B,H,C,L,...]
+    auto chunkedGate = createReshape(rewriter, appendLoc(loc, "sgdr_cg"), fullGate, {B, H, C, L, 1, 1});
+    auto chunkedUpdate = createReshape(rewriter, appendLoc(loc, "sgdr_cu"), fullUpdate, {B, H, C, L, dK, dV});
+    auto chunkedQ = createReshape(rewriter, appendLoc(loc, "sgdr_cq"), fullQ, {B, H, C, L, dV});
+
+    // New loop: C iterations
+    // Result 0: h_state [B,H,dK,dV] (invariant, last)
+    // Result 1: y_accum [B,H,C,L,dK] (concat, axis=2)
+    SmallVector<mlir::Type> newOutputTypes = {mlir::RankedTensorType::get({B, H, dK, dV}, elemType),
+                                              mlir::RankedTensorType::get({B, H, C, L, dK}, elemType)};
+    SmallVector<mlir::Value> newInputs = {chunkedGate, chunkedUpdate, chunkedQ, initState};
+
+    // slice_input_descs: ext 0,1,2 -> body args 1,2,3; axis=2, part_size=1, end=C
+    SmallVector<mlir::Attribute> newSliceDescs;
+    for (int64_t i = 0; i < 3; i++) {
+        newSliceDescs.push_back(IE::SliceInputPortMapAttr::get(
+                ctx, getIntAttr(ctx, i), getIntAttr(ctx, i + 1), getIntAttr(ctx, 2), getIntAttr(ctx, 0),
+                getIntAttr(ctx, 1), getIntAttr(ctx, 1), getIntAttr(ctx, C)));
+    }
+
+    // feedback: ext 3 -> body arg 4; body output 1 feeds back as h_state
+    SmallVector<mlir::Attribute> newFeedbackDescs = {
+            IE::MergedInputPortMapAttr::get(ctx, getIntAttr(ctx, 3), getIntAttr(ctx, 4), getIntAttr(ctx, 1))};
+
+    // concat output: body output 2 -> result 1; axis=2
+    SmallVector<mlir::Attribute> newConcatDescs = {IE::ConcatOutputPortMapAttr::get(
+            ctx, getIntAttr(ctx, 1), getIntAttr(ctx, 2), getIntAttr(ctx, 2), getIntAttr(ctx, 0), getIntAttr(ctx, 1),
+            getIntAttr(ctx, 1), getIntAttr(ctx, C))};
+
+    // invariant output: body output 1 -> result 0 (last iteration)
+    SmallVector<mlir::Attribute> newInvariantDescs = {
+            IE::InvariantOutputPortMapAttr::get(ctx, getIntAttr(ctx, 0), getIntAttr(ctx, 1), getIntAttr(ctx, -1))};
+
+    auto newLoop = rewriter.create<IE::LoopOp>(
+            appendLoc(loc, "sgdr_loop"), newOutputTypes, newInputs, getIntAttr(ctx, C),
+            getIntAttr(ctx, 0),  // current_iter_index = body arg 0
+            getIntAttr(ctx, 0),  // exec_cond_index = body output 0
+            mlir::ArrayAttr::get(ctx, newSliceDescs), mlir::ArrayAttr::get(ctx, SmallVector<mlir::Attribute>{}),
+            mlir::ArrayAttr::get(ctx, newFeedbackDescs), mlir::ArrayAttr::get(ctx, newConcatDescs),
+            mlir::ArrayAttr::get(ctx, newInvariantDescs));
+
+    // Build the new loop body
+    // Body args: [0] iter  [1] gate [B,H,1,L,1,1]  [2] update [B,H,1,L,dK,dV]
+    //            [3] q [B,H,1,L,dV]  [4] h_state [B,H,dK,dV]
+    auto& newBodyRegion = newLoop.getBodyModule();
+    auto* newBodyBlock = new mlir::Block();
+    newBodyRegion.push_back(newBodyBlock);
+
+    auto iterType = mlir::RankedTensorType::get({1}, mlir::IntegerType::get(ctx, 32, mlir::IntegerType::Signed));
+    newBodyBlock->addArgument(iterType, loc);
+    newBodyBlock->addArgument(mlir::RankedTensorType::get({B, H, 1, L, 1, 1}, elemType), loc);
+    newBodyBlock->addArgument(mlir::RankedTensorType::get({B, H, 1, L, dK, dV}, elemType), loc);
+    newBodyBlock->addArgument(mlir::RankedTensorType::get({B, H, 1, L, dV}, elemType), loc);
+    newBodyBlock->addArgument(mlir::RankedTensorType::get({B, H, dK, dV}, elemType), loc);
+
+    mlir::OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToStart(newBodyBlock);
+
+    // Squeeze chunk axis (axis=2): [B,H,1,L,...] -> [B,H,L,...]
+    auto gateChunk =
+            createReshape(rewriter, appendLoc(loc, "sgdr_sq_g"), newBodyBlock->getArgument(1), {B, H, L, 1, 1});
+    auto uChunk = createReshape(rewriter, appendLoc(loc, "sgdr_sq_u"), newBodyBlock->getArgument(2), {B, H, L, dK, dV});
+    auto qChunk = createReshape(rewriter, appendLoc(loc, "sgdr_sq_q"), newBodyBlock->getArgument(3), {B, H, L, dV});
+    mlir::Value h = newBodyBlock->getArgument(4);  // h_state [B,H,dK,dV]
+
+    // Sequentially unroll L timesteps:
+    //   h = gate[t] * h + u[t]
+    //   y[t] = ReduceSum(h * q[t], axis=3)
+    SmallVector<mlir::Value> yOutputs;
+    yOutputs.reserve(L);
+
+    for (int64_t t = 0; t < L; t++) {
+        auto tStr = std::to_string(t);
+
+        // gate_t [B,H,1,1,1] -> [B,H,1,1] for broadcasting with h [B,H,dK,dV]
+        auto gateT = rewriter.create<IE::SliceOp>(appendLoc(loc, StringRef("sgdr_g_" + tStr)),
+                                                  mlir::RankedTensorType::get({B, H, 1, 1, 1}, elemType), gateChunk,
+                                                  getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, t, 0, 0}),
+                                                  getIntArrayAttr(ctx, SmallVector<int64_t>{B, H, 1, 1, 1}))
+                             .getResult();
+        auto gateTSq = createReshape(rewriter, appendLoc(loc, StringRef("sgdr_gsq_" + tStr)), gateT, {B, H, 1, 1});
+
+        // u_t [B,H,dK,dV]
+        auto uTSliced = rewriter.create<IE::SliceOp>(appendLoc(loc, StringRef("sgdr_u_" + tStr)),
+                                                     mlir::RankedTensorType::get({B, H, 1, dK, dV}, elemType), uChunk,
+                                                     getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, t, 0, 0}),
+                                                     getIntArrayAttr(ctx, SmallVector<int64_t>{B, H, 1, dK, dV}))
+                                .getResult();
+        auto uT = createReshape(rewriter, appendLoc(loc, StringRef("sgdr_ur_" + tStr)), uTSliced, {B, H, dK, dV});
+
+        // q_t [B,H,1,dV] for broadcasting with h [B,H,dK,dV]
+        auto qT = rewriter.create<IE::SliceOp>(appendLoc(loc, StringRef("sgdr_q_" + tStr)),
+                                               mlir::RankedTensorType::get({B, H, 1, dV}, elemType), qChunk,
+                                               getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, t, 0}),
+                                               getIntArrayAttr(ctx, SmallVector<int64_t>{B, H, 1, dV}))
+                          .getResult();
+
+        // h = gate_t * h + u_t
+        auto hDecayed =
+                rewriter.create<IE::MultiplyOp>(appendLoc(loc, StringRef("sgdr_hd_" + tStr)), h, gateTSq,
+                                                IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
+                        .getOutput();
+        h = rewriter.create<IE::AddOp>(appendLoc(loc, StringRef("sgdr_hn_" + tStr)), hDecayed, uT,
+                                       IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
+                    .getOutput();
+
+        // y_t = ReduceSum(h * q_t, axis=3) -> [B,H,dK]
+        auto hq = rewriter.create<IE::MultiplyOp>(appendLoc(loc, StringRef("sgdr_hq_" + tStr)), h, qT,
+                                                  IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
+                          .getOutput();
+        auto yT = rewriter.create<IE::ReduceSumOp>(appendLoc(loc, StringRef("sgdr_y_" + tStr)),
+                                                   mlir::RankedTensorType::get({B, H, dK}, elemType), hq,
+                                                   getIntArrayAttr(ctx, SmallVector<int64_t>{3}), nullptr)
+                          .getOutput();
+        yOutputs.push_back(createReshape(rewriter, appendLoc(loc, StringRef("sgdr_yr_" + tStr)), yT, {B, H, 1, dK}));
+    }
+
+    // Concatenate y outputs: L x [B,H,1,dK] -> [B,H,L,dK]
+    mlir::Value yChunk;
+    auto yChunkType = mlir::RankedTensorType::get({B, H, L, dK}, elemType);
+    if (L == 1) {
+        yChunk = createReshape(rewriter, appendLoc(loc, "sgdr_ycat"), yOutputs[0], {B, H, L, dK});
+    } else {
+        SmallVector<mlir::Attribute> concatOffsets;
+        for (int64_t t = 0; t < L; t++) {
+            concatOffsets.push_back(getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, t, 0}));
+        }
+        yChunk = rewriter.create<IE::ConcatOp>(appendLoc(loc, "sgdr_ycat"), yChunkType, mlir::ValueRange(yOutputs),
+                                               mlir::ArrayAttr::get(ctx, concatOffsets))
+                         .getOutput();
+    }
+
+    // Reshape for ConcatOutputPortMap: [B,H,L,dK] -> [B,H,1,L,dK]
+    auto yChunk5d = createReshape(rewriter, appendLoc(loc, "sgdr_y5d"), yChunk, {B, H, 1, L, dK});
+
+    auto execCond = Const::createConst<int8_t>(rewriter, appendLoc(loc, "sgdr_cond"),
+                                               mlir::RankedTensorType::get({1}, mlir::IntegerType::get(ctx, 8)),
+                                               ArrayRef<int8_t>{1});
+    rewriter.create<IE::LoopTerminatorOp>(appendLoc(loc, "sgdr_term"), SmallVector<mlir::Value>{execCond, h, yChunk5d});
+
+    // Post-loop: reshape output and replace original
+    rewriter.setInsertionPointAfter(newLoop);
+    auto finalState = newLoop.getResult(0);    // [B,H,dK,dV]
+    auto chunkedAccum = newLoop.getResult(1);  // [B,H,C,L,dK]
+    auto finalAccum = createReshape(rewriter, appendLoc(loc, "sgdr_out"), chunkedAccum, {B, H, N, dK});
+
+    // Map original Loop results to new values
+    SmallVector<mlir::Value> replacements(origLoop.getResults().size());
+    for (auto [extPort, bodyOutIdx] : llvm::enumerate(resultToBodyOutput)) {
+        replacements[extPort] = bodyOutputToBodyArg.lookup(bodyOutIdx) == desc.stateIdx ? finalState : finalAccum;
+    }
+
+    rewriter.replaceOp(origLoop, replacements);
+    log.trace("SimplifiedGDR SUCCESS: Loop({0}) -> Loop({1}), unrolled L={2}", N, C, L);
+    return mlir::success();
+}
+
 // GDR Chunked Loop Rewriter Pattern
 //===----------------------------------------------------------------------===//
 
@@ -1342,6 +1888,39 @@ public:
                    desc.seqLen / _chunkSize, _chunkSize);
 
         return buildChunkedGDR(loopOp, desc, _chunkSize, rewriter, _log);
+    }
+
+private:
+    int64_t _chunkSize;
+    Logger _log;
+};
+
+class SimplifiedGDRChunkedLoopRewriter final : public mlir::OpRewritePattern<IE::LoopOp> {
+public:
+    SimplifiedGDRChunkedLoopRewriter(mlir::MLIRContext* ctx, int64_t chunkSize, Logger log)
+            : mlir::OpRewritePattern<IE::LoopOp>(ctx), _chunkSize(chunkSize), _log(log) {
+        setDebugName("SimplifiedGDRChunkedLoopRewriter");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::LoopOp loopOp, mlir::PatternRewriter& rewriter) const final {
+        if (_chunkSize <= 0) {
+            return mlir::failure();
+        }
+
+        SimplifiedGDRDescriptor desc;
+        if (!matchSimplifiedGDRPattern(loopOp, desc, _log)) {
+            return mlir::failure();
+        }
+
+        if (desc.seqLen % _chunkSize != 0) {
+            _log.trace("SimplifiedGDR Loop seq_len={0} not divisible by chunk_size={1}", desc.seqLen, _chunkSize);
+            return mlir::failure();
+        }
+
+        _log.trace("Applying SimplifiedGDR chunking: Loop({0}) → Loop({1}) with chunk_size={2}", desc.seqLen,
+                   desc.seqLen / _chunkSize, _chunkSize);
+
+        return buildChunkedSimplifiedGDR(loopOp, desc, _chunkSize, rewriter, _log);
     }
 
 private:
@@ -1384,6 +1963,7 @@ void ChunkGatedDeltaRuleLoop::safeRunOnFunc() {
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.insert<GDRChunkedLoopRewriter>(&ctx, chunkSize, _log);
+    patterns.insert<SimplifiedGDRChunkedLoopRewriter>(&ctx, chunkSize, _log);
 
     collectOpsAndApplyPatterns(func, std::move(patterns));
 }

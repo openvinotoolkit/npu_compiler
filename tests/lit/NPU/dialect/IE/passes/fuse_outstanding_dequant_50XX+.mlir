@@ -21,5 +21,6 @@ func.func @FuseWithClampNotZeroAndOutputNotQuantized(%arg0: tensor<1x384x20x20xf
     // CHECK: [[CST:%.+]] = const.Declare tensor<384x384x1x1x!qElemType> = dense<1> : tensor<384x384x1x1xsi8>
     // CHECK: [[CONV:%.+]] = IE.Convolution([[ARG0]], [[CST]]) {clamp = {max = 1.671716570854187 : f64, min = -1.4173249006271362 : f64}, dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x384x20x20xf16>, tensor<384x384x1x1x!qElemType> -> tensor<1x384x20x20xf16>
 
+    // CHECK-NOT: IE.Dequantize
     // CHECK: return [[CONV]] : tensor<1x384x20x20xf16>
 }

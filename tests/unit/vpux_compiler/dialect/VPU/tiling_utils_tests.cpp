@@ -494,7 +494,7 @@ TEST_F(MLIR_VPU_TestDividedTiles, changeRankDividedTiles) {
                     %6 = VPU.ShapeCast {shape = [1, 16, 256, 512]} inputs(%5 : tensor<1x4x256x2048xf16, {order = #NHWC}>) -> tensor<1x16x256x512xf16, {order = #NHWC}>
                     %7 = VPU.PermuteCast(%arg3) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x2048x4x256xf16, {order = #NWCH}> -> tensor<1x4x256x2048xf16, {order = #NHWC}>
                     %8 = VPU.ShapeCast {shape = [1, 16, 256, 512]} inputs(%7 : tensor<1x4x256x2048xf16, {order = #NHWC}>) -> tensor<1x16x256x512xf16, {order = #NHWC}>
-                    %9 = VPU.NCE.Eltwise(%8, %6) {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+                    %9 = VPU.NCE.Eltwise(%8, %6) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                     op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
                     clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00],
                     bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>} -> tensor<1x16x256x512xf16, {order = #NHWC}>
@@ -534,7 +534,7 @@ TEST_F(MLIR_VPU_TestDividedTiles, changeRankDividedTiles) {
         auto* lastOp = operations.back();
         auto outputShape = getShape(lastOp->getResult(0));
         auto strategy = Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(vf.getTilingStrategy())));
-        const auto tiles = fillDividedTiles(lastOp, operations, strategy, outputShape, alignFunction);
+        const auto tiles = fillDividedTiles(lastOp, operations, strategy, outputShape, alignFunction, false);
 
         ASSERT_TRUE(mlir::succeeded(tiles));
     });
@@ -584,15 +584,16 @@ TEST_F(MLIR_VPU_TestDividedTiles, alignmentPropagation) {
     };
 
     func->walk([&](VPU::VerticalFusionOp vf) {
-        VPU::VF::v2::VFConfig config(vf);
+        VPU::VF::v2::VFCacheAnalysis cache(vf.getOperation());
+        VPU::VF::v2::VFConfig config(vf, cache);
 
-        auto outputs = config.getOutputs();
+        const auto& outputs = config.getOutputs();
         ASSERT_TRUE(outputs.size() == 1);
         auto* lastOp = outputs.front();
         auto outputShape = getShape(lastOp->getResult(0));
         auto strategy = Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(vf.getTilingStrategy())));
-        const auto tiles =
-                fillDividedTiles(lastOp, config.getVFOperations().getArrayRef(), strategy, outputShape, alignFunction);
+        const auto tiles = fillDividedTiles(lastOp, config.getVFOperations().getArrayRef(), strategy, outputShape,
+                                            alignFunction, false);
 
         ASSERT_TRUE(mlir::succeeded(tiles));
         // check that alignment is propagated to the rest tiles
@@ -626,26 +627,26 @@ TEST_F(MLIR_VPU_TestDividedTiles, optinalAlignmentForVF) {
                 %cst_0 = const.Declare tensor<512x1x1x4xsi32> = dense<1> : tensor<512x1x1x4xsi32>
                 %cst_1 = const.Declare tensor<512x1x1x4xsi32> = dense<1> : tensor<512x1x1x4xsi32>
                 %cst_2 = const.Declare tensor<512x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<512x16x1x1xf16>, [#const.Reorder<#NHWC>]
-                
+
                 %0 = VPU.VerticalFusion (%arg0 as %arg2: tensor<1x2048x375x4xf16, {order = #NHWC}>, %cst as %arg3: tensor<512x2048x1x1x!qElemType, {order = #NHWC}>, %cst_0 as %arg4: tensor<512x1x1x4xsi32>, %arg1 as %arg5: tensor<1x16x1500x32xf16, {order = #NHWC}>, %cst_2 as %arg6: tensor<512x16x1x1xf16, {order = #NHWC}>, %cst_1 as %arg7: tensor<512x1x1x4xsi32>) attributes {scenario = #VPU.vf_scenario<VF_PIPELINING>, tilingStrategy = [1, 1, 25, 1]} -> tensor<1x512x375x4xf16, {order = #NHWC}> {
-                    %1 = VPU.NCE.Convolution(%arg2, %arg3, %arg4) rawFilterShape [512, 2048, 1, 1] {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>, resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1]} : tensor<1x2048x375x4xf16, {order = #NHWC}>, tensor<512x2048x1x1x!qElemType, {order = #NHWC}>, tensor<512x1x1x4xsi32> -> tensor<1x512x375x4xf16, {order = #NHWC}> 
+                    %1 = VPU.NCE.Convolution(%arg2, %arg3, %arg4) rawFilterShape [512, 2048, 1, 1] {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>, resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1]} : tensor<1x2048x375x4xf16, {order = #NHWC}>, tensor<512x2048x1x1x!qElemType, {order = #NHWC}>, tensor<512x1x1x4xsi32> -> tensor<1x512x375x4xf16, {order = #NHWC}>
                     %2 = VPU.AffineReshape(%1) {dim_mapping = [[0], [1], [2], [2, 3]], shape_value = [1, 512, 1500, 1]} : tensor<1x512x375x4xf16, {order = #NHWC}> -> tensor<1x512x1500x1xf16, {order = #NHWC}>
                     %3 = VPU.PermuteCast(%2) {dst_order = #NCHW, mem_perm = affine_map<(d0, d1, d2, d3) -> (d1, d3, d0, d2)>} : tensor<1x512x1500x1xf16, {order = #NHWC}> -> tensor<1500x512x1x1xf16>
                     %4 = VPU.AffineReshape(%3) {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 1500, 512]} : tensor<1500x512x1x1xf16> -> tensor<1x1x1500x512xf16>
                     %5 = VPU.PermuteCast(%4) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x1x1500x512xf16> -> tensor<1x1x1500x512xf16, {order = #NHWC}>
                     %6 = VPU.ShapeCast {shape = [1, 16, 1500, 32]} inputs(%5 : tensor<1x1x1500x512xf16, {order = #NHWC}>) -> tensor<1x16x1500x32xf16, {order = #NHWC}>
-                    %7 = VPU.NCE.Eltwise(%arg5, %6) {is_inplace = true, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>} -> tensor<1x16x1500x32xf16, {order = #NHWC}> 
+                    %7 = VPU.NCE.Eltwise(%arg5, %6) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>} -> tensor<1x16x1500x32xf16, {order = #NHWC}>
                     %8 = VPU.ShapeCast {shape = [1, 1, 1500, 512]} inputs(%7 : tensor<1x16x1500x32xf16, {order = #NHWC}>) -> tensor<1x1x1500x512xf16, {order = #NHWC}>
                     %9 = VPU.PermuteCast(%8) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<1x1x1500x512xf16, {order = #NHWC}> -> tensor<1x1x1500x512xf16>
                     %10 = VPU.AffineReshape(%9) {dim_mapping = [[0], [0], [1], [2, 3]], shape_value = [1, 1500, 512, 1]} : tensor<1x1x1500x512xf16> -> tensor<1x1500x512x1xf16>
                     %11 = VPU.MVN(%10) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true} : tensor<1x1500x512x1xf16> -> tensor<1x1500x512x1xf16>
                     %12 = VPU.PermuteCast(%11) {dst_order = #NHWC, mem_perm = #NCWH} : tensor<1x1500x512x1xf16> -> tensor<1x512x1500x1xf16, {order = #NHWC}>
                     %13 = VPU.AffineReshape(%12) {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 512, 375, 4]} : tensor<1x512x1500x1xf16, {order = #NHWC}> -> tensor<1x512x375x4xf16, {order = #NHWC}>
-                    %14 = VPU.NCE.DepthConvolution(%13, %arg6, %arg7) rawFilterShape [512, 1, 1, 1] {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>, strides = [1, 1]} -> tensor<1x512x375x4xf16, {order = #NHWC}> 
+                    %14 = VPU.NCE.DepthConvolution(%13, %arg6, %arg7) rawFilterShape [512, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>, strides = [1, 1]} -> tensor<1x512x375x4xf16, {order = #NHWC}>
                     VPU.Yield %14
                 }
 
-                return %0 : tensor<1x512x375x4xf16, {order = #NHWC}> 
+                return %0 : tensor<1x512x375x4xf16, {order = #NHWC}>
             }
         }
     )";
@@ -671,16 +672,76 @@ TEST_F(MLIR_VPU_TestDividedTiles, optinalAlignmentForVF) {
     };
 
     func->walk([&](VPU::VerticalFusionOp vf) {
-        VPU::VF::v2::VFConfig config(vf);
+        VPU::VF::v2::VFCacheAnalysis cache(vf.getOperation());
+        VPU::VF::v2::VFConfig config(vf, cache);
 
-        auto outputs = config.getOutputs();
+        const auto& outputs = config.getOutputs();
         ASSERT_TRUE(outputs.size() == 1);
         auto* lastOp = outputs.front();
         auto outputShape = getShape(lastOp->getResult(0));
         auto strategy = Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(vf.getTilingStrategy())));
-        const auto tiles =
-                fillDividedTiles(lastOp, config.getVFOperations().getArrayRef(), strategy, outputShape, alignFunction);
+        const auto tiles = fillDividedTiles(lastOp, config.getVFOperations().getArrayRef(), strategy, outputShape,
+                                            alignFunction, false);
 
         ASSERT_TRUE(mlir::succeeded(tiles));
     });
+}
+
+TEST(MLIR_VPU_TileUtils, GetRequiredCMX_FlashSDPA_MultiResultSWOp_NoThrow) {
+    auto registry = vpux::createDialectRegistry();
+    auto interfacesRegistry = vpux::createInterfacesRegistry(Platform::NPU5010);
+    interfacesRegistry->registerInterfaces(registry);
+    mlir::MLIRContext ctx(registry);
+
+    constexpr llvm::StringLiteral kFlashSdpaIR = R"(
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+module @test {
+  config.Resources 3 of @NCE at 1.850000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+  }
+  func.func @main(%arg0: tensor<1x8x64x64xf16>,
+                  %arg1: tensor<1x8x32x64xf16>,
+                  %arg2: tensor<1x8x32x128xf16, {order = #NCWH}>)
+      -> (tensor<1x8x64x128xf16>, tensor<1x8x64x1xf16>, tensor<1x8x64x1xf32>) {
+    %aux_buf  = const.Declare tensor<1x2x64x32xf16>  = dense<0.0> : tensor<1x2x64x32xf16>
+    %dpu_desc = const.Declare tensor<1x1x2x256xsi32> = dense<0>   : tensor<1x1x2x256xsi32>
+    %wt0      = const.Declare tensor<1x1x32x4xsi32>  = dense<0>   : tensor<1x1x32x4xsi32>
+    %wt1      = const.Declare tensor<1x1x128x4xsi32> = dense<0>   : tensor<1x1x128x4xsi32>
+    %in_out   = const.Declare tensor<1x8x64x128xf16> = dense<0.0> : tensor<1x8x64x128xf16>
+    %in_max   = const.Declare tensor<1x8x64x1xf16>   = dense<0.0> : tensor<1x8x64x1xf16>
+    %in_sum   = const.Declare tensor<1x8x64x1xf32>   = dense<0.0> : tensor<1x8x64x1xf32>
+    %out, %rmax, %rsum = VPU.FlashSDPA(%arg0, %arg1, %arg2,
+        %aux_buf, %dpu_desc, %wt0, %wt1,
+        %in_out, %in_max, %in_sum) {
+        is_head = true,
+        is_tail = true,
+        source_seq_len_pad_size = 0 : i64
+    } : tensor<1x8x64x64xf16>, tensor<1x8x32x64xf16>, tensor<1x8x32x128xf16, {order = #NCWH}>,
+        tensor<1x2x64x32xf16>, tensor<1x1x2x256xsi32>,
+        tensor<1x1x32x4xsi32>, tensor<1x1x128x4xsi32>,
+        tensor<1x8x64x128xf16>, tensor<1x8x64x1xf16>, tensor<1x8x64x1xf32>
+      -> tensor<1x8x64x128xf16>, tensor<1x8x64x1xf16>, tensor<1x8x64x1xf32>
+    return %out, %rmax, %rsum
+        : tensor<1x8x64x128xf16>, tensor<1x8x64x1xf16>, tensor<1x8x64x1xf32>
+  }
+}
+)";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(kFlashSdpaIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    bool found = false;
+    module->walk([&](VPU::FlashSDPAOp op) {
+        found = true;
+        // Tile result(0) — main running-output [1,8,64,128] — along H into 2.
+        TileInfo mainTile(getShape(op->getResult(0)));
+        mainTile.axis[Dims4D::Act::H] = 2;
+
+        // Must not throw; FlashSDPA has 3 results so the old getTileTypes
+        // (SWOpInterface) path would have crashed with THROW_UNLESS(size==1).
+        const Byte cmxSize = VPU::getRequiredCMX(op.getOperation(), mainTile, Logger::global());
+        EXPECT_GT(cmxSize.count(), 0);
+    });
+    EXPECT_TRUE(found);
 }

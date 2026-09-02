@@ -10,11 +10,14 @@
 #include "vpux/utils/logger/logger.hpp"
 
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
+#include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/Value.h>
 
 #include <llvm/ADT/bit.h>
 
 #include <cstdint>
+#include <optional>
 #include <tuple>
 
 namespace vpux::VPU {
@@ -51,6 +54,11 @@ bool isSupportedEltwisePerAxisQuantization(mlir::Type lhsElemType, mlir::Type rh
 // must be quantized along the channel axis.
 bool isSupportedEltwisePerAxisQuantization(mlir::Type perAxisElemType, LogCb logCb = emptyLogCb);
 
+// Checks that a per-axis quantized element type is valid for the given shape:
+// the quantized axis must be in range and have one scale per channel along that axis.
+// Silent by default (speculative probe); validateQuantElemType passes a logCb that emits a diagnostic.
+bool isSupportedElemTypeQuantization(mlir::Type elemType, ShapeRef shape, LogCb logCb = emptyLogCb);
+
 mlir::LogicalResult validateQuantElemType(mlir::Location loc, vpux::NDTypeInterface mainType);
 
 mlir::Type normalizeQuantStorageType(mlir::quant::QuantizedType qType);
@@ -84,6 +92,13 @@ std::optional<int64_t> extractSingleZeroPoint(mlir::quant::QuantizedType type);
 
 /// @brief Returns true if all zero-points are equal
 bool areAllZeroPointsEqual(mlir::quant::UniformQuantizedPerAxisType type);
+
+/// @brief Returns the per-tensor zero-point (or a per-axis zero-point when all axes share the same value)
+/// of a value's uniform-quantized / uniform-quantized per-axis element type, as an i64 attribute.
+/// Returns nullptr when the element type is not uniform-quantized, or when per-axis zero-points differ.
+/// This is a temporary helper. Once earlier passes provide a zero-point constant, build an attribute value from it
+/// instead. Track refactoring status E#211301.
+mlir::IntegerAttr getPerTensorZeroPointAttr(mlir::Value value);
 
 template <typename MultType>
 std::tuple<MultType, uint8_t, int8_t> approximate(uint8_t bits, double target) {
@@ -242,6 +257,16 @@ inline double dequantizeDouble(double qVal, double scale, int64_t zeroPoint) {
 //
 
 double fakeQuantize(double inVal, double inLow, double inHigh, double qLow, double qHigh, int64_t levels);
+
+//
+// Adjusts scales and zero points after a shape cast and returns a new UniformQuantizedPerAxisType.
+//
+
+std::optional<mlir::quant::UniformQuantizedPerAxisType> inferPerAxisQuantizedTypeAfterShapeCastOrNull(
+        const mlir::Type inType, ArrayRef<int64_t> outShape, LogCb logCb = emptyLogCb);
+
+mlir::quant::UniformQuantizedPerAxisType inferPerAxisQuantizedTypeAfterShapeCast(const mlir::Type inType,
+                                                                                 ArrayRef<int64_t> outShape);
 
 // Dequantize -> Operation -> Quantize fusing
 

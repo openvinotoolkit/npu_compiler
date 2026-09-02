@@ -47,6 +47,8 @@ void PpeFactory::applyStaticScale(mlir::Operation* op, AttrBuilder& builder) con
     auto staticScale = 1.0;
     if (auto convOp = mlir::dyn_cast<IE::ConvolutionOp>(op)) {
         staticScale = convOp.getStaticScaleAttr() != nullptr ? convOp.getStaticScaleAttr().getValueAsDouble() : 1.0;
+    } else if (auto addOp = mlir::dyn_cast<IE::AddOp>(op)) {
+        staticScale = addOp.getStaticScaleAttr() != nullptr ? addOp.getStaticScaleAttr().getValueAsDouble() : 1.0;
     }
 
     if (isDoubleEqual(staticScale, 1.0)) {

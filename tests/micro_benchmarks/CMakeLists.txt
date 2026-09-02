@@ -26,4 +26,5 @@ ov_add_test_target(
         VPUX_PLUGIN
 )
 
+enable_warnings_as_errors(${TARGET_NAME})
 append_avx2_flags(${TARGET_NAME})

@@ -429,11 +429,6 @@ RawProfilingDPUHW40Record::RawProfilingDPUHW40Record(HwpDpuIduOduData_t timestam
           _timestamps(timestamps) {
 }
 
-void RawProfilingDPUHW40Record::checkData(bool failOnError, Logger& log) const {
-    warnOrFail(failOnError, log, _timestamps.idu_wl_duration == 0 && _timestamps.odu_wl_duration == 0,
-               "Invalid DPU task duration");
-}
-
 ExecutorType RawProfilingDPUHW40Record::getExecutorType() const {
     return ExecutorType::DPU;
 }
@@ -501,6 +496,7 @@ RawProfilingACTRecord::RawProfilingACTRecord(ActShaveData_t data, const Profilin
           _data(data),
           _bufferId(metadata->bufferId()),
           _clusterId(metadata->clusterId()),
+          _fifoId(metadata->fifoId()),
           _tensorInfo(metadata->tensorInfo() ? metadata->tensorInfo()->UnPack() : nullptr) {
 }
 
@@ -511,6 +507,7 @@ void RawProfilingACTRecord::checkData(bool failOnError, Logger& log) const {
 TaskInfo RawProfilingACTRecord::getTaskInfo(const FrequenciesSetup& frequenciesSetup) const {
     auto profInfoItem = RawProfilingRecord::getTaskInfo(frequenciesSetup);
     profInfoItem.clusterId = _clusterId;
+    profInfoItem.fifo_id = _fifoId;
     profInfoItem.active_cycles = _data.executedInstructions;
     profInfoItem.stall_cycles = _data.clockCycles - _data.executedInstructions;
     return profInfoItem;
@@ -577,6 +574,7 @@ RawProfilingACTExRecord::RawProfilingACTExRecord(ActShaveDataEx_t data, const Pr
           _data(data),
           _bufferId(metadata->bufferId()),
           _clusterId(metadata->clusterId()),
+          _fifoId(metadata->fifoId()),
           _tensorInfo(metadata->tensorInfo() ? metadata->tensorInfo()->UnPack() : nullptr) {
 }
 
@@ -587,6 +585,7 @@ void RawProfilingACTExRecord::checkData(bool failOnError, Logger& log) const {
 TaskInfo RawProfilingACTExRecord::getTaskInfo(const FrequenciesSetup& frequenciesSetup) const {
     auto profInfoItem = RawProfilingRecord::getTaskInfo(frequenciesSetup);
     profInfoItem.clusterId = _clusterId;
+    profInfoItem.fifo_id = _fifoId;
     profInfoItem.active_cycles = _data.executedInstructions;
     profInfoItem.stall_cycles = _data.clockCycles - _data.executedInstructions;
     return profInfoItem;

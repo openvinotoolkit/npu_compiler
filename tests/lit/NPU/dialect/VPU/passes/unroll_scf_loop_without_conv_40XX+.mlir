@@ -134,7 +134,7 @@ module @StaticEltwiseNHWC {
   // CHECK:    }
 
   func.func @main_func0_static(%arg0: tensor<1x16x100x1000xf16, {order = #NHWC}> {func.dynamicStrides = true}, %arg1: tensor<1x16x100x1000xf16, {order = #NHWC}> {func.dynamicStrides = true}) -> (tensor<1x16x100x1000xf16, {order = #NHWC}> {func.dynamicStrides = true}) {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x16x100x1000xf16, {order = #NHWC}>
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x16x100x1000xf16, {order = #NHWC}>
     return %0 : tensor<1x16x100x1000xf16, {order = #NHWC}>
   }
 
@@ -203,17 +203,17 @@ module @StaticEltwiseNHWC {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK:       func.func @merged_vpu_func_1([[INPUT:%.+]]: tensor<1x8x4x16xf16>)
-// CHECK-SAME:    -> tensor<1x8x4x16xf16>
-// CHECK-DAG:   [[SLICE_FIRST:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0]  [1, 4, 4, 16]
+// CHECK:       func.func @merged_vpu_func_1([[INPUT:%.+]]: tensor<1x4x8x16xf16>)
+// CHECK-SAME:    -> tensor<1x4x8x16xf16>
+// CHECK-DAG:   [[SLICE_FIRST:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 4, 4, 16]
 // CHECK:       VPU.PermuteCast
 // CHECK:       VPU.MaxPool
 // CHECK:       VPU.PermuteCast
-// CHECK:       VPU.Slice [[INPUT]] [0, 4, 0, 0] [1, 4, 4, 16]
+// CHECK:       VPU.Slice [[INPUT]] [0, 0, 4, 0] [1, 4, 4, 16]
 // CHECK:       VPU.PermuteCast
 // CHECK:       VPU.MaxPool
 // CHECK:       VPU.PermuteCast
-// CHECK:       VPU.Concat
+// CHECK:       VPU.Concat({{.*}}) {static_offsets = {{\[}}[0, 0, 0, 0], [0, 0, 4, 0]]}
 
 module @testNHWCtoNCHWPermuteTransformation {
   net.NetworkInfo entryPoint : @permutetest inputsInfo : {
@@ -270,11 +270,11 @@ module @testNHWCtoNCHWPermuteTransformation {
   // CHECK-DAG:       [[C4:%.+]] = arith.constant 4 : index
   // CHECK:       [[DIM:%.+]] = tensor.dim [[ARG0]], {{%.+}}
   // CHECK:       [[INIT:%.+]] = tensor.empty([[DIM]])
-  // CHECK:       [[MERGED_RESULT:%.+]] = scf.for {{%.+}} = [[C0]] to [[C40]] step [[C8]] iter_args({{%.+}} = [[INIT]])
-  // CHECK:         {{%.+}} = scf.for {{%.+}} = [[C0]] to [[DIM]] step [[C4]] iter_args({{%.+}} = {{%.+}})
-  // CHECK:           tensor.extract_slice [[ARG0]][0, {{%.+}}, {{%.+}}, 0] [1, 8, 4, 16] [1, 1, 1, 1]
+  // CHECK:       [[MERGED_RESULT:%.+]] = scf.for {{%.+}} = [[C0]] to [[C40]] step [[C4]] iter_args({{%.+}} = [[INIT]])
+  // CHECK:         {{%.+}} = scf.for {{%.+}} = [[C0]] to {{%.+}} step [[C8]] iter_args({{%.+}} = {{%.+}})
+  // CHECK:           tensor.extract_slice [[ARG0]][0, {{%.+}}, {{%.+}}, 0] [1, 4, 8, 16] [1, 1, 1, 1]
   // CHECK:           func.call @merged_vpu_func_1
-  // CHECK:           tensor.insert_slice {{%.+}} into {{%.+}}[0, {{%.+}}, {{%.+}}, 0] [1, 8, 4, 16] [1, 1, 1, 1]
+  // CHECK:           tensor.insert_slice {{%.+}} into {{%.+}}[0, {{%.+}}, {{%.+}}, 0] [1, 4, 8, 16] [1, 1, 1, 1]
   // CHECK:         }
   // CHECK:       }
 }

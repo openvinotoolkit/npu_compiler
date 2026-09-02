@@ -63,13 +63,17 @@ intel_npu::vm::SectionHeader parseFunctionSectionHeader(bytecode::FuncSectionOp 
     funcInfo.numFunctions = std::distance(functionOps.begin(), functionOps.end());
     size_t bodyOffset = 0;
     for (auto funcOp : functionOps) {
-        auto typeRefName = funcOp.getFunctionTypeRef();
+        auto typeRefName = funcOp.getFunctionTypeRefAttr().getLeafReference().getValue();
         auto it = typeIndexMap.find(typeRefName);
         VPUX_THROW_WHEN(it == typeIndexMap.end(),
                         "Failed to resolve function type reference '@{0}' in the type section", typeRefName);
 
         intel_npu::vm::details::FunctionSectionInfo::FunctionInfo info{};
-        info.nameIndex = bytecode::getStringIndex(funcOp.getFuncName(), getModuleOp(funcOp));
+        const auto nameIndexOpt = bytecode::getIndex<bytecode::StringSectionOp, bytecode::StringOp>(
+                funcOp.getFuncNameAttr(), getModuleOp(funcOp));
+        VPUX_THROW_UNLESS(nameIndexOpt.has_value(), "Failed to resolve function name reference {0}",
+                          funcOp.getFuncNameAttr());
+        info.nameIndex = nameIndexOpt.value();
         info.functionTypeIndex = it->second;
         info.numGeneralRegisters = countGeneralRegisters(funcOp);
         info.bodyOffset = bodyOffset;
@@ -223,17 +227,17 @@ void bytecode::BytecodeWriter::appendSections() {
     });
 }
 
-void bytecode::BytecodeWriter::appendInstruction(uint16_t opcode, uint16_t addressingMode, ArrayRef<int16_t> operands) {
-    opcode |= addressingMode;  // Embed the addressing mode into the opcode
+void bytecode::BytecodeWriter::appendInstruction(uint16_t opcode, ArrayRef<int16_t> operands) {
     intel_npu::vm::appendValueTo(_bytecodeBuffer, opcode);
 
+    if (operands.empty()) {
+        return;
+    }
     const auto operandsData = reinterpret_cast<const uint8_t*>(operands.data());
     _bytecodeBuffer.insert(_bytecodeBuffer.end(), operandsData, operandsData + operands.size() * sizeof(int16_t));
 }
 
-void bytecode::BytecodeWriter::appendInstruction(uint16_t opcode, uint16_t addressingMode,
-                                                 ArrayRef<uint8_t> binaryOperands) {
-    opcode |= addressingMode;  // Embed the addressing mode into the opcode
+void bytecode::BytecodeWriter::appendInstruction(uint16_t opcode, ArrayRef<uint8_t> binaryOperands) {
     intel_npu::vm::appendValueTo(_bytecodeBuffer, opcode);
 
     _bytecodeBuffer.insert(_bytecodeBuffer.end(), binaryOperands.begin(), binaryOperands.end());

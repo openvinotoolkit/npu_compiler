@@ -9,7 +9,7 @@
 
 module {
 bytecode.func_section @function_section {
-    bytecode.func @arithmetic @fn_arithmetic @fn_type {
+    bytecode.func @arithmetic @string_section::@fn_arithmetic @type_section::@fn_type {
         %dst = bytecode.general_register 0
         %lhs = bytecode.general_register 1
         %rhs = bytecode.general_register 2
@@ -43,7 +43,7 @@ bytecode.func_section @function_section {
         bytecode.ret
     }
 
-    bytecode.func @bitwise @fn_bitwise @fn_type {
+    bytecode.func @bitwise @string_section::@fn_bitwise @type_section::@fn_type {
         %dst = bytecode.general_register 0
         %lhs = bytecode.general_register 1
         %rhs = bytecode.general_register 2
@@ -57,7 +57,7 @@ bytecode.func_section @function_section {
         bytecode.ret
     }
 
-    bytecode.func @comparison @fn_comparison @fn_type {
+    bytecode.func @comparison @string_section::@fn_comparison @type_section::@fn_type {
         %dst = bytecode.general_register 0
         %lhs = bytecode.general_register 1
         %rhs = bytecode.general_register 2
@@ -66,7 +66,7 @@ bytecode.func_section @function_section {
         bytecode.ret
     }
 
-    bytecode.func @kernel_submission @fn_kernel_submission @fn_type_no_args_no_results {
+    bytecode.func @kernel_submission @string_section::@fn_kernel_submission @type_section::@fn_type_no_args_no_results {
         %cmd_list = bytecode.general_register 0
         %kernel = bytecode.general_register 1
         %signal = bytecode.general_register 2
@@ -81,7 +81,7 @@ bytecode.func_section @function_section {
         bytecode.ret
     }
 
-    bytecode.func @select @fn_select @fn_type {
+    bytecode.func @select @string_section::@fn_select @type_section::@fn_type {
         %dst = bytecode.general_register 0
         %cond = bytecode.general_register 1
         %trueVal = bytecode.general_register 2
@@ -90,7 +90,7 @@ bytecode.func_section @function_section {
         bytecode.ret
     }
 
-    bytecode.func @buffer @fn_buffer @fn_type {
+    bytecode.func @buffer @string_section::@fn_buffer @type_section::@fn_type {
         %dst = bytecode.general_register 0
         %src = bytecode.general_register 1
         %dim0 = bytecode.general_register 2
@@ -103,7 +103,7 @@ bytecode.func_section @function_section {
     // Exercises kernel.create end-to-end: takes two f32[16] buffer parameters,
     // takes a rank-1 subview of each (offset=0, size=8, stride=1) using a kernel
     // from the kernel section (index 0)
-    bytecode.func @kernel_create @fn_kernel_create @fn_buf_pair_type {
+    bytecode.func @kernel_create @string_section::@fn_kernel_create @type_section::@fn_buf_pair_type {
         %in_buf  = bytecode.general_register 0
         %out_buf = bytecode.general_register 1
         %off     = bytecode.general_register 2
@@ -117,28 +117,28 @@ bytecode.func_section @function_section {
         bytecode.set_imm %stride, 1
         bytecode.buffer.subview %in_sv, %in_buf offsets(%off) sizes(%size) strides(%stride)
         bytecode.buffer.subview %out_sv, %out_buf offsets(%off) sizes(%size) strides(%stride)
-        bytecode.kernel.create %handle, @my_kernel, inputs(%in_sv), outputs(%out_sv)
+        bytecode.kernel.create %handle, @kernel_section::@my_kernel, inputs(%in_sv), outputs(%out_sv)
         bytecode.ret
     }
 
-    bytecode.func @buffer_create @fn_buffer_create @fn_type_no_args_no_results {
+    bytecode.func @buffer_create @string_section::@fn_buffer_create @type_section::@fn_type_no_args_no_results {
         %dst = bytecode.general_register 0
         %dim0 = bytecode.general_register 1
         %dim1 = bytecode.general_register 2
-        bytecode.buffer.create %dst, @i64_type shape(%dim0, %dim1) strides(%dim1, %dim0)
+        bytecode.buffer.create %dst, @type_section::@i64_type shape(%dim0, %dim1) strides(%dim1, %dim0)
         bytecode.ret
     }
 
-    bytecode.func @buffer_view @fn_buffer_view @fn_type {
+    bytecode.func @buffer_view @string_section::@fn_buffer_view @type_section::@fn_type {
         %dst = bytecode.general_register 0
         %src = bytecode.general_register 1
         %byteOff = bytecode.general_register 2
         %dim = bytecode.general_register 3
-        bytecode.buffer.view %dst, %src, @i64_type offset(%byteOff) shape(%dim) strides(%dim)
+        bytecode.buffer.view %dst, %src, @type_section::@i64_type offset(%byteOff) shape(%dim) strides(%dim)
         bytecode.ret
     }
 
-    bytecode.func @conversion @fn_conversion @fn_type {
+    bytecode.func @conversion @string_section::@fn_conversion @type_section::@fn_type {
         %dst = bytecode.general_register 0
         %src = bytecode.general_register 1
         bytecode.convert.i8tof32  %dst, %src
@@ -201,9 +201,9 @@ bytecode.type_section @type_section {
     bytecode.type @fn_buf_pair_type #bytecode.function_type<arguments = [@in_buf_type, @out_buf_type], results = []>
 }
 bytecode.metadata_section @metadata_section {
-    bytecode.network_metadata @my_string 0 1
-    bytecode.input_metadata @another_string @f32_type @my_constant index_used_by_driver(0) has_dynamic_strides(false)
-    bytecode.output_metadata @fn_arithmetic @f32_type @my_constant index_used_by_driver(0) has_dynamic_strides(false)
+    bytecode.network_metadata @string_section::@my_string 0 1
+    bytecode.input_metadata @string_section::@another_string @type_section::@f32_type @constant_section::@my_constant index_used_by_driver(0) has_dynamic_strides(false)
+    bytecode.output_metadata @string_section::@fn_arithmetic @type_section::@f32_type @constant_section::@my_constant index_used_by_driver(0) has_dynamic_strides(false)
 }
 }
 
@@ -384,6 +384,6 @@ bytecode.metadata_section @metadata_section {
 // CHECK:      Type 5: buffer<typeIndex=1, rank=1, shape=[16], strides=[1]>
 // CHECK:      Type 6: function<params=[4,5], results=[]>
 // CHECK:    Metadata section 0
-// CHECK:      Metadata 0: 0x00010000000000000000000000000000000100000000000000
-// CHECK:      Metadata 1: 0x010200000000000000010000000000000000000000000000000000000000000000
-// CHECK:      Metadata 2: 0x020300000000000000010000000000000000000000000000000000000000000000
+// CHECK:      Metadata 0: networkMetadata<nameIndex=1, numStreams=0, numCmdlists=1>
+// CHECK:      Metadata 1: inputMetadata<nameIndex=2, typeIndex=1, shapeIndex=0, driverIdx=0, dynamicStrides=false, tensorNameCount=0, hasShapeFromIRModel=false, hasNodeFriendlyName=false>
+// CHECK:      Metadata 2: outputMetadata<nameIndex=3, typeIndex=1, shapeIndex=0, driverIdx=0, dynamicStrides=false, tensorNameCount=0, hasShapeFromIRModel=false, hasNodeFriendlyName=false>

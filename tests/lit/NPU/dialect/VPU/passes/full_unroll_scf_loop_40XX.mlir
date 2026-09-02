@@ -33,7 +33,7 @@ func.func @NCEEltwiseSOK(%arg0: tensor<1x112x12x12xf16, {order = #NHWC}>, %arg1:
     %4 = VPU.Copy(%extracted_slice) {out_mem_space = @CMX_NN} : !actTypeDDR -> !actType
     %5 = VPU.Copy(%extracted_slice_0) {out_mem_space = @CMX_NN} : !actTypeDDR -> !actType
 
-    %6 = VPU.NCE.Eltwise(%4, %5) {is_inplace = true, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+    %6 = VPU.NCE.Eltwise(%4, %5) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
         -> !outType
 
     %7 = VPU.Copy(%6) : !outType -> !outTypeDDR
@@ -67,7 +67,7 @@ func.func @NCEEltwiseSOK(%arg0: tensor<1x112x12x12xf16, {order = #NHWC}>, %arg1:
     // CHECK-SAME{LITERAL}:     memory_offsets = [[0, 0, 0, 0], [0, 32, 0, 0], [0, 64, 0, 0], [0, 96, 0, 0]]}>
 
     // CHECK:        [[ELTWISE:%.+]] = VPU.NCE.Eltwise([[IN0_COPY]], [[IN1_COPY]])
-    // CHECK-SAME:           {is_inplace = true, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+    // CHECK-SAME:           {is_inplace = true, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>, resultSegmentSizes = array<i32: 1, 0, 0, 0>}
     // CHECK-SAME:         -> !VPU.DistributedTensor<1x112x12x12xf16, #NHCW, @CMX_NN, {
     // CHECK-SAME:              mode = "SEGMENTED", num_tiles = [1, 4, 1, 1], num_clusters = 4 : i64, alignment = [1, 16, 1, 1],
     // CHECK-SAME{LITERAL}:     compute_shapes = [[1, 32, 12, 12], [1, 32, 12, 12], [1, 32, 12, 12], [1, 16, 12, 12]],

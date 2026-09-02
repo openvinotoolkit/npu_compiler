@@ -20,6 +20,7 @@
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/allocate_buffers.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/weight_table_offset_utils.hpp"
 
 #include "vpux/compiler/utils/attributes.hpp"
 
@@ -36,7 +37,11 @@ void addDPUTasks(const Logger& log, VPUIP::NCEClusterTaskOp nceOp, mlir::OpBuild
                  bool isNCEPermute) {
     log.nest().trace("Adding DPU tasks");
 
-    for (auto dpuTaskOp : workloads.getOps<VPU::DPUWorkloadOp>()) {
+    const auto dpuWorkloads = workloads.getOps<VPU::DPUWorkloadOp>();
+
+    const auto wtOffsetBuilder = VPUIP::WtOffsetBuilder::create(nceOp, workloads);
+
+    for (auto dpuTaskOp : dpuWorkloads) {
         SmallVector<int64_t> ends;
         const auto offsets = dpuTaskOp.getConstOutputOffsets();
         const auto sizes = dpuTaskOp.getConstOutputSizes();
@@ -49,62 +54,52 @@ void addDPUTasks(const Logger& log, VPUIP::NCEClusterTaskOp nceOp, mlir::OpBuild
         mlir::ArrayAttr inStartAttr = nullptr;
         mlir::ArrayAttr inEndAttr = nullptr;
         const auto isGroupedMatMul = offsets.size() == DimsGroups5D::Act::numDims;
-        // Update workloads padding, offsets and sizes
-        // after reshape and layout changes.
+
+        SmallVector<int64_t> outDpuStart, outDpuEnd;
+        // Update workloads padding, offsets and sizes after reshape and layout changes.
         if (isNCEPermute) {
             // Reshape Offsets and Sizes from CHW to HCW layout
-            const SmallVector<int64_t> outDpuStart{offsets[Dims4D::Act::H.ind()], offsets[Dims4D::Act::C.ind()],
-                                                   offsets[Dims4D::Act::W.ind()]};
-            const SmallVector<int64_t> outDpuEnds{ends[Dims4D::Act::H.ind()], ends[Dims4D::Act::C.ind()],
-                                                  ends[Dims4D::Act::W.ind()]};
+            outDpuStart = {offsets[Dims4D::Act::H.ind()], offsets[Dims4D::Act::C.ind()], offsets[Dims4D::Act::W.ind()]};
+            outDpuEnd = {ends[Dims4D::Act::H.ind()], ends[Dims4D::Act::C.ind()], ends[Dims4D::Act::W.ind()]};
 
             if (dpuTaskOp.getStaticInOffsetsAttr() != nullptr && dpuTaskOp.getStaticInSizesAttr() != nullptr) {
                 const auto inOffset = dpuTaskOp.getStaticInOffsetsAttr();
                 const auto inSizes = dpuTaskOp.getStaticInSizesAttr();
                 const SmallVector<int64_t> inDpuStart{inOffset[Dims4D::Act::H.ind()], inOffset[Dims4D::Act::C.ind()],
                                                       inOffset[Dims4D::Act::W.ind()]};
-                const SmallVector<int64_t> inDpuEnds{
-                        inOffset[Dims4D::Act::H.ind()] + inSizes[Dims4D::Act::H.ind()] - 1,
-                        inOffset[Dims4D::Act::C.ind()] + inSizes[Dims4D::Act::C.ind()] - 1,
-                        inOffset[Dims4D::Act::W.ind()] + inSizes[Dims4D::Act::W.ind()] - 1};
+                const SmallVector<int64_t> inDpuEnd{inOffset[Dims4D::Act::H.ind()] + inSizes[Dims4D::Act::H.ind()] - 1,
+                                                    inOffset[Dims4D::Act::C.ind()] + inSizes[Dims4D::Act::C.ind()] - 1,
+                                                    inOffset[Dims4D::Act::W.ind()] + inSizes[Dims4D::Act::W.ind()] - 1};
 
                 inStartAttr = getIntArrayAttr(rewriter, inDpuStart);
-                inEndAttr = getIntArrayAttr(rewriter, inDpuEnds);
+                inEndAttr = getIntArrayAttr(rewriter, inDpuEnd);
             }
-            nceOp.addDPUTask(rewriter, getIntArrayAttr(rewriter, outDpuStart), getIntArrayAttr(rewriter, outDpuEnds),
-                             inStartAttr, inEndAttr, dpuTaskOp.getPadAttribute(), dpuTaskOp.getMpeMode(),
-                             dpuTaskOp.getClusterIdAttr());
         } else if (isGroupedMatMul) {
             // This part is for grouped Matmul which has 5D input/output
             // Logic is same only dimensions are adjusted for 5D
             const auto dimC = DimsGroups5D::Act::C;
             const auto dimH = DimsGroups5D::Act::H;
             const auto dimW = DimsGroups5D::Act::W;
-            const SmallVector<int64_t> outDpuStart{offsets[dimW.ind()], offsets[dimH.ind()], offsets[dimC.ind()]};
-            const SmallVector<int64_t> outDpuEnds{ends[dimW.ind()], ends[dimH.ind()], ends[dimC.ind()]};
+            outDpuStart = {offsets[dimW.ind()], offsets[dimH.ind()], offsets[dimC.ind()]};
+            outDpuEnd = {ends[dimW.ind()], ends[dimH.ind()], ends[dimC.ind()]};
 
             if (dpuTaskOp.getStaticInOffsetsAttr() != nullptr && dpuTaskOp.getStaticInSizesAttr() != nullptr) {
                 const auto inOffset = dpuTaskOp.getStaticInOffsetsAttr();
                 const auto inSizes = dpuTaskOp.getStaticInSizesAttr();
 
                 const SmallVector<int64_t> inDpuStart{inOffset[dimW.ind()], inOffset[dimH.ind()], inOffset[dimC.ind()]};
-                const SmallVector<int64_t> inDpuEnds{inOffset[dimW.ind()] + inSizes[dimW.ind()] - 1,
-                                                     inOffset[dimH.ind()] + inSizes[dimH.ind()] - 1,
-                                                     inOffset[dimC.ind()] + inSizes[dimC.ind()] - 1};
+                const SmallVector<int64_t> inDpuEnd{inOffset[dimW.ind()] + inSizes[dimW.ind()] - 1,
+                                                    inOffset[dimH.ind()] + inSizes[dimH.ind()] - 1,
+                                                    inOffset[dimC.ind()] + inSizes[dimC.ind()] - 1};
 
                 inStartAttr = getIntArrayAttr(rewriter, inDpuStart);
-                inEndAttr = getIntArrayAttr(rewriter, inDpuEnds);
+                inEndAttr = getIntArrayAttr(rewriter, inDpuEnd);
             }
 
-            nceOp.addDPUTask(rewriter, getIntArrayAttr(rewriter, outDpuStart), getIntArrayAttr(rewriter, outDpuEnds),
-                             inStartAttr, inEndAttr, dpuTaskOp.getPadAttribute(), dpuTaskOp.getMpeMode(),
-                             dpuTaskOp.getClusterIdAttr());
         } else {
             // as soon as we need workload_x, workload_y, workload_z coords
-            const SmallVector<int64_t> outDpuStart{offsets[Dims4D::Act::W.ind()], offsets[Dims4D::Act::H.ind()],
-                                                   offsets[Dims4D::Act::C.ind()]};
-            const SmallVector<int64_t> outDpuEnds{ends[Dims4D::Act::W.ind()], ends[Dims4D::Act::H.ind()],
-                                                  ends[Dims4D::Act::C.ind()]};
+            outDpuStart = {offsets[Dims4D::Act::W.ind()], offsets[Dims4D::Act::H.ind()], offsets[Dims4D::Act::C.ind()]};
+            outDpuEnd = {ends[Dims4D::Act::W.ind()], ends[Dims4D::Act::H.ind()], ends[Dims4D::Act::C.ind()]};
 
             if (dpuTaskOp.getStaticInOffsetsAttr() != nullptr && dpuTaskOp.getStaticInSizesAttr() != nullptr) {
                 const auto inOffset = dpuTaskOp.getStaticInOffsetsAttr();
@@ -112,19 +107,19 @@ void addDPUTasks(const Logger& log, VPUIP::NCEClusterTaskOp nceOp, mlir::OpBuild
 
                 const SmallVector<int64_t> inDpuStart{inOffset[Dims4D::Act::W.ind()], inOffset[Dims4D::Act::H.ind()],
                                                       inOffset[Dims4D::Act::C.ind()]};
-                const SmallVector<int64_t> inDpuEnds{
-                        inOffset[Dims4D::Act::W.ind()] + inSizes[Dims4D::Act::W.ind()] - 1,
-                        inOffset[Dims4D::Act::H.ind()] + inSizes[Dims4D::Act::H.ind()] - 1,
-                        inOffset[Dims4D::Act::C.ind()] + inSizes[Dims4D::Act::C.ind()] - 1};
+                const SmallVector<int64_t> inDpuEnd{inOffset[Dims4D::Act::W.ind()] + inSizes[Dims4D::Act::W.ind()] - 1,
+                                                    inOffset[Dims4D::Act::H.ind()] + inSizes[Dims4D::Act::H.ind()] - 1,
+                                                    inOffset[Dims4D::Act::C.ind()] + inSizes[Dims4D::Act::C.ind()] - 1};
 
                 inStartAttr = getIntArrayAttr(rewriter, inDpuStart);
-                inEndAttr = getIntArrayAttr(rewriter, inDpuEnds);
+                inEndAttr = getIntArrayAttr(rewriter, inDpuEnd);
             }
-
-            nceOp.addDPUTask(rewriter, getIntArrayAttr(rewriter, outDpuStart), getIntArrayAttr(rewriter, outDpuEnds),
-                             inStartAttr, inEndAttr, dpuTaskOp.getPadAttribute(), dpuTaskOp.getMpeMode(),
-                             dpuTaskOp.getClusterIdAttr());
         }
+
+        auto dpuTask = nceOp.addDPUTask(
+                rewriter, getIntArrayAttr(rewriter, outDpuStart), getIntArrayAttr(rewriter, outDpuEnd), inStartAttr,
+                inEndAttr, dpuTaskOp.getPadAttribute(), dpuTaskOp.getMpeMode(), dpuTaskOp.getClusterIdAttr());
+        wtOffsetBuilder->maybeSetWeightTableOffsetAttr(dpuTask, outDpuStart[2], outDpuEnd[2]);
     }
 }
 
@@ -494,7 +489,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEConvolutio
     NCEClusterTaskParams params(
             newArgs.getInput(),
             NCEClusterTaskParams::Weights{newArgs.getFilter(), newArgs.getWeightsTable(),
-                                          newArgs.getWeightTableDataPtr(), newArgs.getWeightTableScale(),
+                                          /*weightTableDataPtr=*/nullptr, newArgs.getWeightTableScale(),
                                           newArgs.getWeightTableBias(), newArgs.getWeightZeroPoints()},
             outputs, taskType, NCEClusterTaskParams::Kernel{kernelSizeAttr, origOp.getStrides(), origOp.getPadAttr()},
             origOp.getWorkloads());
@@ -653,7 +648,9 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEDepthConvo
     // Prepare output buffer for DPU
     //
 
-    const auto outputs = allocateNceOutputBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput());
+    const auto outputs =
+            allocateNceOutputBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput(), origOp.getReduceXyMax(),
+                                     origOp.getReduceXyMin(), origOp.getReduceTensorMinMax());
 
     //
     // Create NCE per-cluster Operation
@@ -776,7 +773,9 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* /*ctx*/, VPU::NCEEltwis
     // Prepare output buffer for DPU
     //
 
-    const auto outputs = allocateNceOutputBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput());
+    const auto outputs =
+            allocateNceOutputBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput(), origOp.getReduceXyMax(),
+                                     origOp.getReduceXyMin(), origOp.getReduceTensorMinMax());
 
     //
     // Create NCE per-cluster Operation

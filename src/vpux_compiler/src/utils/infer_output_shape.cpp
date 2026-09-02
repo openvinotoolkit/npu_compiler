@@ -4,11 +4,13 @@
 //
 
 #include "vpux/compiler/utils/infer_output_shape.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/IE/utils/transposed_convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/type_padding.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
@@ -1044,5 +1046,59 @@ mlir::LogicalResult vpux::reifyYuvToRgbTensors(mlir::Operation* op, mlir::OpBuil
     outDims.push_back(builder.getIndexAttr(C));
 
     reifiedReturnShapes.push_back(std::move(outDims));
+    return mlir::success();
+}
+
+//
+// Attention shape inference helpers
+//
+
+void vpux::inferAttentionOutputShapeComponents(mlir::MLIRContext* ctx, mlir::Value inputQ, mlir::Value inputK,
+                                               mlir::Value inputV, SmallVector<int64_t>& outShape,
+                                               mlir::Attribute& outEncoding, mlir::Type& outElementType) {
+    const auto inQType = mlir::cast<vpux::NDTypeInterface>(inputQ.getType());
+    const auto inQShape = inQType.getShape().raw();
+    const auto rank = inQType.getShape().size();
+    const auto inVShape = mlir::cast<vpux::NDTypeInterface>(inputV.getType()).getShape().raw();
+
+    // Detect V transposition by comparing K and V sequence-length dimensions.
+    // For dynamic shapes (BoundedTensorType), use upper bounds for the comparison.
+    const auto kBounds = getBoundedShape(inputK);
+    const auto vBounds = getBoundedShape(inputV);
+    const auto isTransposedV = kBounds[Dim(rank - 2)] != vBounds[Dim(rank - 2)];
+    const auto Ev = isTransposedV ? inVShape[rank - 2] : inVShape[rank - 1];
+
+    outShape.assign(inQShape.begin(), inQShape.end());
+    outShape[rank - 1] = Ev;
+    outElementType = inQType.getElementType();
+
+    // Propagate bounds when the output has dynamic dimensions.
+    outEncoding = nullptr;
+    const bool outIsDynamic = llvm::any_of(outShape, [](int64_t d) {
+        return d == mlir::ShapedType::kDynamic;
+    });
+    if (outIsDynamic) {
+        const auto qBounds = getBoundedShape(inputQ);
+        SmallVector<int64_t> outBounds(qBounds.begin(), qBounds.end());
+        outBounds[rank - 1] = isTransposedV ? vBounds[Dim(rank - 2)] : vBounds[Dim(rank - 1)];
+        outEncoding = vpux::getTensorAttr(ctx, inQType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outBounds));
+    }
+}
+
+mlir::LogicalResult vpux::reifyAttentionResultShape(mlir::OpBuilder& builder, mlir::Value inputQ, mlir::Value inputV,
+                                                    mlir::Location loc,
+                                                    mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    const auto qType = mlir::cast<mlir::RankedTensorType>(inputQ.getType());
+    const auto rank = qType.getRank();
+
+    SmallVector<mlir::OpFoldResult> dims;
+    dims.reserve(rank);
+    for (int64_t i = 0; i < rank - 1; ++i) {
+        dims.push_back(reifyDim(builder, inputQ, qType, i, loc));
+    }
+    const auto vType = mlir::cast<mlir::RankedTensorType>(inputV.getType());
+    dims.push_back(reifyDim(builder, inputV, vType, rank - 1, loc));
+
+    reifiedReturnShapes.emplace_back(std::move(dims));
     return mlir::success();
 }

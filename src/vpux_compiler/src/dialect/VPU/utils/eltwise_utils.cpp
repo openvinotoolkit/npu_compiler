@@ -90,6 +90,12 @@ bool vpux::VPU::isNCEEltwiseSupported(mlir::Operation* op, vpux::NDTypeInterface
             logCb(formatv("Non-quantized eltwise inputs must be f16"));
             return false;
         }
+        // Multiply with f16 inputs and a quantized output is produced by QuantizeWithMultiplyRewriter (mixed
+        // precision fusion), and the purpose is to have this operation on Shave, not mapped to NCE.
+        if (mlir::isa<IE::MultiplyOp>(op) && mlir::isa<mlir::quant::QuantizedType>(outputElemType)) {
+            logCb(formatv("Multiply with f16 inputs and quantized output is not supported for NCE eltwise"));
+            return false;
+        }
     } else if (mlir::isa<mlir::quant::UniformQuantizedType>(input1ElemType) &&
                mlir::isa<mlir::quant::UniformQuantizedType>(input2ElemType)) {
         // Per-tensor quantized eltwise.

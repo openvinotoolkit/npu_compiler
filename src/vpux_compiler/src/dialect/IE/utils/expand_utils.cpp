@@ -22,6 +22,7 @@
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/core/numeric.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
@@ -132,7 +133,16 @@ mlir::Value generateZeroConst(mlir::Location loc, vpux::NDTypeInterface inType, 
 
     const auto getEleStorageType = [&]() {
         if (const auto quantizedType = mlir::dyn_cast<mlir::quant::QuantizedType>(eleType)) {
-            return normalizeQuantStorageType(quantizedType);
+            auto normalizedType = normalizeQuantStorageType(quantizedType);
+            if (isSubByteType(normalizedType)) {
+                if (const auto intType = mlir::dyn_cast_if_present<mlir::IntegerType>(normalizedType)) {
+                    constexpr int bitsInByte = 8;
+                    normalizedType = mlir::IntegerType::get(
+                            intType.getContext(), bitsInByte,
+                            intType.isSigned() ? mlir::IntegerType::Signed : mlir::IntegerType::Unsigned);
+                }
+            }
+            return normalizedType;
         } else {
             return eleType;
         }
@@ -149,7 +159,6 @@ mlir::Value generateZeroConst(mlir::Location loc, vpux::NDTypeInterface inType, 
         eleAttr = Const::createConstContent(dataType, buffer);
     };
     outputBuffer.mutate(getDataAttr);
-
     return rewriter.create<Const::DeclareOp>(loc, padType, Const::ContentAttr::get(eleAttr)).getOutput();
 }
 
@@ -209,7 +218,7 @@ mlir::Value padConvFilter(mlir::PatternRewriter& rewriter, mlir::Operation* orig
     // E#72287: Convert ExpandOp to const Concat in VPUIP, ExpandOp is preferred in IE for optimization.
     const auto expandTensor = [&](mlir::Value filter, ShapeRef pad, IE::SliceOp sliceOp) {
         auto sliceOffsets = mlir::SmallVector<int64_t>(pad.size(), 0);
-        auto sliceChannelOffset = 0;
+        int64_t sliceChannelOffset = 0;
         if (sliceOp != nullptr) {
             sliceOffsets = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
             sliceChannelOffset = sliceOffsets[Dims4D::Act::C.ind()];

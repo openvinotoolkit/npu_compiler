@@ -82,7 +82,7 @@ endif()
 
 function(enable_warnings_as_errors TARGET_NAME)
 
-    cmake_parse_arguments(WARNIGS "WIN_STRICT" "" "" ${ARGN})
+    cmake_parse_arguments(WARNIGS "WIN_STRICT;SKIP_SYSTEM" "" "" ${ARGN})
 
     if(MSVC)
         # Enforce standards conformance on MSVC
@@ -122,17 +122,19 @@ function(enable_warnings_as_errors TARGET_NAME)
             PRIVATE
                 -Wall -Wextra -Werror -Werror=suggest-override
         )
-        # Set SYSTEM property on OpenVINO dependencies to suppress extra warnings from their headers
-        # when building via OPENVINO_EXTRA_MODULES
-        get_target_property(deps ${TARGET_NAME} LINK_LIBRARIES)
-        foreach(lib IN LISTS deps)
-            if(${lib} MATCHES "^openvino::")
-                get_target_property(orig ${lib} ALIASED_TARGET)
-                if (TARGET ${orig})
-                    set_target_properties(${orig} PROPERTIES SYSTEM TRUE)
+        if(NOT WARNIGS_SKIP_SYSTEM)
+            # Set SYSTEM property on OpenVINO dependencies to suppress extra warnings from their headers
+            # when building via OPENVINO_EXTRA_MODULES
+            get_target_property(deps ${TARGET_NAME} LINK_LIBRARIES)
+            foreach(lib IN LISTS deps)
+                if(${lib} MATCHES "^openvino::")
+                    get_target_property(orig ${lib} ALIASED_TARGET)
+                    if (TARGET ${orig})
+                        set_target_properties(${orig} PROPERTIES SYSTEM TRUE)
+                    endif()
                 endif()
-            endif()
-        endforeach()
+            endforeach()
+        endif()
     endif()
 endfunction()
 

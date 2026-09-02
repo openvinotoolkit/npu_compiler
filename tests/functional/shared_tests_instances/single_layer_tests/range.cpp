@@ -140,6 +140,7 @@ TEST_P(RangeLayerTestDynamic, NPU5010_HW) {
     VpuOv2LayerTest::setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU5010);
 }
+
 TEST_P(RangeLayerTestCommon, NPU5020_HW) {
     VpuOv2LayerTest::setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU5020);

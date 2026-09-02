@@ -5,16 +5,13 @@
 
 //
 
-#include "vpux/utils/ov/config.hpp"
-
-#include "intel_npu/config/options.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 #include <gtest/gtest.h>
 
 using namespace vpux;
-using namespace intel_npu;
 
-struct SimpleOption : OptionBase<SimpleOption, bool> {
+struct SimpleOption : vpux::OV::OptionBase<SimpleOption, bool> {
     static std::string_view key() {
         return "PUBLIC_OPT";
     }
@@ -28,7 +25,7 @@ struct SimpleOption : OptionBase<SimpleOption, bool> {
     }
 };
 
-struct PrivateOption : OptionBase<PrivateOption, int64_t> {
+struct PrivateOption : vpux::OV::OptionBase<PrivateOption, int64_t> {
     static std::string_view key() {
         return "PRIVATE_OPT";
     }
@@ -41,8 +38,8 @@ struct PrivateOption : OptionBase<PrivateOption, int64_t> {
         OPENVINO_ASSERT(val >= 0, "Got negative value");
     }
 
-    static OptionMode mode() {
-        return OptionMode::CompileTime;
+    static vpux::OV::OptionMode mode() {
+        return vpux::OV::OptionMode::CompileTime;
     }
 
     static bool isPublic() {
@@ -52,16 +49,16 @@ struct PrivateOption : OptionBase<PrivateOption, int64_t> {
 
 class MLIR_ConfigTests : public testing::Test {
 public:
-    std::shared_ptr<OptionsDesc> options;
-    Config conf;
+    std::shared_ptr<vpux::OV::OptionsDesc> options;
+    vpux::OV::Config conf;
 
-    MLIR_ConfigTests(): options(std::make_shared<OptionsDesc>()), conf(options) {
+    MLIR_ConfigTests(): options(std::make_shared<vpux::OV::OptionsDesc>()), conf(options) {
     }
 
     void SetUp() override {
         testing::Test::SetUp();
 
-        intel_npu::Logger::global().setLevel(ov::log::Level::WARNING);
+        vpux::Logger::global().setLevel(vpux::LogLevel::Warning);
 
         options->add<SimpleOption>();
         options->add<PrivateOption>();
@@ -135,15 +132,15 @@ TEST_F(MLIR_ConfigTests, Unsupported) {
 
 class MLIR_ConfigSerializationTests : public testing::Test {
 public:
-    std::shared_ptr<OptionsDesc> options;
-    Config conf;
+    std::shared_ptr<vpux::OV::OptionsDesc> options;
+    vpux::OV::Config conf;
 
-    MLIR_ConfigSerializationTests(): options(std::make_shared<OptionsDesc>()), conf(options) {
+    MLIR_ConfigSerializationTests(): options(std::make_shared<vpux::OV::OptionsDesc>()), conf(options) {
     }
 };
 
 TEST_F(MLIR_ConfigSerializationTests, CanDumpConfigToString) {
-    struct StringOption final : OptionBase<StringOption, std::string> {
+    struct StringOption final : vpux::OV::OptionBase<StringOption, std::string> {
         static std::string_view key() {
             return "STRING_OPT";
         }
@@ -168,7 +165,7 @@ TEST_F(MLIR_ConfigSerializationTests, CanDumpConfigToString) {
 }
 
 TEST_F(MLIR_ConfigSerializationTests, CanDumpConfigWithDoubleToString) {
-    struct DoubleOption final : OptionBase<DoubleOption, double> {
+    struct DoubleOption final : vpux::OV::OptionBase<DoubleOption, double> {
         static std::string_view key() {
             return "DOUBLE_OPT";
         }
@@ -186,7 +183,7 @@ TEST_F(MLIR_ConfigSerializationTests, CanDumpConfigWithDoubleToString) {
 }
 
 TEST_F(MLIR_ConfigSerializationTests, CanDumpConfigWithSpacesToString) {
-    struct StringWithSpacesOption final : OptionBase<StringWithSpacesOption, std::string> {
+    struct StringWithSpacesOption final : vpux::OV::OptionBase<StringWithSpacesOption, std::string> {
         static std::string_view key() {
             return "STRING_WITH_SPACES_OPT";
         }
@@ -204,10 +201,10 @@ TEST_F(MLIR_ConfigSerializationTests, CanDumpConfigWithSpacesToString) {
 }
 
 TEST_F(MLIR_ConfigSerializationTests, CanDumpLogLevel) {
-    options->add<intel_npu::LOG_LEVEL>();
+    options->add<vpux::OV::LOG_LEVEL>();
 
-    conf.update({{"LOG_LEVEL", "LOG_TRACE"}});
-    std::string expected = "LOG_LEVEL=\"LOG_TRACE\"";
+    conf.update({{"LOG_LEVEL", "Trace"}});
+    std::string expected = "LOG_LEVEL=\"Trace\"";
 
     EXPECT_EQ(expected, conf.toString());
 }

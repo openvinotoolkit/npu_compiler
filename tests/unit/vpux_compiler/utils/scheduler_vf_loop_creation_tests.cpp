@@ -299,6 +299,230 @@ mlir::OwningOpRef<mlir::ModuleOp> createMixedTilingAndVfModule(mlir::MLIRContext
     return module;
 }
 
+// Helper to create a VF model whose per-tile pattern is a linear DMA/DPU chain with two DPUs:
+//   Prologue:  DMA(Input -> DDR)
+//   Per tile:  DMA(DDR -> CMX) -> DPU -> DPU -> DMA(CMX -> CMX) -> DMA(CMX -> DDR)
+//   Epilogue:  DMA(DDR -> Output)
+//
+// Weights and weight tables (one pair per DPU) are created once outside the per-tile loop and
+// shared across all iterations, so they appear in every iteration body and are filtered out as
+// global-shared ops.
+mlir::OwningOpRef<mlir::ModuleOp> createVfWithCmxToCmxDmaChainModule(mlir::MLIRContext* ctx, int numTilesC,
+                                                                     config::Platform platform) {
+    VPUX_THROW_UNLESS(numTilesC >= 2, "numTilesC must be at least 2 to form a VF loop, got {0}", numTilesC);
+    auto loc = mlir::UnknownLoc::get(ctx);
+    auto module = mlir::ModuleOp::create(loc);
+    auto builder = mlir::OpBuilder(module.getBody(), module.getBody()->begin());
+
+    const DimsOrder orderNHWC = DimsOrder::NHWC;
+    const auto cmxSpace = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(vpux::VPU::MemoryKind::CMX_NN), 0);
+    const auto ddrSpace = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(vpux::VPU::MemoryKind::DDR), 0);
+    const auto f16Type = mlir::Float16Type::get(ctx);
+
+    const int64_t inputSizeH = 160;
+    const int64_t inputSizeW = 64;
+    const int64_t inputChannels = 16;
+    const int64_t outputChannels = 64;
+    const int64_t kernelSize = 3;
+    const int64_t stride = 1;
+    const int64_t padding = 1;
+    VPUX_THROW_UNLESS(outputChannels % numTilesC == 0,
+                      "outputChannels must be divisible by numTilesC, got outputChannels={0}, numTilesC={1}",
+                      outputChannels, numTilesC);
+    const int64_t tileC = outputChannels / numTilesC;
+
+    auto inputTypeDDR = vpux::getMemRefType({1, inputChannels, inputSizeH, inputSizeW}, f16Type, orderNHWC, ddrSpace);
+    auto outputTypeDDR = vpux::getMemRefType({1, outputChannels, inputSizeH, inputSizeW}, f16Type, orderNHWC, ddrSpace);
+    auto inputTypeCMX = vpux::getMemRefType({1, inputChannels, inputSizeH, inputSizeW}, f16Type, orderNHWC, cmxSpace);
+    auto tileTypeCMX = vpux::getMemRefType({1, tileC, inputSizeH, inputSizeW}, f16Type, orderNHWC, cmxSpace);
+
+    auto funcType = builder.getFunctionType({inputTypeDDR, outputTypeDDR}, {outputTypeDDR});
+    auto func = builder.create<mlir::func::FuncOp>(loc, "main", funcType);
+    func.setPublic();
+
+    auto* entryBlock = func.addEntryBlock();
+    builder.setInsertionPointToStart(entryBlock);
+
+    auto inputArg = entryBlock->getArgument(0);
+    auto outputArg = entryBlock->getArgument(1);
+
+    // Prologue: DMA(Input -> DDR). Both source and destination are in DDR (input arg is DDR-typed);
+    // this becomes a COMPUTE non-loop region in the resulting schedule.
+    auto intermediateInputDDR = builder.create<mlir::memref::AllocOp>(loc, inputTypeDDR);
+    auto copyInToIntermediateDDR = builder.create<VPUIP::NNDMAOp>(loc, inputArg, intermediateInputDDR.getResult());
+
+    // Shared weights + weight table for each of the two chained DPUs. Created OUTSIDE the per-tile
+    // loop so the same SSA values feed every DPU op. This makes their DATA_IN entries appear in
+    // every iteration body and thus get filtered out by the global-shared filter.
+    //   DPU1 consumes the activation tile (inputChannels -> tileC)
+    //   DPU2 consumes DPU1's output (tileC -> tileC)
+    const Shape weightsShape1 = {tileC, inputChannels, kernelSize, kernelSize};
+    auto sharedWeights1 = createWeights(builder, loc, f16Type, weightsShape1, ddrSpace, cmxSpace);
+    auto sharedWeightsTable1 = createWeightsTable(builder, loc, tileC, ddrSpace, cmxSpace);
+
+    const Shape weightsShape2 = {tileC, tileC, kernelSize, kernelSize};
+    auto sharedWeights2 = createWeights(builder, loc, f16Type, weightsShape2, ddrSpace, cmxSpace);
+    auto sharedWeightsTable2 = createWeightsTable(builder, loc, tileC, ddrSpace, cmxSpace);
+
+    // DDR buffer to hold the concatenated per-tile outputs; the epilogue DMAs it to outputArg.
+    auto intermediateOutputDDR = builder.create<mlir::memref::AllocOp>(loc, outputTypeDDR);
+
+    auto mpeEngineAttr = createMPEEngineAttr(ctx, platform);
+
+    for (int c = 0; c < numTilesC; c++) {
+        // Per-tile activation input: DMA(DDR -> CMX). Classified as DATA_IN.
+        auto inputTileCMX = builder.create<mlir::memref::AllocOp>(loc, inputTypeCMX);
+        auto ddr2cmxDma =
+                builder.create<VPUIP::NNDMAOp>(loc, copyInToIntermediateDDR.getResult(), inputTileCMX.getResult());
+
+        // DPU 1 on this tile. Classified as COMPUTE, tagged with VF loop attributes.
+        // Use ddr2cmxDma.getOutput() (not the raw alloc) so the async scheduling pipeline records the
+        // data dependency between the DDR->CMX DMA and this DPU.
+        auto dpu1OutCMX = builder.create<mlir::memref::AllocOp>(loc, tileTypeCMX);
+        auto dpu1Op =
+                createNCEClusterTaskOp(builder, ctx, loc, kernelSize, padding, stride, ddr2cmxDma.getOutput(),
+                                       sharedWeights1, sharedWeightsTable1, dpu1OutCMX.getResult(), mpeEngineAttr);
+        dpu1Op->setAttr(VF_LOOP_INDEX_ATTR_NAME, builder.getI64IntegerAttr(0));
+        dpu1Op->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME, builder.getI64IntegerAttr(c));
+
+        auto& dpu1TaskRegion = dpu1Op.getVariants();
+        builder.setInsertionPointToStart(&dpu1TaskRegion.front());
+        createDPUTaskOp(builder, {0, c * tileC, 0}, {1, (c + 1) * tileC, inputSizeH});
+        builder.setInsertionPointAfter(dpu1Op);
+
+        // DPU 2 on this tile. Consumes DPU1's output, produces the per-tile CMX result. Also tagged
+        // with VF loop attributes so each iteration has MIN_VF_LOOP_BODY_COMPUTE_OPS(=2) VF-tagged
+        // compute ops.
+        auto dpu2OutCMX = builder.create<mlir::memref::AllocOp>(loc, tileTypeCMX);
+        auto dpu2Op =
+                createNCEClusterTaskOp(builder, ctx, loc, kernelSize, padding, stride, dpu1Op.getOutput(),
+                                       sharedWeights2, sharedWeightsTable2, dpu2OutCMX.getResult(), mpeEngineAttr);
+        dpu2Op->setAttr(VF_LOOP_INDEX_ATTR_NAME, builder.getI64IntegerAttr(0));
+        dpu2Op->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME, builder.getI64IntegerAttr(c));
+
+        auto& dpu2TaskRegion = dpu2Op.getVariants();
+        builder.setInsertionPointToStart(&dpu2TaskRegion.front());
+        createDPUTaskOp(builder, {0, c * tileC, 0}, {1, (c + 1) * tileC, inputSizeH});
+        builder.setInsertionPointAfter(dpu2Op);
+
+        // CMX -> CMX intermediate copy. Classified as COMPUTE (neither DDR->CMX nor CMX->DDR).
+        auto intermediateCMX = builder.create<mlir::memref::AllocOp>(loc, tileTypeCMX);
+        auto cmx2cmxDma = builder.create<VPUIP::NNDMAOp>(loc, dpu2Op.getOutput(), intermediateCMX.getResult());
+
+        // CMX -> DDR spill of this tile's output to a subview of the intermediate DDR buffer.
+        auto tileDDRSubView = builder.create<vpux::VPUIP::SubViewOp>(
+                loc, intermediateOutputDDR.getResult(), mlir::ArrayRef<int64_t>{0, c * tileC, 0, 0},
+                mlir::ArrayRef<int64_t>{1, tileC, inputSizeH, inputSizeW});
+        builder.create<VPUIP::NNDMAOp>(loc, cmx2cmxDma.getOutput(), tileDDRSubView.getResult());
+    }
+
+    // Epilogue: DMA(DDR -> Output). Both source and destination are DDR; COMPUTE non-loop region.
+    auto copyOut = builder.create<VPUIP::NNDMAOp>(loc, intermediateOutputDDR.getResult(), outputArg);
+    builder.create<mlir::func::ReturnOp>(loc, mlir::ValueRange{copyOut.getOutput()});
+
+    printDebugIR(module, Logger::global());
+
+    mlir::PassManager pm(ctx);
+    VPUIP::buildAsyncSchedulingPipeline(pm);
+    EXPECT_TRUE(mlir::succeeded(pm.run(func)));
+
+    func.walk([&](mlir::async::ExecuteOp execOp) {
+        execOp->setAttr(cycleCostAttrName, builder.getI64IntegerAttr(1000));
+    });
+
+    return module;
+}
+
+// Helper to create a minimal VF model where iterations have the same number of COMPUTE ops
+// and the same deduplicated in/out counts, but different in/out equality topology:
+//   - Tile 0 compute0: in=[A], out=[B] (non in-place)
+//   - Tile 1 compute0: in=[X], out=[X] (in-place)
+// Both tiles still carry two VF-tagged COMPUTE ops, so the only differentiator is topology.
+mlir::OwningOpRef<mlir::ModuleOp> createVfTopologyMismatchModule(mlir::MLIRContext* ctx, config::Platform) {
+    auto loc = mlir::UnknownLoc::get(ctx);
+    auto module = mlir::ModuleOp::create(loc);
+    auto builder = mlir::OpBuilder(module.getBody(), module.getBody()->begin());
+
+    const DimsOrder orderNHWC = DimsOrder::NHWC;
+    const auto cmxSpace = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(vpux::VPU::MemoryKind::CMX_NN), 0);
+    const auto ddrSpace = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(vpux::VPU::MemoryKind::DDR), 0);
+    const auto f16Type = mlir::Float16Type::get(ctx);
+
+    const int64_t inputSizeH = 32;
+    const int64_t inputSizeW = 16;
+    const int64_t inputChannels = 8;
+    const int64_t outputChannels = 8;
+    const int64_t numTilesC = 2;
+    const int64_t tileC = outputChannels / numTilesC;
+
+    auto inputTypeDDR = vpux::getMemRefType({1, inputChannels, inputSizeH, inputSizeW}, f16Type, orderNHWC, ddrSpace);
+    auto outputTypeDDR = vpux::getMemRefType({1, outputChannels, inputSizeH, inputSizeW}, f16Type, orderNHWC, ddrSpace);
+    auto tileTypeCMX = vpux::getMemRefType({1, tileC, inputSizeH, inputSizeW}, f16Type, orderNHWC, cmxSpace);
+
+    auto funcType = builder.getFunctionType({inputTypeDDR, outputTypeDDR}, {outputTypeDDR});
+    auto func = builder.create<mlir::func::FuncOp>(loc, "main", funcType);
+    func.setPublic();
+
+    auto* entryBlock = func.addEntryBlock();
+    builder.setInsertionPointToStart(entryBlock);
+
+    auto inputArg = entryBlock->getArgument(0);
+    auto outputArg = entryBlock->getArgument(1);
+
+    auto intermediateOutputDDR = builder.create<mlir::memref::AllocOp>(loc, outputTypeDDR);
+
+    // Shared prologue and epilogue to match existing scheduler loop-creation test patterns.
+    auto prologueDDR = builder.create<mlir::memref::AllocOp>(loc, inputTypeDDR);
+    auto copyInToDDR = builder.create<VPUIP::NNDMAOp>(loc, inputArg, prologueDDR.getResult());
+
+    for (int64_t c = 0; c < numTilesC; ++c) {
+        auto tileDDRSubViewIn = builder.create<vpux::VPUIP::SubViewOp>(
+                loc, copyInToDDR.getOutput(), mlir::ArrayRef<int64_t>{0, c * tileC, 0, 0},
+                mlir::ArrayRef<int64_t>{1, tileC, inputSizeH, inputSizeW});
+        auto inputTileCMX = builder.create<mlir::memref::AllocOp>(loc, tileTypeCMX);
+        auto ddr2cmx = builder.create<VPUIP::NNDMAOp>(loc, tileDDRSubViewIn.getResult(), inputTileCMX.getResult());
+
+        // Compute op #0 (CMX->CMX DMA) with topology mismatch across tiles.
+        mlir::Value compute0Out;
+        if (c == 0) {
+            auto nonInPlaceOut = builder.create<mlir::memref::AllocOp>(loc, tileTypeCMX);
+            compute0Out = nonInPlaceOut.getResult();
+        } else {
+            // In-place variant on tile 1: src and dst are the same value.
+            compute0Out = ddr2cmx.getOutput();
+        }
+        auto compute0 = builder.create<VPUIP::NNDMAOp>(loc, ddr2cmx.getOutput(), compute0Out);
+        compute0->setAttr(VF_LOOP_INDEX_ATTR_NAME, builder.getI64IntegerAttr(0));
+        compute0->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME, builder.getI64IntegerAttr(c));
+
+        // Compute op #1 (CMX->CMX DMA), same shape for both iterations.
+        auto tileOutCMX = builder.create<mlir::memref::AllocOp>(loc, tileTypeCMX);
+        auto compute1 = builder.create<VPUIP::NNDMAOp>(loc, compute0.getOutput(), tileOutCMX.getResult());
+        compute1->setAttr(VF_LOOP_INDEX_ATTR_NAME, builder.getI64IntegerAttr(0));
+        compute1->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME, builder.getI64IntegerAttr(c));
+
+        auto tileDDRSubView = builder.create<vpux::VPUIP::SubViewOp>(
+                loc, intermediateOutputDDR.getResult(), mlir::ArrayRef<int64_t>{0, c * tileC, 0, 0},
+                mlir::ArrayRef<int64_t>{1, tileC, inputSizeH, inputSizeW});
+        builder.create<VPUIP::NNDMAOp>(loc, compute1.getOutput(), tileDDRSubView.getResult());
+    }
+
+    auto copyOut = builder.create<VPUIP::NNDMAOp>(loc, intermediateOutputDDR.getResult(), outputArg);
+    builder.create<mlir::func::ReturnOp>(loc, mlir::ValueRange{copyOut.getOutput()});
+
+    printDebugIR(module, Logger::global());
+
+    mlir::PassManager pm(ctx);
+    VPUIP::buildAsyncSchedulingPipeline(pm);
+    EXPECT_TRUE(mlir::succeeded(pm.run(func)));
+
+    func.walk([&](mlir::async::ExecuteOp execOp) {
+        execOp->setAttr(cycleCostAttrName, builder.getI64IntegerAttr(1000));
+    });
+
+    return module;
+}
+
 }  // namespace
 
 TEST_P(MLIR_SchedulerVFLoopCreationTest, MultiComputeVfIterationMatching) {
@@ -474,6 +698,30 @@ TEST_P(MLIR_SchedulerVFLoopCreationTest, ConvolutionTileOnC_ComputeOpsMinThresho
     }
     EXPECT_EQ(numVfRegions, 0);
     EXPECT_EQ(numNonLoopRegions, 8);
+}
+
+TEST_P(MLIR_SchedulerVFLoopCreationTest, TopologyMismatchAcrossIterationsSkipsVfMerge) {
+    // Both iterations have 2 VF-tagged COMPUTE ops and matching dedup in/out counts,
+    // but iteration 1 uses an in-place compute0 output while iteration 0 does not.
+    // The topology mismatch must prevent createInnerLoopsFromIterations from merging them.
+    auto module = createVfTopologyMismatchModule(getCtx(), GetParam());
+    ASSERT_TRUE(module);
+    EXPECT_TRUE(module->verify().succeeded());
+
+    AliasesInfo aliasInfo{module->lookupSymbol<mlir::func::FuncOp>("main")};
+    AsyncDepsInfo depsInfo{module->lookupSymbol<mlir::func::FuncOp>("main")};
+
+    auto regions = vpux::getComputeRegionsFromAsyncExec(aliasInfo, depsInfo);
+    printComputeRegions(regions, Logger::global());
+
+    size_t numVfLoops = 0;
+    for (const auto& region : regions) {
+        if (region.getLoopType() == LoopType::VF) {
+            ++numVfLoops;
+        }
+    }
+
+    EXPECT_EQ(numVfLoops, 0u) << "Topology mismatch (in-place vs non in-place) must prevent VF merge";
 }
 
 TEST_P(MLIR_SchedulerVFLoopCreationTest, VfMinimumThreshold_TwoIterationsFormLoop) {
@@ -691,6 +939,55 @@ TEST_P(MLIR_SchedulerVFLoopCreationTest, GenerateLoopSchedules_VfRegionWithUndef
             << "Fallback must not populate loopRegionInd when VF scenario returns empty";
     EXPECT_TRUE(result.loopPrefetchInd.empty())
             << "Fallback must not populate loopPrefetchInd when VF scenario returns empty";
+}
+
+TEST_P(MLIR_SchedulerVFLoopCreationTest, VfRegionWithCmxToCmxDma) {
+    /*
+    VF model whose per-tile pattern is a linear DMA/DPU chain with two DPUs:
+
+      Prologue:  DMA(Input -> DDR)                                       [DDR->DDR, non-loop]
+      Per tile:  DMA(DDR -> CMX) -> DPU -> DPU -> DMA(CMX -> CMX) -> DMA(CMX -> DDR)
+      Epilogue:  DMA(DDR -> Output)                                      [DDR->DDR, non-loop]
+
+    Weights + weight tables (one pair per DPU) are created once outside the per-tile loop and
+    shared across all tiles. Both DPUs are tagged with VF loop attributes so each iteration has
+    MIN_VF_LOOP_BODY_COMPUTE_OPS(=2) VF-tagged compute ops.
+
+    After the global-shared filter drops the per-iteration entries for the shared weights and
+    weight tables, each VF iteration body contains exactly 5 ops:
+        DMA(DDR->CMX) activation
+        DPU 1
+        DPU 2
+        DMA(CMX->CMX)
+        DMA(CMX->DDR)
+    */
+    const int tilesC = 2;
+    auto module = createVfWithCmxToCmxDmaChainModule(getCtx(), tilesC, GetParam());
+    ASSERT_TRUE(module);
+    EXPECT_TRUE(module->verify().succeeded());
+
+    AliasesInfo aliasInfo{module->lookupSymbol<mlir::func::FuncOp>("main")};
+    AsyncDepsInfo depsInfo{module->lookupSymbol<mlir::func::FuncOp>("main")};
+
+    auto regions = vpux::getComputeRegionsFromAsyncExec(aliasInfo, depsInfo);
+    printComputeRegions(regions, Logger::global());
+
+    size_t numVfLoops = 0;
+    for (const auto& region : regions) {
+        if (region.getLoopType() != LoopType::VF) {
+            continue;
+        }
+        ++numVfLoops;
+
+        // Every VF iteration must contain exactly the 5 ops of the DMA/DPU chain:
+        //   DMA(DDR->CMX) + DPU + DPU + DMA(CMX->CMX) + DMA(CMX->DDR)
+        for (const auto& iteration : region.schedulingLoop->loopBodies) {
+            EXPECT_EQ(iteration.size(), 5u) << "Each VF iteration must contain exactly 5 ops "
+                                               "(DDR->CMX + DPU + DPU + CMX->CMX + CMX->DDR)";
+        }
+    }
+
+    EXPECT_EQ(numVfLoops, 1u) << "Expected exactly one VF loop from the DMA/DPU chain pattern";
 }
 
 INSTANTIATE_TEST_SUITE_P(SchedulerVFLoopCreation, MLIR_SchedulerVFLoopCreationTest,

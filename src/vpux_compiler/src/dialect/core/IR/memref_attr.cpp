@@ -5,23 +5,29 @@
 
 #include "vpux/compiler/dialect/core/IR/memref_attr.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
+#include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/range.hpp"
 #include "vpux/utils/core/small_vector.hpp"
 
 #include <llvm/ADT/STLExtras.h>
+#include <mlir/IR/BuiltinTypeInterfaces.h>
 
 #include <cassert>
 #include <string>
+#include <vpux/utils/core/format.hpp>
 
 namespace {
 constexpr mlir::StringLiteral orderName = "order";
 constexpr mlir::StringLiteral stridesName = "strides";
+constexpr mlir::StringLiteral boundsName = "bounds";
 constexpr mlir::StringLiteral allocSizeName = "allocSize";
 constexpr mlir::StringLiteral coreAttributesNames[] = {
         allocSizeName,
+        boundsName,
         orderName,
         stridesName,
 };
@@ -107,6 +113,13 @@ bool MemRefAttr::classof(mlir::Attribute attr) {
         return false;
     }
 
+    auto bounds = derived.get(boundsName);
+    if (bounds == nullptr) {
+        ++numAbsentCoreAttrs;
+    } else if (!mlir::isa<vpux::Const::OpaqueI64ElementsAttr>(bounds)) {
+        return false;
+    }
+
     const auto isValidHwSpecificField = [](const mlir::NamedAttribute& attr) {
         if (isCoreAttribute(attr)) {
             return false;
@@ -123,7 +136,8 @@ bool MemRefAttr::classof(mlir::Attribute attr) {
 }
 
 MemRefAttr MemRefAttr::get(mlir::AffineMapAttr order, mlir::ArrayAttr strides, mlir::IntegerAttr allocSize,
-                           mlir::ArrayRef<vpux::HwSpecificMemRefField> hwFields, mlir::MLIRContext* context) {
+                           BoundsRef bounds, mlir::ArrayRef<vpux::HwSpecificMemRefField> hwFields,
+                           mlir::MLIRContext* context) {
     constexpr auto expectedFieldCount = std::size(coreAttributesNames) + MemRefAttr::maxCountOfHwSpecificFields;
     SmallVector<mlir::NamedAttribute, expectedFieldCount> fields;
 
@@ -139,6 +153,14 @@ MemRefAttr MemRefAttr::get(mlir::AffineMapAttr order, mlir::ArrayAttr strides, m
     if (allocSize) {
         auto allocSizeId = mlir::StringAttr::get(context, allocSizeName);
         fields.emplace_back(allocSizeId, allocSize);
+    }
+
+    if (!bounds.empty()) {
+        auto boundsId = mlir::StringAttr::get(context, boundsName);
+        const auto opaqueAttr = vpux::Const::OpaqueI64ElementsAttr::get(
+                mlir::RankedTensorType::get({checked_cast<int64_t>(bounds.size())}, vpux::getSInt64Type(context)),
+                bounds.raw());
+        fields.emplace_back(boundsId, opaqueAttr);
     }
 
     fields.append(makeNamedHwSpecificFields(context, hwFields));
@@ -166,6 +188,14 @@ mlir::IntegerAttr MemRefAttr::allocSize() const {
         return nullptr;
     }
     return mlir::cast<mlir::IntegerAttr>(allocSize);
+}
+
+BoundsRef MemRefAttr::bounds() const {
+    auto bounds = DictionaryAttr::get(boundsName);
+    if (bounds == nullptr) {
+        return {};
+    }
+    return BoundsRef(mlir::cast<Const::OpaqueI64ElementsAttr>(bounds).getValue());
 }
 
 MemRefAttr::HwFields MemRefAttr::hwSpecificFields() const {
@@ -233,6 +263,31 @@ mlir::LogicalResult MemRefAttrLayout::verifyLayout(mlir::Attribute attr, ArrayRe
         if (!reqs.checkStrides(memStrides, elemSize, memShape)) {
             return printTo(emitError(), "Strides '{0}' do not match with shape '{1}' and order '{2}'", desc.strides(),
                            shape, order);
+        }
+    }
+
+    if (llvm::any_of(shape, mlir::ShapedType::isDynamic) && desc.bounds().empty()) {
+        return printTo(emitError(), "Dynamic shape '{0}' requires bounds in MemRefAttr", shape);
+    }
+
+    if (!desc.bounds().empty()) {
+        const auto bounds = desc.bounds();
+        if (bounds.size() != shape.size()) {
+            return printTo(emitError(), "Bounds '{0}' do not match with shape '{1}'", bounds, shape);
+        }
+
+        for (const auto& [idx, dimAndBound] : llvm::enumerate(llvm::zip(shape, bounds.raw()))) {
+            const auto [dim, bound] = dimAndBound;
+
+            if (bound < 0) {
+                return printTo(emitError(), "Bounds '{0}' has negative value '{1}' at dim '{2}'", bounds, bound, idx);
+            }
+
+            if (!mlir::ShapedType::isDynamic(dim) && bound != dim) {
+                return printTo(emitError(),
+                               "Bounds '{0}' does not match shape '{1}' at dim '{2}': expected '{3}', got '{4}'",
+                               bounds, shape, idx, dim, bound);
+            }
         }
     }
 

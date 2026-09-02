@@ -15,21 +15,19 @@ using namespace vpux;
 
 namespace {
 
-int64_t extractMaxOutputBoxesPerClass(IE::NonMaxSuppressionOpAdaptor nms) {
-    int64_t maxOutputBoxesPerClass = 0;  // default value
-
+std::optional<int64_t> extractMaxOutputBoxesPerClass(IE::NonMaxSuppressionOpAdaptor nms) {
     if (nms.getMaxOutputBoxesPerClass() != nullptr) {
         auto maxBoxesConst = nms.getMaxOutputBoxesPerClass().getDefiningOp<Const::DeclareOp>();
         if (maxBoxesConst != nullptr && maxBoxesConst.getContentAttr().isSplat()) {
             const auto maxBoxesContent = maxBoxesConst.getContent();
             return maxBoxesContent.getSplatValue<int64_t>();
         }
+        return std::nullopt;
     }
     if (nms.getMaxOutputBoxesPerClassValueAttr() != nullptr) {
         return nms.getMaxOutputBoxesPerClassValueAttr().getValue().getSExtValue();
     }
-
-    return maxOutputBoxesPerClass;
+    return std::nullopt;
 }
 
 double extractNMSAttrValue(mlir::Value constName, mlir::FloatAttr attrName) {
@@ -61,19 +59,32 @@ mlir::LogicalResult vpux::IE::NonMaxSuppressionOp::inferReturnTypeComponents(
 
     const auto inScoresType = mlir::cast<vpux::NDTypeInterface>(nms.getInBoxScores().getType());
     const auto inScoresShapeInfo = ShapeInfo::fromNDType(inScoresType);
-    const auto actualShape = inScoresShapeInfo.isDynamic() ? inScoresShapeInfo.bounds : inScoresShapeInfo.shape;
-    const auto numBatches = actualShape[0];
-    const auto numClasses = actualShape[1];
-    const auto numBoxes = std::min(actualShape[2], extractMaxOutputBoxesPerClass(nms));
-    SmallVector<int64_t> outShape{numBatches * numClasses * numBoxes, 3};
-    TensorAttr outTensorAttr = nullptr;
+    const auto hasBounds = inScoresShapeInfo.isDynamic();
+    const auto& sizeSource = hasBounds ? inScoresShapeInfo.bounds : inScoresShapeInfo.shape;
+    const auto numBatches = sizeSource[0];
+    const auto numClasses = sizeSource[1];
+    const auto maxOutputBoxesPerClass = extractMaxOutputBoxesPerClass(nms);
+    const auto numBoxes = (!maxOutputBoxesPerClass.has_value() || maxOutputBoxesPerClass.value() == 0)
+                                  ? sizeSource[2]
+                                  : std::min(sizeSource[2], maxOutputBoxesPerClass.value());
 
-    if (inScoresShapeInfo.isDynamic()) {
-        // Handle dynamic case: use the actual shape as bound and set output shape to dynamic
-        Bounds bounds(outShape);
-        outTensorAttr = vpux::getTensorAttr(ctx, DimsOrder::fromNumDims(outShape.size()), nullptr, bounds);
-        outShape = SmallVector<int64_t>{mlir::ShapedType::kDynamic, 3};
+    const SmallVector<int64_t> dynamicOutShape{mlir::ShapedType::kDynamic, 3};
+    const SmallVector<int64_t> staticOutShape{numBatches * numClasses * numBoxes, 3};
+
+    TensorAttr outTensorAttr = nullptr;
+    SmallVector<int64_t> outShape = staticOutShape;
+
+    if (hasBounds) {
+        // BoundedTensorType input: dynamic output with bounds computed from input bounds.
+        Bounds bounds(staticOutShape);
+        outTensorAttr = vpux::getTensorAttr(ctx, DimsOrder::fromNumDims(staticOutShape.size()), nullptr, bounds);
+        outShape = dynamicOutShape;
     }
+    // TODO: NMS is a dynamism-producing op in E#223694 — its output is inherently dynamic even for static inputs
+    // (number of selected boxes is data-dependent). Per OV NMS-9 spec, the static branch should also
+    // produce a BoundedTensorType output with upper bound numBatches * numClasses * numBoxes. It is kept
+    // static as a compatibility shim while ConvertNMS9ToNMSIEInternal is enabled in the frontend;
+    // once that pass is disabled, downstream ops and passes need updating to handle the dynamic output.
 
     const SmallVector<int64_t> validOutputsShape{1};
     auto s32Type = mlir::IntegerType::get(ctx, 32, mlir::IntegerType::Signed);
@@ -100,28 +111,16 @@ public:
 
 mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::NonMaxSuppressionOp nmsOp,
                                                         mlir::PatternRewriter& rewriter) const {
-    // The iou/score thresholds may stay as runtime operands because the act-shave kernel reads them
-    // from scalar input tensors. They are folded into attributes only when backed by a splat
-    // constant. max_output_boxes_per_class and soft_nms_sigma must be compile-time known (they drive
-    // output-shape inference and auxiliary-buffer sizing), so they are always folded into attributes.
-    const auto isRuntimeOperand = [](mlir::Value operand) {
-        return operand != nullptr && operand.getDefiningOp<Const::DeclareOp>() == nullptr;
-    };
-    const bool iouIsRuntime = isRuntimeOperand(nmsOp.getIouThreshold());
-    const bool scoreIsRuntime = isRuntimeOperand(nmsOp.getScoreThreshold());
-
-    // Nothing left to fold once every operand that can become an attribute already has, and the
-    // remaining iou/score operands are the runtime ones that are intentionally preserved. This guard
-    // prevents the canonicalizer from looping.
-    const bool maxBoxesDone = nmsOp.getMaxOutputBoxesPerClass() == nullptr;
-    const bool iouDone = nmsOp.getIouThreshold() == nullptr || iouIsRuntime;
-    const bool scoreDone = nmsOp.getScoreThreshold() == nullptr || scoreIsRuntime;
-    const bool softNmsDone = nmsOp.getSoftNmsSigma() == nullptr;
-    if (maxBoxesDone && iouDone && scoreDone && softNmsDone) {
+    if (nmsOp.getMaxOutputBoxesPerClassValue().has_value() && nmsOp.getIouThresholdValue().has_value() &&
+        nmsOp.getScoreThresholdValue().has_value() && nmsOp.getSoftNmsSigmaValue().has_value()) {
         return mlir::failure();
     }
 
-    int64_t maxBoxesPerClassValue = extractMaxOutputBoxesPerClass(nmsOp);
+    const auto maxBoxesOpt = extractMaxOutputBoxesPerClass(nmsOp);
+    if (!maxBoxesOpt.has_value()) {
+        return mlir::failure();
+    }
+    int64_t maxBoxesPerClassValue = maxBoxesOpt.value();
 
     double iouThresholdValue = extractNMSAttrValue(nmsOp.getIouThreshold(), nmsOp.getIouThresholdValueAttr());
 
@@ -129,17 +128,11 @@ mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::NonMaxSuppressionOp 
 
     double softNMSSigmaValue = extractNMSAttrValue(nmsOp.getSoftNmsSigma(), nmsOp.getSoftNmsSigmaValueAttr());
 
-    // Preserve runtime iou/score threshold operands; the act-shave kernel consumes them directly. The
-    // *_value attributes are still populated (0.0 for runtime operands) to keep the kernel parameter
-    // struct layout stable, but they are ignored by the kernel when the operands are present.
-    mlir::Value iouThresholdOperand = iouIsRuntime ? nmsOp.getIouThreshold() : nullptr;
-    mlir::Value scoreThresholdOperand = scoreIsRuntime ? nmsOp.getScoreThreshold() : nullptr;
-
     rewriter.replaceOpWithNewOp<IE::NonMaxSuppressionOp>(
-            nmsOp, nmsOp.getInBoxCoords(), nmsOp.getInBoxScores(), nullptr, iouThresholdOperand, scoreThresholdOperand,
-            nullptr, nmsOp.getBoxEncoding(), nmsOp.getSortResultDescending(),
-            rewriter.getI64IntegerAttr(maxBoxesPerClassValue), rewriter.getF64FloatAttr(iouThresholdValue),
-            rewriter.getF64FloatAttr(scoreThresholdValue), rewriter.getF64FloatAttr(softNMSSigmaValue));
+            nmsOp, nmsOp.getInBoxCoords(), nmsOp.getInBoxScores(), nullptr, nullptr, nullptr, nullptr,
+            nmsOp.getBoxEncoding(), nmsOp.getSortResultDescending(), rewriter.getI64IntegerAttr(maxBoxesPerClassValue),
+            rewriter.getF64FloatAttr(iouThresholdValue), rewriter.getF64FloatAttr(scoreThresholdValue),
+            rewriter.getF64FloatAttr(softNMSSigmaValue));
 
     return mlir::success();
 }

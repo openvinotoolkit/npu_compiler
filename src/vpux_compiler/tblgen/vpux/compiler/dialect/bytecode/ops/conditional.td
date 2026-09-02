@@ -32,6 +32,12 @@ def Bytecode_SelectOp : Bytecode_InstructionOp<"select", [], "1.0.0", "intel_npu
     let assemblyFormat = [{
         $dst `,` $cond `,` $trueVal `,` $falseVal attr-dict
     }];
+
+    let extraClassDeclaration = [{
+        bool isDstOperand(::mlir::OpOperand& operand) {
+            return operand.get() == getDst();
+        }
+    }];
 }
 
 #endif

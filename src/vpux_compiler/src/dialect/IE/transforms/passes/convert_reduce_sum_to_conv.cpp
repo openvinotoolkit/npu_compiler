@@ -152,21 +152,14 @@ bool isBeneficialToConvert(IE::ReduceSumOp origOp, Logger log) {
 // cannot be handled (no axes attr, multiple axes, or out-of-range value).
 std::optional<int64_t> getSingleReduceAxis(IE::ReduceSumOp origOp) {
     auto axesAttr = origOp.getAxesValue();
-    if (!axesAttr.has_value()) {
-        return std::nullopt;
-    }
-    auto axes = parseIntArrayAttr<int64_t>(axesAttr.value());
+    auto axes = parseIntArrayAttr<int64_t>(axesAttr);
     if (axes.size() != 1) {
         return std::nullopt;
     }
     const int64_t rank = mlir::cast<NDTypeInterface>(origOp.getInput().getType()).getRank();
-    int64_t axis = axes[0];
-    if (axis < 0) {
-        axis += rank;
-    }
-    if (axis < 0 || axis >= rank) {
-        return std::nullopt;
-    }
+    std::ignore = rank;
+    const int64_t axis = axes[0];
+    assert(axis >= 0 && axis < rank && "Axis must be normalized in the operation");
     return axis;
 }
 

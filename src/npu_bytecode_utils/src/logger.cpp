@@ -37,8 +37,7 @@ constexpr std::string_view ANSI_WHITE = "\033[0;37m";
 
 std::optional<std::string_view> isEnvVarSet(std::string_view envVar) {
     const auto env = std::getenv(envVar.data());
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    if (env != nullptr && env[0] != '\0') {
+    if (env != nullptr && *env != '\0') {
         return std::string_view(env);
     }
     return std::nullopt;

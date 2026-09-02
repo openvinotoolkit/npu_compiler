@@ -59,7 +59,7 @@ int64_t RewriteFetchTaskToDma::getTaskSize(VPURegMapped::TaskType taskType) cons
     case VPURegMapped::TaskType::ActKernelRange:
         return sizeof(npu40xx::nn_public::VpuActKernelRange);
     default:
-        VPUX_THROW("Unknow Task Type {0}", taskType);
+        VPUX_THROW("Unknown Task Type {0}", taskType);
     }
 }
 

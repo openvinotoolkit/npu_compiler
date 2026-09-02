@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <iterator>
 #include <limits>
 #include <utility>
 #include <vector>
@@ -38,7 +39,7 @@ class BumpRegion {
     Block _chunk;    // borrowed; the arena owns this chunk and frees it
     size_t _high{};  // next free offset
 public:
-    static constexpr size_t alignment = Alignment;
+    static constexpr size_t ALIGNMENT = Alignment;
 
     explicit BumpRegion(Block chunk): _chunk(chunk) {
     }
@@ -57,7 +58,7 @@ public:
             return Block{};
         }
         _high = start + footprint;
-        return Block{_chunk.ptr + start, bytes};
+        return Block{std::next(_chunk.ptr, static_cast<std::ptrdiff_t>(start)), bytes};
     }
 
     // Pops a block only if it is the most recent hand-out: its footprint reaches the cursor.
@@ -73,7 +74,7 @@ public:
 
     bool owns(Block block) const noexcept {
         return block.ptr != nullptr && _chunk.ptr != nullptr && block.ptr >= _chunk.ptr &&
-               block.ptr < _chunk.ptr + _chunk.size;
+               block.ptr < std::next(_chunk.ptr, static_cast<std::ptrdiff_t>(_chunk.size));
     }
 
     void recycle() noexcept {
@@ -82,21 +83,21 @@ public:
 };
 
 // Grows a set of sub-allocators, each carving one chunk from a single `Backing`. `InitialSlabBytes`/
-// `MaxSlabBytes` tune slab growth; alignment comes from `SubAllocator::alignment`, not a parameter.
+// `MaxSlabBytes` tune slab growth; alignment comes from `SubAllocator::ALIGNMENT`, not a parameter.
 template <class Backing, class SubAllocator, size_t InitialSlabBytes, size_t MaxSlabBytes>
 class GrowingArena {
     static_assert(InitialSlabBytes > 0, "GrowingArena: InitialSlabBytes must be greater than 0");
 
     // The only alignment the arena needs: to size each chunk to the sub-allocator's footprint. The chunk
     // base alignment is the backing's responsibility.
-    static constexpr size_t _alignment = SubAllocator::alignment;
+    static constexpr size_t ALIGNMENT = SubAllocator::ALIGNMENT;
 
-    // Sub-block offsets are multiples of SubAllocator::alignment, but absolute alignment holds only if every
-    // chunk base is too -- so Backing::alignment must be a multiple of it, else carved blocks are silently
+    // Sub-block offsets are multiples of SubAllocator::ALIGNMENT, but absolute alignment holds only if every
+    // chunk base is too -- so Backing::ALIGNMENT must be a multiple of it, else carved blocks are silently
     // under-aligned.
-    static_assert(Backing::alignment % SubAllocator::alignment == 0,
-                  "GrowingArena: Backing::alignment must be a multiple of SubAllocator::alignment, "
-                  "otherwise carved sub-blocks are not aligned to SubAllocator::alignment");
+    static_assert(Backing::ALIGNMENT % SubAllocator::ALIGNMENT == 0,
+                  "GrowingArena: Backing::ALIGNMENT must be a multiple of SubAllocator::ALIGNMENT, "
+                  "otherwise carved sub-blocks are not aligned to SubAllocator::ALIGNMENT");
 
 public:
     explicit GrowingArena(Backing backing): _backing(std::move(backing)), _nextSlabBytes(InitialSlabBytes) {
@@ -131,7 +132,7 @@ public:
         }
         // Size the chunk to the aligned footprint, not raw `bytes`: the sub-allocator reserves that footprint
         // and would refuse a chunk merely `bytes` long when `bytes` is not a multiple of the alignment.
-        const size_t footprint = alignUp(bytes, _alignment);
+        const size_t footprint = alignUp(bytes, ALIGNMENT);
         if (footprint == 0) {
             return Block{};  // footprint overflowed size_t; no chunk can satisfy the request
         }

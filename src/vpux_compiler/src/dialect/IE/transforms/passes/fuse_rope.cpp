@@ -29,8 +29,8 @@ struct RoPEConfig final {
     int64_t width;
 };
 
-static const SmallVector<RoPEConfig> LEGAL_ROPE_CONFIGS = {{32, 128}, {1, 128}, {8, 128}, {40, 128}, {8, 256}, {1, 256},
-                                                           {4, 256},  {1, 64},  {64, 64}, {16, 128}, {2, 128}};
+static const SmallVector<RoPEConfig> LEGAL_ROPE_CONFIGS = {{32, 128}, {1, 128}, {40, 128}, {8, 256},  {1, 256},
+                                                           {4, 256},  {1, 64},  {64, 64},  {16, 128}, {2, 128}};
 //
 // FuseRoPEPass
 //

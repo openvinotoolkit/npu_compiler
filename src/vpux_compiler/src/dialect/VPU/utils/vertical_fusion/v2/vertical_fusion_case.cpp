@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_case.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
 namespace {
@@ -46,9 +47,6 @@ VFCase& VFCase::operator=(VFCase&& other) {
     _vfTilingStorage = std::move(other._vfTilingStorage);
     _split = std::move(other._split);
     std::swap(_cachedCost, other._cachedCost);
-
-    other._vfScheduling = nullptr;
-    _vfTilingStorage = nullptr;
 
     return *this;
 }
@@ -99,6 +97,11 @@ void VFCase::clearCache() {
     _cachedCost.reset();
 }
 
+StrategyCost VFCase::getCost() const {
+    VPUX_THROW_WHEN(!_cachedCost.has_value(), "There is no cached cost calculated");
+    return _cachedCost.value();
+}
+
 StrategyCost VFCase::getCost(const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log) {
     VPUX_THROW_WHEN(!isInitialized(), "Cannot get cost of uninitialized VF case");
 
@@ -131,6 +134,14 @@ StrategyCost VFCase::getCost(const std::unique_ptr<VPU::LayerVPUNNCost>& costFun
 
 VFCase::VFConfigType& VFCase::getConfig() {
     return _config;
+}
+
+std::optional<VFScenario> VFCase::getScenario() const {
+    if (_vfScheduling == nullptr) {
+        return std::nullopt;
+    }
+
+    return _vfScheduling->getType();
 }
 
 mlir::ArrayAttr VFCase::getTiling() {
@@ -256,14 +267,19 @@ void VFCase::addCMXWriteSpills(const std::unique_ptr<VPU::LayerVPUNNCost>& costF
         bool eltwiseLike = (inputOp->getNumOperands() > 1 && inputOp->hasTrait<VPU::EltwiseOp>() &&
                             inputOp->getOperand(0) != inputOp->getOperand(1));
         bool isInput = llvm::find(_config.getInputs(), inputOp) != _config.getInputs().end();
-        if (!(eltwiseLike && !isInput) && _config.firstVFNeedTiling()) {
+        if ((!eltwiseLike || isInput) && _config.firstVFNeedTiling()) {
             continue;
         }
         for (auto operand : inputOp->getOperands()) {
             if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(operand)) {
                 auto parentOperand = _config.getSubgraph().getOperand(arg.getArgNumber());
-                auto previousOp = findParent(parentOperand);
-                if (mlir::isa_and_nonnull<Const::DeclareOp>(previousOp) || !v2::isCmxOperation(previousOp, false) ||
+                auto previousResult = findProducerValue(parentOperand);
+                if (previousResult == nullptr) {
+                    continue;
+                }
+
+                auto previousOp = previousResult.getOwner();
+                if (mlir::isa_and_present<Const::DeclareOp>(previousOp) || !v2::isCmxOperation(previousOp, false) ||
                     isPrevOperationEarlyScheduled(previousOp, _config.getSubgraph()) ||
                     hasBeforeDDRUsers(previousOp, _config.getSubgraph())) {
                     continue;
@@ -271,12 +287,11 @@ void VFCase::addCMXWriteSpills(const std::unique_ptr<VPU::LayerVPUNNCost>& costF
 
                 bool isChecked = true;
                 if (eltwiseLike) {
-                    auto operandType = mlir::cast<vpux::NDTypeInterface>(previousOp->getResult(0).getType());
-                    auto operandSize = operandType.getTotalAllocSize();
-                    if (auto distributedOutType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(
-                                VPU::getDistributedOutputType(previousOp, previousOp->getResult(0)))) {
-                        operandSize = distributedOutType.getTotalAllocSize();
-                    }
+                    auto operandType = mlir::cast<vpux::NDTypeInterface>(previousResult.getType());
+                    auto distributedOutType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(
+                            VPU::getDistributedOutputType(previousOp, previousResult));
+                    const auto operandSize = distributedOutType != nullptr ? distributedOutType.getTotalAllocSize()
+                                                                           : operandType.getTotalAllocSize();
                     isChecked = !_vfScheduling->validate(_config, _vfTilingStorage, operandSize);
                 }
 

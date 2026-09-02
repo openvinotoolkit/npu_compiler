@@ -12,7 +12,7 @@ using namespace vpux;
 // RegionBranchTerminatorOpInterface
 //
 
-mlir::MutableOperandRange vpux::VPU::YieldOp::getMutableSuccessorOperands(::mlir::RegionBranchPoint) {
+mlir::MutableOperandRange vpux::VPU::YieldOp::getMutableSuccessorOperands(::mlir::RegionSuccessor) {
     return getOperandsMutable();
 }
 

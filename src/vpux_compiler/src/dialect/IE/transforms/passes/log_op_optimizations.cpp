@@ -182,17 +182,7 @@ void checkSEPPad(IE::PadOp op, const Logger& log) {
 }
 
 void checkSEPTile(IE::TileOp op, const Logger& log) {
-    SmallVector<int64_t> repeats;
-    if (op.getRepeats() != nullptr) {
-        auto repeatsConst = op.getRepeats().getDefiningOp<Const::DeclareOp>();
-        if (repeatsConst == nullptr) {
-            return;
-        }
-        const auto repeatsContent = repeatsConst.getContent();
-        repeats = to_small_vector(repeatsContent.getValues<int64_t>());
-    } else if (op.getRepeatsValuesAttr() != nullptr) {
-        repeats = parseIntArrayAttr<int64_t>(op.getRepeatsValuesAttr());
-    }
+    SmallVector<int64_t> repeats = parseIntArrayAttr<int64_t>(op.getRepeatsValuesAttr());
 
     if (repeats.empty()) {
         return;

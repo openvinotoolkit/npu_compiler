@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
@@ -56,6 +57,15 @@ vpux::VPU::DistributionInfo vpux::VPU::SquaredDifferenceOp::getExplicitDistribut
 //
 // SWOpInterface
 //
+
+bool vpux::VPU::SquaredDifferenceOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& outputTile) {
+    return VPU::isEltwiseSWOpSplitOverHeightCompatible(getOperation(), outputTile.shape);
+}
+
+bool vpux::VPU::SquaredDifferenceOp::isOperationSplitOverWidthCompatible(ShapeRef outputShape, ShapeRef /*offset*/,
+                                                                         ShapeRef /*axis*/) {
+    return VPU::isEltwiseSWOpSplitOverWidthCompatible(getOperation(), outputShape);
+}
 
 bool vpux::VPU::SquaredDifferenceOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {
     VPUX_THROW_UNLESS(buffers.size() == 3,

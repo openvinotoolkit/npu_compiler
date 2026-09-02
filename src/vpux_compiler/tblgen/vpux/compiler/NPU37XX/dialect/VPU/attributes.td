@@ -32,7 +32,9 @@ def VPU_MPEEngine37XXAttr : VPU_Attr<"MPEEngine37XX", [
         Storing parameters for NPU37XX, NPU40XX and NPU50XX MPEEngine operations.
     }];
     let parameters = (ins
-        "vpux::VPU::MPEEngine37XXModeAttr":$mode
+        "vpux::VPU::MPEEngine37XXModeAttr":$mode,
+        OptionalParameter<"mlir::Attribute">:$weight_zp,
+        OptionalParameter<"mlir::Attribute">:$activation_zp
     );
 
     let assemblyFormat = "`<` struct(params) `>`";

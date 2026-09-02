@@ -49,7 +49,6 @@ mlir::Type getSomeQuantilePerAxisType(mlir::MLIRContext* ctx) {
 // baseline - very fast
 static void BM_StableHash_EnumValue(benchmark::State& state) {
     mlir::MLIRContext ctx;
-    auto type = mlir::Float32Type::get(&ctx);
 
     enum HandRolledTypeIds : uint32_t { F32 = 0 };
     for (auto _ : state) {

@@ -180,10 +180,9 @@ OpAllocationInfo createAllocInfo(size_t opIdx, AsyncDepsInfo& depsInfo, AliasesI
  *       - Loops are created inplace of first compute operation in the loop
  */
 
-llvm::DenseMap<size_t, ComputeRegionVec> createInnerLoopsFromIterations(ArrayRef<LoopBody> loop,
-                                                                        llvm::DenseSet<size_t>& allLoopOperations,
-                                                                        LoopType loopType, AsyncDepsInfo& depsInfo,
-                                                                        llvm::DenseSet<size_t>& nonDmaOps, Logger log) {
+llvm::DenseMap<size_t, ComputeRegionVec> createInnerLoopsFromIterations(
+        ArrayRef<LoopBody> loop, llvm::DenseSet<size_t>& allLoopOperations, LoopType loopType, AsyncDepsInfo& depsInfo,
+        [[maybe_unused]] llvm::DenseSet<size_t>& nonDmaOps, Logger log) {
     // Precompute global deps for each iteration to avoid recomputing inside matching loop
     SmallVector<std::set<size_t>> cachedGlobalDeps(loop.size());
 
@@ -203,7 +202,10 @@ llvm::DenseMap<size_t, ComputeRegionVec> createInnerLoopsFromIterations(ArrayRef
         }
         cachedGlobalDeps[iterIdx] = std::move(loopGlobalDeps);
 
-        // Check for DDR2DDR DMA consumers that prevent loop formation
+#ifdef VPUX_DEVELOPER_BUILD
+        // Log the DDR2DDR consumer cases for performance debug hints
+        // DDR2DDR consumer after loop region is possible to cause schedule difference
+        // This doesn't cause any real performance regression so only keep this log for developer debug
         for (const auto& op : loop[iterIdx]) {
             const auto execOp = depsInfo.getExecuteOpAtIndex(op.opIdx);
             const auto deps = depsInfo.getOpDeps(op.opIdx);
@@ -213,19 +215,18 @@ llvm::DenseMap<size_t, ComputeRegionVec> createInnerLoopsFromIterations(ArrayRef
             }
             for (const auto& con : depsInfo.getConsumerOps(op.opIdx)) {
                 if (loopType == LoopType::Tiling && VPUIP::isDmaDDR2DDR(depsInfo.getExecuteOpAtIndex(con))) {
-                    // TODO (E#203341): optimize pattern:
-
                     //   COMPUTE         COMPUTE
                     //     |                |
                     // DMA(CMX2DDR)     DMA(CMX2DDR)
                     //      \            /
                     //       DMA(DDR2DDR)
-
-                    // with loop logic such DDR2DDR DMAs cause stalls
-                    return llvm::DenseMap<size_t, ComputeRegionVec>();
+                    // with loop logic such DDR2DDR DMAs are scheduled after loop
+                    log.debug("DDR2DDR DMA consumer detected in loop iteration {0}/{1}", iterIdx, loop.size());
+                    break;
                 }
             }
         }
+#endif
     }
 
     auto getGlobalDepsForLoop = [&](const std::vector<LoopBody>& loop, const std::set<size_t>& matchingIters) {
@@ -283,6 +284,14 @@ llvm::DenseMap<size_t, ComputeRegionVec> createInnerLoopsFromIterations(ArrayRef
         }
         const auto& computeAllocVec = getComputeAlloc(currentIdx);
 
+        // Topology of current iteration compute ops does not depend on otherIdx,
+        // so cache it once per currentIdx and reuse in the nested comparison loop.
+        SmallVector<BufferEqualityTopology> currentComputeTopologies;
+        currentComputeTopologies.reserve(computeAllocVec.size());
+        for (const auto& currentCompute : computeAllocVec) {
+            currentComputeTopologies.push_back(getBufferEqualityTopology(currentCompute));
+        }
+
         std::set<size_t> matchingIterations;
         matchingIterations.insert(currentIdx);
 
@@ -312,6 +321,19 @@ llvm::DenseMap<size_t, ComputeRegionVec> createInnerLoopsFromIterations(ArrayRef
                               "{3}/{4}",
                               otherIdx, currentDedupInCount, currentDedupOutCount, otherDedupInCount,
                               otherDedupOutCount);
+                    consistentOperands = false;
+                    break;
+                }
+
+                // Iterations must also be isomorphic by in/out equality topology (e.g. in-place overlap).
+                // Example mismatch to reject:
+                //   iter A: in=[A,B], out=[C]  -> in=[0,1], out=[2]
+                //   iter B: in=[X,Y], out=[X]  -> in=[0,1], out=[0]
+                const auto& currentTopology = currentComputeTopologies[computeIndex];
+                const auto otherTopology = getBufferEqualityTopology(otherCompute);
+                if (currentTopology.inClassIds != otherTopology.inClassIds ||
+                    currentTopology.outClassIds != otherTopology.outClassIds) {
+                    log.trace("skip otherIdx {0} different buffer equality topology", otherIdx);
                     consistentOperands = false;
                     break;
                 }
@@ -423,20 +445,63 @@ void sortDataOpsAroundComputeOp(LoopBody& allocInfos, size_t computeOpPosition) 
 
 // Create minimalistic description of tiled operations including unique/local data in/out dependencies and consumers
 SmallVector<LoopBody> createTiledOpDepsConsDescriptor(llvm::DenseMap<size_t, SmallVector<size_t>>& loopOps,
-                                                      AliasesInfo& aliasInfo, AsyncDepsInfo& depsInfo,
-                                                      const llvm::DenseSet<size_t>& nonDmaOps, Logger log) {
+                                                      LoopType loopType, AliasesInfo& aliasInfo,
+                                                      AsyncDepsInfo& depsInfo, const llvm::DenseSet<size_t>& nonDmaOps,
+                                                      Logger log) {
     log.trace("createTiledOpDepsConsDescriptor called for {0} tiles", loopOps.size());
     auto iterations = loopOps.size();
     SmallVector<LoopBody> loop;
+    auto computeOps = nonDmaOps;
 
     for (size_t i = 0; i < iterations; ++i) {
         // In the first version we'll only consider compute ops with loop attributes (loopOps is built based on loop
         // attributes)
         // TODO E#211215: consider pulling in also compute ops directly linked to vf but without vf loop attributes
 
-        const SmallVector<size_t>& computeIndices = loopOps[i];
+        SmallVector<size_t> computeIndices = loopOps[i];
         llvm::DenseSet<size_t> processed(computeIndices.begin(), computeIndices.end());
         LoopBody currentIteration;
+
+        if (loopType == LoopType::VF) {
+            // If op is CMX2CMX DMA treat is as compute loop op
+            auto handleCmxToCmxDmaOpAsCompute =
+                    [&depsInfo, &nonDmaOps](llvm::DenseSet<size_t>& processed, SmallVector<size_t>& computeIndices,
+                                            llvm::DenseSet<size_t>& computeOps, size_t candidateOpIdx) {
+                        if (processed.count(candidateOpIdx)) {
+                            return;
+                        }
+                        processed.insert(candidateOpIdx);
+
+                        const auto execOp = depsInfo.getExecuteOpAtIndex(candidateOpIdx);
+                        if (!VPUIP::isDmaCMX2CMX(execOp)) {
+                            return;
+                        }
+                        const auto deps = depsInfo.getOpDeps(candidateOpIdx);
+                        const auto allocationType = getAllocationType(execOp, hasNonDmaDependency(deps, nonDmaOps));
+                        if (allocationType == AllocationType::COMPUTE) {
+                            computeIndices.push_back(candidateOpIdx);
+                            // Since CMX2CMX DMAs within the loop are treated as compute ops, include them in the
+                            // compute ops list to ensure they are included when looking for DATA_IN and DATA_OUT ops
+                            computeOps.insert(candidateOpIdx);
+                        }
+                    };
+
+            // Iterate over compute op dependencies and consumers and find
+            // CMX2CMX DMAs. Since they will not be treated as DATA_IN and DATA_OUT ops handle
+            // such data transfers as loop compute ops.
+            for (const auto opIdx : loopOps[i]) {
+                for (auto depIdx : depsInfo.getOpDeps(opIdx)) {
+                    handleCmxToCmxDmaOpAsCompute(processed, computeIndices, computeOps, depIdx);
+                }
+
+                for (auto conIdx : depsInfo.getConsumerOps(opIdx)) {
+                    handleCmxToCmxDmaOpAsCompute(processed, computeIndices, computeOps, conIdx);
+                }
+            }
+            llvm::sort(computeIndices);
+            processed.clear();
+            processed.insert(computeIndices.begin(), computeIndices.end());
+        }
 
         for (const auto& opIdx : computeIndices) {
             LoopBody currentOperation;
@@ -449,7 +514,7 @@ SmallVector<LoopBody> createTiledOpDepsConsDescriptor(llvm::DenseMap<size_t, Sma
 
                 const auto execOp = depsInfo.getExecuteOpAtIndex(depIdx);
                 const auto deps = depsInfo.getOpDeps(depIdx);
-                const auto allocationType = getAllocationType(execOp, hasNonDmaDependency(deps, nonDmaOps));
+                const auto allocationType = getAllocationType(execOp, hasNonDmaDependency(deps, computeOps));
 
                 if (allocationType != AllocationType::DATA_IN) {
                     // only include data in ops
@@ -476,7 +541,7 @@ SmallVector<LoopBody> createTiledOpDepsConsDescriptor(llvm::DenseMap<size_t, Sma
                     continue;
                 }
                 const auto execOp = depsInfo.getExecuteOpAtIndex(conIdx);
-                const auto allocationType = getAllocationType(execOp, hasNonDmaDependency(deps, nonDmaOps));
+                const auto allocationType = getAllocationType(execOp, hasNonDmaDependency(deps, computeOps));
                 if (allocationType != AllocationType::DATA_OUT) {
                     // only include data out ops
                     continue;
@@ -527,7 +592,8 @@ SmallVector<LoopBody> createTiledOpDepsConsDescriptor(llvm::DenseMap<size_t, Sma
     for (auto& iterationBody : loop) {
         LoopBody filteredIteration;
         for (auto& op : iterationBody) {
-            VPUX_THROW_WHEN(loopOpCounts[op.opIdx] > 1 && op.allocationType == AllocationType::COMPUTE,
+            VPUX_THROW_WHEN(loopOpCounts[op.opIdx] > 1 && op.allocationType == AllocationType::COMPUTE &&
+                                    !VPUIP::isDmaCMX2CMX(depsInfo.getExecuteOpAtIndex(op.opIdx)),
                             "Compute op {0} count {1} is shared between iterations, but it should not be", op.opIdx,
                             loopOpCounts[op.opIdx]);
 
@@ -544,6 +610,42 @@ SmallVector<LoopBody> createTiledOpDepsConsDescriptor(llvm::DenseMap<size_t, Sma
 }
 
 }  // namespace
+
+BufferEqualityTopology vpux::getBufferEqualityTopology(const OpAllocationInfo& op) {
+    BufferEqualityTopology topo;
+    llvm::DenseMap<mlir::Value, uint32_t> classByValue;
+    uint32_t nextClassId = 0;
+
+    auto encode = [&](ArrayRef<mlir::Value> buffers, SmallVector<uint32_t>& outIds) {
+        outIds.reserve(buffers.size());
+        for (auto value : buffers) {
+            auto [it, inserted] = classByValue.try_emplace(value, nextClassId);
+            if (inserted) {
+                ++nextClassId;
+            }
+            outIds.push_back(it->second);
+        }
+    };
+
+    encode(op.inBuffers, topo.inClassIds);
+    encode(op.outBuffers, topo.outClassIds);
+    return topo;
+}
+
+std::string vpux::stringifyClassIds(ArrayRef<uint32_t> classIds) {
+    // Keeps topology mismatch logs compact and easy to compare across iterations.
+    std::string out;
+    llvm::raw_string_ostream os(out);
+    os << "[";
+    for (size_t i = 0; i < classIds.size(); ++i) {
+        if (i != 0) {
+            os << ",";
+        }
+        os << classIds[i];
+    }
+    os << "]";
+    return os.str();
+}
 
 // Extract compute regions from async.execute ops based on loop attributes
 ComputeRegionVec vpux::getComputeRegionsFromAsyncExec(AliasesInfo& aliasInfo, AsyncDepsInfo& depsInfo, Logger log) {
@@ -621,7 +723,8 @@ ComputeRegionVec vpux::getComputeRegionsFromAsyncExec(AliasesInfo& aliasInfo, As
             }
 
             // build per-iteration descriptors of compute + data-in/out ops (excluding shared ops)
-            SmallVector<LoopBody> loop = createTiledOpDepsConsDescriptor(loopOps, aliasInfo, depsInfo, nonDmaOps, log);
+            SmallVector<LoopBody> loop =
+                    createTiledOpDepsConsDescriptor(loopOps, loopType, aliasInfo, depsInfo, nonDmaOps, log);
 
             // Merge per-iteration LoopBody entries into schedulable loops
             llvm::DenseMap<size_t, ComputeRegionVec> thisOpInsertionPoints =

@@ -61,6 +61,8 @@ def ELF_SectionTypeAttr :
                 I64EnumAttrCase<"VPU_SHT_PLATFORM_INFO",  0x8AAAAAAF>,
                 I64EnumAttrCase<"VPU_SHT_COMPILER_HASH",  0x8AAAAAB0>,
                 I64EnumAttrCase<"VPU_SHT_DMA_SYMBOLS",    0x8AAAAAB1>,
+                I64EnumAttrCase<"VPU_SHT_COMPAT_STR",     0x8AAAAAB2>,
+                I64EnumAttrCase<"VPU_SHT_HPI",            0x8AAAAAB3>,
                 I64EnumAttrCase<"SHT_HIUSER",             0xFFFFFFFF>
             ]
         > {

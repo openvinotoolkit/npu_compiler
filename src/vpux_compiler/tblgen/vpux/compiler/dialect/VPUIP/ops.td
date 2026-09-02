@@ -68,8 +68,6 @@ def VPUIP_NNDMAOp :
         VPUIP_TaskOp<1, "NNDMA",
             [
                 ViewLikeOpInterface,
-                VPUIP_SameShape,
-                VPUIP_SameElementType,
                 VPUIP_SameInOutDimsOrder,
                 VPUIP_DMATypeOpInterface,
                 DotInterface
@@ -79,6 +77,7 @@ def VPUIP_NNDMAOp :
 
     let arguments = (ins
         AnyTypeOf<[AnyMemRef, VPUIP_DistributedBuffer, VPUIP_ITIBuffer, VPUIP_BoundedBuffer]>:$input,
+        Optional<AnyMemRef>:$dynamic_sequence_length_buff,
         AnyTypeOf<[AnyMemRef, VPUIP_DistributedBuffer, VPUIP_BoundedBuffer]>:$output_buff,
 
         OptionalAttr<IntAttr>:$port,
@@ -90,7 +89,8 @@ def VPUIP_NNDMAOp :
         OptionalAttr<VPUIP_DmaProfilingMetadataAttr>:$profilingMetadata,
         OptionalAttr<BoolAttr>:$split_candidate,
         UnitProp:$profiling_buffer_mgmt,
-        OptionalAttr<IntAttr>:$fusionId
+        OptionalAttr<IntAttr>:$fusionId,
+        OptionalAttr<UI16Attr>:$task_dyn_id
     );
 
     let results = (outs
@@ -121,6 +121,18 @@ def VPUIP_NNDMAOp :
         >,
         OpBuilder<
             (ins "mlir::Value":$input, "mlir::Value":$output_buff, "int64_t":$port, "bool":$is_out_of_order, "bool":$is_critical, "mlir::IntegerAttr":$spillId, "bool":$compress_candidate, "bool":$split_candidate, "mlir::IntegerAttr":$fusionId)
+        >,
+        OpBuilder<
+            (ins "mlir::Value":$input, "mlir::Value":$dynamic_sequence_length_buff, "mlir::Value":$output_buff,
+             "int64_t":$port, "uint16_t":$task_dyn_id)
+        >,
+        OpBuilder<
+            (ins "mlir::Value":$input, "mlir::Value":$dynamic_sequence_length_buff, "mlir::Value":$output_buff,
+               "int64_t":$port, "bool":$is_out_of_order, "bool":$is_critical, "uint16_t":$task_dyn_id)
+        >,
+        OpBuilder<
+            (ins "mlir::Value":$input, "mlir::Value":$dynamic_sequence_length_buff, "mlir::Value":$output_buff,
+             "mlir::IntegerAttr":$port, "bool":$is_out_of_order, "bool":$is_critical, "uint16_t":$task_dyn_id)
         >
     ];
 
@@ -139,6 +151,7 @@ def VPUIP_NNDMAOp :
         attr-dict
         prop-dict
         `inputs` `(` $input `:` type($input) `)`
+        (`dynamic_sequence_length_buff` `(` $dynamic_sequence_length_buff^ `:` type($dynamic_sequence_length_buff) `)`) ?
         `outputs` `(` $output_buff `:` type($output_buff) `)`
         `->` type(results)
     }];
@@ -325,7 +338,8 @@ def VPUIP_ConvertDMAOp :
         UnitProp:$is_out_of_order,
         UnitProp:$is_critical,
         OptionalAttr<IntAttr>:$dma_hwp_id,
-        OptionalAttr<VPUIP_DmaProfilingMetadataAttr>:$profilingMetadata
+        OptionalAttr<VPUIP_DmaProfilingMetadataAttr>:$profilingMetadata,
+        OptionalAttr<BoolAttr>:$split_candidate
     );
 
     let results = (outs
@@ -655,7 +669,9 @@ def VPUIP_DPUTaskOp :
         OptionalAttr<IntAttr>:$cluster_id,
         OptionalAttr<DPUHaloRegionArrayAttr>: $haloRegions,
         OptionalAttr<IntAttr>:$workload_id,
-        OptionalAttr<I64ArrayAttr>:$variant_primitive_id // IDs for variant primitives A and B
+        OptionalAttr<I64ArrayAttr>:$variant_primitive_id, // IDs for variant primitives A and B
+        UnitAttr:$is_dummy, // Marks the dummy variant inserted by InsertDelayDPUVariant
+        OptionalAttr<IntAttr>:$weight_table_offset // Byte offset into the weight table buffer for this variant's output channel range
     );
 
     let builders = [
@@ -821,7 +837,8 @@ def VPUIP_NCEClusterTaskOp :
         OptionalAttr<VPU_MPEEngineAttrInterface>:$mpe_engine,
         OptionalAttr<VPUIP_DynamicScaleConfigAttr>:$dynamic_scale_config,
         OptionalAttr<VPUIP_LocalRegionAttr>:$local_region,
-        OptionalAttr<VPU_S2DD2SConfigAttr>:$s2dd2s_config
+        OptionalAttr<VPU_S2DD2SConfigAttr>:$s2dd2s_config,
+        OptionalAttr<IntAttr>:$split_id
     );
 
     let results = (outs
@@ -1551,6 +1568,7 @@ def VPUIP_DistributedCastOp :
             "DistributedCast",
             [
                 DeclareOpInterfaceMethods<ViewLikeOpInterface>,
+                DeclareOpInterfaceMethods<VPUIP_BackInferViewTypeOpInterface>,
                 Pure
             ]
         > {
@@ -1583,6 +1601,7 @@ def VPUIP_NonDistributedCastOp:
             "NonDistributedCastOp",
             [
                 DeclareOpInterfaceMethods<ViewLikeOpInterface>,
+                DeclareOpInterfaceMethods<VPUIP_BackInferViewTypeOpInterface>,
                 Pure
             ]
         > {
@@ -1616,6 +1635,7 @@ def VPUIP_SubViewOp :
             [
                 Pure,
                 DeclareOpInterfaceMethods<ViewLikeOpInterface>,
+                DeclareOpInterfaceMethods<VPUIP_BackInferViewTypeOpInterface>,
                 DeclareOpInterfaceMethods<InferTypeOpInterface>,
                 DotInterface
             ]
@@ -1730,6 +1750,7 @@ def VPUIP_PermuteCastOp :
             "PermuteCast",
             [
                 DeclareOpInterfaceMethods<ViewLikeOpInterface>,
+                DeclareOpInterfaceMethods<VPUIP_BackInferViewTypeOpInterface>,
                 Pure
             ]
         > {
@@ -1740,13 +1761,19 @@ def VPUIP_PermuteCastOp :
             * dst_order: order of output buffer is set to value of this arg
             * mem_perm: describes the permutation applied on input buffer's memory shape
                         to obtain the memory shape of the output buffer.
+            * is_layout_cast: marks ops lowered from VPU.LayoutCast. In that case
+                        the op is a reinterpretation of dims order only, for example
+                        memref<1x3x32x32xf16, NWCH> -> memref<1x3x32x32xf16, NHWC>.
+                        Logical shape is preserved and mem_perm is expected to equal
+                        dst_order.
     }];
 
     let arguments = (ins
         AnyTypeOf<[AnyMemRef, VPUIP_SparseBuffer, VPUIP_DistributedBuffer]>:$source,
 
         AffineMapAttr:$dst_order,
-        AffineMapAttr:$mem_perm
+        AffineMapAttr:$mem_perm,
+        OptionalAttr<UnitAttr>:$is_layout_cast
     );
 
     let results = (outs
@@ -1762,6 +1789,17 @@ def VPUIP_PermuteCastOp :
     }];
 
     let hasFolder = 1;
+
+    let builders = [
+        OpBuilder<
+            (ins "mlir::Type":$result, "mlir::Value":$source, "mlir::AffineMapAttr":$dst_order,
+                 "mlir::AffineMapAttr":$mem_perm)
+        >,
+        OpBuilder<
+            (ins "mlir::Type":$result, "mlir::Value":$source, "mlir::AffineMap":$dst_order,
+                 "mlir::AffineMap":$mem_perm)
+        >
+    ];
 }
 
 //
@@ -1773,6 +1811,7 @@ def VPUIP_QuantizeCastOp :
             "QuantizeCast",
             [
                 DeclareOpInterfaceMethods<ViewLikeOpInterface>,
+                DeclareOpInterfaceMethods<VPUIP_BackInferViewTypeOpInterface>,
                 Pure
             ]
         > {
@@ -1808,6 +1847,7 @@ def VPUIP_GenericReshapeOp :
             "GenericReshape",
             [
                 DeclareOpInterfaceMethods<ViewLikeOpInterface>,
+                DeclareOpInterfaceMethods<VPUIP_BackInferViewTypeOpInterface>,
                 Pure,
                 VPUIP_SameOperandsAndResultElementType
             ]
@@ -1963,6 +2003,7 @@ def VPUIP_ShapeCastOp :
             "ShapeCast",
             [
                 DeclareOpInterfaceMethods<ViewLikeOpInterface>,
+                DeclareOpInterfaceMethods<VPUIP_BackInferViewTypeOpInterface>,
                 Pure,
                 DeclareOpInterfaceMethods<InferTypeOpInterface>
             ]
@@ -2260,7 +2301,8 @@ def VPUIP_ViewOp :
             "ViewOp",
             [
                 Pure,
-                DeclareOpInterfaceMethods<ViewLikeOpInterface>
+                DeclareOpInterfaceMethods<ViewLikeOpInterface>,
+                DeclareOpInterfaceMethods<VPUIP_BackInferViewTypeOpInterface>
             ]
         > {
     let summary = "Create a new view for buffer";

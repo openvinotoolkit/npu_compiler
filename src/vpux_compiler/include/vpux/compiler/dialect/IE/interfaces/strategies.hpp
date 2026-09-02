@@ -6,15 +6,19 @@
 #pragma once
 
 #include "vpux/compiler/core/interfaces/rewriter_pattern_strategies.hpp"
+#include "vpux/compiler/dialect/IE/interfaces/adjust_quantized_conv_shape_verifier.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/channel_axis_reduction_with_dpu_parent_checker.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/convert_quantize_ops_to_nce_ops_strategy.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/convert_to_conv_alignment_strategy.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/convert_to_mixed_precision_strategy.hpp"
+#include "vpux/compiler/dialect/IE/interfaces/convert_weights_to_unsigned_strategy.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/d2s_to_transposed_conv_verifier.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/expand_activation_channels_strategy.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/fuse_convert_to_dpu_checker.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/map_bilinear_interpolate_on_dpu_strategy.hpp"
+#include "vpux/compiler/dialect/IE/interfaces/multi_consumer_strategy.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/propagate_and_fuse_quantize_dequantize_strategy.hpp"
+#include "vpux/compiler/dialect/IE/interfaces/se_pad_ic_perf_threshold_verifier.hpp"
 #include "vpux/compiler/dynamic_rewriter/dynamic_rewriter_factory.hpp"
 #include "vpux/compiler/dynamic_rewriter/dynamic_rewriter_strategies.hpp"
 
@@ -25,10 +29,6 @@ public:
     virtual ~StrategyFactory() = default;
 
     virtual std::unique_ptr<IConvertQuantizeOpsToNceOpsStrategy> getConvertQuantizeOpsToNceOpsStrategy() = 0;
-    virtual std::unique_ptr<IDynamicRewriterStrategy> getWeightsDequantizeToDynamicDequantizeStrategy(
-            ArrayRef<mlir::PatternBenefit> benefitLevels, size_t index) = 0;
-    virtual std::unique_ptr<IDynamicRewriterStrategy> getWeightsDequantizeToFakeQuantizeStrategy(
-            ArrayRef<mlir::PatternBenefit> benefitLevels, size_t index) = 0;
     virtual std::unique_ptr<IMapBilinearInterpolateOnDPUStrategy> getMapBilinearInterpolateOnDPUStrategy(
             const bool interpolateAsSEOpInStrategy) = 0;
     virtual std::unique_ptr<IGreedilyPassStrategy> getFuseQuantizedOpsStrategy(const bool seOpsEnabled) = 0;
@@ -42,14 +42,19 @@ public:
             const bool seOpsEnabled) = 0;
     virtual std::unique_ptr<D2SToTransposedConvVerifierBase> getD2SToTransposedConvVerifier() = 0;
     virtual std::unique_ptr<FuseConvertToDPUCheckerBase> getFuseConvertToDPUChecker() = 0;
-    virtual std::unique_ptr<IDynamicRewriterStrategy> getInitialLowPrecisionTransformationsPipelineStrategy(
-            mlir::func::FuncOp funcOp, bool enableDynamicQuantizationForStaticCase = false) = 0;
+    virtual std::unique_ptr<IDynamicRewriterStrategy> getInitialLowPrecisionTransformationsPipelineStrategy() = 0;
 
     virtual std::unique_ptr<IConvertToConvAlignmentStrategy> getConvertToConvAlignmentStrategy() {
         return nullptr;
     }
+    virtual std::unique_ptr<IMultiConsumerStrategy> getMultiConsumerStrategy() {
+        return nullptr;
+    }
+    virtual std::unique_ptr<IConvertWeightsToUnsignedStrategy> getConvertWeightsToUnsignedStrategy() = 0;
     virtual std::unique_ptr<ChannelAxisReductionWithDPUParentCheckerBase> getChannelAxisReductionWithDPUParentChecker(
             bool enableFuseReduceMinMaxToDpu) = 0;
+    virtual std::unique_ptr<AdjustQuantizedConvShapeVerifierBase> getAdjustQuantizedConvShapeVerifier() = 0;
+    virtual std::unique_ptr<SEPadICPerfThresholdVerifierBase> getSEPadICPerfThresholdVerifier() = 0;
 };
 
 class StrategyFactoryCache final : public mlir::DialectInterface::Base<StrategyFactoryCache> {

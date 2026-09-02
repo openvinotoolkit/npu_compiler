@@ -318,10 +318,15 @@ static int64_t computeTileBytes(int64_t elementCount, mlir::Type elemType) {
     return llvm::divideCeil(totalBits, int64_t{8});
 }
 
+static bool hasSparseInputOrFilter(VPU::NCEConvolutionOp op) {
+    return mlir::isa<VPU::SparseTensorType>(op.getInput().getType()) ||
+           mlir::isa<VPU::SparseTensorType>(op.getFilter().getType());
+}
+
 static int64_t computeMaxPipelinableIC(VPU::NCEConvolutionOp op) {
-    // Apply the dynamic pipelining-aware IC threshold only on supported architectures.
-    // Older architectures (e.g. NPU40XX) fall back to the legacy VPU_DIMENSION_LIMIT.
-    if (!VPU::isPipelineAwareConvSplitOverICSupported(op)) {
+    // Use the pipelining-aware IC threshold only for supported dense convolutions.
+    // Unsupported architectures and sparse tensors use the legacy VPU_DIMENSION_LIMIT.
+    if (!VPU::isPipelineAwareConvSplitOverICSupported(op) || hasSparseInputOrFilter(op)) {
         return VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
     }
 
@@ -416,14 +421,6 @@ mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutio
                                                               mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), origOp->getName(), origOp->getLoc());
 
-    // Skip if origOp has reduce outputs, which are not supported after the split.
-    // TODO: E#209747 implement reduce output support after split, and remove this check
-    if (VPU::hasReduceOutputs(origOp)) {
-        _log.trace("[{0}] Skipping NCEConvolutionSplitOverInputChannel: NCEConvolution with reduce outputs at '{1}'",
-                   this->getDebugName(), origOp->getLoc());
-        return mlir::failure();
-    }
-
     // Split over IC supported only for NCEConvolutionOp
     // TODO: E#70421
 
@@ -513,8 +510,8 @@ mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutio
     SmallVector<VPU::NCEConvolutionOp> convOps;
     SmallVector<VPU::NCEEltwiseOp> addOps;
     SmallVector<VPU::DequantizeOp> dequantizeOps;
-    mlir::Value result = VPU::splitNCEConvolutionOverIC(origOp, weightInput, convOps, addOps, dequantizeOps,
-                                                        tiles.value(), weightDequantizeOp, rewriter, _log.nest());
+    auto results = VPU::splitNCEConvolutionOverIC(origOp, weightInput, convOps, addOps, dequantizeOps, tiles.value(),
+                                                  weightDequantizeOp, rewriter, _log.nest());
 
     if (getAlignmentFromConcatSlicePattern(origOp) > maxTileIC) {
         for (auto [tile, convOp] : llvm::zip_equal(tiles.value(), convOps)) {
@@ -524,7 +521,7 @@ mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutio
         }
     }
 
-    rewriter.replaceOp(origOp, result);
+    rewriter.replaceOp(origOp, mlir::ValueRange(results));
 
     return mlir::success();
 }

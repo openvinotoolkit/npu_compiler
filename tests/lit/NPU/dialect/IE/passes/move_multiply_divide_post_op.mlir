@@ -503,7 +503,7 @@ func.func @SwapMultiplyWithMatmulSplatBroadcastConst_AutoBroadcastRewrite(
     // CHECK-NOT: const.Declare tensor<1x4x32x128xf32>
     // CHECK-DAG: [[SCALAR_CST:%.+]] = const.Declare tensor<1xf32> = dense<5.000000e-01> : tensor<1xf32>
     // CHECK: [[MATMUL:%.+]] = IE.MatMul([[INPUT2]], [[INPUT1]]) {transpose_b} : tensor<1x4x16x128xf32>, tensor<1x4x32x128xf32> -> tensor<1x4x16x32xf32>
-    
+
     // The rewritten Multiply MUST use NUMPY (not NONE_OR_EXPLICIT) to broadcast the scalar const.
     // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[MATMUL]], [[SCALAR_CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x16x32xf32>, tensor<1xf32> -> tensor<1x4x16x32xf32>
     // CHECK: return [[MULTIPLY]] : tensor<1x4x16x32xf32>
@@ -529,7 +529,7 @@ func.func @SwapDivideWithMatmulSplatBroadcastConst_AutoBroadcastRewrite(
     // CHECK-NOT: const.Declare tensor<1x4x32x128xf32>
     // CHECK-DAG: [[SCALAR_CST:%.+]] = const.Declare tensor<1xf32> = dense<2.000000e+00> : tensor<1xf32>
     // CHECK: [[MATMUL:%.+]] = IE.MatMul([[INPUT2]], [[INPUT1]]) {transpose_b} : tensor<1x4x16x128xf32>, tensor<1x4x32x128xf32> -> tensor<1x4x16x32xf32>
-    
+
     // The rewritten Divide MUST use NUMPY (not NONE_OR_EXPLICIT) to broadcast the scalar const.
     // CHECK: [[DIVIDE:%.+]] = IE.Divide([[MATMUL]], [[SCALAR_CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x16x32xf32>, tensor<1xf32> -> tensor<1x4x16x32xf32>
     // CHECK: return [[DIVIDE]] : tensor<1x4x16x32xf32>

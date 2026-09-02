@@ -13,7 +13,7 @@
 func.func @SingleOp(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %wt: tensor<16x1x1x4xsi32>, %weights: tensor<16x16x1x1xf16, {order = #NHWC}>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
     %0 = VPU.NCE.Convolution(%arg0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1],
             ppe = #VPU.PPEStub<>
         } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = #NHWC}>
@@ -34,13 +34,13 @@ func.func @SingleOp(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %wt: tensor<
 func.func @ChainedOps(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %wt: tensor<16x1x1x4xsi32>, %weights: tensor<16x16x1x1xf16, {order = #NHWC}>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
     %0 = VPU.NCE.Convolution(%arg0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1],
             ppe = #VPU.PPEStub<>
         } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = #NHWC}>
     %1 = VPU.NCE.Convolution(%0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1],
             ppe = #VPU.PPEStub<>
         } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = #NHWC}>
@@ -72,7 +72,7 @@ func.func @ChainedOps(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %wt: tenso
 func.func @SparseNonSparseSparseChain(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %wt: tensor<16x1x1x4xsi32>, %weights: tensor<16x16x1x1xf16, {order = #NHWC}>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
     %0 = VPU.NCE.Convolution(%arg0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1],
             ppe = #VPU.PPEStub<>
         } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = #NHWC}>
@@ -84,7 +84,7 @@ func.func @SparseNonSparseSparseChain(%arg0: tensor<1x16x16x16xf16, {order = #NH
         strides = [1, 1],
         ppe = #VPU.PPEStub<>
     } : tensor<1x16x16x16xf16, {order = #NHWC}> -> tensor<1x16x16x16xf16, {order = #NHWC}>
-    %2 = VPU.NCE.Eltwise(%1, %1) {
+    %2 = VPU.NCE.Eltwise(%1, %1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             op_type = #VPU.eltwise_type<ADD>,
             ppe = #VPU.PPEStub<>
         } -> tensor<1x16x16x16xf16, {order = #NHWC}>
@@ -109,27 +109,27 @@ func.func @SparseNonSparseSparseChain(%arg0: tensor<1x16x16x16xf16, {order = #NH
 func.func @Resnet50Pattern(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %wt: tensor<16x1x1x4xsi32>, %weights: tensor<16x16x1x1xf16, {order = #NHWC}>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
     %0 = VPU.NCE.Convolution(%arg0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1],
             ppe = #VPU.PPEStub<>
         } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = #NHWC}>
     %1 = VPU.NCE.Convolution(%0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1],
             ppe = #VPU.PPEStub<>
         } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = #NHWC}>
     %2 = VPU.NCE.Convolution(%1, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1],
             ppe = #VPU.PPEStub<>
         } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x16x16xf16, {order = #NHWC}>
-    %3 = VPU.NCE.Eltwise(%0, %2) {
+    %3 = VPU.NCE.Eltwise(%0, %2) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             op_type = #VPU.eltwise_type<ADD>,
             ppe = #VPU.PPEStub<>
         } -> tensor<1x16x16x16xf16, {order = #NHWC}>
-    %4 = VPU.NCE.Eltwise(%3, %3) {
+    %4 = VPU.NCE.Eltwise(%3, %3) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             op_type = #VPU.eltwise_type<AND>,
             ppe = #VPU.PPEStub<>
         } -> tensor<1x16x16x16xf16, {order = #NHWC}>
@@ -168,40 +168,40 @@ func.func @GooglenetLikePattern(%arg0: !PreConcatType,
                         %weights: tensor<16x16x1x1xf16, {order = #NHWC}>,
                         %weights2: tensor<32x32x1x1xf16, {order = #NHWC}>,
                         %wt2: tensor<32x1x1x4xsi32>) -> (!PostConcatType, !PostConcatType, !PostConcatType) {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<AND>,
         ppe = #VPU.PPEStub<>
       } -> !PreConcatType
 
     %1 = VPU.NCE.Convolution(%0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
           pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-          
+
           strides = [1, 1],
           ppe = #VPU.PPEStub<>
       } : !PreConcatType, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> !PreConcatType
 
     %2 = VPU.NCE.Convolution(%0, %weights, %wt) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-        
+
         strides = [1, 1],
         ppe = #VPU.PPEStub<>
       } : !PreConcatType, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> !PreConcatType
 
-    %3 = VPU.NCE.Eltwise(%2, %2) {
+    %3 = VPU.NCE.Eltwise(%2, %2) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
       } -> !PreConcatType
 
     %4 = VPU.Concat(%1, %3) {static_offsets = [[0, 0, 0, 0], [0, 16, 0, 0]]} : !PreConcatType, !PreConcatType -> !PostConcatType
 
-    %5 = VPU.NCE.Eltwise(%4, %4) {
+    %5 = VPU.NCE.Eltwise(%4, %4) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<AND>,
         ppe = #VPU.PPEStub<>
       } -> !PostConcatType
 
     %6 = VPU.NCE.Convolution(%4, %weights2, %wt2) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-        
+
         strides = [1, 1],
         ppe = #VPU.PPEStub<>
       } : !PostConcatType, tensor<32x32x1x1xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> !PostConcatType

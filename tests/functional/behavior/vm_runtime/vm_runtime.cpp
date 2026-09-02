@@ -20,7 +20,7 @@
 
 #include <openvino/openvino.hpp>
 #include <openvino/opsets/opset6.hpp>
-#include <openvino/util/file_util.hpp>
+#include <openvino/util/common_util.hpp>
 #include <openvino/util/shared_object.hpp>
 #include <sstream>
 #include <tuple>
@@ -196,6 +196,7 @@ public:
         std::replace(targetDevice.begin(), targetDevice.end(), ':', '.');
 
         std::ostringstream result;
+        result << "target_platform=" << LayerTestsUtils::getTestsPlatformFromEnvironmentOr(targetDevice) << "_";
         result << "model=" << modelPath << "_";
         result << "target_device=" << targetDevice << "_";
         result << "library_name=" << libName << "_";
@@ -521,7 +522,7 @@ TEST_P(NPUVMRuntimeCAPITest, GetMetadata_ReturnsValidArgProperties) {
 //   - Shape [42, 100, 50], precision FP32
 //
 // The blob was generated with:
-//   ./vpux-translate --split-input-file --platform=NPU5010 --export-bytecode \
+//   ./vpux-translate --split-input-file --platform=NPU5010 --export-bytecode
 //       <compiler_repo>/tests/lit/NPU/dialect/bytecode/serialization.mlir -o bytecode.blob
 TEST_P(NPUVMRuntimeCAPITest, GetMetadata_ExactValuesForBytecodeBlob) {
     std::string modelPath;
@@ -579,7 +580,7 @@ TEST_P(NPUVMRuntimeCAPITest, ExecuteCompiledModel) {
     std::string libName;
     std::tie(std::ignore, std::ignore, libName, std::ignore) = this->GetParam();
     // E#214461: Skip interpreter runtime execute path until kernel submission is stabilized.
-    if (libName == "npu_interpreter_runtime") {
+    if (libName == "openvino_intel_npu_vm_runtime") {
         GTEST_SKIP() << "ExecuteCompiledModel is temporarily disabled for interpreter runtime";
     }
 
@@ -607,7 +608,7 @@ TEST_P(NPUVMRuntimeCAPITest, ExecuteCompiledModel) {
     EXPECT_EQ(fntbl.npuVMRuntimeExecute(handle, &execParams), NPU_VM_RUNTIME_RESULT_SUCCESS);
     // FIXME: E#211607 once kernel submission is implemented,
     // we can enable synchronization for interpreter runtime as well
-    if (libName != "npu_interpreter_runtime") {
+    if (libName != "openvino_intel_npu_vm_runtime") {
         fence->hostSynchronize();
     }
 
@@ -618,6 +619,12 @@ TEST_P(NPUVMRuntimeCAPITest, ExecuteCompiledModel) {
 }
 
 TEST_P(NPUVMRuntimeCAPITest, UpdateMutableCommandList) {
+    std::string libName;
+    std::tie(std::ignore, std::ignore, libName, std::ignore) = this->GetParam();
+    // E#211625: Skip update mutable command list support for interpreter runtime is not implemented
+    if (libName == "npu_interpreter_runtime") {
+        GTEST_SKIP() << "UpdateMutableCommandList is temporarily disabled for interpreter runtime";
+    }
     npu_vm_runtime_handle_t handle = nullptr;
     npu_vm_runtime_properties_t props;
     ASSERT_NO_FATAL_FAILURE(createRuntimeHandle(handle, props));
@@ -663,7 +670,8 @@ TEST_P(NPUVMRuntimeCAPITest, UpdateMutableCommandList) {
     destroyMemRefs(outputArgs);
 }
 
-TEST_P(NPUVMRuntimeCAPITest, PredictShape) {
+// E#227224: PredictOutputShape is temporarily disabled.
+TEST_P(NPUVMRuntimeCAPITest, DISABLED_PredictShape) {
     npu_vm_runtime_handle_t handle = nullptr;
     npu_vm_runtime_properties_t props;
     ASSERT_NO_FATAL_FAILURE(createRuntimeHandle(handle, props));
@@ -762,7 +770,8 @@ TEST_P(NPUVMRuntimeCAPITest, PredictShape) {
     destroyMemRefs(outputArgs);
 }
 
-TEST_P(NPUVMRuntimeCAPITest, PredictShape2) {
+// E#227224: PredictOutputShape is temporarily disabled.
+TEST_P(NPUVMRuntimeCAPITest, DISABLED_PredictShape2) {
     npu_vm_runtime_handle_t handle = nullptr;
     npu_vm_runtime_properties_t props;
     ASSERT_NO_FATAL_FAILURE(createRuntimeHandle(handle, props));
@@ -875,7 +884,7 @@ const std::vector<std::string> mlirModels = {
         "MaxPool",
 };
 
-const std::vector<std::string> libNames = {"npu_mlir_runtime"};
+const std::vector<std::string> libNames = {"openvino_intel_npu_mlir_runtime"};
 
 const std::vector<ov::AnyMap> configsHostCompileDefault = {
         {{"NPU_COMPILER_TYPE", "PLUGIN"}, {"NPU_COMPILATION_MODE", "HostCompile"}}};
@@ -888,7 +897,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_BehaviorTest_mlir_runtime, NPUVMRuntimeCAPITest,
 
 const std::vector<std::string> interpreterModels = {"bytecode.blob"};
 
-const std::vector<std::string> interpreterLibNames = {"npu_interpreter_runtime"};
+const std::vector<std::string> interpreterLibNames = {"openvino_intel_npu_vm_runtime"};
 
 const std::vector<ov::AnyMap> configsHostCompileInterpreter = {
         {{"NPU_COMPILER_TYPE", "PLUGIN"}, {"NPU_COMPILATION_MODE", "HostCompile_Interpreter"}}};

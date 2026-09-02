@@ -90,6 +90,7 @@ func.func  @SkipConvWithODUAutopadAndHaloFwPdecDelay(
     // CHECK-SAME:  outEnd = [3, 2, 0],
     // CHECK-SAME:  outStart = [0, 0, 0],
     // CHECK-SAME:  pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-NOT:   is_dummy
 
     // CHECK-NOT:   DPUTask
 }

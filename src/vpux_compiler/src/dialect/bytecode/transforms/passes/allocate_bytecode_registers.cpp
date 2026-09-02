@@ -51,27 +51,25 @@ struct LiveInterval {
 // FunctionTypeAttr in the type section. The `bytecode.func` verifier already guarantees
 // that the reference resolves to a FunctionTypeAttr, so this lookup is expected to succeed.
 int64_t resolveNumParams(bytecode::FuncOp funcOp) {
-    const auto refName = funcOp.getFunctionTypeRef();
+    auto functionTypeRefAttr = funcOp.getFunctionTypeRefAttr();
     auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>();
     VPUX_THROW_WHEN(moduleOp == nullptr,
-                    "bytecode.func @{0} is not nested inside a ModuleOp; cannot resolve function type @{1}",
-                    funcOp.getSymName(), refName);
+                    "bytecode.func @{0} is not nested inside a ModuleOp; cannot resolve function type",
+                    funcOp.getSymName());
 
-    for (auto typeSection : moduleOp.getOps<bytecode::TypeSectionOp>()) {
-        for (auto typeOp : typeSection.getContent().getOps<bytecode::TypeOp>()) {
-            if (typeOp.getSymName() != refName) {
-                continue;
-            }
-            auto funcTypeAttr = mlir::dyn_cast<bytecode::FunctionTypeAttr>(typeOp.getValue());
-            VPUX_THROW_WHEN(funcTypeAttr == nullptr,
-                            "bytecode.func @{0} references type @{1}, which is not a function type",
-                            funcOp.getSymName(), refName);
-            return static_cast<int64_t>(funcTypeAttr.getArguments().size());
-        }
-    }
+    mlir::SymbolTableCollection symbolTables;
+    auto* resolved = symbolTables.lookupSymbolIn(moduleOp, functionTypeRefAttr);
+    VPUX_THROW_WHEN(resolved == nullptr, "bytecode.func @{0} references type {1}, which is not present in the module",
+                    funcOp.getSymName(), functionTypeRefAttr);
 
-    VPUX_THROW("bytecode.func @{0} references type @{1}, which is not present in the type section", funcOp.getSymName(),
-               refName);
+    auto typeOp = mlir::dyn_cast<bytecode::TypeOp>(resolved);
+    VPUX_THROW_WHEN(typeOp == nullptr, "bytecode.func @{0} references {1}, which is not a TypeOp", funcOp.getSymName(),
+                    functionTypeRefAttr);
+
+    auto funcTypeAttr = mlir::dyn_cast<bytecode::FunctionTypeAttr>(typeOp.getValue());
+    VPUX_THROW_WHEN(funcTypeAttr == nullptr, "bytecode.func @{0} references {1}, which is not a function type",
+                    funcOp.getSymName(), functionTypeRefAttr);
+    return static_cast<int64_t>(funcTypeAttr.getArguments().size());
 }
 
 struct BlockOpPositions {
@@ -261,6 +259,16 @@ public:
 
 private:
     void safeRunOnModule() final {
+        auto walkResult = getOperation().walk([&](bytecode::ImmRegisterOp op) {
+            _log.error("bytecode.imm_register {0} survived to register allocation at {1} -- "
+                       "DeduplicateAndLowerImmRegisterOps must run first",
+                       op.getValue(), op.getLoc());
+            return mlir::WalkResult::interrupt();
+        });
+        if (walkResult.wasInterrupted()) {
+            signalPassFailure();
+            return;
+        }
         getOperation().walk([](bytecode::FuncOp funcOp) {
             allocate(funcOp);
         });

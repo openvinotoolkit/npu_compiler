@@ -17,15 +17,13 @@
 
 namespace vpux {
 
-using llvm::make_scope_exit;
-
 namespace details {
 
 struct ScopeExitTag final {};
 
 template <class Func>
 auto operator<<(ScopeExitTag, Func&& func) {
-    return make_scope_exit(std::forward<Func>(func));
+    return llvm::scope_exit(std::forward<Func>(func));
 }
 
 }  // namespace details

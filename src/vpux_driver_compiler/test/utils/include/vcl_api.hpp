@@ -9,9 +9,9 @@
 #include <type_traits>
 #include <utility>
 
-#include "intel_npu/utils/logger/logger.hpp"
 #include "npu_driver_compiler.h"
 #include "openvino/core/except.hpp"
+#include "vpux/utils/logger/logger.hpp"
 
 namespace VCLTest {
 // clang-format off
@@ -32,7 +32,6 @@ namespace VCLTest {
     vcl_symbol_statement(vclProfilingGetProperties)            \
     vcl_symbol_statement(vclLogHandleGetString)                \
     vcl_symbol_statement(vclAllocatedExecutableCreate4)        \
-    vcl_symbol_statement(vclAllocatedExecutableCreate3)        \
     vcl_symbol_statement(vclAllocatedExecutableCreate2)        \
     vcl_symbol_statement(vclAllocatedExecutableCreate)         \
     vcl_symbol_statement(vclExecutableGetCompatibilityString)  \
@@ -42,7 +41,8 @@ namespace VCLTest {
 
 // symbols that may not be supported in older versions of vcl
 #define vcl_weak_symbols_list()                                \
-    vcl_symbol_statement(vclAllocatedExecutableCreateWSOneShot)
+    vcl_symbol_statement(vclAllocatedExecutableCreateWSOneShot) \
+    vcl_symbol_statement(vclAllocatedExecutableCreateWSOneShot2)
 // clang-format on
 
 class VCLApi {
@@ -66,7 +66,7 @@ public:
 
 private:
     std::shared_ptr<void> lib;
-    intel_npu::Logger _logger;
+    vpux::Logger _logger;
 };
 
 #define vcl_symbol_statement(vcl_symbol)                                                                            \

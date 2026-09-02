@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --tiling-strategy-assignment="tiling-mode=ISOLATED" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --tiling-strategy-assignment="tiling-mode=ISOLATED" %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -15,7 +15,7 @@ func.func @SplitDepthConvWithBigC(%arg0: tensor<1x5120x64x4xf16, {order = #NHWC}
     %wt = const.Declare tensor<5120x1x1x4xsi32, {order = #NHWC}> =
         dense<10> : tensor<5120x1x1x4xsi32>, [#const.Reorder<#NHWC>]
 
-    %0 = VPU.NCE.DepthConvolution(%arg0, %weights, %wt) rawFilterShape [5120, 1, 1, 1] {
+    %0 = VPU.NCE.DepthConvolution(%arg0, %weights, %wt) rawFilterShape [5120, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
              strides = [1, 1]
@@ -44,7 +44,7 @@ func.func @NoSplitDepthConvOverCWithSOK(%arg0: tensor<1x160x3840x4xf16, {order =
     %wt = const.Declare tensor<160x1x1x4xsi32, {order = #NHWC}> =
         dense<10> : tensor<160x1x1x4xsi32>, [#const.Reorder<#NHWC>]
 
-    %0 = VPU.NCE.DepthConvolution(%arg0, %weights, %wt) rawFilterShape [160, 1, 1, 1] {
+    %0 = VPU.NCE.DepthConvolution(%arg0, %weights, %wt) rawFilterShape [160, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
@@ -121,10 +121,10 @@ func.func @SplitSparseDepthConvWithBigC(%arg0: tensor<1x4080x40x40xf16, {order =
     %cst0 = const.Declare tensor<4080x1x4x4xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<4080x1x4x4xf16>, [#const.Reorder<#NHWC>]
     %wt = const.Declare tensor<4080x1x1x4xsi32, {order = #NHWC}> = dense<10> : tensor<4080x1x1x4xsi32>, [#const.Reorder<#NHWC>]
 
-    %0 = VPU.NCE.DepthConvolution(%arg0, %cst0, %wt) rawFilterShape [4080, 1, 4, 4] {
+    %0 = VPU.NCE.DepthConvolution(%arg0, %cst0, %wt) rawFilterShape [4080, 1, 4, 4] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1]
         } -> !VPU.SparseTensor<data=tensor<1x4080x37x37xf16, {order = #NHWC}>, sparsity_map=tensor<1x4080x37x37xi1, {order = #NHWC}>>
 
@@ -177,11 +177,11 @@ func.func @SplitSparseDepthConvWithBigCWithSOK(%arg0: tensor<1x4080x40x40xf16, {
     %cst0 = const.Declare tensor<4080x1x4x4xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<4080x1x4x4xf16>, [#const.Reorder<#NHWC>]
     %wt = const.Declare tensor<4080x1x1x4xsi32, {order = #NHWC}> = dense<10> : tensor<4080x1x1x4xsi32>, [#const.Reorder<#NHWC>]
 
-    %0 = VPU.NCE.DepthConvolution(%arg0, %cst0, %wt) rawFilterShape [4080, 1, 4, 4] {
+    %0 = VPU.NCE.DepthConvolution(%arg0, %cst0, %wt) rawFilterShape [4080, 1, 4, 4] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1]
         } -> !VPU.SparseTensor<data=tensor<1x4080x37x37xf16, {order = #NHWC}>, sparsity_map=tensor<1x4080x37x37xi1, {order = #NHWC}>>
 
@@ -364,7 +364,7 @@ func.func @DontTileD2SDMA(%arg0: tensor<1x64x128x128x!qElemType, {order = #NHWC}
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
         } : tensor<1x64x128x128x!qElemType, {order = #NHWC}>
             -> tensor<1x16x256x256x!qElemType, {order = #NHWC}>
-    %eltwise = VPU.NCE.Eltwise(%d2s, %d2s) {
+    %eltwise = VPU.NCE.Eltwise(%d2s, %d2s) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
             -> tensor<1x16x256x256x!qElemType, {order = #NHWC}>
     return %eltwise : tensor<1x16x256x256x!qElemType, {order = #NHWC}>
@@ -605,7 +605,7 @@ func.func @SEPDWConvCTile(%arg0: tensor<1x768x32x32xf16, {order = #NHWC}>) -> te
             storage_element_table=tensor<1x12x16x16xi32, {order = #NHWC}>,
             #VPU.SEDilatedConv<dilation = [2, 2], kernelStride = [1, 1], kernelSize = [3, 3], dataOffset = [0, 0, 0, 0],
             dataSizes = [1, 768, 32, 32]>>
-  %4 = VPU.NCE.DepthConvolution(%group_sparse_tensor, %cst_1, %cst_0) rawFilterShape [768, 1, 3, 3] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+  %4 = VPU.NCE.DepthConvolution(%group_sparse_tensor, %cst_1, %cst_0) rawFilterShape [768, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>,
         clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
          strides = [1, 1]}
@@ -668,7 +668,7 @@ func.func @NCEMatMulSOGAndGTile(%arg0: tensor<16x1x128x1x4xf16, {order = #GNHWC}
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverGroup>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
-        
+
         strides = [1, 1]
     } -> tensor<16x1x4224x1x4xf16, {order = #GNHWC}>
 

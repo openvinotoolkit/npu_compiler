@@ -40,25 +40,21 @@ void appendRegisterOperands(SmallVector<int16_t>& dst, mlir::ValueRange operands
 
 void bytecode::CmdListCreateOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto regNum = getRegisterNumber(getReg());
-    writer.appendInstruction(opcode, addrMode, SmallVector<int16_t>{regNum});
+    writer.appendInstruction(opcode, SmallVector<int16_t>{regNum});
 }
 
 void bytecode::CmdListCloseOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto regNum = getRegisterNumber(getReg());
-    writer.appendInstruction(opcode, addrMode, SmallVector<int16_t>{regNum});
+    writer.appendInstruction(opcode, SmallVector<int16_t>{regNum});
 }
 
 void bytecode::CmdListExecOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
-
     const auto regNum = getRegisterNumber(getSrc());
     const auto flag = static_cast<int16_t>(getFlag());
-    writer.appendInstruction(opcode, addrMode, SmallVector<int16_t>{regNum, flag});
+    writer.appendInstruction(opcode, SmallVector<int16_t>{regNum, flag});
 }
 
 size_t bytecode::KernelCreateOp::getBinarySize() {
@@ -67,44 +63,30 @@ size_t bytecode::KernelCreateOp::getBinarySize() {
 
 void bytecode::KernelCreateOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto dstReg = getRegisterNumber(getDst());
 
-    // Resolve the kernel symbol to its positional index in the kernel section.
-    const auto kernelName = getKernelAttr().getLeafReference();
+    // Resolve the kernel to its positional index in the kernel section using the leaf name.
     auto parentModule = getOperation()->getParentOfType<mlir::ModuleOp>();
-    auto kernelSectionOps = parentModule.getOps<bytecode::KernelSectionOp>();
-    auto stringSectionOps = parentModule.getOps<bytecode::StringSectionOp>();
-    VPUX_THROW_UNLESS(std::distance(kernelSectionOps.begin(), kernelSectionOps.end()) == 1,
-                      "Expected exactly one bytecode.kernel_section in the module");
-    VPUX_THROW_UNLESS(std::distance(stringSectionOps.begin(), stringSectionOps.end()) == 1,
-                      "Expected exactly one bytecode.string_section in the module");
-    auto kernelSection = *kernelSectionOps.begin();
-    auto stringSection = *stringSectionOps.begin();
+    VPUX_THROW_UNLESS(parentModule != nullptr, "Expected kernel.create op to be inside a module");
+    const auto kernelName = getKernelAttr().getLeafReference();
+    const auto kernelSectionRef = mlir::SymbolRefAttr::get(getContext(), bytecode::KERNEL_SECTION_NAME,
+                                                           {mlir::FlatSymbolRefAttr::get(kernelName)});
+    const auto kernelIdxOpt =
+            bytecode::getIndex<bytecode::KernelSectionOp, bytecode::KernelOp>(kernelSectionRef, parentModule);
+    VPUX_THROW_UNLESS(kernelIdxOpt.has_value(), "Failed to resolve kernel '{0}' in bytecode.kernel_section",
+                      kernelName);
+    const auto kernelIdx = kernelIdxOpt.value();
+    VPUX_THROW_UNLESS(kernelIdx <= static_cast<uint64_t>(std::numeric_limits<int16_t>::max()),
+                      "Kernel index {0} exceeds int16_t range", kernelIdx);
 
-    int64_t kernelIdx = -1;
-    int64_t idx = 0;
-    for (auto kernelOp : kernelSection.getContent().getOps<bytecode::KernelOp>()) {
-        if (kernelOp.getSymName() == kernelName) {
-            kernelIdx = idx;
-            break;
-        }
-        ++idx;
-    }
-    int64_t kernelNameIdx = -1;
-    idx = 0;
-    for (auto stringOp : stringSection.getContent().getOps<bytecode::StringOp>()) {
-        if (stringOp.getSymName() == kernelName) {
-            kernelNameIdx = idx;
-            break;
-        }
-        ++idx;
-    }
-    VPUX_THROW_UNLESS(kernelIdx >= 0, "Kernel '{0}' not found in bytecode.kernel_section", kernelName);
-    VPUX_THROW_UNLESS(kernelIdx <= std::numeric_limits<int16_t>::max(), "Kernel index {0} exceeds int16_t range",
-                      kernelIdx);
-    VPUX_THROW_UNLESS(kernelNameIdx >= 0, "Kernel name '{0}' not found in bytecode.string_section", kernelName);
-    VPUX_THROW_UNLESS(kernelNameIdx <= std::numeric_limits<int16_t>::max(),
+    const auto stringSectionRef = mlir::SymbolRefAttr::get(getContext(), bytecode::STRING_SECTION_NAME,
+                                                           {mlir::FlatSymbolRefAttr::get(kernelName)});
+    const auto kernelNameIdxOpt =
+            bytecode::getIndex<bytecode::StringSectionOp, bytecode::StringOp>(stringSectionRef, parentModule);
+    VPUX_THROW_UNLESS(kernelNameIdxOpt.has_value(), "Kernel name '{0}' not found in bytecode.string_section",
+                      kernelName);
+    const auto kernelNameIdx = kernelNameIdxOpt.value();
+    VPUX_THROW_UNLESS(kernelNameIdx <= static_cast<uint64_t>(std::numeric_limits<int16_t>::max()),
                       "Kernel name index {0} exceeds int16_t range", kernelNameIdx);
 
     const auto numInputs = getInputs().size();
@@ -123,19 +105,21 @@ void bytecode::KernelCreateOp::serialize(vpux::bytecode::BytecodeWriter& writer)
     for (auto output : getOutputs()) {
         operands.push_back(getRegisterNumber(output));
     }
-    writer.appendInstruction(opcode, addrMode, operands);
+    writer.appendInstruction(opcode, operands);
 }
 
 mlir::LogicalResult bytecode::KernelCreateOp::verifySymbolUses(mlir::SymbolTableCollection& symbolTables) {
-    auto kernelAttr = getKernelAttr();
     auto module = getOperation()->getParentOfType<mlir::ModuleOp>();
-    auto kernelSections = module.getOps<bytecode::KernelSectionOp>();
-    if (kernelSections.empty()) {
-        return emitOpError() << "no kernel section found in module";
+    if (!module) {
+        return emitOpError("expected to be inside a module");
     }
-    auto* resolved = symbolTables.lookupNearestSymbolFrom((*kernelSections.begin()).getOperation(), kernelAttr);
+    auto kernelAttr = getKernelAttr();
+    auto* resolved = symbolTables.lookupSymbolIn(module, kernelAttr);
     if (!resolved) {
-        return emitOpError() << "references undefined symbol " << kernelAttr;
+        return emitOpError() << "kernel '" << kernelAttr.getLeafReference() << "' not found in bytecode.kernel_section";
+    }
+    if (!mlir::isa<bytecode::KernelOp>(resolved)) {
+        return emitOpError() << "kernel '" << kernelAttr.getLeafReference() << "' not found in bytecode.kernel_section";
     }
     return mlir::success();
 }
@@ -158,5 +142,5 @@ void bytecode::CmdListAddKernelOp::serialize(vpux::bytecode::BytecodeWriter& wri
     operands.push_back(checked_cast<int16_t>(waitEvents.size()));
     appendRegisterOperands(operands, waitEvents);
 
-    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), getAddressingMode(), operands);
+    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), operands);
 }

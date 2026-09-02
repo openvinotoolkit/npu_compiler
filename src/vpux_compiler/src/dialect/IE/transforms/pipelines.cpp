@@ -105,7 +105,7 @@ void vpux::IE::buildExpandAndOptimizeActivationChannelsPipeline(mlir::OpPassMana
 
     pm.addPass(IE::createOptimizeSliceExpandPass(log));
     pm.addPass(IE::createAdjustConvolutionWeightsPass(log));
-    pm.addPass(IE::createAdjustConvolutionInputShapePass(options.preferredSpatialAlignment, log));
+    pm.addPass(IE::createAdjustConvolutionInputShapePass(log));
     pm.addPass(IE::createAdjustInputShapePass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(IE::createOptimizeSliceExpandPass(log));
@@ -119,8 +119,6 @@ void vpux::IE::buildExpandAndOptimizeActivationChannelsPipeline(mlir::OpPassMana
     pm.addPass(IE::createFusePermuteQuantizeExpandPass(log));
 
     pm.addPass(IE::createSwapOperationsPass(log));
-    pm.addPass(mlir::createCanonicalizerPass(grc));
-    pm.addPass(IE::createConvertSplitConcatToTransposePass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 }
 
@@ -173,10 +171,8 @@ void vpux::IE::buildInitialTransformationsPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(IE::createUnrollTensorIteratorPass(log));
     pm.addPass(IE::createNormalizeL2FusionPass(log));
     pm.addPass(IE::createMVNFusionPass(log));
+    pm.addPass(IE::createFuseOneHotSelectPass(log));
     pm.addPass(IE::createFuseOpsToMatMulPass(options.enableGroupedMatMul, options.enableConvertCumSumToMatMul, log));
-    if (options.enableConvertToReduceSquare) {
-        pm.addPass(IE::createFuseReduceSquarePass(log));
-    }
     pm.addPass(IE::createDecomposeSTFTPass(log));
     if (options.enableConvertFFTToConv) {
         pm.addPass(IE::createConvertFFTToConvPass(log));
@@ -184,7 +180,6 @@ void vpux::IE::buildInitialTransformationsPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(IE::createMoveMultiplyDividePostOpPass(log));
     pm.addPass(IE::createFuseNormalizeL2ToRMSPass(log));
     pm.addPass(IE::createUnrollSDPAPatternPass(log));
-    pm.addPass(IE::createEliminateSliceInSoftmaxMatMulPass(log));
     pm.addPass(IE::createShrinkMatmulGroupsPass(log));
     pm.addPass(IE::createBatchOpProcessingPipelineRewriterExecutorPass(options, log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
@@ -258,7 +253,6 @@ void vpux::IE::buildDynamicShapeTransformationsPipeline(mlir::OpPassManager& pm,
     pm.addPass(locverif::createStartLocationVerifierPass(log, options.locationsVerificationMode));
     pm.addPass(IE::createLegalizeReifyResultShapesResidualsPass(log));
     pm.addPass(IE::createPadDynamicInputsPass(log));
-    pm.addPass(IE::createDynamicConcatToScatterNDUpdatePass(log));
 }
 
 void vpux::IE::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(
@@ -358,6 +352,7 @@ void vpux::IE::buildMemPermuteProcessingPipeline(mlir::OpPassManager& pm,
 void vpux::IE::buildPostImportPipeline(mlir::OpPassManager& pm, Logger log) {
     pm.addPass(IE::createInputQuantizationRestorationPass(log));
     pm.addPass(IE::createPropagateAndCleanUpFQPass(log));
+    pm.addPass(IE::createDecomposeMatMulThroughSlicePass(log));
     pm.addPass(IE::createConvertVariadicSplitToStridedSlicePass(log));
 }
 
@@ -386,6 +381,7 @@ void vpux::IE::buildAdjustForVPUPipeline(mlir::OpPassManager& pm, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
     // passes using walk drivers or conversion drivers
+    // First run: legalize pre-existing dilated Conv/GroupConv before downstream conversion passes.
     pm.addPass(IE::createLegalizeDilatedConvolutionPass(log));
     pm.addPass(IE::createConvertPaddingsToFloorModePass(log));
     pm.addPass(IE::createConvertNearestToBroadCastOrStridedConcatPass(log));
@@ -394,6 +390,8 @@ void vpux::IE::buildAdjustForVPUPipeline(mlir::OpPassManager& pm, Logger log) {
     pm.addPass(IE::createConvertScatterPass(log));
     pm.addPass(IE::createConvertTransposedConv2DToConv2DPass(log));
     pm.addPass(IE::createConvertGroupTransposedConvToGroupConvPass(log));
+    // Second run: legalize dilated Conv/GroupConv ops introduced by the two conversion passes above (E#222712).
+    pm.addPass(IE::createLegalizeDilatedConvolutionPass(log));
     pm.addPass(IE::createConvertGroupTransposedConvToTransposedConvPass(log));
     pm.addPass(IE::createConvertGroupConvToConvPass(log));
     pm.addPass(IE::createConvertUpsamplingToStridedConcatPass(log));
@@ -425,17 +423,28 @@ void vpux::IE::buildScaleShiftProcessingPipeline(mlir::OpPassManager& pm, Logger
 void vpux::IE::buildOperationConversionPipeline(mlir::OpPassManager& pm, const IE::OperationConversionOptions& options,
                                                 Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
-
     // Resolve group quant MatMul pattern
     pm.addPass(mlir::createCSEPass());
     pm.addPass(IE::createMergeParallelFullyConnectedPass(log));
+
+    // this pass is added here so that every DynamicDequant op will have a quantized input.
+    // For now Dequantize op can only receive quantized inputs, with the current refactoring ongoing (Deq->DynamicDeq
+    // and quant inputs -> raw data types) there were regressions observed because ConvertDynamicDequantizeToDequantize
+    // received raw data types at input and needed to insert a QuantCast for Dequant. This led to
+    // MergeFullyConnectedPass not being able to merge the FCs because of the QuantCast in between. The consensus
+    // reached was that there should be no QuantCast inserted for Dequantize op, and the op should be extended to also
+    // receive raw data types through which probably it assumes that they are dummy quant casts (scale=1 zp =0). This is
+    // a temporary solution until the refactoring is completed. Ticket to address this issue:
+    // TODO #E-225955
+    pm.addPass(IE::createConvertDQRawDataTypeToQuantizedPass(log));
+
     pm.addPass(IE::createUnrollGroupQuantizePass(log));
     pm.addPass(IE::createUnrollFullyConnectedPass(log));
     if (options.convertDynamicDequantize) {
         pm.addPass(IE::createConvertDynamicDequantizeToDequantizePass(log));
     }
     pm.addPass(IE::createMoveMultiplyDividePostOpPass(log));
-    pm.addPass(IE::createSwapOperationWithGatherPass(log));
+    pm.addPass(IE::createSwapOperationsWithGatherAndSlicePass(log));
     pm.addPass(IE::createMergeFullyConnectedPass(isOptionEnabled(options.mergeUnrolledMatmulForLargeOC), log));
 
     pm.addPass(IE::createConvertMatMulToConvPass(log));
@@ -487,7 +496,6 @@ void vpux::IE::buildConvertToEfficientOpsPipeline(mlir::OpPassManager& pm, const
     pm.addPass(IE::createBroadcastInputForAddPass(log));
     pm.addPass(IE::createConvertGRNToNormalizeL2Pass(log));
     pm.addPass(IE::createConvertToScaleShiftPass(/*enableNCEEltwiseMultiply=*/false, log));
-    // NOTE: Canonicalizer required after ConvertShapeTo4DPass
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(IE::createResolveScatterUpdateByTransposePass(log));
     pm.addPass(IE::createConvertGroupConvToConvPass(log));
@@ -499,7 +507,6 @@ void vpux::IE::buildConvertToEfficientOpsPipeline(mlir::OpPassManager& pm, const
     // NOTE: SwapD2SAndScaleShift depends on ConvertDepth2SpaceToTransposedConv
     pm.addPass(IE::createSwapD2SAndScaleShiftPass(log));
     pm.addPass(IE::createConvertReverseToDWConvPass(log));
-    pm.addPass(IE::createConvertDeformableConvToConvPass(log));
 }
 
 void vpux::IE::buildHandleHyperParametersPipeline(mlir::OpPassManager& pm, Logger log) {

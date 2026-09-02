@@ -5,6 +5,7 @@
 
 #include <vpux/utils/core/error.hpp>
 #include "vpux/compiler/core/barrier_info.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
@@ -81,8 +82,9 @@ void finalizeBarrierInfo(BarrierInfo& barrierInfo, mlir::func::FuncOp netFunc, L
 // DMAOp This map is used later to refer to real DMAOp and get real task-index from barrierInfo
 void AddPlaceholderFetchDMAsPass::realizePlannedInsertions(mlir::OpBuilder& builder, BarrierInfo& barrierInfo,
                                                            PlannedInsertionsData& preparedInsertions) {
-    auto inBuffer = VPUIP::createDummyBuffer(builder, preparedInsertions.bufferInsertionPoint);
-    auto outBuffer = VPUIP::createDummyBuffer(builder, preparedInsertions.bufferInsertionPoint);
+    auto inBuffer = VPUIP::createDummyBuffer(builder, preparedInsertions.bufferInsertionPoint, VPU::MemoryKind::DDR);
+    auto outBuffer =
+            VPUIP::createDummyBuffer(builder, preparedInsertions.bufferInsertionPoint, VPU::MemoryKind::CMX_NN);
     SmallVector<VPURT::TaskOp> fetchDMAs;
 
     SmallVector<VPURT::DeclareVirtualBarrierOp> dummyBarriers;

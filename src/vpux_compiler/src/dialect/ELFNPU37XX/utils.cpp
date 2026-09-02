@@ -270,7 +270,7 @@ size_t vpux::ELFNPU37XX::math::lcm(size_t a, size_t b) {
 namespace {
 const std::unordered_map<vpux::config::ArchKind, elf::platform::ArchKind> vpuToElfArchEnumMap = {
         {vpux::config::ArchKind::UNKNOWN, elf::platform::ArchKind::UNKNOWN},
-        {vpux::config::ArchKind::NPU37XX, elf::platform::ArchKind::VPUX37XX}};
+        {vpux::config::ArchKind::NPU37XX, elf::platform::ArchKind::NPU3720}};
 }  // namespace
 
 elf::platform::ArchKind vpux::ELFNPU37XX::mapVpuArchKindToElfArchKind(const vpux::config::ArchKind& archKind) {

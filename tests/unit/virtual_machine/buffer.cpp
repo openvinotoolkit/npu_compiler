@@ -403,7 +403,7 @@ constexpr size_t kPage = intel_npu::utils::STANDARD_PAGE_SIZE;
 
 // A GrowingArena over a CountingLeaf, erased into AnyAllocator, so a test can observe backing allocations.
 AnyAllocator makeCountingArena(AllocCounters& counters) {
-    return AnyAllocator{GrowingArena<CountingLeaf, BumpRegion<CountingLeaf::alignment>, /*initialSlabBytes=*/kPage,
+    return AnyAllocator{GrowingArena<CountingLeaf, BumpRegion<CountingLeaf::ALIGNMENT>, /*initialSlabBytes=*/kPage,
                                      /*maxSlabBytes=*/0>(CountingLeaf{&counters})};
 }
 

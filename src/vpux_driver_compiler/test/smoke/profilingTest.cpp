@@ -4,73 +4,125 @@
 //
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
+#include <memory>
+#include <new>
+#include <type_traits>
 
 #include "vcl_api.hpp"
 
-int readFile(const char* fileName, char** buffer, size_t* size) {
-    FILE* file = fopen(fileName, "rb");
+std::unique_ptr<char[]> readFile(const char* fileName, size_t& size) {
+    size = 0;
+    auto fileCloser = [](FILE* filePtr) {
+        if (filePtr != nullptr) {
+            (void)std::fclose(filePtr);
+        }
+    };
+    std::unique_ptr<FILE, decltype(fileCloser)> file(fopen(fileName, "rb"), fileCloser);
     if (!file) {
         perror("Can't open blob file");
-        return EXIT_FAILURE;
+        return nullptr;
     }
 
-    fseek(file, 0L, SEEK_END);
-    long fileSize = ftell(file);
+    if (fseek(file.get(), 0L, SEEK_END) != 0) {
+        fprintf(stderr, "fseek failed for %s", fileName);
+        return nullptr;
+    }
+    long fileSize = ftell(file.get());
     if (fileSize < 0) {
         printf("Ftell method returns failure.");
-        fclose(file);
-        return VCL_RESULT_ERROR_IO;
+        return nullptr;
     }
-    uint64_t unsignedFileSize = (uint64_t)fileSize;
-    fseek(file, 0L, SEEK_SET);
+    size_t unsignedFileSize = static_cast<size_t>(fileSize);
+    if (unsignedFileSize == 0) {
+        fprintf(stderr, "Binary buffer is empty");
+        return nullptr;
+    }
+    if (fseek(file.get(), 0L, SEEK_SET) != 0) {
+        fprintf(stderr, "fseek failed for %s", fileName);
+        return nullptr;
+    }
 
-    char* binaryBuffer = (char*)malloc(unsignedFileSize);
+    std::unique_ptr<char[]> binaryBuffer(new (std::nothrow) char[unsignedFileSize]);
     if (!binaryBuffer) {
         fprintf(stderr, "Can't allocate %zu bytes to read %s.", unsignedFileSize, fileName);
-        fclose(file);
-        return EXIT_FAILURE;
+        return nullptr;
     }
 
-    // Use fgetc to read from the file into the buffer
-    int ch;
-    size_t bytesRead = 0;
+    const size_t bytesRead = fread(binaryBuffer.get(), sizeof(char), unsignedFileSize, file.get());
+    if (bytesRead != unsignedFileSize) {
+        fprintf(stderr, "Failed to read complete file %s", fileName);
+        return nullptr;
+    }
 
-    while ((ch = fgetc(file)) != EOF && bytesRead < unsignedFileSize - 1) {
-        if (ch >= 32 && ch <= 126) {
-            binaryBuffer[bytesRead++] = (char)ch;
-        } else {
-            free(binaryBuffer);
-            fprintf(stderr, "Can't character is a printable ASCII character.");
-            fclose(file);
-            return EXIT_FAILURE;
+    size = bytesRead;
+    return binaryBuffer;
+}
+
+int runProfilingFlow(const std::unique_ptr<char[]>& blobBuffer, size_t blobSize,
+                     const std::unique_ptr<char[]>& profBuffer, size_t profSize) {
+    struct ProfilingHandleDeleter {
+        void operator()(vcl_profiling_handle_t handle) const noexcept {
+            if (handle == nullptr) {
+                return;
+            }
+            try {
+                (void)VCLTest::vclProfilingDestroy(handle);
+            } catch (...) {
+                std::fprintf(stderr, "Exception occurred while destroying profiling handle\n");
+            }
         }
+    };
+    using ProfilingHandlePtr = std::unique_ptr<std::remove_pointer_t<vcl_profiling_handle_t>, ProfilingHandleDeleter>;
+    ProfilingHandlePtr profHandle;
+
+    vcl_result_t ret = VCL_RESULT_SUCCESS;
+    vcl_profiling_input_t profilingApiInput = {};
+    profilingApiInput.blobData = reinterpret_cast<uint8_t*>(blobBuffer.get());
+    profilingApiInput.blobSize = blobSize;
+    profilingApiInput.profData = reinterpret_cast<uint8_t*>(profBuffer.get());
+    profilingApiInput.profSize = profSize;
+    vcl_profiling_handle_t rawProfHandle = nullptr;
+    ret = VCLTest::vclProfilingCreate(&profilingApiInput, &rawProfHandle, nullptr);
+    if (ret != VCL_RESULT_SUCCESS) {
+        return EXIT_FAILURE;
     }
+    profHandle.reset(rawProfHandle);
 
-    // Null-terminate the buffer
-    binaryBuffer[bytesRead] = '\0';
+    vcl_profiling_properties_t profProperties = {};
+    ret = VCLTest::vclProfilingGetProperties(profHandle.get(), &profProperties);
+    if (ret != VCL_RESULT_SUCCESS) {
+        return EXIT_FAILURE;
+    }
+    printf("Using profiling version %hu.%hu\n", profProperties.version.major, profProperties.version.minor);
 
-    if (bytesRead <= 0) {
-        free(binaryBuffer);
-        fprintf(stderr, "Binary buffer is empty");
-        fclose(file);
+    vcl_profiling_output_t profOutput = {};
+    ret = VCLTest::vclGetDecodedProfilingBuffer(profHandle.get(), VCL_PROFILING_LAYER_LEVEL, &profOutput);
+    if (ret != VCL_RESULT_SUCCESS || profOutput.data == nullptr) {
         return EXIT_FAILURE;
     }
 
-    fclose(file);
+    profOutput = {};
+    ret = VCLTest::vclGetDecodedProfilingBuffer(profHandle.get(), VCL_PROFILING_TASK_LEVEL, &profOutput);
+    if (ret != VCL_RESULT_SUCCESS || profOutput.data == nullptr) {
+        return EXIT_FAILURE;
+    }
 
-    *buffer = binaryBuffer;
-    *size = unsignedFileSize;
+    profOutput = {};
+    ret = VCLTest::vclGetDecodedProfilingBuffer(profHandle.get(), VCL_PROFILING_RAW, &profOutput);
+    if (ret != VCL_RESULT_SUCCESS || profOutput.data == nullptr) {
+        return EXIT_FAILURE;
+    }
 
+    printf("Test passed. Profiling API works! Great success!\n");
     return EXIT_SUCCESS;
 }
 
-void clearBuffer(vcl_profiling_handle_t profilingHandle, char* blobBuffer, char* profBuffer) {
-    VCLTest::vclProfilingDestroy(profilingHandle);
-    free(blobBuffer);
-    free(profBuffer);
-}
-
 int main(int argc, char** argv) {
+    int result = EXIT_SUCCESS;
+    std::unique_ptr<char[]> blobBuffer;
+    std::unique_ptr<char[]> profBuffer;
+
     if (argc != 3) {
         printf("usage:\n"
                "\tprofilingTest network.blob profiling_output.bin\n"
@@ -84,74 +136,31 @@ int main(int argc, char** argv) {
     const char* blobFileName = argv[1];
     const char* profFileName = argv[2];
 
-    printf("VCL step: Load VCL library.\n");
-    (void)VCLTest::VCLApi::getInstance();
-
-    char* blobBuffer = NULL;
     size_t blobSize = 0;
-    int result = readFile(blobFileName, &blobBuffer, &blobSize);
-    if (result != EXIT_SUCCESS) {
-        return result;
+    blobBuffer = readFile(blobFileName, blobSize);
+    if (!blobBuffer) {
+        return EXIT_FAILURE;
     }
 
-    char* profBuffer = NULL;
     size_t profSize = 0;
-    result = readFile(profFileName, &profBuffer, &profSize);
-    if (result != EXIT_SUCCESS) {
-        free(blobBuffer);
-        return result;
+    profBuffer = readFile(profFileName, profSize);
+    if (!profBuffer) {
+        return EXIT_FAILURE;
     }
 
-    vcl_result_t ret = VCL_RESULT_SUCCESS;
-    vcl_profiling_input_t profilingApiInput = {};
-    profilingApiInput.blobData = reinterpret_cast<uint8_t*>(blobBuffer);
-    profilingApiInput.blobSize = blobSize;
-    profilingApiInput.profData = reinterpret_cast<uint8_t*>(profBuffer);
-    profilingApiInput.profSize = profSize;
-    vcl_profiling_handle_t profHandle = NULL;
-    ret = VCLTest::vclProfilingCreate(&profilingApiInput, &profHandle, NULL);
-    if (ret != VCL_RESULT_SUCCESS) {
-        result = EXIT_FAILURE;
-        free(blobBuffer);
-        free(profBuffer);
-        return result;
+    try {
+        printf("VCL step: Load VCL library.\n");
+        (void)VCLTest::VCLApi::getInstance();
+        result = runProfilingFlow(blobBuffer, blobSize, profBuffer, profSize);
+        if (result != EXIT_SUCCESS) {
+            return result;
+        }
+    } catch (const std::exception& ex) {
+        fprintf(stderr, "profilingTest failed with exception: %s\n", ex.what());
+        return EXIT_FAILURE;
+    } catch (...) {
+        fprintf(stderr, "profilingTest failed with unknown exception\n");
+        return EXIT_FAILURE;
     }
-
-    vcl_profiling_properties_t profProperties;
-    ret = VCLTest::vclProfilingGetProperties(profHandle, &profProperties);
-    if (ret != VCL_RESULT_SUCCESS) {
-        result = EXIT_FAILURE;
-        clearBuffer(profHandle, blobBuffer, profBuffer);
-        return result;
-    }
-    printf("Using profiling version %hu.%hu\n", profProperties.version.major, profProperties.version.minor);
-
-    vcl_profiling_output_t profOutput;
-    profOutput.data = NULL;
-    ret = VCLTest::vclGetDecodedProfilingBuffer(profHandle, VCL_PROFILING_LAYER_LEVEL, &profOutput);
-    if (ret != VCL_RESULT_SUCCESS || profOutput.data == NULL) {
-        result = EXIT_FAILURE;
-        clearBuffer(profHandle, blobBuffer, profBuffer);
-        return result;
-    }
-
-    profOutput.data = NULL;
-    ret = VCLTest::vclGetDecodedProfilingBuffer(profHandle, VCL_PROFILING_TASK_LEVEL, &profOutput);
-    if (ret != VCL_RESULT_SUCCESS || profOutput.data == NULL) {
-        result = EXIT_FAILURE;
-        clearBuffer(profHandle, blobBuffer, profBuffer);
-        return result;
-    }
-
-    profOutput.data = NULL;
-    ret = VCLTest::vclGetDecodedProfilingBuffer(profHandle, VCL_PROFILING_RAW, &profOutput);
-    if (ret != VCL_RESULT_SUCCESS || profOutput.data == NULL) {
-        result = EXIT_FAILURE;
-        clearBuffer(profHandle, blobBuffer, profBuffer);
-        return result;
-    }
-    clearBuffer(profHandle, blobBuffer, profBuffer);
-    printf("Test passed. Profiling API works! Great success!\n");
-
     return result;
 }

@@ -12,7 +12,6 @@ add_tool_target(
     ROOT ${CMAKE_CURRENT_SOURCE_DIR}
     ENABLE_WARNINGS_AS_ERRORS
     LINK_LIBRARIES
-         openvino::npu_al
          npu_elf
          npu_mlir_compiler_static
 )

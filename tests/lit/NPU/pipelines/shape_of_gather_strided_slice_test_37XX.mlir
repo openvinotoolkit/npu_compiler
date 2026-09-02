@@ -23,8 +23,8 @@
 // CHECK:       [[SHAPE_OF:%.+]] = IE.ShapeOf([[TRANSPOSE]]) {dstElemType = si64}
 // CHECK-SAME:      -> tensor<2xsi64>
 // CHECK:       [[CST_GATHER_INDICES:%.+]] = const.Declare tensor<1xsi64> = dense<0> : tensor<1xsi64>
-// CHECK:       [[CST_GATHER_AXIS:%.+]] = const.Declare tensor<si64> = dense<0> : tensor<si64>
-// CHECK:       [[GATHER:%.+]] = IE.Gather([[SHAPE_OF]], [[CST_GATHER_INDICES]], [[CST_GATHER_AXIS]])
+// CHECK:       [[GATHER:%.+]] = IE.Gather([[SHAPE_OF]], [[CST_GATHER_INDICES]])
+// CHECK-SAME:      axis_value = 0
 // CHECK-SAME:      -> tensor<1xsi64>
 // CHECK:       [[CST_STRIDEDSLICE_STRIDES:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
 // CHECK:       [[STRIDEDSLICE:%.+]] = IE.StridedSlice([[CST_STRIDEDSLICE_IN]], [[CST_STRIDEDSLICE_BEGINS]], [[GATHER]], [[CST_STRIDEDSLICE_STRIDES]])

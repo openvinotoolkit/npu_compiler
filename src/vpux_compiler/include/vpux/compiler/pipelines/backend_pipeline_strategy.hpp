@@ -18,7 +18,7 @@ namespace vpux {
 
 class IBackendPipelineStrategy {
 public:
-    virtual void buildELFPipeline(mlir::OpPassManager& pm, const intel_npu::Config& config,
+    virtual void buildELFPipeline(mlir::OpPassManager& pm, const vpux::OV::Config& config,
                                   mlir::TimingScope& rootTiming, Logger log) = 0;
 
     virtual ~IBackendPipelineStrategy() = default;

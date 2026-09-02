@@ -48,8 +48,6 @@ class QuantizedConvClampSubGraphTestCommon :
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         inputs.clear();
         const auto& funcInputs = function->inputs();
-
-        auto data_size = shape_size(targetInputStaticShapes[0]);
         ov::Tensor tensorData =
                 create_and_fill_tensor(funcInputs[0].get_element_type(), targetInputStaticShapes[0], 100, -50, 1, 1);
         inputs.insert({funcInputs[0].get_node_shared_ptr(), tensorData});

@@ -111,7 +111,6 @@ public:
 
         // Create weights FQ
         const ov::Shape weightsShape{16, 3, 3, 3};
-        const auto weightTotalSize = ov::shape_size(weightsShape);
 
         auto rangeMin = -64;
         auto rangeMax = 63;

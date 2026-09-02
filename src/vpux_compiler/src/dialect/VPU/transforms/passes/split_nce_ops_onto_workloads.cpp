@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
+#include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 #include <vpu_cost_model.h>
@@ -139,12 +140,13 @@ mlir::LogicalResult NCEWorkloadSplitPreSplitRewrite::matchAndRewrite(VPU::NCEOpI
     // Track E#159358
     // VPUNN will update the workload split logic to meet max workload requirement
     // This check can be removed when VPUNN submodule is updated
-    const auto availableVariantsPerInvariant = vpux::VPUIP::getMaxNumberOfDpuVariantsPerInvariant(nceOp) / 2;
+    const auto maxSlotCount = VPUIP::getBarrierMaxSlotCount(nceOp);
+    const auto availableSlot = VPUIP::getAvailableSlots(nceOp, maxSlotCount);
     for (auto item : layerSplitInfo) {
         // item OneTileLayerInfo
         auto workloadCost = item.best_intra_tile_split;
-        if (workloadCost.second.size() > availableVariantsPerInvariant) {
-            _log.trace("There are too many workloads, Use heuristic mode for op {0}'", nceOp->getName());
+        if (workloadCost.second.size() > availableSlot) {
+            _log.trace("There are too many workloads, use heuristic mode for op {0}", nceOp->getName());
             return genericNCEWorkloadSplit(nceOp, rewriter, _arch, _numDPU, _costModel, _log);
         }
     }
@@ -203,6 +205,10 @@ void SplitNCEOpsOntoWorkloadsPass::safeRunOnFunc() {
     mlir::ConversionTarget target(ctx);
     target.markUnknownOpDynamicallyLegal([&](mlir::Operation* op) {
         if (auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op)) {
+            // Skip NCE ops inside scf.forall, scf.for — handled by WorkloadsForNCEOpsSCFPass
+            if (op->getParentOfType<mlir::scf::ForallOp>() || op->getParentOfType<mlir::scf::ForOp>()) {
+                return true;
+            }
             return !nceOp.getWorkloads().empty();
         }
         return true;

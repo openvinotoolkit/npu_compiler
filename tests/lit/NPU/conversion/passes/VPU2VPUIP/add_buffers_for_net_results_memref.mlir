@@ -97,15 +97,11 @@ module @TwoFunctions {
         return %1, %0#1 : memref<1x4x60x60xf16>, memref<1x2x60x60xf16>
 
         // CHECK:       [[ALLOC1:%.+]] = memref.alloc() : memref<1x4x60x60xf16>
-        // CHECK:       [[ALLOC2:%.+]] = memref.alloc() : memref<1x2x60x60xf16>
-        // CHECK:       [[FOO1_RES:%.+]]:2 = call @foo1([[ARG0]], [[ALLOC1]], [[ALLOC2]]) : (memref<1x8x60x60xf16>, memref<1x4x60x60xf16>, memref<1x2x60x60xf16>)
+        // CHECK:       [[FOO1_RES:%.+]]:2 = call @foo1([[ARG0]], [[ALLOC1]], [[ARG2]]) : (memref<1x8x60x60xf16>, memref<1x4x60x60xf16>, memref<1x2x60x60xf16>)
         // CHECK-SAME:       -> (memref<1x4x60x60xf16>, memref<1x2x60x60xf16>)
 
-        // CHECK: [[ALLOC3:%.+]] = memref.alloc() : memref<1x4x60x60xf16>
-        // CHECK: [[FOO2_RES:%.+]] = call @foo2([[FOO1_RES]]#0, [[ALLOC3]]) : (memref<1x4x60x60xf16>, memref<1x4x60x60xf16>) -> memref<1x4x60x60xf16>
+        // CHECK: call @foo2([[FOO1_RES]]#0, [[ARG1]]) : (memref<1x4x60x60xf16>, memref<1x4x60x60xf16>) -> memref<1x4x60x60xf16>
 
-        // CHECK: memref.copy [[FOO2_RES]], [[ARG1]] : memref<1x4x60x60xf16> to memref<1x4x60x60xf16>
-        // CHECK: memref.copy [[FOO1_RES]]#1, [[ARG2]] : memref<1x2x60x60xf16> to memref<1x2x60x60xf16>
         // CHECK: return [[ARG1]], [[ARG2]] : memref<1x4x60x60xf16>, memref<1x2x60x60xf16>
     }
 }
@@ -142,9 +138,7 @@ module @NestedFunction {
     func.func @main(%arg0: memref<1x1000xf16>) -> memref<1x1000xf16> {
         %0 = Core.NestedCall @Module1::@SingleLayer(%arg0) : (memref<1x1000xf16>) -> memref<1x1000xf16>
         return %0 : memref<1x1000xf16>
-        // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x1000xf16>
-        // CHECK: [[NESTED_CALL:%.+]] = Core.NestedCall [[NESTED_MODULE_NAME]]::[[FUNC_NAME]]([[ARG0]], [[ALLOC]]) : (memref<1x1000xf16>, memref<1x1000xf16>) -> memref<1x1000xf16>
-        // CHECK: memref.copy [[NESTED_CALL]], [[ARG1]] : memref<1x1000xf16> to memref<1x1000xf16>
+        // CHECK: Core.NestedCall [[NESTED_MODULE_NAME]]::[[FUNC_NAME]]([[ARG0]], [[ARG1]]) : (memref<1x1000xf16>, memref<1x1000xf16>) -> memref<1x1000xf16>
         // CHECK: return [[ARG1]] : memref<1x1000xf16>
     }
 }
@@ -261,5 +255,124 @@ module @AddBuffersForDynStridedResult {
         // CHECK-SAME:  -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
         // CHECK: memref.copy {{%.+}}, [[ARG1]] : memref<1x3x?x?xf16> to memref<1x3x?x?xf16>
         // CHECK: return [[ARG1]] : memref<1x3x?x?xf16>
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @AddBuffersForNetResultsCopy
+module @AddBuffersForNetResultsCopy {
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "input" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 50, 50]> : tensor<4xsi64>, order = #NCHW}>
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 400, 400]> : tensor<4xsi64>, order = #NCHW}>
+    }
+
+    module @Module0 {
+        net.NetworkInfo entryPoint : @kernel
+        inputsInfo : {
+            DataInfo "in_0" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 50, 50]> : tensor<4xsi64>, order = #NCHW}>
+        } outputsInfo : {
+            DataInfo "out_0" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 400, 400]> : tensor<4xsi64>, order = #NCHW}>
+        }
+
+        // CHECK: func.func @kernel([[ARG0:%.+]]: memref<1x3x?x?xf16>, [[ARG1:%.+]]: memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16>
+        func.func @kernel(%arg0: memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16> {
+            return %arg0 : memref<1x3x?x?xf16>
+
+            // CHECK: [[COPY:%.+]] = VPUIP.Copy inputs([[ARG0]] : memref<1x3x?x?xf16>) outputs([[ARG1]] : memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16>
+            // CHECK: return [[COPY]] : memref<1x3x?x?xf16>
+        }
+    }
+
+    // CHECK: func.func @main([[ARG0:%.+]]: memref<1x3x?x?xf16>, [[ARG1:%.+]]: memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16>
+    func.func @main(%arg0: memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16> {
+        %result = Core.NestedCall @Module0::@kernel(%arg0) : (memref<1x3x?x?xf16>) -> memref<1x3x?x?xf16>
+
+        %c2 = arith.constant 2 : index
+        %c3 = arith.constant 3 : index
+        %dim2 = memref.dim %result, %c2 : memref<1x3x?x?xf16>
+        %dim3 = memref.dim %result, %c3 : memref<1x3x?x?xf16>
+        %scratch = memref.alloc(%dim2, %dim3) : memref<1x3x?x?xf16>
+        memref.copy %result, %scratch : memref<1x3x?x?xf16> to memref<1x3x?x?xf16>
+
+        return %scratch : memref<1x3x?x?xf16>
+
+        // Both the scratch-buffer copy and the pass-inserted return copy are eliminated: the NestedCall
+        // writes directly into the appended output argument [[ARG1]].
+        // CHECK: [[RESULT:%.+]] = Core.NestedCall @Module0::@kernel([[ARG0]], [[ARG1]])
+        // CHECK-SAME:  -> memref<1x3x?x?xf16>
+        // CHECK-NOT: memref.copy
+        // CHECK: return [[ARG1]] : memref<1x3x?x?xf16>
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @AddBuffersForSubViewOfLoopIterArg
+// Tests that a copy into a memref.subview of an scf.for iter_arg is eliminated. The subview is
+// defined after the call, so it is hoisted above the call to dominate its new use as output argument.
+// Without the reuse, the dynamic result would reach the static allocation path and produce a
+// memref.alloc missing its dynamic sizes
+module @AddBuffersForSubViewOfLoopIterArg {
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "input" : tensor<?x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[8, 3, 50, 50]> : tensor<4xsi64>, order = #NCHW}>
+    } outputsInfo : {
+        DataInfo "output" : tensor<?x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[8, 3, 50, 50]> : tensor<4xsi64>, order = #NCHW}>
+    }
+
+    // CHECK: func.func private @batch([[BARG0:%.+]]: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>, [[BARG1:%.+]]: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>)
+    func.func private @batch(%arg0: memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>)
+            -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>> {
+        return %arg0 : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+    }
+
+    // CHECK: func.func @main([[ARG0:%.+]]: memref<?x3x?x?xf16>, [[ARG1:%.+]]: memref<?x3x?x?xf16>) -> memref<?x3x?x?xf16>
+    func.func @main(%arg0: memref<?x3x?x?xf16>) -> memref<?x3x?x?xf16> {
+        %c0 = arith.constant 0 : index
+        %c1 = arith.constant 1 : index
+        %c2 = arith.constant 2 : index
+        %c3 = arith.constant 3 : index
+        %batches = memref.dim %arg0, %c0 : memref<?x3x?x?xf16>
+        %h = memref.dim %arg0, %c2 : memref<?x3x?x?xf16>
+        %w = memref.dim %arg0, %c3 : memref<?x3x?x?xf16>
+        %out = memref.alloc(%batches, %h, %w) : memref<?x3x?x?xf16>
+
+        %loop = scf.for %i = %c0 to %batches step %c1 iter_args(%iter = %out) -> (memref<?x3x?x?xf16>) {
+            %in_slice = memref.subview %arg0[%i, 0, 0, 0] [1, 3, %h, %w] [1, 1, 1, 1]
+                    : memref<?x3x?x?xf16> to memref<1x3x?x?xf16, strided<[?, ?, ?, 1], offset: ?>>
+            %in_cast = memref.cast %in_slice
+                    : memref<1x3x?x?xf16, strided<[?, ?, ?, 1], offset: ?>> to memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+
+            %res = func.call @batch(%in_cast)
+                    : (memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>)
+                    -> memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+
+            %out_h = memref.dim %iter, %c2 : memref<?x3x?x?xf16>
+            %out_w = memref.dim %iter, %c3 : memref<?x3x?x?xf16>
+            %out_slice = memref.subview %iter[%i, 0, 0, 0] [1, 3, %out_h, %out_w] [1, 1, 1, 1]
+                    : memref<?x3x?x?xf16> to memref<1x3x?x?xf16, strided<[?, ?, ?, 1], offset: ?>>
+            memref.copy %res, %out_slice
+                    : memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>> to memref<1x3x?x?xf16, strided<[?, ?, ?, 1], offset: ?>>
+            scf.yield %iter : memref<?x3x?x?xf16>
+        }
+
+        return %loop : memref<?x3x?x?xf16>
+
+        // The output subview of the iter_arg is hoisted above the call and passed as the output
+        // argument, so no memref.copy and no dynamic memref.alloc for the result remain in the loop.
+        // CHECK: scf.for [[I:%.+]] = {{%.+}} to {{%.+}} step {{%.+}} iter_args([[ITER:%.+]] = {{%.+}})
+        // CHECK:   [[OUT_SLICE:%.+]] = memref.subview [[ITER]]{{\[}}[[I]], 0, 0, 0]
+        // CHECK:   [[OUT_CAST:%.+]] = memref.cast [[OUT_SLICE]]
+        // CHECK-SAME:  to memref<1x3x?x?xf16, strided<[?, ?, ?, ?], offset: ?>>
+        // CHECK:   func.call @batch({{[^,]+}}, [[OUT_CAST]])
+        // CHECK-NOT: memref.copy
+        // CHECK:   scf.yield [[ITER]]
     }
 }

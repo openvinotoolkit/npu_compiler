@@ -38,7 +38,7 @@ struct DMAData {
     SmallVector<VPURT::IndexType> producesIn;
     DMAType dmaType;
     VPUIP::FetchDMAAttr fetchDmaAttr;
-    bool isShvSyncDma = false;
+    bool isShvReleaseDma = false;
     int64_t logicalTaskIndex = -1;
 };
 
@@ -107,11 +107,14 @@ VPURT::TaskOp createDmaForGivenType(mlir::OpBuilder& builder, mlir::Value inputB
     VPURT::TaskOp newDMA;
     switch (dmaData.dmaType) {
     case DMAType::Sync: {
-        const auto logicalTaskAttr =
-                dmaData.isShvSyncDma ? builder.getI64IntegerAttr(dmaData.logicalTaskIndex) : nullptr;
+        const auto logicalTaskAttr = builder.getI64IntegerAttr(dmaData.logicalTaskIndex);
         newDMA = VPUIP::createSyncDMA(builder, inputBuf, outputBuf, dmaData.port, {}, {},
-                                      dmaData.isShvSyncDma ? "shv_submit_sync_dma" : "shv_submit_guard_sync_dma",
+                                      dmaData.isShvReleaseDma ? "shv_submit_guard_sync_dma" : "shv_submit_sync_dma",
                                       logicalTaskAttr);
+        if (dmaData.isShvReleaseDma) {
+            auto syncDMAOp = mlir::cast<VPUIP::SyncDMAOp>(newDMA.getInnerTaskOp());
+            syncDMAOp->setAttr(VPUIP::SHV_RELEASE_DMA_ATTR_NAME, builder.getUnitAttr());
+        }
         break;
     }
     case DMAType::Fetch:
@@ -230,12 +233,11 @@ This function plans legalization of SHV tasks submitting DMAs by inserting requi
 and barriers to ensure that all fetches are completed and DMA Descriptors for Skip are in CMX before SHV starts
 executing.
 
-        -> Fetch(Skip_list0_DDR) -|
-        -> Fetch(Skip_list1_DDR) -|-> BAR -> |-> SyncDMA(shv_sync, DDR) [Skip Position] -> [optional release SyncDMA]
-        -> Fetch(Skip_list0_CMX) -|          |-> SyncDMA(shv_sync, CMX) [Skip Position] -> [optional release SyncDMA]
-        -> Fetch(Skip_list1_CMX) -|          |
-                                             |-----------------------> SHV[list0](withDMA)
-                                             |-----------------------> SHV[list1](withDMA)
+-> Fetch(Skip_list0_DDR) -|
+-> Fetch(Skip_list1_DDR) -|       -> SyncDMA(shv_sync, DDR) -|                      |-> SyncDMA(shv_release, DDR)
+                          |-> BAR->|                          |-> BAR -> SHV -> BAR->|
+-> Fetch(Skip_list0_CMX) -|       -> SyncDMA(shv_sync, CMX) -|                      |-> SyncDMA(shv_release, CMX)
+-> Fetch(Skip_list1_CMX) -|
 */
 void PrepareShaveSubmitDMAsPass::planLegalization(BarrierInfo& barrierInfo, const SmallVector<size_t>& shvTasksWithDma,
                                                   PlannedInsertionsData& preparedInsertions, uint32_t numDmaPorts,
@@ -279,7 +281,8 @@ void PrepareShaveSubmitDMAsPass::planLegalization(BarrierInfo& barrierInfo, cons
 
         // One barrier per logical task
         auto groupBarrierIdx = preparedInsertions.newBarrierIndex++;
-        auto releaseBarrierIdx = preparedInsertions.newBarrierIndex++;
+        auto syncToShvBarrierIdx = preparedInsertions.newBarrierIndex++;
+        auto shvToReleaseBarrierIdx = preparedInsertions.newBarrierIndex++;
 
         // Temporary storage to enforce ordering later
         SmallVector<DMAData> plannedFetches;
@@ -322,8 +325,9 @@ void PrepareShaveSubmitDMAsPass::planLegalization(BarrierInfo& barrierInfo, cons
             preparedInsertions.dmasToInsert.push_back(fetch);
         }
 
-        // Insert Sync DMAs for both channels. These DMAs will be used to update the barrier and ensure that SHV waits
-        // for fetches to complete and descriptors to be ready in CMX before starting execution
+        // Insert Sync DMAs for both channels.
+        // Sync waits on fetch-completion barrier and then updates an intermediate barrier
+        // that SHV tasks consume.
         log.trace("Planning Sync DMAs for logical task index {0} ", logicalIdx);
         SmallVector<DMAData> plannedRelease;
         for (uint32_t port = 0; port < numDmaPorts; ++port) {
@@ -333,9 +337,9 @@ void PrepareShaveSubmitDMAsPass::planLegalization(BarrierInfo& barrierInfo, cons
             syncDDR.channelType = VPUIP::DmaChannelType::DDR;
             syncDDR.port = port;
             syncDDR.dmaType = DMAType::Sync;
-            syncDDR.isShvSyncDma = true;
             syncDDR.logicalTaskIndex = logicalIdx;
             syncDDR.consumes = {{groupBarrierIdx, VPURT::Type::Dummy}};
+            syncDDR.producesIn = {{syncToShvBarrierIdx, VPURT::Type::Dummy}};
             preparedInsertions.dmasToInsert.push_back(syncDDR);
 
             DMAData syncCMX;
@@ -344,9 +348,9 @@ void PrepareShaveSubmitDMAsPass::planLegalization(BarrierInfo& barrierInfo, cons
             syncCMX.channelType = VPUIP::DmaChannelType::CMX;
             syncCMX.port = port;
             syncCMX.dmaType = DMAType::Sync;
-            syncCMX.isShvSyncDma = true;
             syncCMX.logicalTaskIndex = logicalIdx;
             syncCMX.consumes = {{groupBarrierIdx, VPURT::Type::Dummy}};
+            syncCMX.producesIn = {{syncToShvBarrierIdx, VPURT::Type::Dummy}};
             preparedInsertions.dmasToInsert.push_back(syncCMX);
 
             DMAData releaseSyncDDR;
@@ -355,8 +359,9 @@ void PrepareShaveSubmitDMAsPass::planLegalization(BarrierInfo& barrierInfo, cons
             releaseSyncDDR.channelType = VPUIP::DmaChannelType::DDR;
             releaseSyncDDR.port = port;
             releaseSyncDDR.dmaType = DMAType::Sync;
+            releaseSyncDDR.isShvReleaseDma = true;
             releaseSyncDDR.logicalTaskIndex = logicalIdx;
-            releaseSyncDDR.consumes = {{releaseBarrierIdx, VPURT::Type::Dummy}};
+            releaseSyncDDR.consumes = {{shvToReleaseBarrierIdx, VPURT::Type::Dummy}};
             plannedRelease.push_back(releaseSyncDDR);
 
             DMAData releaseSyncCMX;
@@ -365,8 +370,9 @@ void PrepareShaveSubmitDMAsPass::planLegalization(BarrierInfo& barrierInfo, cons
             releaseSyncCMX.channelType = VPUIP::DmaChannelType::CMX;
             releaseSyncCMX.port = port;
             releaseSyncCMX.dmaType = DMAType::Sync;
+            releaseSyncCMX.isShvReleaseDma = true;
             releaseSyncCMX.logicalTaskIndex = logicalIdx;
-            releaseSyncCMX.consumes = {{releaseBarrierIdx, VPURT::Type::Dummy}};
+            releaseSyncCMX.consumes = {{shvToReleaseBarrierIdx, VPURT::Type::Dummy}};
             plannedRelease.push_back(releaseSyncCMX);
         }
 
@@ -374,12 +380,13 @@ void PrepareShaveSubmitDMAsPass::planLegalization(BarrierInfo& barrierInfo, cons
         for (auto& release : plannedRelease) {
             preparedInsertions.dmasToInsert.push_back(release);
         }
-        // Ask SHV to wait for fetches by adding them as dependencies to the barrier, and then add SHV tasks as
-        // consumers of the barrier as well
+        // Keep release side unchanged: SHV tasks produce releaseBarrier.
+        // SHV wait side now consumes Sync-updated barrier instead of fetch barrier.
         for (auto taskIdx : taskIndices) {
-            log.trace("dependency for release {0} on barrier {1} added", taskIdx, releaseBarrierIdx);
+            log.trace("dependency for release {0} on barrier {1} added", taskIdx, shvToReleaseBarrierIdx);
             auto& producersToAdd =
-                    preparedInsertions.barrierAddConsumerProducerMap[{releaseBarrierIdx, VPURT::Type::Dummy}].second;
+                    preparedInsertions.barrierAddConsumerProducerMap[{shvToReleaseBarrierIdx, VPURT::Type::Dummy}]
+                            .second;
             producersToAdd.push_back({taskIdx, VPURT::Type::Real});
 
             if (blockIdx < barrierInfo.getControlGraphBlockIndex(taskIdx)) {
@@ -387,9 +394,9 @@ void PrepareShaveSubmitDMAsPass::planLegalization(BarrierInfo& barrierInfo, cons
                 // dependency through block sync task
                 continue;
             }
-            log.trace("dependency for task {0} on barrier {1} added", taskIdx, groupBarrierIdx);
+            log.trace("dependency for task {0} on barrier {1} added", taskIdx, syncToShvBarrierIdx);
             auto& consumersToAdd =
-                    preparedInsertions.barrierAddConsumerProducerMap[{groupBarrierIdx, VPURT::Type::Dummy}].first;
+                    preparedInsertions.barrierAddConsumerProducerMap[{syncToShvBarrierIdx, VPURT::Type::Dummy}].first;
             consumersToAdd.push_back({taskIdx, VPURT::Type::Real});
         }
     }
@@ -491,10 +498,8 @@ void PrepareShaveSubmitDMAsPass::legalizeDependenciesToControlBlockBoundaries(
 
 void PrepareShaveSubmitDMAsPass::safeRunOnFunc() {
     auto netFunc = getOperation();
-
-    // E#213511 Until the kernels support multi DMA engine support, limit the legalization and subsequent passes to only
-    // submit SKips for one DMA Engine
-    const auto numDmaPorts = numDmaEnginesOpt.hasValue() ? numDmaEnginesOpt.getValue() : 1;
+    const auto numDmaPorts = numDmaEnginesOpt.hasValue() ? numDmaEnginesOpt.getValue()
+                                                         : vpux::VPU::getMaxDMAPorts(config::getPlatform(netFunc));
 
     mlir::OpBuilder builder(netFunc);
     PlannedInsertionsData preparedInsertions;

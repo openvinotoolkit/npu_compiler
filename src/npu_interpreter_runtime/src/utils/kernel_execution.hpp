@@ -34,7 +34,6 @@ constexpr uint32_t DEFAULT_INFERENCE_ID = 0;
 
 // Structure to hold graph information
 class KernelInfo {
-public:
     // Graph handle created by L0 UMD, used for setting arguments and executing the graph
     ze_graph_handle_t _graphHandle;
 
@@ -47,11 +46,20 @@ public:
     // Kernel symbol name
     std::string _kernelName;
 
+    // Per graph-argument flag reported by the driver, indexed by graph argument index.
+    std::vector<bool> _supportsDynamicStrides;
+
+public:
     KernelInfo(): _graphHandle(nullptr), _numArgs(0), _numInputArgs(0) {
     }
 
-    KernelInfo(ze_graph_handle_t handle, uint32_t numArgs, uint32_t numInputArgs, const std::string& kernelName)
-            : _graphHandle(handle), _numArgs(numArgs), _numInputArgs(numInputArgs), _kernelName(kernelName) {
+    KernelInfo(ze_graph_handle_t handle, uint32_t numArgs, uint32_t numInputArgs, const std::string& kernelName,
+               std::vector<bool> supportsDynamicStrides = {})
+            : _graphHandle(handle),
+              _numArgs(numArgs),
+              _numInputArgs(numInputArgs),
+              _kernelName(kernelName),
+              _supportsDynamicStrides(std::move(supportsDynamicStrides)) {
     }
 
     uint32_t getNumArgs() const {
@@ -73,6 +81,13 @@ public:
     const std::string& getKernelName() const {
         return _kernelName;
     }
+
+    bool supportsDynamicStrides(uint32_t index) const {
+        if (index >= _supportsDynamicStrides.size()) {
+            return false;
+        }
+        return _supportsDynamicStrides[index];
+    }
 };
 
 class ExecutionContext {
@@ -85,18 +100,18 @@ class ExecutionContext {
     // Stores events for synchronization. The number of events is determined by the number of command lists
     std::vector<ze_event_handle_t> _events;
 
-    ze_event_pool_handle_t _eventPool;
+    ze_event_pool_handle_t _eventPool{nullptr};
 
     // Stores the current index of the event to be used for synchronization.
-    size_t _curEventIndex;
+    size_t _curEventIndex = 0;
 
     // Stores the count of signal events that have been used, used for determining
     // whether to return a signal event or a wait event for synchronization.
-    size_t _signalEventCount;
+    size_t _signalEventCount = 0;
 
     // Stores whether the execution context has been initialized,
     // used for determining whether to initialize the event pool and events
-    bool _isInitialized;
+    bool _isInitialized = false;
 
     // Stores the current cmd ids
     std::vector<uint64_t> _inferenceCmdIds;
@@ -164,13 +179,13 @@ public:
     // which is used for tracking the command id for each command list in the execution context.
     void increaseInferenceCmdId(uint64_t cmdListIndex) {
         if (cmdListIndex < _inferenceCmdIds.size()) {
-            _inferenceCmdIds[cmdListIndex]++;
+            _inferenceCmdIds.at(cmdListIndex)++;
         }
     }
 
     // Returns whether optimized dynamic strides is supported,
     // which is used for determining whether to use optimized dynamic strides when setting graph arguments.
-    bool IsOptimizedDynamicStridesSupported() const {
+    bool isOptimizedDynamicStridesSupported() const {
         return _optimizedDynamicStridesSupported;
     }
 
@@ -194,20 +209,20 @@ inline result_t closeCmdList(npu_vm_runtime_execute_params_t*, ze_command_list_h
     return ZE_RESULT_SUCCESS;
 }
 
-result_t createKernel(npu_vm_runtime_execute_params_t* params, void* blob, size_t blobSize,
+result_t createKernel(npu_vm_runtime_execute_params_t* params, uint8_t* blob, size_t blobSize,
                       const std::string& kernelName, ze_graph_handle_t& graphHandle, KernelInfo& graphInfo);
 
 // Sets the graph arguments for the given kernel handle based on the input and output buffer descriptions,
 // which will be used for executing the graph.
 result_t setBindings(ExecutionContext& executionContext, npu_vm_runtime_execute_params_t* params,
-                     ze_graph_handle_t kernelHandle, const std::vector<BufferMapperItem>& inputs,
+                     ze_graph_handle_t graphHandle, const std::vector<BufferMapperItem>& inputs,
                      const std::vector<BufferMapperItem>& outputs, KernelInfo& graphInfo);
 
 // Executes the graph for the given kernel handle and command list handle
 result_t executeGraph(ExecutionContext& executionContext, npu_vm_runtime_execute_params_t* params,
-                      ze_command_list_handle_t cmdListHandle, ze_graph_handle_t kernelHandle, void* kernelName);
+                      ze_command_list_handle_t commandListHandle, ze_graph_handle_t graphHandle, void* kernelName);
 
 // Submit a command list
 result_t submitCmdList(ExecutionContext& executionContext, npu_vm_runtime_execute_params_t* params,
-                       ze_command_list_handle_t cmdListHandle, bool needHostSync);
+                       ze_command_list_handle_t commandListHandle, bool needHostSync);
 }  // namespace intel_npu::vm

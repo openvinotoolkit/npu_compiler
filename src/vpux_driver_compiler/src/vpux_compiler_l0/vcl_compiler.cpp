@@ -11,12 +11,10 @@
 #include <openvino/openvino.hpp>
 #include <openvino/runtime/iplugin.hpp>
 
-#include "intel_npu/config/options.hpp"
 #include "vpux/compiler/icompiler.hpp"
 #include "vpux/compiler/version.hpp"
 #include "vpux/utils/ov/compat_string_check.hpp"
-#include "vpux/utils/ov/config.hpp"
-#include "vpux/utils/ov/private_properties.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 #include <future>
 #include <memory>
@@ -42,39 +40,39 @@ enum class Platform : uint64_t {
     NPU5020 = 5020,
 };
 
-Platform getPlatform(const intel_npu::Config& config) {
-    const std::string platform = ov::intel_npu::Platform::standardize(config.get<intel_npu::PLATFORM>());
-    if (platform == ov::intel_npu::Platform::NPU3720) {
+Platform getPlatform(const vpux::OV::Config& config) {
+    const std::string platform = vpux::OV::Platform::standardize(config.get<vpux::OV::PLATFORM>());
+    if (platform == vpux::OV::Platform::NPU3720) {
         return Platform::NPU3720;
-    } else if (platform == ov::intel_npu::Platform::NPU4000) {
+    } else if (platform == vpux::OV::Platform::NPU4000) {
         return Platform::NPU4000;
-    } else if (platform == ov::intel_npu::Platform::NPU5010) {
+    } else if (platform == vpux::OV::Platform::NPU5010) {
         return Platform::NPU5010;
-    } else if (platform == ov::intel_npu::Platform::NPU5020) {
+    } else if (platform == vpux::OV::Platform::NPU5020) {
         return Platform::NPU5020;
     } else {
         VPUX_THROW("Unsupported NPU platform");
     }
 }
 
-[[nodiscard]] bool setPlatformAndDeviceId(uint32_t deviceID, intel_npu::Config& config) {
+[[nodiscard]] bool setPlatformAndDeviceId(uint32_t deviceID, vpux::OV::Config& config) {
     switch (deviceID) {
     case 0x7D1D:  // MeteorLake (MTL-P, MTL-H)
     case 0xAD1D:  // ArrowLake (ARL)
-        config.update({{ov::intel_npu::platform.name(), "3720"}});
-        config.update({{ov::device::id.name(), "3720"}});
+        config.update({{vpux::OV::PLATFORM::key().data(), "3720"}});
+        config.update({{vpux::OV::DEVICE_ID::key().data(), "3720"}});
         break;
     case 0x643E:  // LunarLake (LNL)
-        config.update({{ov::intel_npu::platform.name(), "4000"}});
-        config.update({{ov::device::id.name(), "4000"}});
+        config.update({{vpux::OV::PLATFORM::key().data(), "4000"}});
+        config.update({{vpux::OV::DEVICE_ID::key().data(), "4000"}});
         break;
     case 0xB03E:  // PantherLake Mobile (PTL-P)
-        config.update({{ov::intel_npu::platform.name(), "5010"}});
-        config.update({{ov::device::id.name(), "5010"}});
+        config.update({{vpux::OV::PLATFORM::key().data(), "5010"}});
+        config.update({{vpux::OV::DEVICE_ID::key().data(), "5010"}});
         break;
     case 0xFD3E:  // Wildcatlake (WCL)
-        config.update({{ov::intel_npu::platform.name(), "5020"}});
-        config.update({{ov::device::id.name(), "5020"}});
+        config.update({{vpux::OV::PLATFORM::key().data(), "5020"}});
+        config.update({{vpux::OV::DEVICE_ID::key().data(), "5020"}});
         break;
     default:
         return false;
@@ -83,7 +81,7 @@ Platform getPlatform(const intel_npu::Config& config) {
     return true;
 }
 
-void setPlatformAndDeviceIdT(uint32_t deviceID, intel_npu::Config& config) {
+void setPlatformAndDeviceIdT(uint32_t deviceID, vpux::OV::Config& config) {
     if (!setPlatformAndDeviceId(deviceID, config)) {
         VPUX_THROW("Unsupported device ID: {0}", deviceID);
     }
@@ -97,8 +95,8 @@ void setPlatformAndDeviceIdT(uint32_t deviceID, intel_npu::Config& config) {
  *        including config options related to compilation
  * @return bool representing compatibility status: true if compatibility check passed and false if not
  */
-bool checkRuntimeRequirements(std::string_view compatibilityString, const intel_npu::Config& config) {
-    Logger log("vpux-compiler", getLogLevel(config));
+bool checkRuntimeRequirements(std::string_view compatibilityString, const vpux::OV::Config& config) {
+    Logger log("vpux-compiler", config.get<vpux::OV::LOG_LEVEL>());
 
     if (compatibilityString.empty()) {
         log.warning("Empty compatibility string provided for runtime requirements check");
@@ -109,9 +107,9 @@ bool checkRuntimeRequirements(std::string_view compatibilityString, const intel_
 
     const auto platformID = static_cast<uint64_t>(getPlatform(config));
     const auto numOfTiles = [&] {
-        VPUX_THROW_WHEN(!config.has<intel_npu::MAX_TILES>(),
+        VPUX_THROW_WHEN(!config.has<vpux::OV::MAX_TILES>(),
                         "MAX_TILES config is required for compatibility string validation");
-        return config.get<intel_npu::MAX_TILES>();
+        return config.get<vpux::OV::MAX_TILES>();
     }();
 
     auto reqs = compat::parseCompatibilityString(compatibilityString);
@@ -130,7 +128,7 @@ auto runInWorkerThreadSync(F&& f) -> typename std::invoke_result<F>::type {
 
 // This option is already defined in newer openvino version
 // Defining it here to avoid an openvino update in compiler
-struct RUNTIME_REQUIREMENTS_MET final : intel_npu::OptionBase<RUNTIME_REQUIREMENTS_MET, bool> {
+struct RUNTIME_REQUIREMENTS_MET final : vpux::OV::OptionBase<RUNTIME_REQUIREMENTS_MET, bool> {
     static std::string_view key() {
         return "RUNTIME_REQUIREMENTS_MET";
     }
@@ -139,8 +137,8 @@ struct RUNTIME_REQUIREMENTS_MET final : intel_npu::OptionBase<RUNTIME_REQUIREMEN
         return false;
     }
 
-    static intel_npu::OptionMode mode() {
-        return intel_npu::OptionMode::CompileTime;
+    static vpux::OV::OptionMode mode() {
+        return vpux::OV::OptionMode::CompileTime;
     }
 };
 
@@ -150,7 +148,7 @@ namespace VPUXDriverCompiler {
 
 VPUXCompilerL0::VPUXCompilerL0(vcl_compiler_desc_t* compilerDesc, vcl_device_desc_t* deviceDesc,
                                std::shared_ptr<VCLLogger> vclLogger)
-        : _options(std::make_shared<intel_npu::OptionsDesc>()),
+        : _options(std::make_shared<vpux::OV::OptionsDesc>()),
           _compilerLoader(std::make_unique<CompilerLoader>()),
           _compilerDesc(*compilerDesc),
           _isDeviceDescEmpty(false),
@@ -165,41 +163,43 @@ VPUXCompilerL0::VPUXCompilerL0(vcl_compiler_desc_t* compilerDesc, vcl_device_des
     }
 
     // Register compiler configuration options
-    _options->add<intel_npu::PERFORMANCE_HINT>();
-    _options->add<intel_npu::PERFORMANCE_HINT_NUM_REQUESTS>();
-    _options->add<intel_npu::INFERENCE_PRECISION_HINT>();
-    _options->add<intel_npu::PERF_COUNT>();
-    _options->add<intel_npu::LOG_LEVEL>();
-    _options->add<intel_npu::PLATFORM>();
-    _options->add<intel_npu::COMPILER_TYPE>();
-    _options->add<intel_npu::DEVICE_ID>();
-    _options->add<intel_npu::BATCH_MODE>();
-    _options->add<intel_npu::COMPILATION_MODE>();
-    _options->add<intel_npu::COMPILATION_MODE_PARAMS>();
-    _options->add<intel_npu::BACKEND_COMPILATION_PARAMS>();
-    _options->add<intel_npu::COMPILATION_NUM_THREADS>();
-    _options->add<intel_npu::TILES>();
-    _options->add<intel_npu::STEPPING>();
-    _options->add<intel_npu::MAX_TILES>();
-    _options->add<intel_npu::DMA_ENGINES>();
-    _options->add<intel_npu::DYNAMIC_SHAPE_TO_STATIC>();
-    _options->add<intel_npu::EXECUTION_MODE_HINT>();
-    _options->add<intel_npu::COMPILER_DYNAMIC_QUANTIZATION>();
-    _options->add<intel_npu::BATCH_COMPILER_MODE_SETTINGS>();
-    _options->add<intel_npu::QDQ_OPTIMIZATION_AGGRESSIVE>();
-    _options->add<intel_npu::QDQ_OPTIMIZATION>();
-    _options->add<intel_npu::TURBO>();
-    _options->add<intel_npu::MODEL_SERIALIZER_VERSION>();
+    _options->add<vpux::OV::PERFORMANCE_HINT>();
+    _options->add<vpux::OV::PERFORMANCE_HINT_NUM_REQUESTS>();
+    _options->add<vpux::OV::INFERENCE_PRECISION_HINT>();
+    _options->add<vpux::OV::PERF_COUNT>();
+    _options->add<vpux::OV::LOG_LEVEL>();
+    _options->add<vpux::OV::PLATFORM>();
+    _options->add<vpux::OV::COMPILER_TYPE>();
+    _options->add<vpux::OV::DEVICE_ID>();
+    _options->add<vpux::OV::BATCH_MODE>();
+    _options->add<vpux::OV::COMPILATION_MODE>();
+    _options->add<vpux::OV::COMPILATION_MODE_PARAMS>();
+    _options->add<vpux::OV::BACKEND_COMPILATION_PARAMS>();
+    _options->add<vpux::OV::COMPILATION_NUM_THREADS>();
+    _options->add<vpux::OV::TILES>();
+    _options->add<vpux::OV::STEPPING>();
+    _options->add<vpux::OV::MAX_TILES>();
+    _options->add<vpux::OV::DMA_ENGINES>();
+    _options->add<vpux::OV::DYNAMIC_SHAPE_TO_STATIC>();
+    _options->add<vpux::OV::EXECUTION_MODE_HINT>();
+    _options->add<vpux::OV::COMPILER_DYNAMIC_QUANTIZATION>();
+    _options->add<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>();
+    _options->add<vpux::OV::QDQ_OPTIMIZATION_AGGRESSIVE>();
+    _options->add<vpux::OV::QDQ_OPTIMIZATION>();
+    _options->add<vpux::OV::TURBO>();
+    _options->add<vpux::OV::MODEL_SERIALIZER_VERSION>();
     // don't enable for NPU3720 platforms: MTL and ARL
     if (_deviceDesc.deviceID != 0x7D1D && _deviceDesc.deviceID != 0xAD1D) {
-        _options->add<intel_npu::ENABLE_STRIDES_FOR>();
+        _options->add<vpux::OV::ENABLE_STRIDES_FOR>();
     }
 
-    _options->add<intel_npu::ENABLE_WEIGHTLESS>();
-    _options->add<intel_npu::SEPARATE_WEIGHTS_VERSION>();
-    _options->add<intel_npu::WS_COMPILE_CALL_NUMBER>();
-    _options->add<intel_npu::CACHE_MODE>();
-    _options->add<intel_npu::COMPATIBILITY_CHECK>();
+    _options->add<vpux::OV::ENABLE_WEIGHTLESS>();
+    _options->add<vpux::OV::SEPARATE_WEIGHTS_VERSION>();
+    _options->add<vpux::OV::WS_COMPILE_CALL_NUMBER>();
+    _options->add<vpux::OV::CACHE_MODE>();
+    _options->add<vpux::OV::COMPATIBILITY_CHECK>();
+    _options->add<vpux::OV::EXTENSION_LIB_PATH>();
+    _options->add<vpux::OV::CUSTOM_KERNEL_CONFIG_PATH>();
 
     // Update the compiler properties
     _compilerProp.id = COMPILER_VERSION;
@@ -215,7 +215,7 @@ std::pair<VPUXExecutableL0*, vcl_result_t> VPUXCompilerL0::importNetwork(const v
         // Create executable with the result NetworkDescription, profiling option and logger
         // Note we rely on implicit move semantics thanks to compile result being an rvalue,
         // failure to move here would lead to a blob copy!
-        intel_npu::Config config(_options);
+        vpux::OV::Config config(_options);
         if (!_isDeviceDescEmpty) {
             setPlatformAndDeviceIdT(_deviceDesc.deviceID, config);
         }
@@ -246,8 +246,7 @@ std::pair<VPUXExecutableL0*, vcl_result_t> VPUXCompilerL0::importNetwork(const v
     return {exe, VCL_RESULT_SUCCESS};
 }
 
-NetworkDescriptionView VPUXCompilerL0::importNetwork(const vcl_executable_desc_t& desc, BlobAllocator& allocator,
-                                                     bool allocateCompatibilityString) {
+NetworkDescriptionView VPUXCompilerL0::importNetwork(const vcl_executable_desc_t& desc, BlobAllocator& allocator) {
     // Load the compiler library on the calling thread rather than the worker thread spawned below.
     // In some sandboxed environments, worker threads only hold a restricted process token and cannot
     // call LoadLibrary(). Loading the library here ensures it happens on a thread with sufficient rights.
@@ -255,13 +254,12 @@ NetworkDescriptionView VPUXCompilerL0::importNetwork(const vcl_executable_desc_t
 
     // Isolate the MLIR thread to safely destroy MLIR thread_local objects before CiD unload.
     return runInWorkerThreadSync([&] {
-        intel_npu::Config config(_options);
+        vpux::OV::Config config(_options);
         if (!_isDeviceDescEmpty) {
             setPlatformAndDeviceIdT(_deviceDesc.deviceID, config);
         }
         return _compilerLoader->getCompiler()->compileFromDesc(desc, _compilerProp, _compilerDesc, _deviceDesc, config,
-                                                               _isDeviceDescEmpty, allocator,
-                                                               allocateCompatibilityString);
+                                                               _isDeviceDescEmpty, allocator);
     });
 }
 
@@ -274,7 +272,7 @@ std::vector<std::shared_ptr<NetworkDescriptionView>> VPUXCompilerL0::importNetwo
 
     // Isolate the MLIR thread to safely destroy MLIR thread_local objects before CiD unload.
     return runInWorkerThreadSync([&] {
-        intel_npu::Config config(_options);
+        vpux::OV::Config config(_options);
         if (!_isDeviceDescEmpty) {
             setPlatformAndDeviceIdT(_deviceDesc.deviceID, config);
         }
@@ -287,7 +285,7 @@ vcl_result_t VPUXCompilerL0::queryNetwork(const vcl_query_desc_t& desc, VPUXQuer
     _logger->info("Start to call query function from compiler to get supported layers!");
     ov::SupportedOpsMap queryNetworkResult;
     try {
-        intel_npu::Config config(_options);
+        vpux::OV::Config config(_options);
         if (!_isDeviceDescEmpty) {
             setPlatformAndDeviceIdT(_deviceDesc.deviceID, config);
         }
@@ -344,11 +342,11 @@ bool VPUXCompilerL0::isOptionValueSupported(const char* option, const char* valu
         return true;
     }
 
-    if (optName == intel_npu::COMPATIBILITY_CHECK::key()) {
+    if (optName == vpux::OV::COMPATIBILITY_CHECK::key()) {
         if (!value) {
             return true;
         }
-        auto config = intel_npu::Config(_options);
+        auto config = vpux::OV::Config(_options);
         if (_isDeviceDescEmpty || _deviceDesc.tileCount == static_cast<uint32_t>(-1)) {
             _logger->outputError("Cannot validate the compatibility string: device descriptor is missing or "
                                  "MAX_TILES is invalid.");
@@ -359,7 +357,7 @@ bool VPUXCompilerL0::isOptionValueSupported(const char* option, const char* valu
             // Update the device config failed, return false for safety.
             return false;
         }
-        config.update({{ov::intel_npu::max_tiles.name(), std::to_string(_deviceDesc.tileCount)}});
+        config.update({{vpux::OV::MAX_TILES::key().data(), std::to_string(_deviceDesc.tileCount)}});
         return checkRuntimeRequirements(std::string_view{value}, config);
     }
 

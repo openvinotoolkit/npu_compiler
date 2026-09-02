@@ -5,7 +5,7 @@
 
 find_package(MLIR REQUIRED CONFIG)
 
-set(TARGET_NAME "npu_mlir_runtime")
+set(TARGET_NAME "openvino_intel_npu_mlir_runtime")
 
 set(SOURCES npu_mlir_runtime.cpp)
 
@@ -30,11 +30,10 @@ target_link_libraries(${TARGET_NAME}
         LLVMCore
         LLVMX86CodeGen
         LLVMX86AsmParser
-        openvino::npu_al
         openvino::npu_zero_utils
         npu_logger
         npu_compiler_interface
-        npu_interpreter_runtime
+        openvino_intel_npu_vm_runtime
 )
 
 target_include_directories(${TARGET_NAME}

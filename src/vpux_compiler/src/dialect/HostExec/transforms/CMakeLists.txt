@@ -19,7 +19,6 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_config
       PRIVATE
         npu_elf
-        openvino::npu_al
         npu_compiler_dialect_hostexec
         npu_compiler_dialect_bytecode_transforms
         npu_compiler_dialect_elfnpu37xx

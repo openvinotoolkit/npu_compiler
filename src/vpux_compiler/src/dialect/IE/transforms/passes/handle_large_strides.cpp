@@ -243,10 +243,10 @@ mlir::LogicalResult MaxPoolGeneralRewriter::matchAndRewrite(IE::MaxPoolOp origOp
             origOp, rewriter, origOp.getStrides(), ArrayRef({kernelSz[1], kernelSz[0]}), origOp.getPadsBegin(),
             origOp.getPadsEnd(),
             [&](mlir::Location loc, mlir::Value input, OperationPart part) -> mlir::Operation* {
-                return rewriter.create<IE::MaxPoolOp>(loc, input, origOp.getKernelSize(), part.strides, part.padBegin,
-                                                      part.padEnd, origOp.getRoundingType(), origOp.getPostOpAttr(),
-                                                      origOp.getClampAttr(), origOp.getStaticScaleAttr(),
-                                                      origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+                return rewriter.create<IE::MaxPoolOp>(
+                        loc, input, origOp.getScale(), origOp.getKernelSize(), part.strides, part.padBegin, part.padEnd,
+                        origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+                        origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
             },
             _log.nest());
 }
@@ -286,7 +286,7 @@ mlir::LogicalResult AvgPoolGeneralRewriter::matchAndRewrite(IE::AvgPoolOp origOp
         const auto newStrides = SmallVector<int64_t>{1, 1};
         const auto newStridesAttr = getIntArrayAttr(getContext(), newStrides);
         rewriter.replaceOpWithNewOp<IE::AvgPoolOp>(
-                origOp, origOp.getType(), origOp.getInput(), origOp.getKernelSize(), newStridesAttr,
+                origOp, origOp.getType(), origOp.getInput(), origOp.getScale(), origOp.getKernelSize(), newStridesAttr,
                 origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getRoundingTypeAttr(), origOp.getExcludePadsAttr(),
                 origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
                 origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
@@ -297,11 +297,11 @@ mlir::LogicalResult AvgPoolGeneralRewriter::matchAndRewrite(IE::AvgPoolOp origOp
             origOp, rewriter, origOp.getStrides(), ArrayRef({kernelSz[1], kernelSz[0]}), origOp.getPadsBegin(),
             origOp.getPadsEnd(),
             [&](mlir::Location loc, mlir::Value input, OperationPart part) -> mlir::Operation* {
-                return rewriter.create<IE::AvgPoolOp>(loc, input, origOp.getKernelSize(), part.strides, part.padBegin,
-                                                      part.padEnd, origOp.getRoundingTypeAttr(),
-                                                      origOp.getExcludePadsAttr(), origOp.getPostOpAttr(),
-                                                      origOp.getClampAttr(), origOp.getStaticScaleAttr(),
-                                                      origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+                return rewriter.create<IE::AvgPoolOp>(
+                        loc, input, origOp.getScale(), origOp.getKernelSize(), part.strides, part.padBegin, part.padEnd,
+                        origOp.getRoundingTypeAttr(), origOp.getExcludePadsAttr(), origOp.getPostOpAttr(),
+                        origOp.getClampAttr(), origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(),
+                        origOp.getInputPaddingAttr());
             },
             _log.nest());
 }
@@ -367,7 +367,8 @@ mlir::LogicalResult opWithMaxPoolOptimization(
     const auto loc = appendLoc(origOp->getLoc(), "maxpool_downsample");
 
     log.trace("MaxPool {0} strides are {1}", loc, newStride);
-    rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(origOp, newOp->getResult(0), getIntArrayAttr(ctx, maxPoolKernels),
+    rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(origOp, newOp->getResult(0), nullptr,
+                                               getIntArrayAttr(ctx, maxPoolKernels),
                                                getIntArrayAttr(ctx, maxPoolStrides), padsAttr, padsAttr,
                                                vpux::IE::RoundingTypeAttr::get(ctx, vpux::IE::RoundingType::FLOOR),
                                                nullptr, nullptr, nullptr, nullptr, nullptr)
@@ -513,8 +514,8 @@ mlir::LogicalResult MaxPoolMPOptimizationRewriter::matchAndRewrite(IE::MaxPoolOp
             origOp, rewriter, origOp.getStrides(),
             [&](mlir::Location loc, mlir::Value input, mlir::ArrayAttr strides) -> mlir::Operation* {
                 return rewriter.create<IE::MaxPoolOp>(
-                        loc, input, origOp.getKernelSize(), strides, origOp.getPadsBegin(), origOp.getPadsEnd(),
-                        origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+                        loc, input, origOp.getScale(), origOp.getKernelSize(), strides, origOp.getPadsBegin(),
+                        origOp.getPadsEnd(), origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
                         origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
             },
             _log.nest());
@@ -558,7 +559,7 @@ mlir::LogicalResult AvgPoolMPOptimizationRewriter::matchAndRewrite(IE::AvgPoolOp
         const auto newStrides = SmallVector<int64_t>{1, 1};
         const auto newStridesAttr = getIntArrayAttr(getContext(), newStrides);
         rewriter.replaceOpWithNewOp<IE::AvgPoolOp>(
-                origOp, origOp.getType(), origOp.getInput(), origOp.getKernelSize(), newStridesAttr,
+                origOp, origOp.getType(), origOp.getInput(), origOp.getScale(), origOp.getKernelSize(), newStridesAttr,
                 origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getRoundingTypeAttr(), origOp.getExcludePadsAttr(),
                 origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
                 origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
@@ -569,10 +570,10 @@ mlir::LogicalResult AvgPoolMPOptimizationRewriter::matchAndRewrite(IE::AvgPoolOp
             origOp, rewriter, origOp.getStrides(),
             [&](mlir::Location loc, mlir::Value input, mlir::ArrayAttr strides) -> mlir::Operation* {
                 return rewriter.create<IE::AvgPoolOp>(
-                        loc, input, origOp.getKernelSize(), strides, origOp.getPadsBegin(), origOp.getPadsEnd(),
-                        origOp.getRoundingTypeAttr(), origOp.getExcludePadsAttr(), origOp.getPostOpAttr(),
-                        origOp.getClampAttr(), origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(),
-                        origOp.getInputPaddingAttr());
+                        loc, input, origOp.getScale(), origOp.getKernelSize(), strides, origOp.getPadsBegin(),
+                        origOp.getPadsEnd(), origOp.getRoundingTypeAttr(), origOp.getExcludePadsAttr(),
+                        origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
+                        origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
             },
             _log.nest());
 }

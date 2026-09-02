@@ -45,13 +45,6 @@ using HandleFakeQuantHasNegativeScalesTestParams = std::tuple<std::vector<int8_t
 class HandleFakeQuantHasNegativeScalesSubGraphTestCommon :
         public VpuOv2LayerTest,
         public testing::WithParamInterface<HandleFakeQuantHasNegativeScalesTestParams> {
-    void configure_model() override {
-        // NOTE: FuseOutstandingDequant disabled because NPU produces inaccurate results
-        //       E#211263. Test handles FakeQuantize but when FuseOutstandingDequant enabled
-        //       FakeQuantize does not exist.
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "fuse-outstanding-dequant=false";
-    }
-
     void SetUp() override {
         std::vector<int8_t> weightsValues;
         std::vector<float> zeroPointValues;
@@ -125,14 +118,25 @@ class HandleFakeQuantHasNegativeScalesSubGraphTest_NPU3720 :
 class HandleFakeQuantHasNegativeScalesSubGraphTest_NPU4000 :
         public HandleFakeQuantHasNegativeScalesSubGraphTestCommon {};
 
+// NOTE: Without fusion of Dequantize: NCE (quantized output: int8) -> Dequantize -> float
+//       - NCE Op rounds 0.49 to 0. Dequantize(0) = 0.0f. Grid-aligned.
+//       - e.g. NCEOp with rounding -> Dequantize
+//
+//       With fusion of Dequantize: NCE (float output: mixed-precision) -> Clamp(0, max)
+//       - No rounding because of mixed-precision
+//       - e.g. NCEOp without rounding -> Dequantize
+// This is the trade-off with Mixed-Precision. Clamp can never replace: Round -> Dequantize.
+// Adjusting abs_threshold to account for +/- 0.5 variance.
 TEST_P(HandleFakeQuantHasNegativeScalesSubGraphTest_NPU3720, HW) {
     rel_threshold = 0.5;
+    abs_threshold = 0.5;
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
 
 TEST_P(HandleFakeQuantHasNegativeScalesSubGraphTest_NPU4000, HW) {
     rel_threshold = 0.5;
+    abs_threshold = 0.5;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }

@@ -664,16 +664,12 @@ module @MatMulWithGroupQuant {
         // CHECK-SAME:      mem_perm = #map1
         // CHECK-SAME:  } : tensor<1x4096x16x1xf32, {order = #NHWC}> -> tensor<16x4096x1x1xf32>
 
-        // CHECK:   [[RESHAPE_OUT_0:%.+]] = IE.AffineReshape([[PERMUTE_CAST_OUT]]) {
-        // CHECK-SAME:      shape_value = [1, 1, 16, 4096]
-        // CHECK-SAME:  } : tensor<16x4096x1x1xf32> -> tensor<1x1x16x4096xf32>
-
-        // CHECK:   [[RESHAPE_OUT_1:%.+]] = IE.AffineReshape([[RESHAPE_OUT_0]]) {
+        // CHECK:   [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[PERMUTE_CAST_OUT]]) {
         // CHECK-SAME:      shape_value = [16, 4096]
-        // CHECK-SAME:  } : tensor<1x1x16x4096xf32> -> tensor<16x4096xf32>
+        // CHECK-SAME:  } : tensor<16x4096x1x1xf32> -> tensor<16x4096xf32>
 
         return %GEMM : tensor<16x4096xf32>
-        // CHECK:   return [[RESHAPE_OUT_1]] : tensor<16x4096xf32>
+        // CHECK:   return [[RESHAPE_OUT]] : tensor<16x4096xf32>
     }
 }
 

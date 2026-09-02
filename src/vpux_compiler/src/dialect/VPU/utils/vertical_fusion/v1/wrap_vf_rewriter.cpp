@@ -25,11 +25,18 @@ bool WrapVFRewriter::opNeedsTobeWrapped(VPU::VerticalFusionOpInterface op) const
             return value > 1;
         });
         if (tilingDimCount > 1) {
-            _log.trace("Operation '{0}' at '{1}' can not be wraped in VF since multi-dim tiling is not supported",
+            _log.trace("Operation '{0}' at '{1}' cannot be wrapped in VF since multi-dim tiling is not supported",
                        op->getName(), op->getLoc());
             return false;
         }
     }
+
+    if (op->getNumResults() > 1) {
+        _log.trace("Operation '{0}' at '{1}' cannot be wrapped in VF since it has more than 1 result", op->getName(),
+                   op->getLoc());
+        return false;
+    }
+
     return true;
 }
 }  // namespace vpux::VPU::VF::v1

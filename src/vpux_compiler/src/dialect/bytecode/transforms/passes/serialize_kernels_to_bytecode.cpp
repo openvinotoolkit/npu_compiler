@@ -8,7 +8,7 @@
 #include "vpux/compiler/dialect/HostExec/IR/dialect.hpp"
 #include "vpux/compiler/dialect/HostExec/IR/ops.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/dialect.hpp"
-#include "vpux/compiler/dialect/bytecode/IR/ops/section.hpp"
+#include "vpux/compiler/dialect/bytecode/utils/section_builder.hpp"
 
 #include <mlir/IR/Builders.h>
 
@@ -43,14 +43,8 @@ void SerializeKernelsToBytecodePass::safeRunOnModule() {
         return;
     }
 
-    // Create kernel section at the beginning of the parent module body
-    auto* ctx = parentModule.getContext();
     mlir::OpBuilder builder(parentModule.getBody(), parentModule.getBody()->begin());
-
-    auto kernelSection = bytecode::getOrCreateSection<bytecode::KernelSectionOp>(parentModule, builder, ctx,
-                                                                                 bytecode::KERNEL_SECTION_NAME);
-    auto& kernelsBlock = bytecode::getOrCreateContentBlock(kernelSection);
-    auto kernelsBuilder = mlir::OpBuilder::atBlockEnd(&kernelsBlock);
+    bytecode::SectionBuilder sections(parentModule);
 
     for (auto binaryOp : binaryOps) {
         // Find BinaryDataOp and func.func inside the BinaryOp
@@ -64,8 +58,8 @@ void SerializeKernelsToBytecodePass::safeRunOnModule() {
         auto moduleName = binaryOp.getSymName().str();
         auto moduleLoc = binaryOp.getLoc();
 
-        // Create kernel in the kernel section
-        kernelsBuilder.create<bytecode::KernelOp>(moduleLoc, funcName, binaryData);
+        // Create kernel in the kernel section via the shared SectionBuilder
+        sections.addKernel(funcName, binaryData, moduleLoc);
 
         // Erase the BinaryOp
         binaryOp.erase();

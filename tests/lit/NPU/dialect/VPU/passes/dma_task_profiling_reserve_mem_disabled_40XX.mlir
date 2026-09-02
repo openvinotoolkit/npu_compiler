@@ -18,7 +18,7 @@ module @SimpleGraph {
     // CHECK:     config.Resources
     // CHECK:         ReservedMemory
     // CHECK-NEXT:         DmaProfilingReservedMemory
-    // CHECK-NEXT:         config.MemoryResource 512 bytes of @CMX_NN offset 1473024
+    // CHECK-NEXT:         config.MemoryResource 512 bytes of @CMX_NN offset 1571328
 }
 
 // -----
@@ -27,7 +27,7 @@ module @SimpleGraphWithReservedMemory {
   config.Resources 2 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
       module @CMXCustomReservedMemory {
-        config.MemoryResource 40 bytes of @CMX_NN offset 1473496
+        config.MemoryResource 40 bytes of @CMX_NN offset 1571800
       }
     }
   }
@@ -42,9 +42,8 @@ module @SimpleGraphWithReservedMemory {
 
     // CHECK: module @ReservedMemory {
     // CHECK-NEXT:     module @DmaProfilingReservedMemory {
-    // CHECK-NEXT:       config.MemoryResource 512 bytes of @CMX_NN offset 1472960
-    // CHECK-NEXT:     }
-    // CHECK-NEXT:     module @CMXCustomReservedMemory {
-    // CHECK-NEXT:       config.MemoryResource 40 bytes of @CMX_NN offset 1473496
+    // CHECK-NEXT:       config.MemoryResource 512 bytes of @CMX_NN offset 1571264
+    // CHECK:            module @CMXCustomReservedMemory {
+    // CHECK-NEXT:       config.MemoryResource 40 bytes of @CMX_NN offset 1571800
     // CHECK-NEXT:     }
 }

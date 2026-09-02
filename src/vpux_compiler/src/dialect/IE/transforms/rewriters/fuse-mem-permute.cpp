@@ -9,8 +9,10 @@
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/permute_quantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
@@ -24,6 +26,24 @@
 using namespace vpux;
 
 namespace {
+
+// Returns the size of the innermost non-trivial memory dimension of val
+// (the last dim in memory order whose extent is > 1).
+std::optional<int64_t> innermostNonTrivialMemDimSize(mlir::Value val) {
+    const auto shape = getShape(val);
+    const auto order = DimsOrder::fromValue(val);
+    if (const auto dim = vpux::getInnermostNonTrivialDim(shape, order)) {
+        return shape[*dim];
+    }
+    return std::nullopt;
+}
+
+// Returns true if every element of values equals expected.
+bool allEqualTo(ArrayRef<int64_t> values, int64_t expected) {
+    return llvm::all_of(values, [expected](int64_t v) {
+        return v == expected;
+    });
+}
 
 //
 // MemPermuteRewriter
@@ -89,7 +109,7 @@ mlir::LogicalResult MemPermuteRewriter::matchAndRewrite(IE::MemPermuteOp origOp,
     const auto trivialMemPerm = getPermutationFromOrders(adjustedOrder, targetOrder, ctx);
 
     auto getDimMappingAttrValue = [&](auto inShape, auto outShape,
-                                      auto inOrder) -> std::optional<SmallVector<SmallVector<int64_t>>> {
+                                      const DimsOrder& inOrder) -> std::optional<SmallVector<SmallVector<int64_t>>> {
         const auto reassociationMap = vpux::IE::getReassociationMap(inShape, outShape);
         if (mlir::failed(reassociationMap)) {
             return std::nullopt;
@@ -231,6 +251,13 @@ std::optional<ConvOpResult> FuseMemPermuteThroughViewOps::retrieveConvOpThroughV
         }
 
         if (IE::isPureViewOp(parentOp) && !mlir::isa<IE::QuantizeCastOp>(parentOp)) {
+            // Every view op must preserve the innermost non-trivial memory dimension so the
+            // C dimension remains constant throughout the chain, allowing the H×W reshape.
+            const auto sizeIn = innermostNonTrivialMemDimSize(parentOp->getOperand(0));
+            const auto sizeOut = innermostNonTrivialMemDimSize(parentOp->getResult(0));
+            if (!sizeIn.has_value() || !sizeOut.has_value() || *sizeIn != *sizeOut) {
+                return std::nullopt;
+            }
             parentOp = parentOp->getOperand(0).getDefiningOp();
             viewOpsCnt++;
         } else {
@@ -274,20 +301,12 @@ bool FuseMemPermuteThroughViewOps::isValidConvOp(IE::ConvolutionOp convOp) const
         return false;
     }
 
-    auto checkAllElementsEqualToValue = [](const SmallVector<int64_t>& shape, const int64_t value) {
-        return std::all_of(shape.begin(), shape.end(), [&](auto size) {
-            return size == value;
-        });
-    };
-
-    const auto strides = parseIntArrayAttr<int64_t>(convOp.getStrides());
-    if (!checkAllElementsEqualToValue(strides, 1)) {
+    if (!allEqualTo(parseIntArrayAttr<int64_t>(convOp.getStrides()), 1)) {
         return false;
     }
 
-    auto origPadsBegin = parseIntArrayAttr<int64_t>(convOp.getPadsBegin());
-    auto origPadsEnd = parseIntArrayAttr<int64_t>(convOp.getPadsEnd());
-    if (!checkAllElementsEqualToValue(origPadsBegin, 0) || !checkAllElementsEqualToValue(origPadsEnd, 0)) {
+    if (!allEqualTo(parseIntArrayAttr<int64_t>(convOp.getPadsBegin()), 0) ||
+        !allEqualTo(parseIntArrayAttr<int64_t>(convOp.getPadsEnd()), 0)) {
         return false;
     }
 
@@ -329,17 +348,9 @@ mlir::LogicalResult FuseMemPermuteThroughViewOps::matchAndRewrite(IE::MemPermute
         return mlir::failure();
     }
 
-    auto areMemShapesCompatible = [this](mlir::Operation* parentOp, mlir::Operation* childOp) {
-        auto parentOutMemShape = getMemShape(parentOp->getResult(0));
-        auto childInMemShape = getMemShape(childOp->getOperand(0));
-        if (parentOutMemShape.back() != childInMemShape.back()) {
-            _log.nest().trace("Transformation skipped: Parent operation output MemShape {0} and child operation input "
-                              "MemShape {1} are not compatible.",
-                              parentOutMemShape, childInMemShape);
-            return false;
-        }
-        return true;
-    };
+    // The per-step innermostNonTrivialDim check in retrieveConvOpThroughViewOps guarantees
+    // by transitivity that the innermost non-trivial memory dimension is preserved from the
+    // Conv/Slice output through all view ops to the MemPermute input.
     auto sliceOp = result.value().sliceOp;
     if (sliceOp != nullptr) {
         // Check Slice axis is on C to ensure original SliceOp offsets[W] and offsets[H] are 0.
@@ -350,14 +361,6 @@ mlir::LogicalResult FuseMemPermuteThroughViewOps::matchAndRewrite(IE::MemPermute
         }
         auto sliceAxis = sliceAxes.front();
         if (sliceAxis != checked_cast<uint64_t>(Dims4D::Act::C.ind())) {
-            return mlir::failure();
-        }
-
-        if (!areMemShapesCompatible(sliceOp, origOp)) {
-            return mlir::failure();
-        }
-    } else {
-        if (!areMemShapesCompatible(convOp, origOp)) {
             return mlir::failure();
         }
     }
@@ -399,12 +402,11 @@ mlir::LogicalResult FuseMemPermuteThroughViewOps::matchAndRewrite(IE::MemPermute
     if (sliceOp == nullptr) {
         rewriter.replaceOp(origOp, newPermute.getOutput());
     } else {
-        auto srcOrder = convOutOrder;
         auto dstOrder = DimsOrder::fromAffineMap(origOp.getDstOrder());
         auto perm = origOp.getMemPerm();
 
         auto sliceAxis = getSliceAxes(sliceOp).front();
-        auto newSliceAxis = inferDimAfterPermutation(Dim(sliceAxis), srcOrder, dstOrder, perm);
+        auto newSliceAxis = inferDimAfterPermutation(Dim(sliceAxis), convOutOrder, dstOrder, perm);
 
         const auto origOffsets = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
         const auto origShape = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes());
@@ -421,6 +423,264 @@ mlir::LogicalResult FuseMemPermuteThroughViewOps::matchAndRewrite(IE::MemPermute
     return mlir::success();
 }
 
+//
+// FusePermuteQuantizeThroughViewOps
+//
+
+// When IE::PermuteQuantizeOp acts as a pure transpose (same element type, no padding), and is
+// separated from an IE::ConvolutionOp or IE::GroupConvolutionOp only by view ops that
+// preserve the innermost memory dimension (C in NHWC), the PermuteQuantize can be replaced by a
+// sequence of zero-cost operations placed immediately after the NCE op. The NCE op's input shape
+// is kept unchanged, avoiding the H×W reshape that would otherwise produce an HW-unfriendly
+// shape such as [128×1].
+//
+// Strategy: A MemPermute (NHWC→NCHW) placed adjacent to a cloned NCE op is fused into the NCE
+// ODU as a free permutation by MemPermuteRewriter. A PermuteCast then reinterprets the NCHW
+// output as NHWC with permuted spatial dims, and a final ShapeCast reinterprets the flat buffer
+// to match the original PermuteQuantize output shape and layout.
+//
+// Correctness: Both the original PermuteQuantize and the new NHWC→NCHW MemPermute move the
+// same innermost C=C_out NCE channels to the outer position. The view ops (PermuteCast +
+// ShapeCast) do not move data; they only relabel the flat buffer. The required condition is
+// C_out == W_pq (the innermost-dimension check below), which ensures the W dimension of the
+// PermuteQuantize output directly indexes NCE channels, making the relabeling exact.
+//
+// Initial graph:
+// 1x2048x32x4@NHWC   2048x1x1x1@NHWC
+//         \               /
+//    GroupConvolution
+//               |
+//       1x2048x32x4@NHWC
+//               |
+//        AffineReshape          [ViewOps preserving innermost C=2048]
+//               |
+//       1x2048x128x1@NHWC
+//               |
+//          PermuteCast
+//               |
+//       1x128x2048x1@NCHW
+//               |
+//        AffineReshape
+//               |
+//       1x128x1x2048@NCHW
+//               |
+// PermuteQuantize (f16→f16, pads=[0,0,0,0])
+//               |
+//       1x128x1x2048@NHWC
+//
+// After transformation:
+// 1x2048x32x4@NHWC   2048x1x1x1@NHWC
+//         \               /
+//    GroupConvolution   ← input shape unchanged
+//               |
+//       1x2048x32x4@NHWC
+//               |
+//          MemPermute (NHWC→NCHW)       ← fused into NCE ODU by MemPermuteRewriter
+//               |
+//       1x2048x32x4@NCHW
+//               |
+//          PermuteCast (trivial)         ← NCHW[1,2048,32,4] → NHWC[1,4,2048,32]
+//               |
+//       1x4x2048x32@NHWC
+//               |
+//          ShapeCast                     ← flat buffer reinterpretation
+//               |
+//       1x128x1x2048@NHWC
+//
+
+// Holds the matched NCE convolution-like op (ConvolutionOp or GroupConvolutionOp) and the
+// number of intervening pure view ops between it and the triggering PermuteQuantizeOp.
+struct NceConvOpResult {
+    mlir::Operation* nceOp{};
+    int64_t viewOpsCount{};
+};
+
+class FusePermuteQuantizeThroughViewOps final : public mlir::OpRewritePattern<IE::PermuteQuantizeOp> {
+public:
+    FusePermuteQuantizeThroughViewOps(mlir::MLIRContext* ctx, Logger log, mlir::PatternBenefit benefit = 1)
+            : mlir::OpRewritePattern<IE::PermuteQuantizeOp>(ctx, benefit), _log(log) {
+        this->setDebugName("FusePermuteQuantizeThroughViewOps");
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(IE::PermuteQuantizeOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+    std::optional<NceConvOpResult> retrieveNceConvOpThroughViewOps(IE::PermuteQuantizeOp origOp) const;
+    bool isValidPermuteQuantizeOp(IE::PermuteQuantizeOp permuteQuantize) const;
+
+private:
+    const size_t SUPPORTED_RANK = 4;
+    Logger _log;
+};
+
+std::optional<NceConvOpResult> FusePermuteQuantizeThroughViewOps::retrieveNceConvOpThroughViewOps(
+        IE::PermuteQuantizeOp origOp) const {
+    int64_t viewOpsCnt = 0;
+    auto parentOp = origOp.getInput().getDefiningOp();
+
+    while (parentOp != nullptr && parentOp->hasOneUse()) {
+        if (mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp>(parentOp)) {
+            // Matched ConvolutionOp or GroupConvolutionOp - [ViewOps] - PermuteQuantizeOp
+            return NceConvOpResult{parentOp, viewOpsCnt};
+        }
+
+        if (!IE::isPureViewOp(parentOp) || mlir::isa<IE::QuantizeCastOp>(parentOp)) {
+            return std::nullopt;
+        }
+
+        // Every view op must preserve the innermost non-trivial memory dimension.
+        // Any op that changes it (e.g. a ShapeCast that alters C in NHWC) breaks the
+        // C_out == W_pq equivalence required for the fusion and must stop the traversal.
+        const auto sizeIn = innermostNonTrivialMemDimSize(parentOp->getOperand(0));
+        const auto sizeOut = innermostNonTrivialMemDimSize(parentOp->getResult(0));
+        if (!sizeIn.has_value() || !sizeOut.has_value() || *sizeIn != *sizeOut) {
+            return std::nullopt;
+        }
+
+        parentOp = parentOp->getOperand(0).getDefiningOp();
+        viewOpsCnt++;
+    }
+
+    return std::nullopt;
+}
+
+bool FusePermuteQuantizeThroughViewOps::isValidPermuteQuantizeOp(IE::PermuteQuantizeOp permuteQuantize) const {
+    // Must act as a pure transpose: same element type and no padding
+    const auto inElemType = mlir::cast<vpux::NDTypeInterface>(permuteQuantize.getInput().getType()).getElementType();
+    if (!IE::isPurePermuteCompatiblePrecision(inElemType, permuteQuantize.getDstElemType())) {
+        return false;
+    }
+
+    if (!allEqualTo(parseIntArrayAttr<int64_t>(permuteQuantize.getPadsBegin()), 0) ||
+        !allEqualTo(parseIntArrayAttr<int64_t>(permuteQuantize.getPadsEnd()), 0)) {
+        return false;
+    }
+
+    // Ensure 4D with batch size 1
+    const auto inMemShape = getMemShape(permuteQuantize.getInput());
+    if (inMemShape.size() != SUPPORTED_RANK || inMemShape.front() != 1) {
+        return false;
+    }
+
+    // Exclude trivial permutations (no actual data rearrangement)
+    if (isTrivialPermute(inMemShape, permuteQuantize.getMemPerm())) {
+        return false;
+    }
+
+    // Keep split axes intact
+    if (auto affineReshape = permuteQuantize.getInput().getDefiningOp<IE::AffineReshapeOp>()) {
+        const auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(affineReshape.getDimMapping());
+        const auto perm = DimsOrder::fromAffineMap(permuteQuantize.getMemPerm()).toPermutation();
+        SmallVector<int64_t> permAxis;
+        for (const auto dim : perm) {
+            permAxis.push_back(checked_cast<int64_t>(dim.ind()));
+        }
+
+        const auto reshapeOutputType = mlir::cast<NDTypeInterface>(affineReshape.getOutput().getType());
+        const MemShape reshapeOutputMemShape(reshapeOutputType.getMemShape());
+        if (!areReshapedAxesPermutedIntegratedly(dimMapping, permAxis, reshapeOutputType.getDimsOrder(),
+                                                 reshapeOutputMemShape)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+mlir::LogicalResult FusePermuteQuantizeThroughViewOps::matchAndRewrite(IE::PermuteQuantizeOp origOp,
+                                                                       mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
+
+    if (!isValidPermuteQuantizeOp(origOp)) {
+        _log.nest().trace("Transformation aborted: PermuteQuantizeOp validation failed.");
+        return mlir::failure();
+    }
+
+    const auto result = retrieveNceConvOpThroughViewOps(origOp);
+    if (!result.has_value()) {
+        _log.nest().trace("Transformation skipped: Pattern match failed.");
+        return mlir::failure();
+    }
+
+    if (result.value().viewOpsCount == 0) {
+        _log.nest().trace("Transformation skipped: PermuteQuantizeOp follows NCE conv op directly.");
+        return mlir::failure();
+    }
+
+    auto* nceOp = result.value().nceOp;
+    // Require NHWC output so the NHWC→NCHW MemPermute can be placed directly after the NCE op.
+    if (!mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp>(nceOp) ||
+        mlir::cast<NDTypeInterface>(nceOp->getResult(0).getType()).getDimsOrder() != DimsOrder::NHWC) {
+        _log.nest().trace("Transformation aborted: NCE op output is not NHWC.");
+        return mlir::failure();
+    }
+
+    auto permuteInterface = mlir::dyn_cast<IE::LayerWithPermuteInterface>(nceOp);
+    if (permuteInterface == nullptr) {
+        return mlir::failure();
+    }
+
+    auto ctx = rewriter.getContext();
+
+    // The MemPermute (NHWC→NCHW) placed adjacent to the NCE op is the operation that
+    // MemPermuteRewriter will fuse into the NCE ODU as a free permutation.
+    // mem_perm (d0,d3,d1,d2) maps NHWC input memory dims [N,H,W,C] to NCHW output [N,C,H,W].
+    const auto nhwcToNchwPerm = mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{0, 3, 1, 2}, ctx);
+    const auto nchwDstOrder = mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{0, 1, 2, 3}, ctx);
+
+    // Verify ODU support using a temporary MemPermute with the NHWC→NCHW attributes.
+    auto tempMemPermute = rewriter.create<IE::MemPermuteOp>(origOp->getLoc(), nceOp->getResult(0),
+                                                            mlir::AffineMapAttr::get(nchwDstOrder),
+                                                            mlir::AffineMapAttr::get(nhwcToNchwPerm));
+    const bool isPermutationSupported = permuteInterface.isSupportedPermutation(tempMemPermute);
+    rewriter.eraseOp(tempMemPermute);
+    if (!isPermutationSupported) {
+        _log.nest().trace("Transformation skipped: Unsupported ODU permutation.");
+        return mlir::failure();
+    }
+
+    // Clone the NCE op with the same inputs and output type (no spatial reshape). The clone
+    // becomes the exclusive producer consumed by the new MemPermute, satisfying the single-use
+    // requirement of MemPermuteRewriter. The original NCE→view-ops→PermuteQuantize chain
+    // becomes dead code and is eliminated by DCE.
+    mlir::Value newNceOut;
+    if (auto convOp = mlir::dyn_cast<IE::ConvolutionOp>(nceOp)) {
+        newNceOut = cloneConvolutionOp(rewriter, convOp, convOp.getOutput().getType(), convOp.getInput(),
+                                       convOp.getFilter())
+                            .getOutput();
+    } else {
+        auto groupConvOp = mlir::cast<IE::GroupConvolutionOp>(nceOp);
+        newNceOut =
+                rewriter.create<IE::GroupConvolutionOp>(
+                                groupConvOp.getLoc(), groupConvOp.getOutput().getType(), groupConvOp.getInput(),
+                                groupConvOp.getFilter(), groupConvOp.getBias(), groupConvOp.getStridesAttr(),
+                                groupConvOp.getPadsBegin(), groupConvOp.getPadsEnd(), groupConvOp.getDilations(),
+                                groupConvOp.getGroupsAttr(), groupConvOp.getPostOpAttr(), groupConvOp.getClampAttr(),
+                                groupConvOp.getOutputPaddingAttr(), groupConvOp.getInputPaddingAttr())
+                        .getOutput();
+    }
+
+    // MemPermute: NHWC[1,C_out,H,W] → NCHW[1,C_out,H,W]
+    // Fused into the NCE ODU by MemPermuteRewriter in a subsequent iteration.
+    auto newMemPermute =
+            rewriter.create<IE::MemPermuteOp>(origOp->getLoc(), newNceOut, mlir::AffineMapAttr::get(nchwDstOrder),
+                                              mlir::AffineMapAttr::get(nhwcToNchwPerm));
+
+    // PermuteCast + ShapeCast: restore the original PermuteQuantize output shape and layout.
+    const auto nhwcDstOrder = mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{0, 2, 3, 1}, ctx);
+    const auto identityPerm = mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{0, 1, 2, 3}, ctx);
+    auto newPermuteCast = rewriter.create<IE::PermuteCastOp>(origOp->getLoc(), newMemPermute.getOutput(),
+                                                             mlir::AffineMapAttr::get(nhwcDstOrder),
+                                                             mlir::AffineMapAttr::get(identityPerm));
+
+    const auto pqOutShape = to_small_vector(getShape(origOp.getOutput()));
+    auto newShapeCast = rewriter.create<IE::ShapeCastOp>(origOp->getLoc(), origOp.getOutput().getType(),
+                                                         newPermuteCast.getOutput(), getIntArrayAttr(ctx, pqOutShape));
+
+    rewriter.replaceOp(origOp, newShapeCast.getOutput());
+    return mlir::success();
+}
+
 }  // namespace
 
 void vpux::IE::registerFuseMemPermuteRewriters(RewriterRegistry& registry, ArrayRef<mlir::PatternBenefit> benefitLevels,
@@ -429,5 +689,7 @@ void vpux::IE::registerFuseMemPermuteRewriters(RewriterRegistry& registry, Array
         registry.registerRewriter<MemPermuteRewriter>("mem-permute-rewriter", log, benefitLevels[index]);
         registry.registerRewriter<FuseMemPermuteThroughViewOps>("fuse-mem-permute-through-view-ops", log,
                                                                 benefitLevels[index]);
+        registry.registerRewriter<FusePermuteQuantizeThroughViewOps>("fuse-permute-quantize-through-view-ops", log,
+                                                                     benefitLevels[index]);
     });
 }

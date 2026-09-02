@@ -6,6 +6,7 @@
 #include "vpux/utils/core/common_string_utils.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdarg>
 #include <stdexcept>
 
@@ -26,5 +27,18 @@ void splitRangeAndApply(std::string_view::const_iterator begin, std::string_view
             curBegin = curEnd;
         }
     }
+}
+
+std::string sanitizeFilename(std::string_view input, size_t maxLen) {
+    std::string s(input.substr(0, maxLen));
+    for (auto& c : s) {
+        if (!std::isalnum(static_cast<unsigned char>(c)) && c != '_' && c != '-' && c != '.') {
+            c = '_';
+        }
+    }
+    if (s.empty()) {
+        s = "model";
+    }
+    return s;
 }
 }  // namespace vpux

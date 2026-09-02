@@ -52,7 +52,7 @@ func.func @ConvIncrementalPipeline(%arg0: tensor<1x64x28x28xf16, {order = #NHWC}
     //CHECK: [[OP2:%.+]] = VPU.Copy([[CONST]]) {out_mem_space = @CMX_NN}
     //CHECK-SAME:   -> !VPU.DistributedTensor<80x1x1x4xsi32, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
-    //CHECK: [[OP3:%.+]] = VPU.NCE.Convolution([[OP0]], [[OP1]], [[OP2]]) rawFilterShape [80, 64, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, 
+    //CHECK: [[OP3:%.+]] = VPU.NCE.Convolution([[OP0]], [[OP1]], [[OP2]]) rawFilterShape [80, 64, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
     // CHECK-SAME:  strides = [1, 1]}
     //CHECK-SAME:   -> !VPU.DistributedTensor<1x80x28x28xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     //CHECK: [[OP4:%.+]] = VPU.Copy([[OP3]])
@@ -173,7 +173,7 @@ func.func @ConvTanHIncrementalPipeline(%arg0: tensor<1x64x28x28xf16, {order = #N
     //CHECK: [[OP2:%.+]] = VPU.Copy([[CONST]]) {out_mem_space = @CMX_NN}
     //CHECK-SAME:       -> !VPU.DistributedTensor<80x1x1x4xsi32, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
-    //CHECK: [[OP3:%.+]] = VPU.NCE.Convolution([[OP0]], [[OP1]], [[OP2]]) rawFilterShape [80, 64, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, 
+    //CHECK: [[OP3:%.+]] = VPU.NCE.Convolution([[OP0]], [[OP1]], [[OP2]]) rawFilterShape [80, 64, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
     // CHECK-SAME:      strides = [1, 1]}
     //CHECK-SAME:       -> !VPU.DistributedTensor<1x80x28x28xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
@@ -204,10 +204,10 @@ func.func @EltwiseAssignedSOHWithOddWidthAndSmallHeight(%arg0: tensor<1x16x4x331
     %eltwise2_input2 = const.Declare tensor<1x16x4x8093xf16, {order = #NHWC}> = dense<1.0> : tensor<1x16x4x8093xf16>, [#const.Reorder<#NHWC>]
 
     %eltwise1_input1 = VPU.Slice %arg0 [0, 0, 0, 0] [1, 16, 4, 8093] : tensor<1x16x4x331776xf16, {order = #NHWC}> to tensor<1x16x4x8093xf16, {order = #NHWC}>
-    %eltwise1 = VPU.NCE.Eltwise(%eltwise1_input1, %eltwise1_input2) {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x16x4x8093xf16, {order = #NHWC}>
+    %eltwise1 = VPU.NCE.Eltwise(%eltwise1_input1, %eltwise1_input2) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x16x4x8093xf16, {order = #NHWC}>
 
     %eltwise2_input1 = VPU.Slice %arg0 [0, 0, 0, 8093] [1, 16, 4, 8093] : tensor<1x16x4x331776xf16, {order = #NHWC}> to tensor<1x16x4x8093xf16, {order = #NHWC}>
-    %eltwise2 = VPU.NCE.Eltwise(%eltwise2_input1, %eltwise2_input2) {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x16x4x8093xf16, {order = #NHWC}>
+    %eltwise2 = VPU.NCE.Eltwise(%eltwise2_input1, %eltwise2_input2) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x16x4x8093xf16, {order = #NHWC}>
 
     %concat = VPU.Concat(%eltwise1, %eltwise2) {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 8093]]} : tensor<1x16x4x8093xf16, {order = #NHWC}>, tensor<1x16x4x8093xf16, {order = #NHWC}> -> tensor<1x16x4x16186xf16, {order = #NHWC}>
     return %concat : tensor<1x16x4x16186xf16, {order = #NHWC}>
@@ -255,7 +255,7 @@ func.func @EltwiseAssignedSOHWithOddWidthAndSmallHeight(%arg0: tensor<1x16x4x331
 // CHECK-LABEL:   func.func @InterpolateIncrementalPipeline(
 // CHECK-SAME:                    [[VAL_0:%.+]]: tensor<1x2x540x1920xf16>) -> tensor<1x2x256x512xf16> {
 func.func @InterpolateIncrementalPipeline(%arg0: tensor<1x2x540x1920xf16>) -> tensor<1x2x256x512xf16> {
-    %0 = VPU.Interpolate(%arg0) {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SIZES>, coord_mode = <ALIGN_CORNERS>, nearest_mode = <ROUND_PREFER_FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, scales_attr = [1.3333300352096558, 1.3333300352096558], sizes_attr = [256, 512]} : tensor<1x2x540x1920xf16> -> tensor<1x2x256x512xf16>
+    %0 = VPU.Interpolate(%arg0) {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SIZES>, coord_mode = <ALIGN_CORNERS>, nearest_mode = <ROUND_PREFER_FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>, scales_attr = [1.3333300352096558, 1.3333300352096558], sizes_attr = [256, 512]} : tensor<1x2x540x1920xf16> -> tensor<1x2x256x512xf16>
     return %0 : tensor<1x2x256x512xf16>
 
     // CHECK:           [[VAL_1:%.+]] = VPU.Slice [[VAL_0]] [0, 0, 0, 0] [1, 2, 540, 959] : tensor<1x2x540x1920xf16> to tensor<1x2x540x959xf16>
@@ -268,7 +268,7 @@ func.func @InterpolateIncrementalPipeline(%arg0: tensor<1x2x540x1920xf16>) -> te
     // CHECK-DAG:       [[LAMBDAS_0:%.+]] = const.Declare tensor<1x1x1x512xf16>
     // CHECK-DAG:       [[LAMBDAS_CMX_0:%.+]] = VPU.Copy([[LAMBDAS_0]]) {out_mem_space = @CMX_NN} : tensor<1x1x1x512xf16> -> !VPU.DistributedTensor<1x1x1x512xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
-    // CHECK:           [[VAL_3:%.+]] = VPU.Interpolate([[VAL_2]], [[COORDINATES_CMX_0]], [[LAMBDAS_CMX_0]]) {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <ALIGN_CORNERS>, nearest_mode = <ROUND_PREFER_FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3], initial_input_dims_attr = [1, 2, 540, 1920], initial_input_offset_attr = [0, 0, 0, 0], initial_output_dims_attr = [1, 2, 256, 512], initial_output_offset_attr = [0, 0, 0, 0], operandSegmentSizes = array<i32: 1, 0, 0, 0, 1, 1>, scales_attr = [0.47407407407407409, 0.26694473409801878], sizes_attr = [256, 512], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00], tiling_loop_index = 0 : i64}
+    // CHECK:           [[VAL_3:%.+]] = VPU.Interpolate([[VAL_2]], [[COORDINATES_CMX_0]], [[LAMBDAS_CMX_0]]) {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SIZES>, coord_mode = <ALIGN_CORNERS>, nearest_mode = <ROUND_PREFER_FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3], initial_input_dims_attr = [1, 2, 540, 1920], initial_input_offset_attr = [0, 0, 0, 0], initial_output_dims_attr = [1, 2, 256, 512], initial_output_offset_attr = [0, 0, 0, 0], operandSegmentSizes = array<i32: 1, 0, 0, 0, 1, 1, 0, 0>, scales_attr = [1.3333300352096558, 1.3333300352096558], sizes_attr = [256, 256], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00], tiling_loop_index = 0 : i64}
     // CHECK-SAME:           -> !VPU.DistributedTensor<1x2x256x256xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
     // CHECK:           [[VAL_4:%.+]] = VPU.Copy([[VAL_3]])
@@ -285,7 +285,7 @@ func.func @InterpolateIncrementalPipeline(%arg0: tensor<1x2x540x1920xf16>) -> te
     // CHECK-DAG:       [[LAMBDAS_1:%.+]] = const.Declare tensor<1x1x1x512xf16>
     // CHECK-DAG:       [[LAMBDAS_CMX_1:%.+]] = VPU.Copy([[LAMBDAS_1]]) {out_mem_space = @CMX_NN} : tensor<1x1x1x512xf16> -> !VPU.DistributedTensor<1x1x1x512xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
-    // CHECK:           [[VAL_12:%.+]] = VPU.Interpolate([[VAL_11]], [[COORDINATES_CMX_1]], [[LAMBDAS_CMX_1]]) {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <ALIGN_CORNERS>, nearest_mode = <ROUND_PREFER_FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3], initial_input_dims_attr = [1, 2, 540, 1920], initial_input_offset_attr = [0, 0, 0, 961], initial_output_dims_attr = [1, 2, 256, 512], initial_output_offset_attr = [0, 0, 0, 256], operandSegmentSizes = array<i32: 1, 0, 0, 0, 1, 1>, scales_attr = [0.47407407407407409, 0.26694473409801878], sizes_attr = [256, 512], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00], tiling_loop_index = 0 : i64}
+    // CHECK:           [[VAL_12:%.+]] = VPU.Interpolate([[VAL_11]], [[COORDINATES_CMX_1]], [[LAMBDAS_CMX_1]]) {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SIZES>, coord_mode = <ALIGN_CORNERS>, nearest_mode = <ROUND_PREFER_FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3], initial_input_dims_attr = [1, 2, 540, 1920], initial_input_offset_attr = [0, 0, 0, 961], initial_output_dims_attr = [1, 2, 256, 512], initial_output_offset_attr = [0, 0, 0, 256], operandSegmentSizes = array<i32: 1, 0, 0, 0, 1, 1, 0, 0>, scales_attr = [1.3333300352096558, 1.3333300352096558], sizes_attr = [256, 256], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00], tiling_loop_index = 0 : i64}
     // CHECK-SAME:           -> !VPU.DistributedTensor<1x2x256x256xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
     // CHECK:           [[VAL_13:%.+]] = VPU.Copy([[VAL_12]])

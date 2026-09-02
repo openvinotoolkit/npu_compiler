@@ -132,21 +132,17 @@ mlir::LogicalResult ConvertToReduceSumRewriter::matchAndRewrite(IE::ExtractImage
                    origOp->getLoc());
 
         // Additional checks for aboveReduceSumOp
-        if (!aboveReduceSumOp.getKeepDims() || !aboveReduceSumOp.getAxesValue().has_value()) {
+        if (!aboveReduceSumOp.getKeepDims()) {
             return replaceExtractImagePatchesWithTranspose(origOp, rewriter, _log);
         }
 
-        auto aboveReduceSumOpAxes = parseIntArrayAttr<int64_t>(aboveReduceSumOp.getAxesValue().value());
+        auto aboveReduceSumOpAxes = parseIntArrayAttr<int64_t>(aboveReduceSumOp.getAxesValue());
         if (aboveReduceSumOpAxes.size() > 1 || aboveReduceSumOpAxes[0] != vpux::Dims4D::Act::C.ind()) {
             return replaceExtractImagePatchesWithTranspose(origOp, rewriter, _log);
         }
 
         // Additional checks for belowReduceSumOp
-        if (!belowReduceSumOp.getAxesValue().has_value()) {
-            return replaceExtractImagePatchesWithTranspose(origOp, rewriter, _log);
-        }
-
-        auto belowReduceSumOpAxes = parseIntArrayAttr<int64_t>(belowReduceSumOp.getAxesValue().value());
+        auto belowReduceSumOpAxes = parseIntArrayAttr<int64_t>(belowReduceSumOp.getAxesValue());
         if (transposeOp == nullptr) {
             if (belowReduceSumOpAxes.size() > 1 || belowReduceSumOpAxes[0] != vpux::Dims4D::Act::C.ind()) {
                 return replaceExtractImagePatchesWithTranspose(origOp, rewriter, _log);
@@ -166,7 +162,7 @@ mlir::LogicalResult ConvertToReduceSumRewriter::matchAndRewrite(IE::ExtractImage
         mlir::MLIRContext* ctx = origOp->getContext();
         auto axesAttr = getIntArrayAttr(ctx, ArrayRef(aboveReduceSumOpAxes));
         auto newReduceSumOp = rewriter.create<IE::ReduceSumOp>(takeOpLoc(origOp, "reduce_sum_in"),
-                                                               aboveReduceSumOp.getInput(), nullptr, axesAttr, nullptr);
+                                                               aboveReduceSumOp.getInput(), axesAttr, nullptr);
         mlir::SmallVector<int64_t> unsqueezeAxis{vpux::Dims4D::Act::H.ind()};
         if (belowReduceSumOp.getKeepDims()) {
             unsqueezeAxis.push_back(belowReduceSumOpAxes[0]);

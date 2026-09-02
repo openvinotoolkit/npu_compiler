@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_quantize_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/nce_op_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
@@ -42,6 +43,7 @@ void registerMPEEngineInfoOpInterfaces(mlir::DialectRegistry& registry) {
         VPU::RollOp::attachInterface<MPEEngineInfoOpModel<VPU::RollOp>>(*ctx);
         VPU::InterpolateOp::attachInterface<MPEEngineInfoOpModel<VPU::InterpolateOp>>(*ctx);
         VPU::TransposedConvolutionOp::attachInterface<MPEEngineInfoOpModel<VPU::TransposedConvolutionOp>>(*ctx);
+        VPU::NCEAveragePoolOp::attachInterface<MPEEngineInfoOpModel<VPU::NCEAveragePoolOp>>(*ctx);
     });
 }
 

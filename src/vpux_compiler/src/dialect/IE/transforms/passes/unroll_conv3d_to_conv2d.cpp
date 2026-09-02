@@ -259,10 +259,11 @@ mlir::LogicalResult ConvGeneralAggregation<ConcreteOp>::matchAndRewrite(Concrete
 
     const auto outputType = mlir::dyn_cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     const auto outputShapeAttr = getIntArrayAttr(ctx, outputType.getShape());
+    const auto origOpName = origOp->getName();
     auto reshapeOut = rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, newConvOp->getResult(0), outputShapeAttr);
     extendOpLoc(reshapeOut, "reshape_out");
 
-    _log.trace("Replaced with 4D '{0}'", origOp->getName());
+    _log.trace("Replaced with 4D '{0}'", origOpName);
     return mlir::success();
 }
 

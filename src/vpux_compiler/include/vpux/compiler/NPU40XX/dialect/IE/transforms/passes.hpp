@@ -22,8 +22,9 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
                                       llvm::cl::init(true)};
     BoolOption enableConvertToAttention{*this, "convert-to-attention", llvm::cl::desc("Enable conversion to Attention"),
                                         llvm::cl::init(true)};
-    BoolOption enableFuseSoftwareSDPA{*this, "fuse-software-sdpa", llvm::cl::desc("Enable fuse-sdpa pass"),
-                                      llvm::cl::init(true)};
+    BoolOption forceAttentionDecomposition{*this, "force-attention-decomposition",
+                                           llvm::cl::desc("Force decomposition of every Attention op"),
+                                           llvm::cl::init(false)};
     BoolOption enableConvertToReduceSquare{*this, "convert-to-reduce-square",
                                            llvm::cl::desc("Enable fuse-reduce-square pass"), llvm::cl::init(true)};
     BoolOption enableDecomposeGRUSequence{*this, "decompose-gru-sequence",

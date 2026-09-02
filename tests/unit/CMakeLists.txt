@@ -11,6 +11,9 @@ set(TARGET_NAME "npuUnitTests")
 set(EXCLUDED_UNIT_TESTS_DIR "")
 set(OPTIONAL_UNIT_TESTS_INCLUDES "")
 set(OPTIONAL_UNIT_TESTS_LIBS "")
+set(BYTECODE_ARTIFACTS_TARGET "")
+
+include(${PROJECT_SOURCE_DIR}/cmake/bytecode/embed_bytecode_artifacts_header.cmake)
 set(MANDATORY_UNIT_TESTS_LIBS
     "npu_37xx_firmware_headers"
     "npu_40xx_firmware_headers"
@@ -18,7 +21,6 @@ set(MANDATORY_UNIT_TESTS_LIBS
     "openvino::commonTestUtils"
     "openvino::gmock"
     "openvino::runtime"
-    "openvino::npu_al"
     "npu_algo_utils"
     "npu_ov_utils"
     "npu_profiling_utils"
@@ -36,8 +38,23 @@ set (EXTRA_INCLUDES
 
 # Toggle the inclusion of the virtual machine unit tests based on whether the NPU execution engine is enabled, as the virtual machine belongs to this execution engine
 if(ENABLE_NPU_EXECUTION_ENGINE)
-    list(APPEND MANDATORY_UNIT_TESTS_LIBS "npu_interpreter_runtime")
+    # npu_interpreter_runtime folder corresponds to the openvino_intel_npu_vm_runtime target.
+    list(APPEND MANDATORY_UNIT_TESTS_LIBS "openvino_intel_npu_vm_runtime")
     list(APPEND EXTRA_INCLUDES "${PROJECT_SOURCE_DIR}/src/npu_interpreter_runtime/src/utils") # Access to the private headers for testing purposes
+
+    set(BYTECODE_ARTIFACTS_TARGET "generateBytecodeArtifactsHeader")
+    set(BYTECODE_ARTIFACTS_TEMPLATE "${CMAKE_CURRENT_SOURCE_DIR}/virtual_machine/compatibility/bytecode_artifacts.hpp.inc")
+    set(BYTECODE_ARTIFACTS_HEADER "${CMAKE_CURRENT_BINARY_DIR}/virtual_machine/compatibility/bytecode_artifacts.hpp")
+    set(BYTECODE_BINARY_ARTIFACTS_DIR "${PROJECT_SOURCE_DIR}/tests/artifacts/bytecode/binary")  # Directory containing the bytecode artifact files
+
+    npu_embed_bytecode_artifacts_header(
+        TARGET ${BYTECODE_ARTIFACTS_TARGET}
+        TEMPLATE_FILE ${BYTECODE_ARTIFACTS_TEMPLATE}
+        OUTPUT_HEADER ${BYTECODE_ARTIFACTS_HEADER}
+        BINARY_ARTIFACTS_DIR ${BYTECODE_BINARY_ARTIFACTS_DIR}
+    )
+
+    list(APPEND EXTRA_INCLUDES "${CMAKE_CURRENT_BINARY_DIR}/virtual_machine/compatibility")
 else()
     list(APPEND EXCLUDED_UNIT_TESTS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/virtual_machine")
 endif()
@@ -82,6 +99,10 @@ ov_add_test_target(
         VPUX_PLUGIN
 )
 
+if(BYTECODE_ARTIFACTS_TARGET)
+    add_dependencies(${TARGET_NAME} ${BYTECODE_ARTIFACTS_TARGET})
+endif()
+
 set_target_properties(${TARGET_NAME} PROPERTIES FOLDER "tests")
 
 ov_build_target_faster(${TARGET_NAME} PCH PUBLIC "precomp.hpp")
@@ -114,3 +135,10 @@ add_custom_command(TARGET ${TARGET_NAME} POST_BUILD
         "$<TARGET_FILE_DIR:${TARGET_NAME}>/vpux_compiler/dialect/VPUMI40XX/input_ir"
     COMMENT "Copying VPUMI40XX test IR files alongside npuUnitTests binary"
 )
+
+if(ENABLE_DEVELOPER_BUILD) # valgrind support is a developer build setting
+    find_program(VALGRIND valgrind)
+    if(VALGRIND)
+        target_compile_definitions(${TARGET_NAME} PRIVATE NPU_TESTS_VALGRIND_FOUND)
+    endif()
+endif()

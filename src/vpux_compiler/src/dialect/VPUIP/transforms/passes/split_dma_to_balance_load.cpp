@@ -55,55 +55,6 @@ void removeUnrollIDxAttr(llvm::SmallVector<VPURT::TaskOp>& ops) {
     }
 }
 
-Shape getSplitShape(NDTypeInterface bufferType, Dim tileDim, int64_t newDimSize) {
-    Shape subShape = bufferType.getShape().toValues();
-    subShape[tileDim] = newDimSize;
-    return subShape;
-}
-
-NDTypeInterface getNewBufferType(NDTypeInterface bufferType, Dim tileDim, int64_t dimOffset, int64_t newDimSize) {
-    const auto newShape = getSplitShape(bufferType, tileDim, newDimSize);
-    Shape newOffset(SmallVector<int64_t>(newShape.size(), 0));
-    newOffset[tileDim] = dimOffset;
-
-    NDTypeInterface newType;
-    if (auto distributedType = mlir::dyn_cast<VPUIP::DistributedBufferType>(bufferType)) {
-        const auto origDistAttr = distributedType.getDistribution();
-        VPUX_THROW_UNLESS(VPU::isDuplicated(origDistAttr), "Only support DUPLICATED distributed buffer type");
-
-        // When DistributionInfoAttr has explicit per cluster memory/compute shapes, recompute them for the new shape
-        // Since changeShape is not appliable for explicit distribution
-        if (VPU::isDistributedAttrWithExplicitShapesAndOffsets(origDistAttr)) {
-            auto ctx = bufferType.getContext();
-            auto duplicatedOutputMode = VPU::DistributionModeAttr::get(ctx, VPU::DistributionMode::DUPLICATED);
-            auto newDistribution = VPU::getNonOverlappedDistributedAttr(
-                    newShape, duplicatedOutputMode, nullptr, origDistAttr.getNumClusters(), nullptr,
-                    origDistAttr.getUniformDistributedSegments(), bufferType.getElementType(), ctx);
-
-            auto newElemType = bufferType.getElementType();
-            if (auto qType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(bufferType.getElementType())) {
-                newElemType = tileScalesAndZP(qType, newShape, newOffset);
-            }
-
-            auto order = mlir::AffineMapAttr::get(bufferType.getDimsOrder().toAffineMap(ctx));
-            auto memSpace = mlir::cast<VPUIP::DistributedBufferType>(bufferType).getMemSpace();
-
-            newType = VPUIP::DistributedBufferType::get(ctx, newShape.raw(), newElemType, order, memSpace,
-                                                        newDistribution);
-
-            return VPUIP::tileTypeSparsityCompression(newType, newOffset, newShape);
-        }
-    }
-
-    if (auto qType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(bufferType.getElementType())) {
-        auto newElemType = tileScalesAndZP(qType, newShape, newOffset);
-        newType = bufferType.changeShapeElemType(newShape, newElemType);
-    } else {
-        newType = bufferType.changeShape(newShape);
-    }
-    return VPUIP::tileTypeSparsityCompression(newType, newOffset, newShape);
-}
-
 // Replace single allocation with multiple separate allocations. These allocations cover same memory range, but each
 // points to a different part based on the split sizes passed as parameter
 BuffersVec getReplacementBuffers(mlir::Value originalBuffer, Dim tileDim, const SmallVector<int64_t>& partSizes,
@@ -115,7 +66,7 @@ BuffersVec getReplacementBuffers(mlir::Value originalBuffer, Dim tileDim, const 
     builder.setInsertionPoint(bufferOp);
     const auto getTiledBuf = [&](int64_t newOffset, int64_t newDimSize, int64_t extraOffset,
                                  StringRef locSuffix) -> mlir::Value {
-        auto newType = getNewBufferType(bufferType, tileDim, newOffset, newDimSize);
+        auto newType = VPUIP::getNewBufferType(bufferType, tileDim, newOffset, newDimSize);
         newType = newType.changeStrides(origStrides);
 
         auto newBufferOffset = bufferOp.getByteOffset() + extraOffset;
@@ -155,7 +106,7 @@ BuffersVec getConstantParts(mlir::Value originalConstant, Dim tileDim, const Sma
         Shape offset(SmallVector<int64_t>(origShape.size(), 0));
         offset[tileDim] = tileOffset;
 
-        const auto newShape = getSplitShape(cstType, tileDim, newDimSize);
+        const auto newShape = VPUIP::getSplitShape(cstType, tileDim, newDimSize);
         const auto newLoc = takeOpLoc(cstOp, locSuffix);
         return builder.createOrFold<VPUIP::SubViewOp>(newLoc, cstOp, offset.raw(), newShape.raw());
     };
@@ -190,6 +141,13 @@ VPUIP::DMATypeOpInterface createDMATask(VPURT::TaskOp originalTaskOp, VPUIP::DMA
         if (originalNNDMAOp.getProfilingBufferMgmt()) {
             newDmaOp.setProfilingBufferMgmt(true);
         }
+        return mlir::cast<VPUIP::DMATypeOpInterface>(newDmaOp.getOperation());
+    } else if (auto originalConvertDmaOp = mlir::dyn_cast<VPUIP::ConvertDMAOp>(originalDmaOp.getOperation())) {
+        auto newDmaOp = VPURT::wrapIntoTaskOp<VPUIP::ConvertDMAOp>(
+                builder, originalTaskOp.getWaitBarriers(), originalTaskOp.getUpdateBarriers(), newLoc, input, output,
+                getIntAttr(builder, 0), originalConvertDmaOp.getIsOutOfOrder(), originalConvertDmaOp.getIsCritical(),
+                originalConvertDmaOp.getDmaHwpIdAttr(), originalConvertDmaOp.getProfilingMetadataAttr(),
+                /*split_candidate=*/nullptr);
         return mlir::cast<VPUIP::DMATypeOpInterface>(newDmaOp.getOperation());
     }
     VPUX_THROW("Can't create DMA task");
@@ -296,7 +254,7 @@ SmallVector<VPUIP::DMATypeOpInterface> splitFoldedConstToBufferDma(VPURT::TaskOp
                 Const::ExternalConstContentCreationOptions{/* deepCopyConstData */ true,
                                                            /* allowDuplicatesForTheSameResourceName */ false});
         const auto newLoc = takeOpLoc(cstOp, locSuffix);
-        const auto newType = getNewBufferType(cstType, tileDim, tileOffset, newDimSize);
+        const auto newType = VPUIP::getNewBufferType(cstType, tileDim, tileOffset, newDimSize);
 
         return builder.create<Const::DeclareOp>(newLoc, newType, Const::ContentAttr::get(denseAttr));
     };
@@ -333,6 +291,8 @@ SmallVector<VPUIP::DMATypeOpInterface> splitDMATask(
 std::optional<Dim> getDMATilingDim(VPUIP::DMATypeOpInterface dmaOp) {
     if (auto nnDMAOp = mlir::dyn_cast<VPUIP::NNDMAOp>(dmaOp.getOperation())) {
         return VPUIP::getCopyDMATilingDim(nnDMAOp);
+    } else if (auto convertDMAOp = mlir::dyn_cast<VPUIP::ConvertDMAOp>(dmaOp.getOperation())) {
+        return VPUIP::getCopyDMATilingDim(convertDMAOp);
     } else if (auto gatherDmaOp = mlir::dyn_cast<VPUIP::GatherDMAOp>(dmaOp.getOperation())) {
         const auto indicesType = mlir::cast<NDTypeInterface>(gatherDmaOp.getIndices().getType());
         return getHighestNonTrivialDim(indicesType.getShape(), indicesType.getDimsOrder());
@@ -375,10 +335,17 @@ llvm::SmallVector<int64_t> getSplitPartSizes(NDTypeInterface bufferType, Dim til
     // For sub-byte types, ensure the split size is byte-aligned
     const auto elemType = bufferType.getElementType();
     if (elemType.isIntOrFloat()) {
-        const auto bitWidth = elemType.getIntOrFloatBitWidth();
+        const auto bitWidth = static_cast<int64_t>(elemType.getIntOrFloatBitWidth());
         if (bitWidth % CHAR_BIT != 0) {
-            const auto subByteAlignment = CHAR_BIT / bitWidth;
-            partSize = (partSize / subByteAlignment) * subByteAlignment;
+            // Minimum element-count alignment so that (count * bitWidth) is divisible by CHAR_BIT.
+            const auto elemCountAlignment = CHAR_BIT / std::gcd<int64_t>(CHAR_BIT, bitWidth);
+            // Trailing remainder = tileDimSize - (partsNumber-1) * alignedPartSize. It can only be
+            // byte-aligned if tileDimSize itself is a multiple of elemCountAlignment. Otherwise splitting
+            // would produce a non-byte-aligned last part and downstream Byte() conversion would throw.
+            if (tileDimSize % elemCountAlignment != 0) {
+                return {tileDimSize};
+            }
+            partSize = (partSize / elemCountAlignment) * elemCountAlignment;
         }
     }
 
@@ -417,10 +384,10 @@ bool checkGatherIndicesAlignment(VPUIP::GatherDMAOp gatherOp, Dim tileDim, size_
 }
 
 bool canSplitDma(VPUIP::DMATypeOpInterface dmaOp, size_t noOfParts, Logger log) {
-    if (auto nndmaOp = mlir::dyn_cast<VPUIP::NNDMAOp>(dmaOp.getOperation())) {
+    if (mlir::isa<VPUIP::NNDMAOp, VPUIP::ConvertDMAOp>(dmaOp.getOperation())) {
         // Skip splitting for small transfers that can't fully utilize bandwidth. Don't do that for
         // GatherDMAOp since gather dma will be split on indices so bandwidth won't be affected by the split.
-        const auto transferSize = getTotalSize(nndmaOp.getInput());
+        const auto transferSize = getTotalSize(dmaOp.getInput());
         if (transferSize.count() < MIN_DMA_SIZE_FOR_SPLIT) {
             log.trace("Transfer size {0}B is too small to benefit from splitting (min: {1}B)", transferSize.count(),
                       MIN_DMA_SIZE_FOR_SPLIT);
@@ -800,6 +767,22 @@ void SplitDMAToBalanceLoad::safeRunOnFunc() {
             _log.trace("Found split candidate at '{0}'", gatherDMAOp->getLoc());
 
             handleSingleDMASplit(taskOp, gatherDMAOp, dmaPortCount, builder, _log.nest());
+            return;
+        }
+
+        if (auto convertDMAOp = mlir::dyn_cast<VPUIP::ConvertDMAOp>(taskOp.getInnerTaskOp())) {
+            if (convertDMAOp->getAttr(stridedInputAttrName) != nullptr ||
+                convertDMAOp->getAttr(stridedOutputAttrName) != nullptr) {
+                return;
+            }
+            const bool hasSplitCandidate =
+                    convertDMAOp.getSplitCandidate().has_value() && convertDMAOp.getSplitCandidate().value();
+            if (!hasSplitCandidate) {
+                return;
+            }
+            _log.trace("Found split candidate at '{0}'", convertDMAOp->getLoc());
+
+            handleSingleDMASplit(taskOp, convertDMAOp, dmaPortCount, builder, _log.nest());
             return;
         }
     });

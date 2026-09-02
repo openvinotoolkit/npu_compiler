@@ -134,36 +134,41 @@ bool vpux::isSupportedEltwisePerAxisQuantization(mlir::Type perAxisElemType, Log
     return true;
 }
 
-mlir::LogicalResult vpux::validateQuantElemType(mlir::Location loc, vpux::NDTypeInterface mainType) {
-    auto validateQuantizedPerAxisType = [](auto perAxisQType, mlir::Location loc,
-                                           vpux::NDTypeInterface mainType) -> mlir::LogicalResult {
-        const auto qDim = perAxisQType.getQuantizedDimension();
-
-        if (qDim < 0 || static_cast<int64_t>(qDim) >= mainType.getRank()) {
-            return errorAt(loc, "Quantized axis '{0}' is out of main type rank '{1}'", qDim, mainType.getRank());
-        }
-
-        const auto qDimSize = mainType.getShape()[Dim(static_cast<uint32_t>(qDim))];
-        const auto numScales = perAxisQType.getScales().size();
-
-        if (qDimSize != mlir::ShapedType::kDynamic) {
-            if (checked_cast<size_t>(qDimSize) != numScales) {
-                return errorAt(loc,
-                               "Number of scales '{0}' in per-axis quantized type do not match the quantized "
-                               "dimension "
-                               "size '{1}'",
-                               numScales, qDimSize);
-            }
-        }
-
-        return mlir::success();
-    };
-
-    if (auto perAxisQType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(mainType.getElementType())) {
-        return validateQuantizedPerAxisType(perAxisQType, loc, mainType);
+bool vpux::isSupportedElemTypeQuantization(mlir::Type elemType, ShapeRef shape, LogCb logCb) {
+    if (elemType == nullptr) {
+        logCb(formatv("Element type is null"));
+        return false;
     }
 
-    return mlir::success();
+    const auto perAxisQType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(elemType);
+    if (perAxisQType == nullptr) {
+        return true;
+    }
+
+    const auto rank = checked_cast<int64_t>(shape.size());
+    const auto quantizedDimension = perAxisQType.getQuantizedDimension();
+    if (quantizedDimension < 0 || quantizedDimension >= rank) {
+        logCb(formatv("Quantized axis '{0}' is out of main type rank '{1}'", quantizedDimension, rank));
+        return false;
+    }
+
+    const auto dimSize = shape[Dim(static_cast<uint32_t>(quantizedDimension))];
+    const auto numScales = perAxisQType.getScales().size();
+    if (dimSize != mlir::ShapedType::kDynamic && checked_cast<size_t>(dimSize) != numScales) {
+        logCb(formatv("Number of scales '{0}' in per-axis quantized type do not match the quantized "
+                      "dimension size '{1}'",
+                      numScales, dimSize));
+        return false;
+    }
+
+    return true;
+}
+
+mlir::LogicalResult vpux::validateQuantElemType(mlir::Location loc, vpux::NDTypeInterface mainType) {
+    const auto logCb = [loc](const formatv_object_base& msg) {
+        std::ignore = errorAt(loc, "{0}", msg.str());
+    };
+    return mlir::success(isSupportedElemTypeQuantization(mainType.getElementType(), mainType.getShape(), logCb));
 }
 
 mlir::Type vpux::normalizeQuantStorageType(mlir::quant::QuantizedType qType) {
@@ -607,6 +612,27 @@ bool vpux::areAllZeroPointsEqual(mlir::quant::UniformQuantizedPerAxisType type) 
     });
 }
 
+mlir::IntegerAttr vpux::getPerTensorZeroPointAttr(mlir::Value value) {
+    const auto elementType = mlir::cast<vpux::NDTypeInterface>(value.getType()).getElementType();
+
+    const auto quantizedType = mlir::dyn_cast<mlir::quant::QuantizedType>(elementType);
+    if (quantizedType == nullptr) {
+        return nullptr;
+    }
+
+    if (const auto perTensorType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(quantizedType)) {
+        return mlir::Builder(value.getContext()).getI64IntegerAttr(perTensorType.getZeroPoint());
+    }
+
+    if (const auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(quantizedType)) {
+        if (areAllZeroPointsEqual(perAxisType)) {
+            return mlir::Builder(value.getContext()).getI64IntegerAttr(perAxisType.getZeroPoints().front());
+        }
+    }
+
+    return nullptr;
+}
+
 vpux::QuantizationApproximation::QuantizationApproximation(double target): _mult(0), _shift(0), _postShift(0) {
     std::tie(_mult, _shift, _postShift) = approximate<decltype(_mult)>(15, target);
 
@@ -948,7 +974,7 @@ mlir::FailureOr<std::tuple<double, double, mlir::Type>> vpux::getStorageParams(m
     mlir::Type storageType;
 
     if (const auto quantileType = mlir::dyn_cast<vpux::type::QuantileType>(type)) {
-        storageType = quantileType.getStorageType();
+        storageType = quantileType;
 
         const auto range = getStorageRange(quantileType, quantileType.shouldDefaultToSigned());
         if (mlir::failed(range)) {
@@ -1123,4 +1149,169 @@ double vpux::fakeQuantize(double inVal, double inLow, double inHigh, double qLow
     } else {
         return std::round((inVal - inLow) / (inHigh - inLow) * (levels - 1)) / (levels - 1) * (qHigh - qLow) + qLow;
     }
+}
+
+/**
+ * @brief Infers UniformQuantizedPerAxisType after shape cast for NHWC layout.
+ *
+ * Used mainly for adjustConvolutionShape pass. Supports changes only in channel (C) and width (W) dimensions;
+ * other dimensions must remain unchanged. Adjusts quantization parameters (scales/zero points) accordingly.
+ */
+std::optional<mlir::quant::UniformQuantizedPerAxisType> vpux::inferPerAxisQuantizedTypeAfterShapeCastOrNull(
+        const mlir::Type inType, ArrayRef<int64_t> outShape, LogCb logCb) {
+    auto inNDType = mlir::dyn_cast<vpux::NDTypeInterface>(inType);
+    if (inNDType == nullptr) {
+        logCb(formatv("Type {0} does not implement NDTypeInterface", inType));
+        return std::nullopt;
+    }
+
+    auto perAxisUniformQType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(inNDType.getElementType());
+    if (perAxisUniformQType == nullptr) {
+        logCb(formatv("Only UniformQuantizedPerAxisType is supported"));
+        return std::nullopt;
+    }
+
+    if (inNDType.getDimsOrder() != DimsOrder::NHWC) {
+        logCb(formatv("Only NHWC layout is supported"));
+        return std::nullopt;
+    }
+
+    const auto inShape = inNDType.getShape().raw();
+    if (inShape.size() != outShape.size()) {
+        logCb(formatv("Input and output shapes must have the same rank. Input shape: {0}, Output shape: {1}", inShape,
+                      outShape));
+        return std::nullopt;
+    }
+
+    const auto quantizedAxis = perAxisUniformQType.getQuantizedDimension();
+    if (quantizedAxis < 0 || checked_cast<size_t>(quantizedAxis) >= inShape.size()) {
+        logCb(formatv("Quantized axis {0} is out of range for input shape {1}", quantizedAxis, inShape));
+        return std::nullopt;
+    }
+
+    // If the quantized axis dimension hasn't changed, we can safely adjust the shape
+    if (inShape[quantizedAxis] == outShape[quantizedAxis]) {
+        return perAxisUniformQType;
+    }
+
+    if (quantizedAxis != Dims4D::Act::C.ind()) {
+        logCb(formatv("Only adjustment of quantized axis == 1 (channel) is supported. Got quantizedAxis={0} for "
+                      "inShape={1}, outShape={2}",
+                      quantizedAxis, inShape, outShape));
+        return std::nullopt;
+    }
+
+    const auto wDimIdx = Dims4D::Act::W.ind();
+    if (checked_cast<size_t>(wDimIdx) >= inShape.size()) {
+        logCb(formatv("W axis {0} is out of range for input shape {1}", wDimIdx, inShape));
+        return std::nullopt;
+    }
+
+    // Only C and W dimension changes are supported at the moment
+    for (size_t i = 0; i < inShape.size(); ++i) {
+        if (i != static_cast<size_t>(quantizedAxis) && i != static_cast<size_t>(wDimIdx)) {
+            if (inShape[i] != outShape[i]) {
+                logCb(formatv("Only quantized axis and W dimension changes are supported. "
+                              "Input shape: {0}, Output shape: {1}, Quantized axis: {2}, W axis: {3}, Mismatched dim: "
+                              "{4}",
+                              inShape, outShape, quantizedAxis, wDimIdx, i));
+                return std::nullopt;
+            }
+        }
+    }
+
+    if (inShape[quantizedAxis] <= 0 || inShape[wDimIdx] <= 0) {
+        logCb(formatv("Input quantized axis and W dimensions must be positive. Input shape: {0}", inShape));
+        return std::nullopt;
+    }
+
+    const double dimQRescaleFactor = static_cast<double>(outShape[quantizedAxis]) / inShape[quantizedAxis];
+    const double dimWRescaleFactor = static_cast<double>(outShape[wDimIdx]) / inShape[wDimIdx];
+
+    if (!std::isfinite(dimQRescaleFactor) || !std::isfinite(dimWRescaleFactor) || dimQRescaleFactor <= 0.0 ||
+        dimWRescaleFactor <= 0.0) {
+        logCb(formatv("Invalid quantized axis or W rescale factors: dimQRescaleFactor={0}, dimWRescaleFactor={1}. "
+                      "Shape change: {2} -> {3}",
+                      dimQRescaleFactor, dimWRescaleFactor, inShape, outShape));
+        return std::nullopt;
+    }
+
+    if (std::abs(dimQRescaleFactor * dimWRescaleFactor - 1.0) >= std::numeric_limits<double>::epsilon()) {
+        logCb(formatv("Only shape-cast operations like reshape are supported for quantized tensors. "
+                      "Expected equilibrium between quantized axis and W axis rescale factors, but got: "
+                      "dimQRescaleFactor={0}, dimWRescaleFactor={1}. "
+                      "Shape change: {2} -> {3}",
+                      dimQRescaleFactor, dimWRescaleFactor, inShape, outShape));
+        return std::nullopt;
+    }
+
+    const auto& scales = perAxisUniformQType.getScales();
+    const auto& zeroPoints = perAxisUniformQType.getZeroPoints();
+    const auto hasZeroPoints = !zeroPoints.empty();
+    if (hasZeroPoints && zeroPoints.size() != scales.size()) {
+        logCb(formatv("Zero-point size ({0}) does not match scale size ({1})", zeroPoints.size(), scales.size()));
+        return std::nullopt;
+    }
+    llvm::SmallVector<double> newScales;
+    llvm::SmallVector<int64_t> newZeroPoints;
+
+    if (dimQRescaleFactor > 1.0) {
+        const int repeat = static_cast<int>(std::round(dimQRescaleFactor));
+        for (int i = 0; i < repeat; ++i) {
+            newScales.append(scales.begin(), scales.end());
+            if (hasZeroPoints) {
+                newZeroPoints.append(zeroPoints.begin(), zeroPoints.end());
+            }
+        }
+    } else {
+        const int group = static_cast<int>(std::round(1.0 / dimQRescaleFactor));
+        const size_t patternSize = scales.size() / group;
+        if (patternSize * group != scales.size()) {
+            logCb(formatv("Scale size ({0}) is not divisible by group size ({1})", scales.size(), group));
+            return std::nullopt;
+        }
+
+        for (size_t i = 0; i < patternSize; ++i) {
+            for (int j = 1; j < group; ++j) {
+                const auto hasSameScale = scales[i] == scales[i + j * patternSize];
+                const auto hasSameZeroPoint = !hasZeroPoints || zeroPoints[i] == zeroPoints[i + j * patternSize];
+                if (!hasSameScale || !hasSameZeroPoint) {
+                    logCb(formatv("Inconsistent repeating pattern in scales/zero points at position {0}", i));
+                    return std::nullopt;
+                }
+            }
+        }
+        newScales.append(scales.begin(), scales.begin() + patternSize);
+        if (hasZeroPoints) {
+            newZeroPoints.append(zeroPoints.begin(), zeroPoints.begin() + patternSize);
+        }
+
+        if (patternSize != static_cast<size_t>(outShape[quantizedAxis])) {
+            logCb(formatv("Pattern size ({0}) does not match output dimension size ({1})", patternSize,
+                          outShape[quantizedAxis]));
+            return std::nullopt;
+        }
+    }
+
+    if (newScales.size() != static_cast<size_t>(outShape[quantizedAxis])) {
+        logCb(formatv("New scales size ({0}) does not match output shape dimension ({1})", newScales.size(),
+                      outShape[quantizedAxis]));
+        return std::nullopt;
+    }
+
+    return mlir::quant::UniformQuantizedPerAxisType::get(
+            perAxisUniformQType.getFlags(), perAxisUniformQType.getStorageType(),
+            perAxisUniformQType.getExpressedType(), newScales, newZeroPoints,
+            perAxisUniformQType.getQuantizedDimension(), perAxisUniformQType.getStorageTypeMin(),
+            perAxisUniformQType.getStorageTypeMax());
+}
+
+mlir::quant::UniformQuantizedPerAxisType vpux::inferPerAxisQuantizedTypeAfterShapeCast(const mlir::Type inType,
+                                                                                       ArrayRef<int64_t> outShape) {
+    const auto logCb = [](const formatv_object_base& msg) {
+        VPUX_THROW("{0}", msg.str());
+    };
+    auto perAxisType = inferPerAxisQuantizedTypeAfterShapeCastOrNull(inType, outShape, logCb);
+    VPUX_THROW_UNLESS(perAxisType.has_value(), "Failed to infer UniformQuantizedPerAxisType after ShapeCast");
+    return perAxisType.value();
 }

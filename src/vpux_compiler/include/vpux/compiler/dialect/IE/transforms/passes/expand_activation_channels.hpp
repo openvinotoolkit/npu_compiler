@@ -5,9 +5,11 @@
 
 #pragma once
 
+#include <mlir/Support/LLVM.h>
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
@@ -126,12 +128,19 @@ mlir::LogicalResult EltwiseRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp orig
         const auto ndType = mlir::cast<vpux::NDTypeInterface>(origOp.getType());
         const auto newOutputType = ndType.pad(outPadBefore, outPadAfter);
 
-        auto [inputPaddingAttr, outputPaddingAttr] =
-                getPaddingAttributes(origOp, expandedInput1, inChanPadEnd, outPadAfter);
+        const auto paddingAttrs = getPaddingAttributes(origOp, expandedInput1, inChanPadEnd, outPadAfter);
+        const auto inputPaddingAttr = paddingAttrs.first;
+        const auto outputPaddingAttr = paddingAttrs.second;
 
-        return rewriter.create<ConcreteOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput1, expandedInput2,
-                                           origOp.getAutoBroadcast(), origOp.getPostOpAttr(), origOp.getClampAttr(),
-                                           outputPaddingAttr, inputPaddingAttr);
+        mlir::IRMapping mapper;
+        mapper.map(origOp.getInput1(), expandedInput1);
+        mapper.map(origOp.getInput2(), expandedInput2);
+        auto newOp = mlir::cast<ConcreteOp>(rewriter.clone(*origOp.getOperation(), mapper));
+        newOp->getResult(0).setType(newOutputType);
+        newOp.setInputPaddingAttr(inputPaddingAttr);
+        newOp.setOutputPaddingAttr(outputPaddingAttr);
+
+        return newOp.getOperation();
     };
 
     return generalRewrite(origOp, rewriter, opCreator, IE::extractMeaningfulOutput, _log.nest());

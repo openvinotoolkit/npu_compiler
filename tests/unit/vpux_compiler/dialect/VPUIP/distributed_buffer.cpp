@@ -3458,3 +3458,267 @@ TEST_F(MLIR_NDTypeInterface, SubByteSegmentedDistributedBufferType) {
     const SmallVector<int64_t> pads({0, 0, 2, 2});
     EXPECT_ANY_THROW(ndType.pad(vpux::ShapeRef(pads), vpux::ShapeRef(pads)));
 }
+
+// Verify that DistributedBufferType::verify succeeds for a subbyte (si4) SEGMENTED type
+// when all per-cluster memory offsets are byte-aligned.
+//
+// Shape [1, 4, 1, 1] in NHWC, si4 (4 bits). SEGMENTED over C with 2 tiles.
+// Cluster 1 offset = [0, 2, 0, 0]: bit offset = 2 * 4 = 8 bits. 8 % 8 == 0, byte-aligned.
+TEST_F(MLIR_NDTypeInterface, SubByteBufferVerifyByteAligned) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPUIP::VPUIPDialect>();
+
+    auto makeLayout = [&](DimsOrder order, ArrayRef<int64_t> elemStrides) {
+        const auto orderAttr = mlir::AffineMapAttr::get(order.toAffineMap(&ctx));
+        const auto stridesAttr = getIntArrayAttr(&ctx, elemStrides);
+        return vpux::MemRefAttr::get(orderAttr, stridesAttr, /*allocSize=*/nullptr, &ctx);
+    };
+
+    const auto si4Type = mlir::quant::UniformQuantizedType::getChecked(
+            mlir::UnknownLoc::get(&ctx), mlir::quant::QuantizationFlags::Signed, vpux::getSInt4Type(&ctx),
+            mlir::Float16Type::get(&ctx), 1.0, 0, -7, 7);
+    const auto dimsSpace = vpux::IndexedSymbolAttr::get(&ctx, CMX_NAME);
+    const auto loc = mlir::UnknownLoc::get(&ctx);
+
+    {
+        // Verify that DistributedBufferType::verify succeeds for a subbyte (si4) SEGMENTED type
+        // when all per-cluster memory offsets are byte-aligned.
+        //
+        // Shape [1, 4, 1, 1] in NHWC, si4 (4 bits). SEGMENTED over C with 2 tiles.
+        // Cluster 1 offset = [0, 2, 0, 0]: bit offset = 2 * 4 = 8 bits. 8 % 8 == 0, byte-aligned.
+        const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
+        const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 2, 1, 1}));
+        const auto numClusters = getIntAttr(&ctx, 2);
+        const auto distributedAttr =
+                VPU::DistributionInfoAttr::get(&ctx, distributionMode, numTiles, nullptr, nullptr, nullptr, numClusters,
+                                               nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const auto shape = SmallVector<int64_t>({1, 4, 1, 1});
+        // NHWC element strides for shape [1, 4, 1, 1]: [C*H*W, 1, C*W, C] = [4, 1, 4, 4]
+        const auto layout = makeLayout(DimsOrder::NHWC, {4, 1, 4, 4});
+
+        const auto result = VPUIP::DistributedBufferType::verify(
+                [loc]() -> mlir::InFlightDiagnostic {
+                    return mlir::emitError(loc);
+                },
+                shape, si4Type, layout, dimsSpace, distributedAttr, nullptr);
+        EXPECT_TRUE(mlir::succeeded(result));
+    }
+
+    // Verify that DistributedBufferType::verify fails for a subbyte (si4) SEGMENTED type
+    // when a per-cluster memory offset is not byte-aligned.
+    //
+    // Shape [2, 6, 1, 1] in NHWC, si4 (4 bits). SEGMENTED over C with 2 tiles.
+    // Cluster 1 offset = [0, 3, 0, 0]: bit offset = 3 * 4 = 12 bits. 12 % 8 == 4, not byte-aligned.
+    {
+        const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
+        const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 2, 1, 1}));
+        const auto numClusters = getIntAttr(&ctx, 2);
+        const auto distributedAttr =
+                VPU::DistributionInfoAttr::get(&ctx, distributionMode, numTiles, nullptr, nullptr, nullptr, numClusters,
+                                               nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const auto shape = SmallVector<int64_t>({2, 6, 1, 1});
+        // NHWC element strides for shape [2, 6, 1, 1]: [C*H*W, 1, C*W, C] = [6, 1, 6, 6]
+        const auto layout = makeLayout(DimsOrder::NHWC, {6, 1, 6, 6});
+
+        // Suppress diagnostic output emitted by verify on failure.
+        mlir::ScopedDiagnosticHandler diagHandler(&ctx, [](mlir::Diagnostic&) {
+            return mlir::success();
+        });
+
+        const auto result = VPUIP::DistributedBufferType::verify(
+                [loc]() -> mlir::InFlightDiagnostic {
+                    return mlir::emitError(loc);
+                },
+                shape, si4Type, layout, dimsSpace, distributedAttr, nullptr);
+        EXPECT_TRUE(mlir::failed(result));
+    }
+
+    {
+        // Verify that DistributedBufferType::verify succeeds for a subbyte (si4) SEGMENTED type
+        // when all per-cluster memory offsets are byte-aligned.
+        //
+        // Shape [1, 2, 6, 1] in NHWC, si4 (4 bits). SEGMENTED over H with 2 tiles.
+        // Cluster 1 offset = [0, 0, 3, 0]: bit offset = 3 * 2 * 4bits = 24 bits. 24 % 8 == 0, byte-aligned.
+        const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
+        const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));
+        const auto numClusters = getIntAttr(&ctx, 2);
+        const auto distributedAttr =
+                VPU::DistributionInfoAttr::get(&ctx, distributionMode, numTiles, nullptr, nullptr, nullptr, numClusters,
+                                               nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const auto shape = SmallVector<int64_t>({1, 2, 6, 1});
+        // NHWC element strides for shape [1, 2, 6, 1]: [C*H*W, 1, C*W, C] = [12, 1, 2, 2]
+        const auto layout = makeLayout(DimsOrder::NHWC, {12, 1, 2, 2});
+
+        const auto result = VPUIP::DistributedBufferType::verify(
+                [loc]() -> mlir::InFlightDiagnostic {
+                    return mlir::emitError(loc);
+                },
+                shape, si4Type, layout, dimsSpace, distributedAttr, nullptr);
+        EXPECT_TRUE(mlir::succeeded(result));
+    }
+
+    {
+        // Verify that DistributedBufferType::verify succeeds for a subbyte (si4) SEGMENTED type
+        // when all per-cluster memory offsets are byte-aligned.
+        //
+        // Shape [1, 1, 5, 1] in NHWC, si4 (4 bits). SEGMENTED over H with 2 tiles, with alignment [1, 1, 2, 1].
+        // Cluster 1 offset = [0, 0, 4, 0]: bit offset = 4 * 4bits = 16 bits. 16 % 8 == 0, byte-aligned.
+        const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
+        const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));
+        const auto alignment = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));
+        const auto numClusters = getIntAttr(&ctx, 2);
+        const auto distributedAttr = VPU::DistributionInfoAttr::get(&ctx, distributionMode, numTiles, nullptr, nullptr,
+                                                                    nullptr, numClusters, alignment, nullptr, nullptr,
+                                                                    nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const auto shape = SmallVector<int64_t>({1, 1, 5, 1});
+        // NHWC element strides for shape [1, 1, 5, 1]: [C*H*W, 1, C*W, C] = [5, 1, 1, 1]
+        const auto layout = makeLayout(DimsOrder::NHWC, {5, 1, 1, 1});
+
+        const auto result = VPUIP::DistributedBufferType::verify(
+                [loc]() -> mlir::InFlightDiagnostic {
+                    return mlir::emitError(loc);
+                },
+                shape, si4Type, layout, dimsSpace, distributedAttr, nullptr);
+        EXPECT_TRUE(mlir::succeeded(result));
+    }
+
+    {
+        // Verify that DistributedBufferType::verify succeeds for a subbyte (si4) SEGMENTED type
+        // when all per-cluster memory offsets are byte-aligned.
+        //
+        // Shape [1, 1, 7, 1] in NHWC, si4 (4 bits). SEGMENTED over H with 2 tiles.
+        // Cluster 1 offset = [0, 0, 4, 0]: bit offset = 4 * 4bits = 16 bits. 16 % 8 == 0, byte-aligned.
+        const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
+        const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));
+        const auto numClusters = getIntAttr(&ctx, 2);
+        const auto distributedAttr =
+                VPU::DistributionInfoAttr::get(&ctx, distributionMode, numTiles, nullptr, nullptr, nullptr, numClusters,
+                                               nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const auto shape = SmallVector<int64_t>({1, 1, 7, 1});
+        // NHWC element strides for shape [1, 1, 7, 1]: [C*H*W, 1, C*W, C] = [7, 1, 1, 1]
+        const auto layout = makeLayout(DimsOrder::NHWC, {7, 1, 1, 1});
+
+        const auto result = VPUIP::DistributedBufferType::verify(
+                [loc]() -> mlir::InFlightDiagnostic {
+                    return mlir::emitError(loc);
+                },
+                shape, si4Type, layout, dimsSpace, distributedAttr, nullptr);
+        EXPECT_TRUE(mlir::succeeded(result));
+    }
+}
+
+// Verify that DistributedBufferType::verify uses the actual layout strides rather than
+// deriving compact strides from the shape when checking per-cluster byte alignment.
+//
+// Shape [1, 3, 2, 1] NHWC si4, SEGMENTED H÷2.
+// Compact H element stride = 3 → bit stride = 12 bits. Cluster-1 H=1 offset = 12 bits (12%8≠0).
+//   With compact strides this offset would not be byte-aligned.
+//   Non-compact H stride = 6 → bit stride = 24 bits. Cluster-1 H=1 offset = 24 bits (24%8=0). PASS
+//   Non-compact H stride = 9 → bit stride = 36 bits. Cluster-1 H=1 offset = 36 bits (36%8≠0). FAIL
+//
+// Shape [1, 2, 2, 2] NHWC si4, SEGMENTED C÷2.
+// Compact C element stride = 1 → bit stride = 4 bits. Cluster-1 C=1 offset = 4 bits (4%8≠0).
+//   Non-compact C stride = 2 → bit stride = 8 bits. Cluster-1 C=1 offset = 8 bits (8%8=0). PASS
+TEST_F(MLIR_NDTypeInterface, NonCompactStridesBufferVerify) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPUIP::VPUIPDialect>();
+
+    auto makeLayout = [&](DimsOrder order, ArrayRef<int64_t> elemStrides) {
+        const auto orderAttr = mlir::AffineMapAttr::get(order.toAffineMap(&ctx));
+        const auto stridesAttr = getIntArrayAttr(&ctx, elemStrides);
+        return vpux::MemRefAttr::get(orderAttr, stridesAttr, /*allocSize=*/nullptr, &ctx);
+    };
+
+    const auto si4Type = mlir::quant::UniformQuantizedType::getChecked(
+            mlir::UnknownLoc::get(&ctx), mlir::quant::QuantizationFlags::Signed, vpux::getSInt4Type(&ctx),
+            mlir::Float16Type::get(&ctx), 1.0, 0, -7, 7);
+    const auto dimsSpace = vpux::IndexedSymbolAttr::get(&ctx, CMX_NAME);
+    const auto loc = mlir::UnknownLoc::get(&ctx);
+
+    {
+        // Verify that DistributedBufferType::verify succeeds for a subbyte (si4) SEGMENTED type
+        // when a non-compact H stride makes a cluster-1 offset byte-aligned.
+        //
+        // Shape [1, 3, 2, 1] NHWC, SEGMENTED H÷2.
+        // Compact H elem stride = W*C = 1*3 = 3. Non-compact H elem stride = 6 (padded row).
+        // Cluster-1 H=1 bit offset = 1 * 6 * 4bits = 24 bits. 24 % 8 == 0, byte-aligned.
+        const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
+        const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));
+        const auto numClusters = getIntAttr(&ctx, 2);
+        const auto distributedAttr =
+                VPU::DistributionInfoAttr::get(&ctx, distributionMode, numTiles, nullptr, nullptr, nullptr, numClusters,
+                                               nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const auto shape = SmallVector<int64_t>({1, 3, 2, 1});
+        // Non-compact logical element strides [N=12, C=1, H=6, W=3]: H stride padded to 6 (from compact 3).
+        const auto layout = makeLayout(DimsOrder::NHWC, {12, 1, 6, 3});
+
+        const auto result = VPUIP::DistributedBufferType::verify(
+                [loc]() -> mlir::InFlightDiagnostic {
+                    return mlir::emitError(loc);
+                },
+                shape, si4Type, layout, dimsSpace, distributedAttr, nullptr);
+        EXPECT_TRUE(mlir::succeeded(result));
+    }
+
+    {
+        // Verify that DistributedBufferType::verify fails for a subbyte (si4) SEGMENTED type
+        // when a non-compact H stride still leaves a cluster-1 offset not byte-aligned.
+        //
+        // Shape [1, 3, 2, 1] NHWC, SEGMENTED H÷2.
+        // Non-compact H elem stride = 9 (odd multiple of 4 bits).
+        // Cluster-1 H=1 bit offset = 1 * 9 * 4bits = 36 bits. 36 % 8 != 0, not byte-aligned.
+        mlir::ScopedDiagnosticHandler diagHandler(&ctx, [](mlir::Diagnostic&) {
+            return mlir::success();
+        });
+
+        const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
+        const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));
+        const auto numClusters = getIntAttr(&ctx, 2);
+        const auto distributedAttr =
+                VPU::DistributionInfoAttr::get(&ctx, distributionMode, numTiles, nullptr, nullptr, nullptr, numClusters,
+                                               nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const auto shape = SmallVector<int64_t>({1, 3, 2, 1});
+        // Non-compact logical element strides [N=18, C=1, H=9, W=3]: H stride = 9 (still odd in bits).
+        const auto layout = makeLayout(DimsOrder::NHWC, {18, 1, 9, 3});
+
+        const auto result = VPUIP::DistributedBufferType::verify(
+                [loc]() -> mlir::InFlightDiagnostic {
+                    return mlir::emitError(loc);
+                },
+                shape, si4Type, layout, dimsSpace, distributedAttr, nullptr);
+        EXPECT_TRUE(mlir::failed(result));
+    }
+
+    {
+        // Verify that DistributedBufferType::verify succeeds for a subbyte (si4) SEGMENTED type
+        // when a non-compact C stride makes a cluster-1 C offset byte-aligned.
+        //
+        // Shape [1, 2, 2, 2] NHWC, SEGMENTED C÷2.
+        // Compact C elem stride = 1 (4 bits). Non-compact C elem stride = 2 (8 bits per channel).
+        // Cluster-1 C=1 bit offset = 1 * 2 * 4bits = 8 bits. 8 % 8 == 0, byte-aligned.
+        const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
+        const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 2, 1, 1}));
+        const auto numClusters = getIntAttr(&ctx, 2);
+        const auto distributedAttr =
+                VPU::DistributionInfoAttr::get(&ctx, distributionMode, numTiles, nullptr, nullptr, nullptr, numClusters,
+                                               nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const auto shape = SmallVector<int64_t>({1, 2, 2, 2});
+        // Non-compact logical element strides [N=16, C=2, H=8, W=4]: C stride padded to 2 (from compact 1).
+        const auto layout = makeLayout(DimsOrder::NHWC, {16, 2, 8, 4});
+
+        const auto result = VPUIP::DistributedBufferType::verify(
+                [loc]() -> mlir::InFlightDiagnostic {
+                    return mlir::emitError(loc);
+                },
+                shape, si4Type, layout, dimsSpace, distributedAttr, nullptr);
+        EXPECT_TRUE(mlir::succeeded(result));
+    }
+}

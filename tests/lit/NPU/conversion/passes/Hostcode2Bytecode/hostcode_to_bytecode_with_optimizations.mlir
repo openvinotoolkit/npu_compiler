@@ -34,13 +34,10 @@ module {
   // CHECK:      [[OUTPUT:%.+]] = bytecode.virtual_parameter_register 2
   // CHECK:      [[SHAPE:%.+]] = bytecode.virtual_parameter_register 1
   // CHECK:      [[INPUT:%.+]] = bytecode.virtual_parameter_register 0
-  // CHECK:      [[C0:%.+]] = bytecode.virtual_general_register
-  // CHECK:      bytecode.set_imm [[C0]], 0
-  // CHECK:      [[C1:%.+]] = bytecode.virtual_general_register
-  // CHECK:      bytecode.set_imm [[C1]], 1
-  // CHECK:      [[C2:%.+]] = bytecode.virtual_general_register
-  // CHECK:      bytecode.set_imm [[C2]], 2
-  // CHECK-NOT:  bytecode.set_imm {{.+}}, -1
+  // CHECK:      [[C0:%.+]] = bytecode.imm_register 0
+  // CHECK:      [[C1:%.+]] = bytecode.imm_register 1
+  // CHECK:      [[C2:%.+]] = bytecode.imm_register 2
+  // CHECK-NOT:  bytecode.imm_register -1
   // CHECK:      [[DIM:%.+]] = bytecode.virtual_general_register
   // CHECK:      bytecode.buffer.get_dim [[DIM]], [[INPUT]], [[C1]]
   // CHECK:      [[DIV:%.+]] = bytecode.virtual_general_register

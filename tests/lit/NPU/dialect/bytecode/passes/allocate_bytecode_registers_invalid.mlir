@@ -18,7 +18,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [@i64], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @param_out_of_range @fn_name @fn_type {
+    bytecode.func @param_out_of_range @string_section::@fn_name @type_section::@fn_type {
         %p1 = bytecode.virtual_parameter_register 1
         bytecode.set_imm %p1, 100
         bytecode.ret
@@ -43,7 +43,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @param_when_no_params_declared @fn_name @fn_type {
+    bytecode.func @param_when_no_params_declared @string_section::@fn_name @type_section::@fn_type {
         %p = bytecode.virtual_parameter_register 0
         bytecode.set_imm %p, 5
         bytecode.ret
@@ -72,7 +72,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [@i64], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @negative_param_index @fn_name @fn_type {
+    bytecode.func @negative_param_index @string_section::@fn_name @type_section::@fn_type {
         %p = bytecode.virtual_parameter_register -1
         bytecode.set_imm %p, 7
         bytecode.ret

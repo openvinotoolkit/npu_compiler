@@ -6,6 +6,7 @@
 #include "vpux/compiler/frontend/xml_deserializer.hpp"
 
 #include "vpux/compiler/icompiler.hpp"
+#include "vpux/compiler/utils/logging.hpp"
 
 #include <openvino/op/group_query_attention.hpp>
 #include <openvino/opsets/opset.hpp>
@@ -13,10 +14,14 @@
 #include <openvino/runtime/core.hpp>
 #include <openvino/runtime/shared_buffer.hpp>
 #include <openvino/runtime/string_aligned_buffer.hpp>
-#include <openvino/util/common_util.hpp>
 #include <openvino/util/xml_parse_utils.hpp>
 #include <ov_ops/rms.hpp>
 #include <ov_ops/rotary_positional_embeddings.hpp>
+
+#include <cstring>
+#include <limits>
+#include <sstream>
+#include <stdexcept>
 
 namespace {
 
@@ -24,14 +29,50 @@ constexpr uint32_t MAX_NUMBER_OF_ELEMENTS = 10;
 constexpr uint64_t MAX_SIZE_OF_XML = std::numeric_limits<uint64_t>::max() / 3;
 constexpr uint64_t MAX_SIZE_OF_WEIGHTS = MAX_SIZE_OF_XML * 2;
 
+// Parses extensionLibPaths into a vector of separated paths
+std::vector<std::string> parseExtensionLibPaths(const std::string& extensionLibPaths) {
+    std::vector<std::string> paths;
+    vpux::Logger log("VCLextensions", vpux::Logger::global().level());
+
+    if (extensionLibPaths.empty()) {
+        return paths;
+    }
+
+    const char pathSeparator = ';';
+
+    std::istringstream stream(extensionLibPaths);
+    std::string path;
+    while (std::getline(stream, path, pathSeparator)) {
+        // remove leading and trailing whitespaces
+        const auto first = path.find_first_not_of(" \t\n\r\f\v");
+        if (first == std::string::npos) {
+            continue;
+        }
+        path.erase(0, first);
+        const auto last = path.find_last_not_of(" \t\n\r\f\v");
+        path.erase(last + 1);
+        if (!path.empty()) {
+            log.info("Adding extension library path: {0}", path);
+            paths.push_back(path);
+        }
+    }
+    return paths;
+}
+
 }  // namespace
 
 namespace vpux {
 
+void loadBaseOpExtensionsForMap(const std::string& path,
+                                std::unordered_map<ov::DiscreteTypeInfo, ov::BaseOpExtension::Ptr>& extensionsMap,
+                                std::vector<ov::Extension::Ptr>& sharedObjectExtensions);
+
 std::shared_ptr<ov::Model> deserializeIrModelBase(uint8_t* serializedModel, const size_t serializedModelSize,
                                                   const vcl_version_info_t& currentAPIVersion,
-                                                  const std::vector<ov::Extension::Ptr>& extensionsVector) {
+                                                  const std::vector<ov::Extension::Ptr>& extensionsVector,
+                                                  const std::string& extensionLibPaths) {
     uint64_t offset = 0;
+
     vcl_version_info_t APIVersion;
     memcpy(&APIVersion, serializedModel, sizeof(APIVersion));
     if (APIVersion.major != currentAPIVersion.major || APIVersion.minor != currentAPIVersion.minor) {
@@ -79,13 +120,18 @@ std::shared_ptr<ov::Model> deserializeIrModelBase(uint8_t* serializedModel, cons
     }
     ov::Core core;
     core.add_extension(extensionsVector);
+    // Add extensions from paths
+    for (const auto& path : parseExtensionLibPaths(extensionLibPaths)) {
+        core.add_extension(path);
+    }
 
     return core.read_model(modelData, weightsTensor);
 }
 
 std::shared_ptr<ov::Model> deserializeIrModelOptimized(uint8_t* serializedModel, const size_t serializedModelSize,
                                                        const vcl_version_info_t& currentAPIVersion,
-                                                       const std::vector<ov::Extension::Ptr>& extensionsVector) {
+                                                       const std::vector<ov::Extension::Ptr>& extensionsVector,
+                                                       const std::string& extensionLibPaths) {
     ov::pass::StreamSerialize::DataHeader dataHeader;
     if (serializedModelSize < sizeof(dataHeader)) {
         throw InvalidIrError("The serialized model size is too small to contain the data header!");
@@ -125,21 +171,35 @@ std::shared_ptr<ov::Model> deserializeIrModelOptimized(uint8_t* serializedModel,
     for (const auto& it : ov::get_available_opsets()) {
         opsets[it.first] = it.second();
     }
-    auto createExtensionsMap = [&]() -> std::unordered_map<ov::DiscreteTypeInfo, ov::BaseOpExtension::Ptr> {
-        std::unordered_map<ov::DiscreteTypeInfo, ov::BaseOpExtension::Ptr> extensionsMap;
-        for (const auto& ext : extensionsVector) {
-            if (auto baseExt = std::dynamic_pointer_cast<ov::BaseOpExtension>(ext)) {
-                extensionsMap.insert({baseExt->get_type_info(), baseExt});
-            }
+
+    // Build extensionsMap from both the vector and extensionLibPaths
+    std::unordered_map<ov::DiscreteTypeInfo, ov::BaseOpExtension::Ptr> extensionsMap;
+    // Add extensions from the vector
+    for (const auto& ext : extensionsVector) {
+        if (auto baseExt = std::dynamic_pointer_cast<ov::BaseOpExtension>(ext)) {
+            extensionsMap.insert({baseExt->get_type_info(), baseExt});
         }
-        return extensionsMap;
-    }();
+    }
+
+    // Keep extension wrappers alive until model destruction, so underlying shared libraries remain loaded.
+    std::vector<ov::Extension::Ptr> sharedObjectExtensions;
+    // TODO: E#220612 use core.add_extension() to add extensions by path, instead of using a local mechanism
+    for (const auto& path : parseExtensionLibPaths(extensionLibPaths)) {
+        // Add extensions from paths using OV add_extensions() equivalent flow
+        loadBaseOpExtensionsForMap(path, extensionsMap, sharedObjectExtensions);
+    }
+
     std::unordered_map<std::string, std::shared_ptr<ov::op::util::Variable>> variables;
     size_t version = static_cast<size_t>(ov::util::pugixml::get_uint64_attr(root, "version", 0));
 
-    XmlDeserializer visitor(root, weightsBuffer, opsets, createExtensionsMap, variables, version);
+    XmlDeserializer visitor(root, weightsBuffer, opsets, extensionsMap, variables, version);
     std::shared_ptr<ov::Model> model;
     visitor.on_attribute("net", model);
+
+    // Pin shared object extensions to model rt_info to keep them alive as long as the model is alive
+    if (!sharedObjectExtensions.empty()) {
+        model->get_rt_info()["__ov_extension_path_shared_object_extensions"] = sharedObjectExtensions;
+    }
     model->get_rt_info()["version"] = int64_t(version);
 
     return model;

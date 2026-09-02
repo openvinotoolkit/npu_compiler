@@ -56,17 +56,17 @@ public:
         inputs.clear();
         const auto& funcInputs = function->inputs();
 
-        int32_t i = 0;
+        size_t i = 0;
         for (const auto& funcInput : funcInputs) {
             if (funcInput.get_element_type() == ov::element::boolean) {
                 auto tensor = ov::Tensor{funcInput.get_element_type(), targetInputStaticShapes[i]};
                 auto inputData = tensor.data<ov::element_type_traits<ov::element::boolean>::value_type>();
                 const auto totalSize = std::accumulate(targetInputStaticShapes[i].begin(),
                                                        targetInputStaticShapes[i].end(), 1, std::multiplies<size_t>());
-                for (size_t i = 0; i < totalSize; i += 2) {
+                for (int64_t i = 0; i < totalSize; i += 2) {
                     inputData[i] = false;
                 }
-                for (size_t i = 1; i < totalSize; i += 2) {
+                for (int64_t i = 1; i < totalSize; i += 2) {
                     inputData[i] = true;
                 }
                 inputs.insert({funcInput.get_node_shared_ptr(), tensor});

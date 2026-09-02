@@ -61,6 +61,7 @@ TEST_P(LrnLayerTestCommon_FP32, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(LrnTilingLayerTestCommon_FP16, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

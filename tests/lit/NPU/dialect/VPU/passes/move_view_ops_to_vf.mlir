@@ -42,7 +42,7 @@ func.func @MoveQuantizeCast(%arg0: tensor<1x48x48x48x!qElemType, {order = #NHWC}
     %1 = VPU.QuantizeCast(%0) {dstElemType = !qElemType1} : tensor<1x32x48x48x!qElemType, {order = #NHWC}> -> tensor<1x32x48x48x!qElemType1, {order = #NHWC}>
     %2 = VPU.VerticalFusion (%1 as %arg1: tensor<1x32x48x48x!qElemType1, {order = #NHWC}>, %1 as %arg2: tensor<1x32x48x48x!qElemType1, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x32x48x48xf16, {order = #NHWC}> {
       %3 = VPU.NCE.Eltwise(%arg1, %arg2)
-        {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x32x48x48xf16, {order = #NHWC}>
+        {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x32x48x48xf16, {order = #NHWC}>
       VPU.Yield %3
     }
     return %2 : tensor<1x32x48x48xf16, {order = #NHWC}>

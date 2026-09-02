@@ -20,6 +20,7 @@ namespace vpux::VPU {
 
 struct TileDimensionInfo {
     vpux::Dim dimension;
+    vpux::Dim outputDimension;
     int64_t numBlocks;
     bool isUnrolled;
     mlir::scf::ForOp forOp;
@@ -29,6 +30,7 @@ struct TileDimensionInfo {
 struct UnrollConfig {
     llvm::SmallVector<int64_t> unrollFactors;
     SmallVector<vpux::Dim> accessOrder;
+    SmallVector<vpux::Dim> outputAccessOrder;
     size_t totalBlocks;
     llvm::SmallVector<mlir::scf::ForOp> forOps;
 };

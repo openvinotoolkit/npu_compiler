@@ -46,6 +46,9 @@ SmallVector<std::pair<uint64_t, uint64_t>> getReservedMemOffsetAndSizeVec(mlir::
 
 size_t getReservedMemorySize(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace);
 
+// Returns the offset at which the free region starts.
+size_t getReservedMemoryOffset(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace);
+
 //
 // DMA profiling reserved memory
 //
@@ -120,16 +123,27 @@ memory_resource_if<Enum> getDummySwKernelsForInstructionPrefetchReservedMemory(m
 //
 static constexpr StringLiteral cmxStackFramesResMemModuleName = "CMXStackFramesReservedMemory";
 
-config::MemoryResourceOp setCMXStackFramesReservedMemory(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace,
-                                                         int64_t size, size_t alignment);
+config::MemoryResourceOp setCMXStackFramesReservedMemory(mlir::ModuleOp mainModule, int64_t size, size_t alignment);
 
-config::MemoryResourceOp getCMXStackFramesReservedMemory(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace);
+config::MemoryResourceOp getCMXStackFramesReservedMemory(mlir::ModuleOp mainModule);
 
-template <typename Enum>
-memory_resource_if<Enum> getCMXStackFramesReservedMemory(mlir::ModuleOp mainModule, Enum kind) {
-    return getCMXStackFramesReservedMemory(mainModule,
-                                           mlir::SymbolRefAttr::get(mainModule.getContext(), stringifyEnum(kind)));
-}
+// This is a temporary solution. Ranges for stack frames will get merged into one and reclaimed if shave stacks in DDR
+// or no shave tasks present at all as part of E#179925.
+static constexpr StringLiteral cmxAdditionalStackFramesResMemModuleName = "CMXAdditionalStackFramesReservedMemory";
+
+config::MemoryResourceOp setCMXAdditionalStackFramesReservedMemory(mlir::ModuleOp mainModule, int64_t size,
+                                                                   size_t alignment);
+
+config::MemoryResourceOp getCMXAdditionalStackFramesReservedMemory(mlir::ModuleOp mainModule);
+
+//
+// CMX metadata reserved memory
+//
+static constexpr StringLiteral cmxMetadataResMemModuleName = "CMXMetadataReservedMemory";
+
+config::MemoryResourceOp setCMXMetadataReservedMemory(mlir::ModuleOp mainModule, int64_t size, size_t alignment);
+
+config::MemoryResourceOp getCMXMetadataReservedMemory(mlir::ModuleOp mainModule);
 
 //
 // ExecutorResourceOp

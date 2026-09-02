@@ -70,7 +70,7 @@ int64_t vpux::ELF::getOffsetOfSymRef(ELF::SymbolReferenceMap& symRefMap, mlir::S
 
     VPUX_THROW_UNLESS(binarySizeOp, "The relocInfo can't be retrieved for a non-binaryOpIf type reference");
 
-    return binarySizeOp.getMemoryOffset();
+    return binarySizeOp.getMemoryOffset().value_or(0);
 }
 
 vpux::ELF::MainOp vpux::ELF::getElfMainOp(mlir::ModuleOp moduleOp) {
@@ -168,11 +168,11 @@ elf::platform::ArchKind mapPlatformToElfArchKind(config::Platform platform) {
     case config::Platform::NPU3720:
         VPUX_THROW("NPU3720 is not supported");  // in new backend
     case config::Platform::NPU4000:
-        return elf::platform::ArchKind::VPUX40XX;
+        return elf::platform::ArchKind::NPU4000;
     case config::Platform::NPU5010:
-        return elf::platform::ArchKind::VPUX501X;
+        return elf::platform::ArchKind::NPU5010;
     case config::Platform::NPU5020:
-        return elf::platform::ArchKind::VPUX502X;
+        return elf::platform::ArchKind::NPU5020;
     }
     VPUX_THROW("Invalid platform");
 }

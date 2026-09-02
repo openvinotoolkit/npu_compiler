@@ -101,7 +101,7 @@ mlir::LogicalResult InsertMemPermuteBeforeAndAfterReduceOp<ConcreteOp>::matchAnd
     const auto ctx = rewriter.getContext();
     const auto inOrder = DimsOrder::fromValue(reduceOp.getInput());
     const auto origLoc = reduceOp->getLoc();
-    const auto axes = parseIntArrayAttr<int64_t>(reduceOp.getAxesValue().value());
+    const auto axes = parseIntArrayAttr<int64_t>(reduceOp.getAxesValue());
     if (_channelReductionChecker->isChannelAxisReductionWithDPUParent(reduceOp, axes, _log)) {
         return matchFailed(rewriter, reduceOp,
                            "Reduce op has a DPU parent on channel axis; preserving fusion opportunity");
@@ -136,8 +136,8 @@ mlir::LogicalResult InsertMemPermuteBeforeAndAfterReduceOp<ConcreteOp>::matchAnd
     // Create new reduce operation
     const auto optimalAxis = optimalDstOrder.toDim(MemDim(optimalDstOrder.numDims() - 1)).ind();
     const auto newAxesAttr = getIntArrayAttr(ctx, SmallVector<int64_t>{optimalAxis});
-    auto newReduceOp = rewriter.createOrFold<ConcreteOp>(origLoc, inputMemPermuteOp, nullptr, newAxesAttr,
-                                                         reduceOp.getKeepDimsAttr());
+    auto newReduceOp =
+            rewriter.createOrFold<ConcreteOp>(origLoc, inputMemPermuteOp, newAxesAttr, reduceOp.getKeepDimsAttr());
     rewriter.modifyOpInPlace(newReduceOp.getDefiningOp(), [&] {
         changeDimsOrder(newReduceOp, optimalDstOrder, _log.nest());
     });

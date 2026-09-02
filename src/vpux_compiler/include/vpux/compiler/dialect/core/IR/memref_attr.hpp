@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "vpux/compiler/dialect/core/IR/dynamic_attrs.hpp"
 #include "vpux/compiler/dialect/core/interfaces/attr_interfaces.hpp"
 #include "vpux/utils/core/func_ref.hpp"
 
@@ -38,16 +39,22 @@ public:
 
     static MemRefAttr get(mlir::AffineMapAttr order, mlir::ArrayAttr optionalStrides,
                           mlir::IntegerAttr optionalAllocSize, mlir::MLIRContext* ctx) {
-        return MemRefAttr::get(order, optionalStrides, optionalAllocSize, {}, ctx);
+        return MemRefAttr::get(order, optionalStrides, optionalAllocSize, {}, {}, ctx);
     }
 
     static MemRefAttr get(mlir::AffineMapAttr order, mlir::ArrayAttr optionalStrides,
-                          mlir::IntegerAttr optionalAllocSize,
+                          mlir::IntegerAttr optionalAllocSize, BoundsRef optionalBounds, mlir::MLIRContext* ctx) {
+        return MemRefAttr::get(order, optionalStrides, optionalAllocSize, optionalBounds, {}, ctx);
+    }
+
+    static MemRefAttr get(mlir::AffineMapAttr order, mlir::ArrayAttr optionalStrides,
+                          mlir::IntegerAttr optionalAllocSize, BoundsRef optionalBounds,
                           mlir::ArrayRef<vpux::HwSpecificMemRefField> hwSpecificFields, mlir::MLIRContext* ctx);
 
     mlir::AffineMapAttr order() const;
     mlir::ArrayAttr strides() const;
     mlir::IntegerAttr allocSize() const;
+    BoundsRef bounds() const;
     HwFields hwSpecificFields() const;
     mlir::AffineMap getAffineMap() const;
 

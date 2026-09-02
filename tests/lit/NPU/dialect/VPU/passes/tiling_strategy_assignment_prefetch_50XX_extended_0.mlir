@@ -42,7 +42,7 @@ module @executors {
         %0 = VPU.Interpolate(%arg0) {
             attr = #IE.Interpolate<antialias = false, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01 : f64, mode = <LINEAR_ONNX>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>,
             axes_attr = [2, 3],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
             sizes_attr = [192, 320],
             tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} :
             tensor<1x64x48x80xf16, {order = #NHWC}> -> tensor<1x64x192x320xf16, {order = #NHWC}>
@@ -94,7 +94,7 @@ module @executors {
         %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [256, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x64x48xf16, {order = #NHWC}>, tensor<256x32x3x3xf16, {order = #NHWC}> -> tensor<1x256x64x48xf16, {order = #NHWC}>
 
@@ -173,7 +173,7 @@ module @executors {
         %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [8016, 1024, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x1024x4x4xf16, {order = #NHWC}>, tensor<8016x1024x1x1xf16, {order = #NHWC}> -> tensor<1x8016x4x4xf16, {order = #NHWC}>
 
@@ -244,7 +244,7 @@ module @executors {
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 3 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x30x30xf16, {order = #NHWC}>, tensor<768x32x7x7xf16, {order = #NHWC}> -> tensor<1x768x30x30xf16, {order = #NHWC}>
 
@@ -286,7 +286,7 @@ module @executors {
         %0 = VPU.NCE.Convolution(%arg0, %weights_sparse) rawFilterShape [160, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x80x60xf16, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<160x32x3x3xf16, {order = #NHWC}>, sparsity_map=tensor<160x1x1x384xi1>, is_weights> -> tensor<1x160x80x60xf16, {order = #NHWC}>
 
@@ -587,11 +587,11 @@ config.PipelineOptions @Options {
 }
 func.func @main(%input: tensor<1x16x368x368xf16, {order = #NHWC}>) -> tensor<1x8x368x368xf16, {order = #NHWC}> {
     %weights = const.Declare tensor<8x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<8x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %nce = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [8, 1, 3, 3] {
+    %nce = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [8, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         input_padding = [0, 8, 0, 0],
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1]
     } -> tensor<1x8x368x368xf16, {order = #NHWC}>
     return %nce : tensor<1x8x368x368xf16, {order = #NHWC}>
@@ -671,7 +671,7 @@ config.PipelineOptions @Options {
     config.Option @config.AutoPaddingODU : true
 }
 func.func @main(%input: tensor<1x16x368x368xf16, {order = #NHWC}>) -> tensor<1x8x368x368xf16, {order = #NHWC}> {
-    %nce = VPU.NCE.Eltwise(%input, %input) {
+    %nce = VPU.NCE.Eltwise(%input, %input) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         input_padding = [0, 8, 0, 0],
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
@@ -744,7 +744,7 @@ module @executors {
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x64x320x4xf16, {order = #NHWC}>, tensor<1280x64x1x1xf16, {order = #NHWC}> -> tensor<1x1280x320x4xf16, {order = #NHWC}>
 

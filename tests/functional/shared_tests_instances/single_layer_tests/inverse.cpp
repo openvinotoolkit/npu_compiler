@@ -30,6 +30,7 @@ TEST_P(InverseLayerTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(InverseLayerTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     // TODO E####-159644

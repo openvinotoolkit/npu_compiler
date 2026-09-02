@@ -41,10 +41,6 @@ using FakeQuantizeMulFuseTestParams = std::tuple<ov::element::Type,  // inPrc
 class FakeQuantizeMulFuseSubGraphTest1Common :
         public VpuOv2LayerTest,
         public testing::WithParamInterface<FakeQuantizeMulFuseTestParams> {
-    void configure_model() override {
-        // TODO: Investigate accuracy regression E#211263.
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "fuse-outstanding-dequant=false";
-    }
     void SetUp() override {
         std::vector<float> dataFQRanges;
         std::tie(inType, outType, dataFQRanges) = GetParam();
@@ -107,7 +103,17 @@ public:
 
 class FakeQuantizeMulFuseSubGraphTest1_NPU3720 : public FakeQuantizeMulFuseSubGraphTest1Common {};
 
+// NOTE: Without fusion of Dequantize: NCE (quantized output: int8) -> Dequantize -> float
+//       - NCE Op rounds 0.49 to 0. Dequantize(0) = 0.0f. Grid-aligned.
+//       - e.g. NCEOp with rounding -> Dequantize
+//
+//       With fusion of Dequantize: NCE (float output: mixed-precision) -> Clamp(0, max)
+//       - No rounding because of mixed-precision
+//       - e.g. NCEOp without rounding -> Dequantize
+// This is the trade-off with Mixed Precision. Clamp can never replace: Round -> Dequantize.
+// Adjusting abs_threshold to account for +/- 0.5 variance.
 TEST_P(FakeQuantizeMulFuseSubGraphTest1_NPU3720, HW) {
+    abs_threshold = 0.5;
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }

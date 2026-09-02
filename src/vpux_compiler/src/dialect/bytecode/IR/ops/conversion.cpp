@@ -26,13 +26,12 @@ using namespace vpux;
 // All conversion ops share the same 2-operand binary layout: opcode + dst + src.
 // Each serialize implementation follows this uniform pattern.
 
-#define DEFINE_CONVERT_SERIALIZE(ClassName)                                               \
-    void bytecode::ClassName::serialize(vpux::bytecode::BytecodeWriter& writer) {         \
-        const auto opcode = static_cast<uint16_t>(getOpcode());                           \
-        const auto addrMode = getAddressingMode();                                        \
-        const auto dstReg = getRegisterNumber(getDst());                                  \
-        const auto srcReg = getRegisterNumber(getSrc());                                  \
-        writer.appendInstruction(opcode, addrMode, SmallVector<int16_t>{dstReg, srcReg}); \
+#define DEFINE_CONVERT_SERIALIZE(ClassName)                                       \
+    void bytecode::ClassName::serialize(vpux::bytecode::BytecodeWriter& writer) { \
+        const auto opcode = static_cast<uint16_t>(getOpcode());                   \
+        const auto dstReg = getRegisterNumber(getDst());                          \
+        const auto srcReg = getRegisterNumber(getSrc());                          \
+        writer.appendInstruction(opcode, SmallVector<int16_t>{dstReg, srcReg});   \
     }
 
 DEFINE_CONVERT_SERIALIZE(ConvertI8ToF32Op)

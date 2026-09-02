@@ -48,16 +48,14 @@ public:
 
     /// Encode a single instruction and append it to the bytecode buffer.
     /// @param opcode         base opcode value
-    /// @param addressingMode addressing-mode bits
     /// @param operands       variable-length operand list
-    void appendInstruction(uint16_t opcode, uint16_t addressingMode, ArrayRef<int16_t> operands);
+    void appendInstruction(uint16_t opcode, ArrayRef<int16_t> operands);
 
     /// Encode a single instruction and append it to the bytecode buffer.
     /// @param opcode         base opcode value
-    /// @param addressingMode addressing-mode bits
     /// @param binaryOperands binary representation of the operands to append directly to the instruction (used for
     /// instructions whose operands are not only 16-bit integers)
-    void appendInstruction(uint16_t opcode, uint16_t addressingMode, ArrayRef<uint8_t> binaryOperands);
+    void appendInstruction(uint16_t opcode, ArrayRef<uint8_t> binaryOperands);
 
     /// Append raw binary data to the bytecode buffer
     /// @param data pointer to the beginning of the data

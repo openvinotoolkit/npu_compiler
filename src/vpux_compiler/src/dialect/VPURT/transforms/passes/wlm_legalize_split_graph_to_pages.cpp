@@ -40,11 +40,7 @@ void WlmLegalizeSplitGraphToPagesPass::safeRunOnFunc() {
 
     auto& barrierInfo = getAnalysis<BarrierInfo>();
     VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(func, barrierInfo, numBarriers, _log);
-    barrierPagesSplitHandler.initializeForLegalization();
-    // TODO: Initialization can update dependencies. Separate it to make it clear
-    // when and what methods modify dependencies and their call requires updating IR - E#177834
-    barrierInfo = barrierPagesSplitHandler.getUpdatedBarrierInfo();
-    barrierInfo.updateIR();
+    barrierPagesSplitHandler.initializeForLegalization(/* allowDepsChange */ true);
 
     _log.trace("Check and legalize schedule for barrier page split");
 
@@ -65,8 +61,14 @@ void WlmLegalizeSplitGraphToPagesPass::safeRunOnFunc() {
         VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log, true);
         barrierPagesSplitHandler =
                 VPURT::BarrierPagesSplitHandler{func, barrierInfo, static_cast<size_t>(numBarriers), _log};
-        barrierPagesSplitHandler.initializeForLegalization();
+        barrierPagesSplitHandler.initializeForLegalization(/* allowDepsChange */ true);
     }
+    // During first legalization or after long dependency changes there may be tasks considered as boundary tasks
+    // that do not have update barrier on next page. Initialization will prepare such dependency but to have it
+    // reflected IR update is needed. Subsequent passes will require per FIFO boundary tasks to have an update barrier
+    // on next page
+    barrierInfo = barrierPagesSplitHandler.getUpdatedBarrierInfo();
+    barrierInfo.updateIR();
 
     auto lastTaskTypePerPageWithNoUpdBar = barrierPagesSplitHandler.getLastTasksOnFifoPerPageWithNoUpdBar();
     if (!lastTaskTypePerPageWithNoUpdBar.empty()) {
@@ -78,7 +80,7 @@ void WlmLegalizeSplitGraphToPagesPass::safeRunOnFunc() {
         VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log, true);
         barrierPagesSplitHandler =
                 VPURT::BarrierPagesSplitHandler{func, barrierInfo, static_cast<size_t>(numBarriers), _log};
-        barrierPagesSplitHandler.initializeForLegalization();
+        barrierPagesSplitHandler.initializeForLegalization(/* allowDepsChange */ false);
     }
 
     if (!barrierPagesSplitHandler.areBoundaryTasksFromNeighborPagesDependent()) {
@@ -99,7 +101,7 @@ void WlmLegalizeSplitGraphToPagesPass::safeRunOnFunc() {
 
         barrierPagesSplitHandler =
                 VPURT::BarrierPagesSplitHandler{func, barrierInfo, static_cast<size_t>(numBarriers), _log};
-        barrierPagesSplitHandler.initializeForLegalization();
+        barrierPagesSplitHandler.initializeForLegalization(/* allowDepsChange */ false);
     }
 
     // Perform final checks after legalization
@@ -108,7 +110,7 @@ void WlmLegalizeSplitGraphToPagesPass::safeRunOnFunc() {
     barrierInfo = vpux::BarrierInfo{func};
     barrierPagesSplitHandler =
             VPURT::BarrierPagesSplitHandler{func, barrierInfo, static_cast<size_t>(numBarriers), _log};
-    barrierPagesSplitHandler.initializeForLegalization();
+    barrierPagesSplitHandler.initializeForLegalization(/* allowDepsChange */ false);
     barrierPagesSplitHandler.verifyTaskBarrierPagesAreValid();
     barrierPagesSplitHandler.verifyNoCyclicDeps();
     VPUX_THROW_UNLESS(barrierPagesSplitHandler.isSplitToPagesValid(), "Split to pages is not valid");

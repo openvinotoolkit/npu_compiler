@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPU/IR/native_attributes/distribution_info.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
@@ -396,6 +397,14 @@ SmallVector<vpux::NDTypeInterface> getTileTypes(VPU::DepthToSpaceOp origOp, cons
 SmallVector<vpux::NDTypeInterface> getTileTypesCommon(mlir::Operation* origOp, const TileInfo& outTile,
                                                       std::optional<VPU::MultiClusterStrategy> strategy,
                                                       const std::optional<InputTiling>& inputTiles) {
+    // Multi-result SW ops (e.g. FlashSDPA) cannot use the single-result path below.
+    // Delegate to getAllOperandsSwInterface which calls getOutputTiling for all results.
+    if (auto swOp = mlir::dyn_cast<VPU::SWOpInterface>(origOp)) {
+        if (origOp->getNumResults() > 1) {
+            return getAllOperandsSwInterface(swOp, outTile, Logger::global());
+        }
+    }
+
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType());
 
     SmallVector<vpux::TileInfo> inTiles{outTile};
@@ -452,9 +461,6 @@ SmallVector<vpux::NDTypeInterface> getTileTypesCommon(mlir::Operation* origOp, c
 SmallVector<vpux::NDTypeInterface> getTileTypes(VPU::SWOpInterface origOp, const TileInfo& outTile,
                                                 std::optional<VPU::MultiClusterStrategy> strategy,
                                                 const std::optional<InputTiling>& inputTiles) {
-    VPUX_THROW_UNLESS(origOp->getResults().size() == 1, "Only support SW with one output, but got '{0}'",
-                      origOp->getResults().size());
-
     return getTileTypesCommon(origOp, outTile, strategy, inputTiles);
 }
 }  // namespace
@@ -699,6 +705,14 @@ Byte getRequiredCMX(VPU::SWOpInterface swOp, const vpux::TileInfo& tiling,
     return getRequiredCMXSize(tileTypes);
 }
 
+Byte getRequiredCMX(VPU::GenericSwLayerOp genericSwOp, const vpux::TileInfo& tiling,
+                    const std::optional<InputTiling>& inputTiles) {
+    if (!genericSwOp.getTilingProperties().has_value()) {
+        return getRequiredCMXSizeForDefaultOps(genericSwOp.getOperation());
+    }
+    return getRequiredCMX(mlir::cast<VPU::SWOpInterface>(genericSwOp.getOperation()), tiling, inputTiles);
+}
+
 Byte getRequiredCMX(VPU::DepthToSpaceOp /*d2sOp*/, const SmallVector<NDTypeInterface>& tileTypes) {
     return getRequiredCMXSize(tileTypes);
 }
@@ -710,10 +724,18 @@ Byte getRequiredCMX(VPU::DepthToSpaceOp d2sOp, const vpux::TileInfo& tiling,
     return getRequiredCMXSize(tileTypes);
 }
 
-Byte getRequiredCMX(VPU::ScatterUpdateSwDmaOp op) {
-    // Under any circumstances, only auxiliary-buffer is located in CMX
-    const auto auxBuff = mlir::cast<vpux::NDTypeInterface>(op.getAuxBuffer().getType());
-    return auxBuff.getTotalAllocSize();
+Byte getRequiredCMX(VPU::SwIoDmaOpInterface op) {
+    mlir::Operation* origOp = op.getOperation();
+    auto auxBuffOp = mlir::dyn_cast<VPU::AuxiliaryBufferOpInterface>(origOp);
+    VPUX_THROW_WHEN(auxBuffOp == nullptr, "SwIoDmaOpInterface op '{0}' does not implement AuxiliaryBufferOpInterface",
+                    origOp->getName());
+    const auto auxBuffers = auxBuffOp.getAuxiliaryBuffers();
+    SmallVector<NDTypeInterface> cmxBufferTypes;
+    cmxBufferTypes.reserve(auxBuffers.size());
+    for (mlir::OpOperand* operand : auxBuffers) {
+        cmxBufferTypes.push_back(mlir::cast<NDTypeInterface>(operand->get().getType()));
+    }
+    return getRequiredCMXSize(cmxBufferTypes);
 }
 
 Byte getRequiredCMX(VPU::NCEMatMulOp matMulOp, const SmallVector<NDTypeInterface>& tileTypes) {
@@ -1099,8 +1121,11 @@ Byte getRequiredCMX(mlir::Operation* op, const vpux::TileInfo& tiling, Logger lo
             .Case<VPU::NCEDepthConvolutionOp>([&](VPU::NCEDepthConvolutionOp origOp) {
                 return getRequiredCMX(origOp, tiling, inputTiles);
             })
-            .Case<VPU::ScatterUpdateSwDmaOp>([&](VPU::ScatterUpdateSwDmaOp origOp) {
+            .Case<VPU::SwIoDmaOpInterface>([&](VPU::SwIoDmaOpInterface origOp) {
                 return getRequiredCMX(origOp);
+            })
+            .Case<VPU::GenericSwLayerOp>([&](VPU::GenericSwLayerOp origOp) {
+                return getRequiredCMX(origOp, tiling, inputTiles);
             })
             .Case<VPU::SWOpInterface>([&](VPU::SWOpInterface origOp) {
                 return getRequiredCMX(origOp, tiling, inputTiles);
@@ -1253,7 +1278,7 @@ Byte getRequiredCMXSizeForDataPointerTable(mlir::Operation* op, int64_t OC) {
         const auto maxVariantsPerCluster =
                 static_cast<int32_t>(config::getConstraint(op, config::METADATA_MAX_VARIANT_COUNT) / 2);
 
-        requiredCMX += Byte(maxClusters * maxVariantsPerCluster * (maxDataPointerTableAlignment * 4_Byte));
+        requiredCMX += (maxDataPointerTableAlignment * 4_Byte) * maxVariantsPerCluster * maxClusters;
     } else {
         requiredCMX += Byte(maxClusters * (maxDataPointerTableAlignment * 4_Byte));
     }
@@ -2051,6 +2076,32 @@ bool isSupportedIsolatedTilingDetectionOutputSort(VPU::DetectionOutputSortOp ori
     return llvm::all_of(firstOutputTiles, inputOutputTilesFitCMX);
 }
 
+bool isSupportedIsolatedTilingGenericSwLayer(VPU::GenericSwLayerOp genericSwLayer, const OutputTiling& tiles,
+                                             Logger log) {
+    if (!genericSwLayer.getTilingProperties()) {
+        return false;
+    }
+
+    // E#219995: multiple outputs are not yet supported for GenericSwLayerOp tiling.
+    if (genericSwLayer.getNumResults() != 1) {
+        return false;
+    }
+
+    // dynamic_sizes/dynamic_offsets are present if the original untiled op was dynamic.
+    // Dynamic GenericSwLayerOp tiling is not supported.
+    if (!genericSwLayer.getDynamicSizes().empty() || !genericSwLayer.getDynamicOffsets().empty()) {
+        return false;
+    }
+
+    // Scalar inputs also indicate an original dynamic op and are not supported.
+    if (llvm::any_of(genericSwLayer.getInputs(), [](mlir::Value v) {
+            return !mlir::isa<vpux::NDTypeInterface>(v.getType());
+        })) {
+        return false;
+    }
+    return isSupportedIsolatedTilingSwInterface(genericSwLayer, tiles, log);
+}
+
 bool isSupportedPipeliningTilingSwInterface(VPU::SWOpInterface origOp, const OutputTiling& tiles, Logger log) {
     // The tiling strategy follows last-tile-not-biggest, and sw layers usually do not have padding
     // So just check the first two tiles are enough to make sure pipelining
@@ -2145,6 +2196,9 @@ bool isSupportedIsolatedTilingSwLayer(mlir::Operation* origOp, const OutputTilin
             .Case<VPU::DetectionOutputSortOp>([&](VPU::DetectionOutputSortOp op) {
                 return isSupportedIsolatedTilingDetectionOutputSort(op, tiles, log);
             })
+            .Case<VPU::GenericSwLayerOp>([&](VPU::GenericSwLayerOp genericSwLayer) {
+                return isSupportedIsolatedTilingGenericSwLayer(genericSwLayer, tiles, log);
+            })
             .Case<VPU::SWOpInterface>([&](VPU::SWOpInterface swOp) {
                 return isSupportedIsolatedTilingSwInterface(swOp, tiles, log);
             })
@@ -2213,13 +2267,19 @@ SmallVector<TypeAndDistributionPair> getReduceOutputType(mlir::Operation* op,
     const auto outputTileShape = getBoundedShape(resultType);
 
     auto reduceTileShape = to_small_vector(outputTileShape.raw());
-    VPUX_THROW_WHEN(!distributionMap.contains(resultType),
-                    "Provided distribution map does not contain the result type '{0}'", resultType);
-    auto reduceTileDistribution = distributionMap.at(resultType);
+
+    // Single-cluster tiles (no multiClusterStrategy assigned) carry an empty distribution map;
+    // there is no per-cluster distribution to adapt for the reduce output in that case. A non-empty
+    // map missing the result type, however, indicates an internal inconsistency and must fail fast
+    // rather than silently drop the distribution info.
+    VPUX_THROW_WHEN(!distributionMap.empty() && !distributionMap.contains(resultType),
+                    "Provided non-empty distribution map does not contain the result type '{0}'", resultType);
+    const bool hasDistribution = distributionMap.contains(resultType);
+    auto reduceTileDistribution = hasDistribution ? distributionMap.at(resultType) : VPU::DistributionInfo();
 
     auto computeShapes = SmallVector<SmallVector<int64_t>>(reduceTileDistribution.getComputeShapes());
     auto memoryShapes = SmallVector<SmallVector<int64_t>>(reduceTileDistribution.getMemoryShapes());
-    const auto hasComputeMemoryShapes = !computeShapes.empty() && !memoryShapes.empty();
+    const auto hasComputeMemoryShapes = hasDistribution && !computeShapes.empty() && !memoryShapes.empty();
     for (const auto axis : reduceAxes) {
         reduceTileShape[axis] = 1;
         if (hasComputeMemoryShapes) {
@@ -2234,7 +2294,9 @@ SmallVector<TypeAndDistributionPair> getReduceOutputType(mlir::Operation* op,
     }
     auto reduceType = resultType.changeShape(ShapeRef(reduceTileShape));
 
-    distributionMap[reduceType] = std::move(reduceTileDistribution);
+    if (hasDistribution) {
+        distributionMap[reduceType] = std::move(reduceTileDistribution);
+    }
     for ([[maybe_unused]] auto i : irange(op->getNumResults() - 1)) {
         reduceOutputTypes.push_back({reduceType, distributionMap});
     }

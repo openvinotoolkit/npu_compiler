@@ -117,6 +117,32 @@ class VPUIP_InferLayerReturnTypes<int numResult> {
 }
 
 //
+// BackInferViewTypeOpInterface
+//
+
+def VPUIP_BackInferViewTypeOpInterface : OpInterface<"BackInferViewTypeOpInterface"> {
+    let description = [{
+        Interface for VPUIP view-like ops that can reconstruct input/output
+        types when a pass rewrites one side of the view. For example, if a copy
+        is moved before a ShapeCast, the pass can ask ShapeCast to infer the new
+        output type from the moved input type, then use reverse inference to
+        validate the opposite direction.
+    }];
+    let cppNamespace = "vpux::VPUIP";
+
+    let methods = [
+        InterfaceMethod<
+            "Infer the output type when the view input is replaced with a new type",
+            "::std::optional<mlir::Type>", "inferOutputTypeFromInput", (ins "mlir::Type":$newInputType)
+        >,
+        InterfaceMethod<
+            "Infer the input type needed to produce the requested view output type",
+            "::std::optional<mlir::Type>", "inferInputTypeFromOutput", (ins "mlir::Type":$desiredOutputType)
+        >
+    ];
+}
+
+//
 // TaskOpInterface
 //
 

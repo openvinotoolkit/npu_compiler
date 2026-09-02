@@ -19,7 +19,11 @@ using namespace vpux;
 
 void vpux::VPU::arch50xx::buildIncrementalPipeline(mlir::OpPassManager& pm, const vpux::MCAndTilingOptionsBase& options,
                                                    Logger log, bool enableLegacyConvSplitOverIC) {
-    pm.addPass(VPU::createDecomposeMVNPass(log));
+    // When RunMVNNormalizeOnDPU is enabled, force-decompose all NHWC MVN ops so that the
+    // resulting MVN1NormalizeOp can be converted to NCE.MaxPool even when per-channel tiles
+    // fit in CMX (which is the common case for K2-style models with large spatial MVN ops).
+    const bool forceDecompose = options.enableRunMVNNormalizeOnDPU;
+    pm.addPass(VPU::createDecomposeMVNPass(log, forceDecompose));
     if (options.enableRunMVNNormalizeOnDPU) {
         pm.addPass(VPU::createRunMVNNormalizeOnDPUPass(log));
     }
@@ -37,6 +41,7 @@ void vpux::VPU::arch50xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(VPU::createSplitGRUSequencePass(log));
     pm.addPass(VPU::createApplyTilingMVN1SumPass(options.enablePrefetching, log));
     pm.addPass(VPU::createTileLSTMSequencePass(log));
+    pm.addPass(VPU::createSplitGatedDeltaNetPass(log));
 
     pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(/*enableOutputEnsurance=*/true,
                                                            /*enableDequantWeightEnsuranceBeforeStrategy=*/false,
@@ -51,12 +56,23 @@ void vpux::VPU::arch50xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
     VPU::buildTilingPipeline(pm, tilingOpts, log);
 
     if (options.enableScfComputeOpsOutlining) {
-        VPU::buildScfComputeOpsOutliningPipeline(pm, options.loopUnrollFactor, options.enableProfiling,
-                                                 options.enableCascadedUnrolling, options.autoUnrollingMode,
-                                                 options.enableWeightsExtraction, log);
+        VPU::buildScfComputeOpsOutliningPipeline(
+                pm, options.loopUnrollFactor, options.enableProfiling, options.enableCascadedUnrolling,
+                options.enableBacktrackingBeyondResidualKernel, options.tailOverlapBacktrackMarginPercent,
+                options.autoUnrollingMode, options.enableWeightsExtraction, log);
     }
 
     auto& nestedPm = options.enableScfComputeOpsOutlining ? pm.nest<mlir::ModuleOp>() : pm;
+
+    // Re-run RunMVNNormalizeOnDPU (which includes RunAddBroadcastOnDPU) after tiling and
+    // ScfComputeOpsOutlining. Tiling does not create new MVN1NormalizeOps (those are fixed before
+    // tiling), but tiling of a force-decomposed MVN1Normalize can produce broadcast VPU.AddOps that
+    // RunAddBroadcastOnDPU (a sub-pattern of RunMVNNormalizeOnDPU) must convert to DPU NCE.MaxPool.
+    // Note: RunMVNNormalizeOnDPU is a FunctionPass; adding it to a ModuleOp-scoped nestedPm is
+    // valid -- OpPassManager::addPass() implicitly nests it under func::FuncOp (standard MLIR behaviour).
+    if (options.enableRunMVNNormalizeOnDPU) {
+        nestedPm.addPass(VPU::createRunMVNNormalizeOnDPUPass(log));
+    }
 
     if (options.enableBoundedTensorsToDynamicDimsMask) {
         nestedPm.addPass(VPU::createBoundedTensorsToDynamicDimsMaskPass(log));
@@ -70,6 +86,11 @@ void vpux::VPU::arch50xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
 
     nestedPm.addPass(VPU::createMakeDistributedCopiesPass(log));
     nestedPm.addPass(VPU::createAdjustDistributedTensorAroundOpsPass(log));
+
+    if (options.enableBoundedTensorsToDynamicDimsMask) {
+        // restore dynamic tensor representation after MC tiling
+        nestedPm.addPass(VPU::createDynamicDimsMaskToBoundedTensorsPass(log));
+    }
 }
 
 //
@@ -91,7 +112,6 @@ void vpux::VPU::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         addresses allocated by the scheduler Currently there is no validation if memory is not reserved before the first
         call to getTotalCMXSize.
     */
-
     if (options.enableCompressActivationSpill) {
         pm.addPass(VPU::createCompressDmaReserveMemPass(log));
     }
@@ -144,6 +164,11 @@ void vpux::VPU::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::createDetectInPlaceEltwisePass(log));
 
     pm.addPass(VPU::createCostModelAnalysisConstructPass(log));
+
+    if (options.enableShaveCodeGen) {
+        ShaveCodeGen::buildShaveCodeGenPipelineVPU(pm, log, options.enableShaveCodeGenTiling);
+    }
+
     if (options.enableSMPipeline) {
         VPU::buildSMPipeline(pm, vpux::MCAndTilingOptionsBase(options), log);
     } else {
@@ -165,7 +190,8 @@ void vpux::VPU::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     nestedPm.addPass(VPU::createMoveTensorOpsToCMXPass(log));
 
     if (options.enableSCFTiling) {
-        pm.addPass(VPU::createFullUnrollSCFLoopPass(log));
+        nestedPm.addPass(VPU::createWorkloadsForNCEOpsSCFPass(log));
+        nestedPm.addPass(VPU::createFullUnrollSCFLoopPass(log));
     }
 
     nestedPm.addPass(vpux::VPU::createSplitNCEOpsOntoWorkloadsPass(log));
@@ -175,9 +201,7 @@ void vpux::VPU::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     nestedPm.addPass(VPU::createCorrectNCEWorkloadsPass(log));
     nestedPm.addPass(VPU::createComputeNCEInputWorkloadsPass(log));
     nestedPm.addPass(VPU::createShiftOutputWorkloadsForHaloPass(log));
-    if (options.enableShaveCodeGen) {
-        ShaveCodeGen::buildShaveCodeGenPipelineVPU(nestedPm);
-    }
+
     nestedPm.addPass(mlir::createCanonicalizerPass(grc));
     nestedPm.addPass(createAdjustDynamicOpsBeforeBufferizationPass());
     nestedPm.addPass(VPU::createLegalizeDynamicShapeConcatForSWLayersPass(log));

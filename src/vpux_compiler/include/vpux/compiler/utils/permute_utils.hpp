@@ -35,6 +35,9 @@ details::DimValues<MemDim, T, Tag> applyPerm(const details::DimValues<MemDim, T,
 
 SmallVector<int64_t> getPermutateDims(MemShapeRef inShape, mlir::AffineMap memPerm);
 bool isTrivialPermute(MemShapeRef inShape, mlir::AffineMap memPerm);
+
+bool areReshapedAxesPermutedIntegratedly(ArrayRef<SmallVector<int64_t>> dimMapping, ArrayRef<int64_t> permAxis,
+                                         const DimsOrder& permInOrder, MemShapeRef memShape);
 bool isTrivialReorder(const DimsOrder& inOrder, const DimsOrder& outOrder, ShapeRef shape);
 
 mlir::AffineMap getPermutationFromOrders(const DimsOrder& inOrder, const DimsOrder& outOrder, mlir::MLIRContext* ctx);

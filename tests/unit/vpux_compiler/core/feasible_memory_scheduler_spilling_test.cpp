@@ -1011,6 +1011,107 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, SkipDataOpSpillOptimizationForShare
     EXPECT_EQ(scheduledOps1[1].opType_, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP);
 }
 
+TEST_F(MLIR_FeasibleMemorySchedulerSpilling, AllowReReadOptimizationForDataDmaFromDdrSubview) {
+    constexpr llvm::StringLiteral inputIR = R"(
+        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+        !Type_DDR_Master = memref<1x32x16x4xf16, #NHWC, @DDR>
+        !Type_DDR_SubView = memref<1x16x16x4xf16, {order = #NHWC, strides = [2048, 1, 128, 32]}, @DDR>
+        !Type_CMX = memref<1x16x16x4xf16, #NHWC, [@CMX_NN, 0]>
+
+        module @test {
+            func.func @main(%arg0: !Type_DDR_Master) -> !Type_CMX {
+                %buf_cmx_1 = memref.alloc() : !Type_CMX
+                %buf_cmx_2 = memref.alloc() : !Type_CMX
+
+                %t0, %r0 = async.execute -> !async.value<!Type_CMX> attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
+                    %sv0 = VPUIP.SubView %arg0 [0, 16, 0, 0] [1, 16, 16, 4] : !Type_DDR_Master to !Type_DDR_SubView
+                    %1 = VPUIP.Copy inputs(%sv0 : !Type_DDR_SubView) outputs(%buf_cmx_1 : !Type_CMX) -> !Type_CMX
+                    async.yield %1 : !Type_CMX
+                }
+
+                %t1, %r1 = async.execute [%t0] (%r0 as %arg1: !async.value<!Type_CMX>) -> !async.value<!Type_CMX> attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64, "async-deps-index" = 1 : i64} {
+                    %1 = VPUIP.Copy inputs(%arg1 : !Type_CMX) outputs(%buf_cmx_2 : !Type_CMX) -> !Type_CMX
+                    async.yield %1 : !Type_CMX
+                }
+
+                %r = async.await %r1 : !async.value<!Type_CMX>
+                return %r : !Type_CMX
+            }
+        }
+    )";
+
+    mlir::MLIRContext ctx(registry);
+    auto module = mlir::parseSourceString<mlir::ModuleOp>((inputIR).str(), &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    const auto memKind = VPU::MemoryKind::CMX_NN;
+    const auto secondLvlMemKind = VPU::MemoryKind::DDR;
+    auto aliasesInfo = AliasesInfoMemType<VPU::MemoryKind::CMX_NN>{func};
+    AsyncDepsInfo depsInfo{func};
+    auto log = vpux::Logger::global().nest("feasible-memory-scheduler-spilling");
+    uint64_t alignment = vpux::DEFAULT_CMX_ALIGNMENT;
+    LinearScan<mlir::Value, LinearScanHandler> scan(1024 * 1024, {}, alignment);
+
+    mlir::async::ExecuteOp execCandidate = nullptr;
+    mlir::async::ExecuteOp execConsumer = nullptr;
+    func.walk([&](mlir::async::ExecuteOp execOp) {
+        auto depIndexAttr = execOp->getAttrOfType<mlir::IntegerAttr>("async-deps-index");
+        if (depIndexAttr == nullptr) {
+            return;
+        }
+        const auto depIndex = depIndexAttr.getInt();
+        if (depIndex == 0) {
+            execCandidate = execOp;
+        } else if (depIndex == 1) {
+            execConsumer = execOp;
+        }
+    });
+
+    ASSERT_TRUE(execCandidate != nullptr);
+    ASSERT_TRUE(execConsumer != nullptr);
+
+    mlir::Value candidateResult = nullptr;
+    mlir::Value consumerResult = nullptr;
+    execCandidate.walk([&](VPUIP::CopyOp copyOp) {
+        candidateResult = aliasesInfo.getRoot(copyOp.getOutput());
+    });
+    execConsumer.walk([&](VPUIP::CopyOp copyOp) {
+        consumerResult = aliasesInfo.getRoot(copyOp.getOutput());
+    });
+
+    ASSERT_TRUE(candidateResult != nullptr);
+    ASSERT_TRUE(consumerResult != nullptr);
+
+    constexpr int64_t bufferSize = 2048;
+    constexpr int64_t consumerBufBegin = 4096;
+    constexpr int64_t consumerBufEnd = consumerBufBegin + bufferSize;
+
+    FeasibleMemoryScheduler::ScheduledOpInfoVec scheduledOps = {
+            {0, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP, 0, 1, {}, {{0, bufferSize, candidateResult}}},
+            {1,
+             FeasibleMemoryScheduler::EOpType::ORIGINAL_OP,
+             1,
+             2,
+             {{0, bufferSize, candidateResult}},
+             {{consumerBufBegin, consumerBufEnd, consumerResult}}}};
+
+    scheduledOps.emplace_back(0, FeasibleMemoryScheduler::EOpType::IMPLICIT_SPILL_WRITE_OP, 2, 0, true);
+    scheduledOps.emplace_back(0, FeasibleMemoryScheduler::EOpType::IMPLICIT_SPILL_READ_OP, 3, 0, true);
+    scheduledOps[2].inputResourceInfo_ = {{0, bufferSize, candidateResult}};
+    scheduledOps[3].outputResourceInfo_ = {{0, bufferSize, candidateResult}};
+
+    FeasibleMemorySchedulerSpilling spilling(memKind, secondLvlMemKind, depsInfo, aliasesInfo, log, scan);
+    spilling.optimizeDataOpsSpills(scheduledOps);
+
+    EXPECT_EQ(scheduledOps.size(), 3);
+    EXPECT_EQ(scheduledOps[0].opType_, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP);
+    EXPECT_EQ(scheduledOps[1].opType_, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP);
+    EXPECT_EQ(scheduledOps[2].opType_, FeasibleMemoryScheduler::EOpType::IMPLICIT_SPILL_READ_OP);
+}
+
 TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveRedundantSpillWrite) {
     mlir::MLIRContext ctx(registry);
 

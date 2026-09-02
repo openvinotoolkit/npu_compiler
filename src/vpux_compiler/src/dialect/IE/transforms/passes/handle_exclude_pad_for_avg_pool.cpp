@@ -44,9 +44,9 @@ mlir::Value createSubAvgPool(IE::AvgPoolOp origOp, mlir::PatternRewriter& rewrit
 
     auto avgPoolOp = rewriter.create<IE::AvgPoolOp>(
             takeOpLoc(origOp, "pool_{0}", locSuffix), stridedSliceOp == nullptr ? origOp.getInput() : stridedSliceOp,
-            avgPoolOpKernelAttr, avgPoolOpStridesAttr, zeroPadAttr, zeroPadAttr, origOp.getRoundingTypeAttr(), nullptr,
-            origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(),
-            origOp.getInputPaddingAttr());
+            origOp.getScale(), avgPoolOpKernelAttr, avgPoolOpStridesAttr, zeroPadAttr, zeroPadAttr,
+            origOp.getRoundingTypeAttr(), nullptr, origOp.getPostOpAttr(), origOp.getClampAttr(),
+            origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     return avgPoolOp.getOutput();
 }
 

@@ -18,7 +18,8 @@ def VPU_AndOp :
                 VPU_TilingBuilderOpInterface,
                 Commutative,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
                 VPU_EltwiseOp
             ]
         > {
@@ -98,21 +99,42 @@ def VPU_LogicalOrOp :
             [
                 VPU_TilingBuilderOpInterface,
                 Commutative,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
                 VPU_EltwiseOp
             ]
         > {
     let summary = "LogicalOr VPU layer";
 
     let arguments = (ins
-        RankedTensorOf<[I8, F16, F32, SI32]>:$input1,
-        RankedTensorOf<[I8, F16, F32, SI32]>:$input2,
+        AnyTypeOf<[RankedTensorOf<[I8, F16, F32, SI32]>, VPU_DistributedTensor]>:$input1,
+        AnyTypeOf<[RankedTensorOf<[I8, F16, F32, SI32]>, VPU_DistributedTensor]>:$input2,
 
-        IE_AutoBroadcastTypeAttr:$auto_broadcast
+        IE_AutoBroadcastTypeAttr:$auto_broadcast,
+
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        RankedTensorOf<[I8, F16, F32, SI32]>:$output
+        AnyTypeOf<[RankedTensorOf<[I8, F16, F32, SI32]>, VPU_DistributedTensor]>:$output
     );
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastTypeAttr":$auto_broadcast
+        )>
+    ];
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
 

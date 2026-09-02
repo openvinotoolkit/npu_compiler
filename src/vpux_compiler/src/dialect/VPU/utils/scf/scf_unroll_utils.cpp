@@ -635,9 +635,11 @@ SmallVector<vpux::VPU::ConcatOp> insertConcatOp(mlir::OpBuilder& builder, mlir::
     SmallVector<vpux::VPU::ConcatOp> concatOps;
     SmallVector<mlir::Value> operandsCopy(operands.begin(), operands.end());
 
+    const auto& outputOrder = config.outputAccessOrder;
+
     // Process dimensions from innermost (rightmost) to outermost (leftmost)
-    for (size_t dimIdx = config.accessOrder.size(); dimIdx-- > 0;) {
-        auto dimInd = config.accessOrder[dimIdx].ind();
+    for (size_t dimIdx = outputOrder.size(); dimIdx-- > 0;) {
+        auto dimInd = outputOrder[dimIdx].ind();
         int64_t factor = config.unrollFactors[dimIdx];
 
         SmallVector<mlir::Value> nextLevel;
@@ -717,9 +719,11 @@ template <typename T>
 SliceSizeInfo collectSliceSizes(ArrayRef<T> opsOfType, uint64_t index, const UnrollConfig& config) {
     SliceSizeInfo info;
 
+    const auto& outputOrder = config.outputAccessOrder;
+
     // Initialize size vectors for each unrolled dimension
-    for (size_t i = 0; i < config.accessOrder.size(); ++i) {
-        auto dimInd = config.accessOrder[i].ind();
+    for (size_t i = 0; i < outputOrder.size(); ++i) {
+        auto dimInd = outputOrder[i].ind();
         info.dimToSizes[dimInd].resize(config.unrollFactors[i], 0);
     }
 
@@ -733,8 +737,8 @@ SliceSizeInfo collectSliceSizes(ArrayRef<T> opsOfType, uint64_t index, const Unr
         auto multiDimIndices = getMultiDimIndices(checked_cast<int64_t>(linearIdx), config.unrollFactors);
 
         // Store size for each unrolled dimension at this position
-        for (size_t i = 0; i < config.accessOrder.size(); ++i) {
-            auto dimInd = config.accessOrder[i].ind();
+        for (size_t i = 0; i < outputOrder.size(); ++i) {
+            auto dimInd = outputOrder[i].ind();
             int64_t blockIndex = multiDimIndices[i];
             int64_t sliceSize = sizes[dimInd];
 
@@ -761,10 +765,11 @@ SmallVector<int64_t> calculateVPUSliceOffset(int64_t linearIdx, llvm::ArrayRef<T
 
     // Collect size information
     auto sizeInfo = collectSliceSizes(allExtractOps, index, config);
+    const auto& outputOrder = config.outputAccessOrder;
 
     // Calculate offset for each unrolled dimension
-    for (size_t i = 0; i < config.accessOrder.size(); ++i) {
-        auto dimInd = config.accessOrder[i].ind();
+    for (size_t i = 0; i < outputOrder.size(); ++i) {
+        auto dimInd = outputOrder[i].ind();
         int64_t blockIndex = multiDimIndices[i];
 
         // Accumulate sizes of all blocks before this one
@@ -795,12 +800,14 @@ SmallVector<int64_t> calculateCombinedShape(llvm::ArrayRef<mlir::RankedTensorTyp
         combinedShape[dim] = firstShape[dim];
     }
 
+    const auto& outputOrder = config.outputAccessOrder;
+
     // Create a map: unroll dimension -> sizes at each position
     llvm::DenseMap<size_t, SmallVector<int64_t>> dimToSizes;
 
     // Initialize size vectors for unrolled dimensions
-    for (size_t i = 0; i < config.accessOrder.size(); ++i) {
-        auto dimInd = config.accessOrder[i].ind();
+    for (size_t i = 0; i < outputOrder.size(); ++i) {
+        auto dimInd = outputOrder[i].ind();
         int64_t factor = config.unrollFactors[i];
         dimToSizes[dimInd].resize(factor, 0);
     }
@@ -811,8 +818,8 @@ SmallVector<int64_t> calculateCombinedShape(llvm::ArrayRef<mlir::RankedTensorTyp
         auto gridPos = getMultiDimIndices(checked_cast<int64_t>(tensorIdx), config.unrollFactors);
 
         // For each unrolled dimension, track the size at this grid position
-        for (size_t i = 0; i < config.accessOrder.size(); ++i) {
-            auto dimInd = config.accessOrder[i].ind();
+        for (size_t i = 0; i < outputOrder.size(); ++i) {
+            auto dimInd = outputOrder[i].ind();
             int64_t posInGrid = gridPos[i];
             int64_t size = shape[dimInd];
 
@@ -824,7 +831,7 @@ SmallVector<int64_t> calculateCombinedShape(llvm::ArrayRef<mlir::RankedTensorTyp
     }
 
     // Accumulate sizes for each unrolled dimension
-    for (auto dim : config.accessOrder) {
+    for (auto dim : outputOrder) {
         auto dimInd = dim.ind();
         int64_t totalSize = 0;
 
@@ -1708,6 +1715,7 @@ mlir::LogicalResult mergeUnrolledOperations(mlir::scf::ForOp forOp, SmallVector<
     for (auto tileDimInfo : tileDimInfoVec) {
         config.unrollFactors.push_back(tileDimInfo.numBlocks);
         config.accessOrder.push_back(tileDimInfo.dimension);
+        config.outputAccessOrder.push_back(tileDimInfo.outputDimension);
         config.forOps.push_back(tileDimInfo.forOp);
     }
 
@@ -1834,6 +1842,10 @@ void collectLoops(mlir::Operation* rootOp, SmallVector<mlir::scf::ForOp>& loops)
     // Collect all ForOps and group by depth
     unsigned loopCounter = 0;
     rootOp->walk([&](mlir::scf::ForOp forOp) {
+        // Skip workload-materialization loops (dynamic trip count, inside NCE workload regions).
+        if (forOp->hasAttr("vpux.workload_loop")) {
+            return;
+        }
         unsigned depth = getNestingDepth(forOp.getOperation());
         depthMap[depth].push_back(forOp);
         ++loopCounter;

@@ -44,9 +44,17 @@ bool vpux::VPU::isSupportedPermutation(mlir::Operation* nceOp, mlir::Operation* 
     }
 
     // Check that permutation is supported by ODU
+    // TODO(E#230349): GCC 11+ false-positive on inlined SmallVector copy ctor (DimsOrder::_permutation).
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 11
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#endif
     std::unordered_set<DimsOrder> supportedOrders = {
             DimsOrder::NCHW, DimsOrder::NCWH, DimsOrder::NHCW, DimsOrder::NHWC, DimsOrder::NWCH, DimsOrder::NWHC,
     };
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 11
+#pragma GCC diagnostic pop
+#endif
 
     /* SEP dilated convolution must have contiguous channels in output
        since it is always followed by strided concat.

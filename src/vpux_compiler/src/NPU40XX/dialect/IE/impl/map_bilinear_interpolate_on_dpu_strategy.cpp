@@ -4,11 +4,18 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/IE/impl/map_bilinear_interpolate_on_dpu_strategy.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes/map_bilinear_interpolate_on_DPU.hpp"
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/utils/core/numeric.hpp"
+
+#include <llvm/Support/FormatVariadic.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
+#include <mlir/Support/LLVM.h>
 
 namespace vpux::IE::arch40xx {
 
@@ -16,16 +23,23 @@ bool MapBilinearInterpolateOnDPUStrategy::shouldConvertInterpolateOpForMapBiline
                                                                                    LogCb logCb) const {
     // Runtime scales produce dynamic spatial dims, skip transformation
     if (IE::isScalesAsParameter(op.getScales(), op.getScalesAttr())) {
+        logCb(llvm::formatv("InterpolateOp '{0}' has runtime scales", op->getLoc()));
         return false;
     }
 
-    auto inputElemType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType();
-    auto outputElemType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType()).getElementType();
-    if (inputElemType != outputElemType && !mlir::isa<mlir::quant::QuantizedType>(inputElemType) &&
-        !mlir::isa<mlir::quant::QuantizedType>(outputElemType)) {
-        // There has been IE.Convert fused into this IE.InterpolateOp.
+    auto inputElemType = mlir::cast<NDTypeInterface>(op.getInput().getType()).getElementType();
+    auto outputElemType = mlir::cast<NDTypeInterface>(op.getOutput().getType()).getElementType();
+    const auto hasFusedConvert = inputElemType != outputElemType &&
+                                 !mlir::isa<mlir::quant::QuantizedType>(inputElemType) &&
+                                 !mlir::isa<mlir::quant::QuantizedType>(outputElemType);
+    const auto isLegalOp = isLegalInterpolateOp(op, _interpolateAsSEOpInStrategy, logCb);
+    if (hasFusedConvert && !isLegalOp) {
+        logCb(llvm::formatv(
+                "InterpolateOp '{0}' has fused convert and is not already legal, so it will be mapped to DPU",
+                op->getLoc()));
         return true;
     }
+
     const auto inputShape = getShape(op.getInput());
     const auto outputShape = getShape(op.getOutput());
 
@@ -47,9 +61,15 @@ bool MapBilinearInterpolateOnDPUStrategy::shouldConvertInterpolateOpForMapBiline
     });
     // SW kernel performance is bigger than DPU decomposition performance for floating scale factors.
     if (!isIntegerRatioOnly) {
+        logCb(llvm::formatv("InterpolateOp '{0}' has non-integer ratio between input and output shapes", op->getLoc()));
         return false;
     }
 
-    return !isLegalInterpolateOp(op, _interpolateAsSEOpInStrategy, logCb);
+    if (isLegalOp) {
+        logCb(llvm::formatv("InterpolateOp '{0}' is already legal, so it will not be mapped to DPU", op->getLoc()));
+        return false;
+    }
+    logCb(llvm::formatv("InterpolateOp '{0}' will be mapped to DPU", op->getLoc()));
+    return true;
 }
 }  // namespace vpux::IE::arch40xx

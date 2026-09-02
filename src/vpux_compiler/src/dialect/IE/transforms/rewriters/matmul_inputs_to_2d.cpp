@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
 #include "vpux/compiler/dynamic_rewriter/dynamic_rewriter_factory.hpp"
@@ -100,37 +101,59 @@ static SmallVector<mlir::Value> sliceTensor(const mlir::Value tensorToSplit, con
     return weightSlices;
 }
 
-// Structure to hold DynamicDequantize chain information
-struct DequantizeChainInfo {
-    IE::QuantizeCastOp quantizeCastOp = nullptr;
+// Structure to hold DynamicDequantize (+ optional Gather) chain information
+struct DequantizeGatherChainInfo {
     IE::DynamicDequantizeOp dequantizeOp = nullptr;
-    IE::ConvertOp convertOp = nullptr;  // optional
-    IE::AffineReshapeOp affineReshapeOp = nullptr;
+    IE::ConvertOp convertOp = nullptr;                         // optional
+    IE::GatherOp inputGatherOp = nullptr;                      // optional
+    IE::AffineReshapeOp inputGatherAffineReshapeOp = nullptr;  // optional, reshape between Gather and DequantizeOp
 
     bool hasConvert() const {
         return convertOp != nullptr;
     }
+    bool hasInputGather() const {
+        return inputGatherOp != nullptr;
+    }
 };
 
-// Trace back to find QuantizeCast -> DynamicDequantize -> Convert (optional) -> AffineReshape chain
-[[nodiscard]] std::optional<DequantizeChainInfo> traceDequantizeChain(mlir::Value input) {
-    DequantizeChainInfo info;
-
-    // Check if input comes from AffineReshape
-    auto affineReshapeOp = input.getDefiningOp<IE::AffineReshapeOp>();
-    if (affineReshapeOp == nullptr) {
+// Check if an op is a reshape that adds a leading dim=1.
+// Returns the reshape input value if valid, or std::nullopt otherwise.
+static std::optional<mlir::Value> lookThroughLeadingDimReshape(mlir::Value value) {
+    auto op = value.getDefiningOp();
+    if (op == nullptr) {
         return std::nullopt;
     }
-    if (!affineReshapeOp.getOutput().hasOneUse()) {
+    if (!mlir::isa<IE::AffineReshapeOp, IE::ReshapeOp>(op)) {
         return std::nullopt;
     }
-    info.affineReshapeOp = affineReshapeOp;
+    if (!op->getResult(0).hasOneUse()) {
+        return std::nullopt;
+    }
+    auto reshapeInShape = getShape(op->getOperand(0));
+    auto reshapeOutShape = getShape(op->getResult(0));
+    if (reshapeOutShape.size() != reshapeInShape.size() + 1 || reshapeOutShape.front() != 1) {
+        return std::nullopt;
+    }
+    for (size_t i = 0; i < reshapeInShape.size(); ++i) {
+        if (reshapeOutShape[Dim(i + 1)] != reshapeInShape[Dim(i)]) {
+            return std::nullopt;
+        }
+    }
+    return op->getOperand(0);
+}
 
-    auto currentValue = affineReshapeOp.getInput();
+// Trace DynamicDequantize (+ optional Gather) chain feeding a MatMul weight input
+[[nodiscard]] std::optional<DequantizeGatherChainInfo> traceDequantizeGatherChain(mlir::Value input) {
+    DequantizeGatherChainInfo info;
+    auto currentValue = input;
+
+    // Look through optional AffineReshape or Reshape that adds a leading dim=1
+    if (auto reshapeInput = lookThroughLeadingDimReshape(currentValue)) {
+        currentValue = *reshapeInput;
+    }
 
     // Check for optional Convert
     if (auto convertOp = currentValue.getDefiningOp<IE::ConvertOp>()) {
-        // Convert should have single user
         if (!convertOp.getOutput().hasOneUse()) {
             return std::nullopt;
         }
@@ -143,40 +166,57 @@ struct DequantizeChainInfo {
     if (dequantizeOp == nullptr) {
         return std::nullopt;
     }
-    if (!dequantizeOp.getOutput().hasOneUse() || dequantizeOp.getZp()) {
+    if (!dequantizeOp.getOutput().hasOneUse()) {
         return std::nullopt;
     }
     info.dequantizeOp = dequantizeOp;
 
-    currentValue = dequantizeOp.getInput();
-
-    // Check for QuantizeCast (required)
-    auto quantizeCastOp = currentValue.getDefiningOp<IE::QuantizeCastOp>();
-    if (quantizeCastOp == nullptr) {
+    // Only raw data types are supported; reject if input comes from QuantizeCast
+    if (mlir::isa_and_nonnull<IE::QuantizeCastOp>(dequantizeOp.getInput().getDefiningOp())) {
         return std::nullopt;
     }
-    if (!quantizeCastOp.getOutput().hasOneUse()) {
+
+    // Verify the input is 3D with a batch dimension to slice
+    auto inputShape = getShape(dequantizeOp.getInput());
+    if (inputShape.size() != 3 || inputShape[Dim(0)] <= 1) {
         return std::nullopt;
     }
-    info.quantizeCastOp = quantizeCastOp;
+    const auto batch = inputShape[Dim(0)];
 
-    // Verify this is the expected pattern: 3D -> 4D reshape (e.g., [4, 5760, 2880] -> [1, 4, 5760, 2880])
-    auto dequantizeOutShape = getShape(dequantizeOp.getOutput());
-    auto reshapeOutShape = getShape(affineReshapeOp.getOutput());
-    if (dequantizeOutShape.size() == 3 && reshapeOutShape.size() == 4 && reshapeOutShape.front() == 1) {
-        return info;
+    // Optionally trace through AffineReshape + Gather for the dequantize input.
+    const auto isRequiredGatherOp = [](IE::GatherOp gatherOp) {
+        return gatherOp.getAxisValue() == 0 && gatherOp.getBatchDims() == 0 && gatherOp.getIndicesRank() == 1;
+    };
+
+    // AffineReshape first dim_mapping group must be [0, 1]: the flat gather output
+    // AffineReshape from like 64x32xf16 to 4x16x32xf16, 4 is the batch dimension.
+    const auto isRequiredAffineReshape = [&](IE::AffineReshapeOp affineReshapeOp) {
+        const auto outShape = getShape(affineReshapeOp.getOutput());
+        const auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(affineReshapeOp.getDimMappingAttr());
+        return !dimMapping.empty() && dimMapping[0].size() == 2 && dimMapping[0][0] == 0 && dimMapping[0][1] == 1 &&
+               outShape[Dim(0)] == batch;
+    };
+
+    auto affineReshapeOp = dequantizeOp.getInput().getDefiningOp<IE::AffineReshapeOp>();
+    if (affineReshapeOp != nullptr && affineReshapeOp->hasOneUse() && isRequiredAffineReshape(affineReshapeOp)) {
+        auto gatherOp = affineReshapeOp.getInput().getDefiningOp<IE::GatherOp>();
+        if (gatherOp != nullptr && gatherOp->hasOneUse() && isRequiredGatherOp(gatherOp)) {
+            info.inputGatherOp = gatherOp;
+            info.inputGatherAffineReshapeOp = affineReshapeOp;
+        }
     }
 
-    return std::nullopt;
+    return info;
 }
 
-// Slice DynamicDequantize chain: QuantizeCast -> DynamicDequantize -> Convert (optional) -> AffineReshape
-SmallVector<mlir::Value> sliceDequantizeChain(DequantizeChainInfo& chainInfo, const mlir::Location location,
-                                              mlir::PatternRewriter& rewriter, StringRef tensorName) {
+// Slice DynamicDequantize (+ optional Gather) chain per batch element.
+// When chainInfo.hasInputGather(), slices flat_indices in chunks and creates per-batch Gathers;
+// otherwise slices the reshaped tensor directly.
+SmallVector<mlir::Value> sliceDequantizeGatherChain(DequantizeGatherChainInfo& chainInfo, const mlir::Location location,
+                                                    mlir::PatternRewriter& rewriter, StringRef tensorName) {
     const auto ctx = rewriter.getContext();
 
-    // Get the QuantizeCast input to slice (QuantizeCast is mandatory)
-    auto inputToSlice = chainInfo.quantizeCastOp.getInput();
+    auto inputToSlice = chainInfo.dequantizeOp.getInput();
 
     // Get shapes
     auto inputShape = getShape(inputToSlice);
@@ -195,25 +235,48 @@ SmallVector<mlir::Value> sliceDequantizeChain(DequantizeChainInfo& chainInfo, co
 
     // Slice along batch dimension
     for (int64_t sliceIdx = 0; sliceIdx < batch; sliceIdx++) {
-        // Slice the QuantizeCast input
-        Shape sliceOffsets = {sliceIdx, 0, 0};
-        Shape sliceSizes = {1, height, width};
-        auto inputSlice = rewriter.create<IE::SliceOp>(appendLoc(location, "{0}_input_slice_{1}", tensorName, sliceIdx),
-                                                       inputToSlice, getIntArrayAttr(ctx, sliceOffsets),
-                                                       getIntArrayAttr(ctx, sliceSizes));
-
-        // Apply QuantizeCast
-        auto quantizeCastSlice = rewriter.create<IE::QuantizeCastOp>(
-                appendLoc(location, "{0}_quantcast_slice_{1}", tensorName, sliceIdx), inputSlice.getOutput(),
-                chainInfo.quantizeCastOp.getDstElemType());
-
-        mlir::Value currentValue = quantizeCastSlice.getOutput();
+        // Create input slice: either by slicing Gather flat-indices in chunks, or
+        // by slicing the reshaped tensor directly.
+        mlir::Value currentValue;
+        if (chainInfo.hasInputGather()) {
+            // Slice flat indices for this batch element and create a smaller Gather.
+            // Gather(data, flat_indices[batch*rows]) + AffineReshape -> [batch, rows, width]
+            // becomes: Gather(data, Slice(flat_indices, [i*rows], [rows])) -> [rows, width]
+            //          + Reshape -> [1, rows, width]
+            auto gatherOp = chainInfo.inputGatherOp;
+            Shape indexOffset = {sliceIdx * height};
+            Shape indexSize = {height};
+            auto indexSlice = rewriter.create<IE::SliceOp>(
+                    appendLoc(location, "{0}_input_idx_slice_{1}", tensorName, sliceIdx), gatherOp.getIndices(),
+                    getIntArrayAttr(ctx, indexOffset), getIntArrayAttr(ctx, indexSize));
+            auto perBatchGather =
+                    rewriter.create<IE::GatherOp>(appendLoc(location, "{0}_input_gather_{1}", tensorName, sliceIdx),
+                                                  gatherOp.getInput(), indexSlice.getOutput(), gatherOp.getAxisValue(),
+                                                  gatherOp.getBatchDims(), gatherOp.getIndicesRankAttr());
+            Shape perBatchShape = getShape(chainInfo.inputGatherAffineReshapeOp.getOutput()).raw();
+            perBatchShape[Dim(0)] = 1;
+            currentValue = rewriter.create<IE::AffineReshapeOp>(
+                                           appendLoc(location, "{0}_input_reshape_{1}", tensorName, sliceIdx),
+                                           perBatchGather.getResult(),
+                                           chainInfo.inputGatherAffineReshapeOp.getDimMappingAttr(),
+                                           getIntArrayAttr(ctx, perBatchShape))
+                                   .getOutput();
+        } else {
+            Shape sliceOffsets = {sliceIdx, 0, 0};
+            Shape sliceSizes = {1, height, width};
+            currentValue =
+                    rewriter.create<IE::SliceOp>(appendLoc(location, "{0}_input_slice_{1}", tensorName, sliceIdx),
+                                                 inputToSlice, getIntArrayAttr(ctx, sliceOffsets),
+                                                 getIntArrayAttr(ctx, sliceSizes))
+                            .getOutput();
+        }
 
         // Slice scale if it has batch dimension
         mlir::Value scaleSlice = dequantizeScale;
         auto scaleShape = getShape(dequantizeScale);
-        if (scaleShape.size() >= 3 && scaleShape.front() == batch) {
-            Shape scaleSliceOffsets = {sliceIdx, 0, 0};
+        if (scaleShape.size() >= 1 && scaleShape.front() == batch) {
+            Shape scaleSliceOffsets(scaleShape.size(), 0);
+            scaleSliceOffsets.front() = sliceIdx;
             Shape scaleSliceSizes = scaleShape.raw();
             scaleSliceSizes.front() = 1;
             scaleSlice = rewriter.create<IE::SliceOp>(appendLoc(location, "{0}_scale_slice_{1}", tensorName, sliceIdx),
@@ -221,10 +284,29 @@ SmallVector<mlir::Value> sliceDequantizeChain(DequantizeChainInfo& chainInfo, co
                                                       getIntArrayAttr(ctx, scaleSliceSizes));
         }
 
-        // Create sliced DynamicDequantize (no zero-point)
+        // Slice zero-point if present and has batch dimension
+        mlir::Value zpSlice = chainInfo.dequantizeOp.getZp();
+        if (zpSlice) {
+            auto zpShape = getShape(zpSlice);
+            if (zpShape.size() >= 1 && zpShape.front() == batch) {
+                Shape zpSliceOffsets(zpShape.size(), 0);
+                zpSliceOffsets.front() = sliceIdx;
+                Shape zpSliceSizes = zpShape.raw();
+                zpSliceSizes.front() = 1;
+                zpSlice = rewriter.create<IE::SliceOp>(appendLoc(location, "{0}_zp_slice_{1}", tensorName, sliceIdx),
+                                                       zpSlice, getIntArrayAttr(ctx, zpSliceOffsets),
+                                                       getIntArrayAttr(ctx, zpSliceSizes));
+            }
+        }
+
+        // Create sliced DynamicDequantize
         auto dequantSlice = rewriter.create<IE::DynamicDequantizeOp>(
-                appendLoc(location, "{0}_dequant_slice_{1}", tensorName, sliceIdx), currentValue, scaleSlice, nullptr,
+                appendLoc(location, "{0}_dequant_slice_{1}", tensorName, sliceIdx), currentValue, scaleSlice, zpSlice,
                 chainInfo.dequantizeOp.getDstElemType());
+        if (chainInfo.dequantizeOp->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
+            dequantSlice->setAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR,
+                                  chainInfo.dequantizeOp->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR));
+        }
 
         currentValue = dequantSlice.getOutput();
 
@@ -412,13 +494,13 @@ mlir::LogicalResult MatMulOpConverter::matchAndRewrite(IE::MatMulOp matmulOp, ml
     SmallVector<mlir::Value> activationSlices =
             sliceTensor(matmulOp.getInput1(), matmulOp->getLoc(), rewriter, "activation");
 
-    // Check if input2 has DynamicDequantize chain pattern
+    // Check if input2 has DynamicDequantize Gather chain pattern
     SmallVector<mlir::Value> weightSlices;
-    auto dequantChain = traceDequantizeChain(matmulOp.getInput2());
+    auto dequantChain = traceDequantizeGatherChain(matmulOp.getInput2());
     if (dequantChain.has_value()) {
-        // Slice the entire DynamicDequantize -> Convert -> Reshape chain
-        weightSlices = sliceDequantizeChain(dequantChain.value(), matmulOp->getLoc(), rewriter, "weights");
-        // If sliceDequantizeChain returns empty (batch <= 1 case), it should be handled by other converters
+        // Slice the entire DynamicDequantize chain preserving scale/zp correctly
+        weightSlices = sliceDequantizeGatherChain(dequantChain.value(), matmulOp->getLoc(), rewriter, "weights");
+        // If sliceDequantizeGatherChain returns empty (batch <= 1 case), it should be handled by other converters
         if (weightSlices.empty()) {
             return mlir::failure();
         }

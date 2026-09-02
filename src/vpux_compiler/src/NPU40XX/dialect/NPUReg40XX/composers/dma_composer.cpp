@@ -191,7 +191,7 @@ DMARegister compose(VPUASM::NNDMAOp origOp, ELF::SymbolReferenceMap& symRefMap) 
         auto outputBuffer = mlir::cast<VPUASM::DeclareBufferOp>(outputBuffRef);
         const auto section = outputBuffer.getBufferType().getLocation().getSection();
         if (section == VPURT::BufferSection::Register) {
-            broadcastTileMask = outputBuffer.getMemoryOffset();
+            broadcastTileMask = outputBuffer.getMemoryOffset().value();
         }
     }
 

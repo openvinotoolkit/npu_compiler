@@ -268,3 +268,50 @@ func.func @NotShrinkCase3WrongDimMapping(%arg0: tensor<1x2x1x1152xf32>, %arg1: t
     // CHECK:       IE.AffineReshape
     // CHECK:       IE.MatMul
 }
+
+// -----
+
+// LHS has H > 1 (H=8, token length > 1), matching the Q*K^T pattern in LLM
+// attention where the sequence length is small (e.g. speculative decoding validation stage).
+
+// CHECK-LABEL: @ShrinkMatmulGroupsMultiTokenLHS
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x32x8x128xf32>,
+// CHECK-SAME:      [[INPUT2:%.+]]: tensor<1x8x1x8704x128xf32>
+func.func @ShrinkMatmulGroupsMultiTokenLHS(%arg0: tensor<1x32x8x128xf32>, %arg1: tensor<1x8x1x8704x128xf32>) -> tensor<1x32x8x8704xf32> {
+    %cst = const.Declare tensor<5xsi64> = dense<[1, 8, 4, 8704, 128]> : tensor<5xsi64>
+
+    %0 = IE.Broadcast(%arg1, %cst) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x8x1x8704x128xf32>, tensor<5xsi64> -> tensor<1x8x4x8704x128xf32>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [1], [2], [3]], shape_value = [1, 32, 8704, 128]} : tensor<1x8x4x8704x128xf32> -> tensor<1x32x8704x128xf32>
+    %2 = IE.MatMul(%arg0, %1) {transpose_b} : tensor<1x32x8x128xf32>, tensor<1x32x8704x128xf32> -> tensor<1x32x8x8704xf32>
+
+    return %2 : tensor<1x32x8x8704xf32>
+
+    // CHECK:       [[LHS:%.+]] = IE.Reshape([[INPUT1]]) {shape_value = [1, 8, 32, 128]} : tensor<1x32x8x128xf32> -> tensor<1x8x32x128xf32>
+    // CHECK:       [[RHS:%.+]] = IE.Reshape([[INPUT2]]) {shape_value = [1, 8, 8704, 128]} : tensor<1x8x1x8704x128xf32> -> tensor<1x8x8704x128xf32>
+    // CHECK:       [[MATMUL:%.+]] = IE.MatMul([[LHS]], [[RHS]]) {transpose_b} : tensor<1x8x32x128xf32>, tensor<1x8x8704x128xf32> -> tensor<1x8x32x8704xf32>
+    // CHECK:       [[RESULT:%.+]] = IE.Reshape([[MATMUL]]) {shape_value = [1, 32, 8, 8704]} : tensor<1x8x32x8704xf32> -> tensor<1x32x8x8704xf32>
+
+    // CHECK:       return  [[RESULT]] : tensor<1x32x8x8704xf32>
+}
+
+// -----
+
+// Negative test: LHS H=64 exceeds the MAX_LHS_H_FOR_SHRINK=32 threshold,
+// so the pass must not fire regardless of other conditions.
+
+// CHECK-LABEL: @NotShrinkMatmulGroupsLargeH
+// CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x32x64x128xf32>,
+// CHECK-SAME:      [[INPUT2:%.+]]: tensor<1x8x1x8704x128xf32>
+func.func @NotShrinkMatmulGroupsLargeH(%arg0: tensor<1x32x64x128xf32>, %arg1: tensor<1x8x1x8704x128xf32>) -> tensor<1x32x64x8704xf32> {
+    %cst = const.Declare tensor<5xsi64> = dense<[1, 8, 4, 8704, 128]> : tensor<5xsi64>
+
+    %0 = IE.Broadcast(%arg1, %cst) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x8x1x8704x128xf32>, tensor<5xsi64> -> tensor<1x8x4x8704x128xf32>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [1], [2], [3]], shape_value = [1, 32, 8704, 128]} : tensor<1x8x4x8704x128xf32> -> tensor<1x32x8704x128xf32>
+    %2 = IE.MatMul(%arg0, %1) {transpose_b} : tensor<1x32x64x128xf32>, tensor<1x32x8704x128xf32> -> tensor<1x32x64x8704xf32>
+
+    return %2 : tensor<1x32x64x8704xf32>
+
+    // CHECK:       IE.Broadcast
+    // CHECK:       IE.AffineReshape
+    // CHECK:       IE.MatMul
+}

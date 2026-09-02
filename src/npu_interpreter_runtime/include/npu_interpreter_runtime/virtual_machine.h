@@ -103,7 +103,9 @@ typedef struct _npu_vm_engine npu_vm_engine;
 NPU_VM_EXPORT npu_vm_result NPU_VM_APICALL npu_vm_print(const uint8_t* bytecode, uint32_t bytecode_size, int print_full,
                                                         uint32_t indent_level);
 
-/// Deserializes a bytecode binary and stores its contents inside a `npu_vm_module` for later execution
+/// Deserializes a bytecode binary and stores this information inside a `npu_vm_module` for later execution. The
+/// resulting module instance references the provided bytecode data, so the caller must ensure that the bytecode data
+/// remains valid for the lifetime of the module.
 /// @param bytecode Pointer to the bytecode binary data
 /// @param bytecode_size Size of the bytecode binary in bytes
 /// @param module_out Output parameter where to store the deserialized module. The caller is responsible for freeing the

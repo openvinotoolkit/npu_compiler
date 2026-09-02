@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2025 Intel Corporation
+// Copyright (C) 2022-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -61,6 +61,8 @@ std::shared_ptr<ov::Model> getFunction() {
 
     return std::make_shared<ov::Model>(ov::ResultVector{result}, params, "custom_model");
 }
+
+GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(OVInferRequestDynamicTests);
 
 class NPUInferRequestElementTypeTests : public OVInferRequestDynamicTests {
 protected:
@@ -129,7 +131,7 @@ protected:
         if (!std::equal(dynamicShape.cbegin(), dynamicShape.cend(), undefinedShape.cbegin())) {
             return false;
         }
-        for (int i = 0; i < undefinedOutput.get_size(); i++) {
+        for (size_t i = 0; i < undefinedOutput.get_size(); i++) {
             if (fabs(dynamicOutput.data<float>()[i] - undefinedOutput.data<float>()[i]) >
                 std::numeric_limits<float>::epsilon()) {
                 return false;

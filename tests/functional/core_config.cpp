@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2025 Intel Corporation
+// Copyright (C) 2022-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -8,7 +8,7 @@
 namespace ov {
 namespace test {
 
-void core_configuration(ov::test::SubgraphBaseTest* test) {
+void core_configuration(ov::test::SubgraphBaseTest* /*test*/) {
 }
 
 }  // namespace test

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024-2025 Intel Corporation
+// Copyright (C) 2024-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -70,7 +70,7 @@ protected:
         auto makeFunction = [](ov::ParameterVector& params, const std::shared_ptr<ov::Node>& lastNode) {
             ov::ResultVector results;
 
-            for (int i = 0; i < lastNode->get_output_size(); i++) {
+            for (size_t i = 0; i < lastNode->get_output_size(); i++) {
                 results.push_back(std::make_shared<ov::op::v0::Result>(lastNode->output(i)));
             }
 

@@ -22,23 +22,21 @@ mlir::LogicalResult vpux::VPU::PReluOp::verify() {
     const auto slopeShape = slopeType.getShape().raw();
 
     if (slopeShape.size() != 4 || inShape.size() != 4) {
-        return errorAt(*this, "Tiling restrictions require slope to have a 4D shape, got size of {0}",
-                       slopeShape.size());
+        return errorAt(
+                *this,
+                "Tiling restrictions require both input and slope to be 4D. Got input rank {0} and slope rank {1}",
+                inShape.size(), slopeShape.size());
     }
 
-    const bool isSlopeIdentical = (inShape == slopeShape);
-    const bool isPerChannel = (slopeShape[Dims4D::Act::N.ind()] == 1 &&
-                               slopeShape[Dims4D::Act::C.ind()] == inShape[Dims4D::Act::C.ind()] &&
-                               slopeShape[Dims4D::Act::H.ind()] == 1 && slopeShape[Dims4D::Act::W.ind()] == 1);
-
-    const auto slopeShapeArr = vpux::ArrayRef<int64_t>(slopeShape);
-    const bool isSlopeOneParameterInput = vpux::checkAllElementsIfEqualTo(slopeShapeArr, static_cast<int64_t>(1));
-
-    if (!isSlopeIdentical && !isPerChannel && !isSlopeOneParameterInput) {
-        return errorAt(*this,
-                       "Unsupported slope shape for PRelu: only fully identical to input, per-channel (C matches "
-                       "input, others 1), or all-ones (scalar) are supported. Got input {0} and slope {1}",
-                       inShape, slopeShape);
+    // Accept any slope shape that numpy-broadcasts to the input: each slope dim must be
+    // either 1 or exactly equal to the corresponding input dim.
+    for (size_t i = 0; i < slopeShape.size(); ++i) {
+        if (slopeShape[i] != 1 && slopeShape[i] != inShape[i]) {
+            return errorAt(*this,
+                           "Unsupported slope shape for PRelu: slope must numpy-broadcast to input "
+                           "(each dim must be 1 or match the input). Got input {0} and slope {1}",
+                           inShape, slopeShape);
+        }
     }
 
     return mlir::success();
@@ -71,14 +69,15 @@ vpux::InputTiling vpux::VPU::PReluOp::backInferTileInfo(const vpux::TileInfo& ou
 
     inputTile = outputTile;
 
-    const auto slopeShapeArr = vpux::ArrayRef<int64_t>(getShape(getNegativeSlope()).raw());
-    const bool isSlopeOneParameterInput = vpux::checkAllElementsIfEqualTo(slopeShapeArr, static_cast<int64_t>(1));
-
-    if (!isSlopeOneParameterInput && (outputTile.shape[Dims4D::Act::C] != slopeTile.shape[Dims4D::Act::C])) {
-        // Tile slope by channel, align the offsets and axis to outputTile
-        slopeTile.shape[Dims4D::Act::C] = outputTile.shape[Dims4D::Act::C];
-        slopeTile.offsets[Dims4D::Act::C] = outputTile.offsets[Dims4D::Act::C];
-        slopeTile.axis[Dims4D::Act::C] = outputTile.axis[Dims4D::Act::C];
+    // Tile slope along every dim where it is non-broadcast (size > 1).
+    // Dims where slope size is 1 stay at size 1 / offset 0 (broadcast dims).
+    const auto slopeShape = getShape(getNegativeSlope());
+    for (auto dim : {Dims4D::Act::N, Dims4D::Act::C, Dims4D::Act::H, Dims4D::Act::W}) {
+        if (slopeShape[dim] > 1 && outputTile.shape[dim] != slopeTile.shape[dim]) {
+            slopeTile.shape[dim] = outputTile.shape[dim];
+            slopeTile.offsets[dim] = outputTile.offsets[dim];
+            slopeTile.axis[dim] = outputTile.axis[dim];
+        }
     }
 
     return TilingInfo{{std::move(inputTile), std::move(slopeTile)}};

@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/dpu_tiler.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -397,7 +398,7 @@ mlir::DenseSet<mlir::Operation*> vpux::VPU::WorkloadSplitter::findInvalidNCEPerm
         }
         auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
         VPUX_THROW_UNLESS(nceOp != nullptr, "Expected NCE op, got '{0}'", op);
-        const auto workloads = nceOp.getWorkloads().getOps<VPU::DPUWorkloadOp>();
+        const auto workloads = VPU::collectAllWorkloads(nceOp);
         const auto nonZeroPadding = llvm::any_of(workloads, [&](VPU::DPUWorkloadOp workload) -> bool {
             const auto expandChannels = mlir::cast<VPU::NCEPermuteOp>(op).getExpandedChannels();
             const auto origInChannels =

@@ -5,16 +5,20 @@
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+#include <mlir/Transforms/Passes.h>
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_BROADCASTINPUTFORMULTIPLY
@@ -30,22 +34,22 @@ const uint32_t levelCount = 2;
 const SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(levelCount);
 
 //
-// BroadcastInputRewriter
+// TileBroadcastInputRewriter
 //
 
-class BroadcastInputRewriter final : public mlir::OpRewritePattern<IE::MultiplyOp> {
+class TileBroadcastInputRewriter final : public mlir::OpRewritePattern<IE::MultiplyOp> {
 public:
-    BroadcastInputRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+    TileBroadcastInputRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
             : mlir::OpRewritePattern<IE::MultiplyOp>(ctx, benefit), _log(log) {
-        setDebugName("BroadcastInputRewriter");
+        setDebugName("TileBroadcastInputRewriter");
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    mlir::Value broadcastInput(mlir::PatternRewriter& rewriter, mlir::MLIRContext* ctx, mlir::Location loc,
-                               mlir::Value broadcastInput, ShapeRef targetShape) const;
+    mlir::Value tileInput(mlir::PatternRewriter& rewriter, mlir::MLIRContext* ctx, mlir::Location loc,
+                          mlir::Value broadcastInput, ShapeRef targetShape) const;
     mlir::Value castToDimsOrder(mlir::Value value, mlir::AffineMap dstOrderMap, mlir::AffineMap memOrderMap,
                                 StringRef suffix, mlir::PatternRewriter& rewriter) const;
     bool isBroadcastEfficient(NDTypeInterface inputType, NDTypeInterface outputType) const;
@@ -53,68 +57,88 @@ private:
     Logger _log;
 };
 
-mlir::Value BroadcastInputRewriter::broadcastInput(mlir::PatternRewriter& rewriter, mlir::MLIRContext* ctx,
-                                                   mlir::Location loc, mlir::Value broadcastInput,
-                                                   ShapeRef targetShape) const {
-    // Cast to canonical order
-    const auto canonicalOrder = DimsOrder::NCHW;
-    const auto canonicalOrderMap = canonicalOrder.toAffineMap(ctx);
-    auto canonicalPermuteCast = rewriter.createOrFold<IE::PermuteCastOp>(
-            appendLoc(broadcastInput.getLoc(), "canonical_permute_cast"), broadcastInput, canonicalOrderMap,
-            mlir::AffineMap::getMultiDimIdentityMap(getShape(broadcastInput).size(), ctx));
-
-    // Broadcast to target shape
-    const auto origOrder = mlir::cast<NDTypeInterface>(broadcastInput.getType()).getDimsOrder();
-    const auto memShape = origOrder.toMemoryOrder(targetShape);
-    auto newTargetShape = canonicalOrder.toLogicalOrder(memShape);
-    auto broadCast = IE::createBroadcast(rewriter, appendLoc(loc, "shape"), canonicalPermuteCast, newTargetShape);
-
-    // Cast to the original dims order
-    return rewriter.createOrFold<IE::PermuteCastOp>(appendLoc(broadcastInput.getLoc(), "broadcast_permute_cast"),
-                                                    broadCast, origOrder.toAffineMap(ctx),
-                                                    mlir::AffineMap::getMultiDimIdentityMap(origOrder.numDims(), ctx));
+mlir::Value TileBroadcastInputRewriter::tileInput(mlir::PatternRewriter& rewriter, mlir::MLIRContext* ctx,
+                                                  mlir::Location loc, mlir::Value broadcastInput,
+                                                  ShapeRef targetShape) const {
+    // Build the Tile directly on the input's own shape/order, the same way ConvertBroadcastToTile
+    // computes repeats for an IE::BroadcastOp(broadcastInput, targetShape). This avoids inserting
+    // a Broadcast here that would need to be converted to a Tile later by a separate pass, and
+    // avoids unnecessary PermuteCasts around the Tile.
+    const auto inputShape = getShape(broadcastInput);
+    SmallVector<int64_t> repeats(targetShape.size());
+    for (size_t i = 0; i < targetShape.size(); ++i) {
+        VPUX_THROW_UNLESS(inputShape[Dim(i)] != 0 && targetShape[Dim(i)] % inputShape[Dim(i)] == 0,
+                          "Target shape {0} is not a multiple of input shape {1} at dim {2}", targetShape, inputShape,
+                          i);
+        repeats[i] = targetShape[Dim(i)] / inputShape[Dim(i)];
+    }
+    const auto repeatsAttr = getIntArrayAttr(ctx, repeats);
+    const auto tileOutputType = mlir::cast<NDTypeInterface>(broadcastInput.getType()).changeShape(targetShape);
+    auto tile = rewriter.create<IE::TileOp>(appendLoc(loc, "tile"), tileOutputType, broadcastInput, repeatsAttr);
+    return tile.getOutput();
 }
 
-mlir::Value BroadcastInputRewriter::castToDimsOrder(mlir::Value value, mlir::AffineMap dstOrderMap,
-                                                    mlir::AffineMap memOrderMap, StringRef suffix,
-                                                    mlir::PatternRewriter& rewriter) const {
+mlir::Value TileBroadcastInputRewriter::castToDimsOrder(mlir::Value value, mlir::AffineMap dstOrderMap,
+                                                        mlir::AffineMap memOrderMap, StringRef suffix,
+                                                        mlir::PatternRewriter& rewriter) const {
     return rewriter.createOrFold<IE::PermuteCastOp>(appendLoc(value.getLoc(), suffix), value, dstOrderMap, memOrderMap);
 }
 
-bool BroadcastInputRewriter::isBroadcastEfficient(NDTypeInterface inputType, NDTypeInterface outputType) const {
+bool TileBroadcastInputRewriter::isBroadcastEfficient(NDTypeInterface inputType, NDTypeInterface outputType) const {
     auto inputShape = inputType.getShape();
     auto outputShape = outputType.getShape();
     auto diffDims = IE::getDiffInOutSizeDims(inputShape, outputShape);
 
     // If more than one dimension differs, broadcasting is not efficient
     if (diffDims.size() > 1) {
+        _log.trace("  isBroadcastEfficient: More than one dim differs - not efficient");
         return false;
     }
 
     // No need to broadcast if shapes are the same
     if (diffDims.empty()) {
+        _log.trace("  isBroadcastEfficient: Shapes are the same - efficient");
         return true;
     }
 
     auto diffDim = diffDims.front();
     auto inputOrder = inputType.getDimsOrder();
-    auto highestNonOneDim = getHighestNonTrivialDim(inputShape, inputOrder);
-    // If input shape is 1x1x1x1, broadcasting is efficient
-    if (!highestNonOneDim.has_value()) {
+    auto innermostNonOneDim = getInnermostNonTrivialDim(inputShape, inputOrder);
+    // If the input is all ones and the shapes differ in at most one dimension,
+    // broadcasting is treated as efficient.
+    if (!innermostNonOneDim.has_value()) {
+        _log.trace("  isBroadcastEfficient: All ones shape - efficient");
         return true;
     }
 
-    auto highestNonOneDimPos = inputOrder.dimPos(highestNonOneDim.value());
+    // Legality gate: only expand 1 -> N on the differing dimension.
+    if (!(inputShape[diffDim] == 1 && outputShape[diffDim] > 1)) {
+        _log.trace("  isBroadcastEfficient: Not 1->N expansion at diffDim");
+        return false;
+    }
+
+    // broadcastDimPos <= innermostNonOneDimPos below is always true for any C-dim broadcast (C is
+    // always the lowest-priority dim in NCHW), so guard channel broadcasts separately by spatial extent.
+    if (diffDim == Dims4D::Act::C) {
+        constexpr int64_t kMaxSpatialSizeForChannelBroadcast =
+                2048;  // experimental value based on regressions observed in E#227477 & E#215801
+        const auto spatialSize = outputShape[Dims4D::Act::H] * outputShape[Dims4D::Act::W];
+        if (spatialSize > kMaxSpatialSizeForChannelBroadcast) {
+            _log.trace("  isBroadcastEfficient: Channel broadcast over large spatial extent ({0}) - not efficient",
+                       spatialSize);
+            return false;
+        }
+    }
+
+    auto innermostNonOneDimPos = inputOrder.dimPos(innermostNonOneDim.value());
     auto broadcastDimPos = inputOrder.dimPos(diffDim);
 
-    // Ensure broadcasting is on the highest dimension
-    return broadcastDimPos <= highestNonOneDimPos;
+    // Ensure broadcast does not target a lower-priority dim than the innermost non-trivial one.
+    return broadcastDimPos <= innermostNonOneDimPos;
 }
 
-mlir::LogicalResult BroadcastInputRewriter::matchAndRewrite(IE::MultiplyOp origOp,
-                                                            mlir::PatternRewriter& rewriter) const {
-    _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), origOp->getName(), origOp->getLoc());
-
+mlir::LogicalResult TileBroadcastInputRewriter::matchAndRewrite(IE::MultiplyOp origOp,
+                                                                mlir::PatternRewriter& rewriter) const {
     const auto ctx = origOp->getContext();
     const auto loc = origOp->getLoc();
 
@@ -127,8 +151,15 @@ mlir::LogicalResult BroadcastInputRewriter::matchAndRewrite(IE::MultiplyOp origO
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     const auto outputShape = outputType.getShape();
 
-    if (lhsShape.size() != 4) {
-        _log.trace("Only support 4D tensor, but got {0}D", lhsShape.size());
+    // Dynamic shape multiply is handled by dedicated dynamic-shape pipelines.
+    // This rewrite relies on static shapes (alignment checks and totalSize()) and can throw on '?'.
+    if (lhsShape.isDynamic() || rhsShape.isDynamic() || outputShape.isDynamic()) {
+        _log.trace("Skip broadcast rewrite for dynamic shapes");
+        return mlir::failure();
+    }
+
+    if (lhsShape.size() != 4 || rhsShape.size() != 4 || outputShape.size() != 4) {
+        _log.trace("Only support 4D tensor, but got {0}D and {1}D", lhsShape.size(), rhsShape.size());
         return mlir::failure();
     }
 
@@ -147,7 +178,19 @@ mlir::LogicalResult BroadcastInputRewriter::matchAndRewrite(IE::MultiplyOp origO
         return getShape(input) != outputShape;
     };
 
+    // Workaround: skip rewrite when the output C dimension is very large (regressions observed on some models).
+    // On models with regression, broadcast never happens on the C dimension, and C dim is considerably larger
+    // than the rest. Threshold chosen based on output C dim of the multiplies that would show regressions (e.g. 1024,
+    // 35840, 201088). E#215801
+    constexpr int64_t REGRESSION_CHANNEL_THRESHOLD = 1024;  // last updated E#228711
+    if (outputShape[Dims4D::Act::C] >= REGRESSION_CHANNEL_THRESHOLD) {
+        _log.trace("Skip broadcast rewrite: output C dimension is too large: {0}", outputShape[Dims4D::Act::C]);
+        return mlir::failure();
+    }
+
     // Support multiply when its inner most dim is aligned
+    // We do not limit the broadcast check to HighestNonTrivialDim, since improvements have been observed in many models
+    // that broadcasted on dimensions other than HighestNonTrivialDim.
     auto getMemMapOfInnermostMultiply = [&]() -> std::optional<SmallVector<mlir::AffineMap>> {
         auto getInnermostDim = [](const vpux::DimsOrder& order) {
             return order.toDim(MemDim(order.numDims() - 1));
@@ -156,16 +199,16 @@ mlir::LogicalResult BroadcastInputRewriter::matchAndRewrite(IE::MultiplyOp origO
         auto innerMostDim = getInnermostDim(dimsOrder);
 
         auto hasLhsNotAligned = lhsShape[innerMostDim] % alignment != 0;
-        auto hasRightNotAligned = rhsShape[innerMostDim] % alignment != 0;
+        auto hasRhsNotAligned = rhsShape[innerMostDim] % alignment != 0;
 
-        if (hasLhsNotAligned || hasRightNotAligned) {
+        if (hasLhsNotAligned || hasRhsNotAligned) {
             _log.trace("Innermost dim size is not aligned to {0}, Innermost: {1}", alignment, innerMostDim);
             return std::nullopt;
         }
 
         if (!isBroadcastEfficient(lhsInput.getType(), outputType) ||
             !isBroadcastEfficient(rhsInput.getType(), outputType)) {
-            _log.trace("It is not efficient to broadcast the non-highest dimension");
+            _log.trace("It is not efficient to broadcast the non-innermost dim");
             return std::nullopt;
         }
 
@@ -210,14 +253,14 @@ mlir::LogicalResult BroadcastInputRewriter::matchAndRewrite(IE::MultiplyOp origO
         return mlir::failure();
     }
 
-    // Broadcast input
+    // Tile input (in order to avoid converting the Broadcast to a Tile op later)
     if (doesInputNeedBroadCast(lhsInput)) {
-        lhsInput = broadcastInput(rewriter, ctx, appendLoc(loc, "broadcast_lhs"), origOp.getInput1(), outputShape);
+        lhsInput = tileInput(rewriter, ctx, appendLoc(loc, "broadcast_lhs"), origOp.getInput1(), outputShape);
     }
     auto newLhsInput = castToDimsOrder(lhsInput, dstOrderMap, memOrderMap[0], "_lhs_permute_cast", rewriter);
 
     if (doesInputNeedBroadCast(rhsInput)) {
-        rhsInput = broadcastInput(rewriter, ctx, appendLoc(loc, "broadcast_rhs"), origOp.getInput2(), outputShape);
+        rhsInput = tileInput(rewriter, ctx, appendLoc(loc, "broadcast_rhs"), origOp.getInput2(), outputShape);
     }
     auto newRhsInput = castToDimsOrder(rhsInput, dstOrderMap, memOrderMap[0], "_rhs_permute_cast", rewriter);
 
@@ -427,15 +470,46 @@ void BroadcastInputForMultiplyPass::safeRunOnFunc() {
     auto func = getOperation();
     auto& ctx = getContext();
 
-    mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<FuseBroadCastRewriter>(&ctx, benefitLevels[0], _log);
-    if (_enableBroadcastInputForMultiply) {
-        patterns.add<BroadcastInputRewriter>(&ctx, benefitLevels[1], _log);
-        IE::PermuteCastOp::getCanonicalizationPatterns(patterns, &ctx);
+    // Phase 1: Always apply FuseBroadCastRewriter
+    {
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<FuseBroadCastRewriter>(&ctx, benefitLevels[0], _log);
+
+        if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+            signalPassFailure();
+            return;
+        }
     }
 
-    if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
-        signalPassFailure();
+    // Phase 2 & 3: Apply TileBroadcastInputRewriter and canonicalizer only when enabled
+    if (_enableBroadcastInputForMultiply) {
+        // Phase 2: Apply TileBroadcastInputRewriter
+        bool broadcastRewriteOccurred = false;
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<TileBroadcastInputRewriter>(&ctx, benefitLevels[1], _log);
+
+        if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig(),
+                                                     &broadcastRewriteOccurred))) {
+            signalPassFailure();
+            return;
+        }
+        // Phase 3: Apply canonicalizer if any broadcast rewrite occurred
+        if (broadcastRewriteOccurred) {
+            mlir::RewritePatternSet canonPatterns(&ctx);
+            IE::PermuteCastOp::getCanonicalizationPatterns(canonPatterns, &ctx);
+            if (mlir::failed(
+                        mlir::applyPatternsGreedily(func, std::move(canonPatterns), getDefaultGreedyRewriteConfig()))) {
+                signalPassFailure();
+                return;
+            }
+
+            mlir::OpPassManager dynamicPM(func.getOperationName());
+            dynamicPM.addPass(mlir::createCSEPass());
+            if (mlir::failed(runPipeline(dynamicPM, func))) {
+                signalPassFailure();
+                return;
+            }
+        }
     }
 }
 

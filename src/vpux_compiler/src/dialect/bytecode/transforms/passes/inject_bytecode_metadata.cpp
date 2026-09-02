@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/bytecode/IR/ops/metadata.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/ops/section.hpp"
 #include "vpux/compiler/dialect/bytecode/transforms/passes.hpp"
+#include "vpux/compiler/dialect/bytecode/utils/section_builder.hpp"
 #include "vpux/compiler/dialect/bytecode/utils/serialization.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
@@ -34,10 +35,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <sstream>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vpux/utils/core/range.hpp>
 #include <vpux/utils/core/small_vector.hpp>
 #include <vpux/utils/core/string_ref.hpp>
@@ -162,37 +160,17 @@ void InjectBytecodeMetadataPass::safeRunOnModule() {
     _log.debug("Detected {0} command-list stream(s) for network metadata", numCmdLists);
 
     mlir::MLIRContext* ctx = module.getContext();
-    mlir::OpBuilder builder(module.getBodyRegion());
-    builder.setInsertionPointToEnd(module.getBody());
 
-    auto stringSectionOp =
-            getOrCreateSection<bytecode::StringSectionOp>(module, builder, ctx, bytecode::STRING_SECTION_NAME);
-    auto typeSectionOp = getOrCreateSection<bytecode::TypeSectionOp>(module, builder, ctx, bytecode::TYPE_SECTION_NAME);
-    auto constantSectionOp =
-            getOrCreateSection<bytecode::ConstantSectionOp>(module, builder, ctx, bytecode::CONSTANT_SECTION_NAME);
-    auto metadataSectionOp =
-            getOrCreateSection<bytecode::MetadataSectionOp>(module, builder, ctx, bytecode::METADATA_SECTION_NAME);
+    // Shared helper: creates string/type/constant sections eagerly and metadata section lazily,
+    // and deduplicates entries added via addString/addType/addConstant.
+    bytecode::SectionBuilder sections(module);
 
-    mlir::Block& stringsBlock = getOrCreateContentBlock(stringSectionOp);
-    mlir::Block& typesBlock = getOrCreateContentBlock(typeSectionOp);
-    mlir::Block& constantsBlock = getOrCreateContentBlock(constantSectionOp);
-    mlir::Block& metadataBlock = getOrCreateContentBlock(metadataSectionOp);
-
-    if (!metadataBlock.empty()) {
+    if (sections.isMetadataSectionPopulated()) {
         _log.trace("Bytecode metadata section is already populated, skipping reinjection");
         return;
     }
 
-    mlir::OpBuilder stringsBuilder = mlir::OpBuilder::atBlockEnd(&stringsBlock);
-    mlir::OpBuilder typesBuilder = mlir::OpBuilder::atBlockEnd(&typesBlock);
-    mlir::OpBuilder constantsBuilder = mlir::OpBuilder::atBlockEnd(&constantsBlock);
-    mlir::OpBuilder metadataBuilder = mlir::OpBuilder::atBlockEnd(&metadataBlock);
-
-    std::unordered_set<std::string> usedSymbols;
-    std::unordered_map<std::string, mlir::SymbolRefAttr> stringRefs;
-    std::unordered_map<std::string, mlir::SymbolRefAttr> typeRefs;
-    std::unordered_map<std::string, mlir::SymbolRefAttr> shapeRefs;
-
+    auto& metadataBuilder = sections.getMetadataBuilder();
     auto sanitizeSymbolComponent = [](StringRef input) -> std::string {
         std::string out;
         out.reserve(input.size());
@@ -210,62 +188,19 @@ void InjectBytecodeMetadataPass::safeRunOnModule() {
         return out;
     };
 
-    auto makeUniqueSymbolName = [&](StringRef prefix, StringRef hint) -> mlir::StringAttr {
-        std::string base = prefix.str() + sanitizeSymbolComponent(hint);
-        std::string candidate = base;
-        size_t suffix = 0;
-        while (usedSymbols.count(candidate) != 0U) {
-            ++suffix;
-            candidate = base + "_" + std::to_string(suffix);
-        }
-        usedSymbols.insert(candidate);
-        return mlir::StringAttr::get(ctx, candidate);
-    };
-
-    auto toSymbolRef = [&](mlir::StringAttr symName) -> mlir::FlatSymbolRefAttr {
-        auto symbolRefAttr = mlir::FlatSymbolRefAttr::get(ctx, symName.getValue());
-        return symbolRefAttr;
+    auto makeSymbolBase = [&](StringRef prefix, StringRef hint) -> std::string {
+        return prefix.str() + sanitizeSymbolComponent(hint);
     };
 
     auto getStringRef = [&](StringRef value, StringRef hint) -> mlir::SymbolRefAttr {
-        const std::string key = value.str();
-        const auto it = stringRefs.find(key);
-        if (it != stringRefs.end()) {
-            return it->second;
-        }
-
-        const auto symNameAttr = makeUniqueSymbolName("str_", hint);
-        stringsBuilder.create<bytecode::StringOp>(stringsBuilder.getUnknownLoc(), symNameAttr,
-                                                  mlir::StringAttr::get(ctx, value));
-        auto ref = toSymbolRef(symNameAttr);
-        stringRefs.emplace(key, ref);
-        return ref;
+        auto symName = sections.addString(value, makeSymbolBase("str_", hint), metadataBuilder.getUnknownLoc());
+        return mlir::FlatSymbolRefAttr::get(symName);
     };
 
-    auto getTypeRef = [&](const ov::element::Type& type, mlir::MLIRContext* ctx) -> mlir::SymbolRefAttr {
-        const std::string typeName = type.get_type_name();
-        const auto it = typeRefs.find(typeName);
-        if (it != typeRefs.end()) {
-            return it->second;
-        }
-
-        const auto symNameAttr = makeUniqueSymbolName("type_", typeName);
-        mlir::Attribute typeAttr;
-
-        if (type.is_integral()) {
-            typeAttr = bytecode::IntegerTypeAttr::get(ctx, type.bitwidth(), type.is_signed());
-        } else if (type.is_real()) {
-            auto format = bytecode::getFloatFormat(type);
-            typeAttr = bytecode::FloatTypeAttr::get(ctx, type.bitwidth(), format);
-        } else {
-            // Fallback: opaque type with 0 width
-            typeAttr = bytecode::OpaqueTypeAttr::get(ctx, 0);
-        }
-
-        typesBuilder.create<bytecode::TypeOp>(typesBuilder.getUnknownLoc(), symNameAttr, typeAttr);
-        auto ref = toSymbolRef(symNameAttr);
-        typeRefs.emplace(typeName, ref);
-        return ref;
+    auto getTypeRef = [&](const ov::element::Type& type, mlir::MLIRContext* /*ctx*/) -> mlir::SymbolRefAttr {
+        auto symName =
+                sections.addType(type, makeSymbolBase("type_", type.get_type_name()), metadataBuilder.getUnknownLoc());
+        return mlir::FlatSymbolRefAttr::get(symName);
     };
 
     auto importShape = [](const ov::PartialShape& shape) -> SmallVector<int64_t> {
@@ -282,26 +217,18 @@ void InjectBytecodeMetadataPass::safeRunOnModule() {
     auto getShapeRef = [&](const ov::PartialShape& shape) -> mlir::SymbolRefAttr {
         SmallVector<int64_t> shapeValues = importShape(shape);
 
-        std::ostringstream keyStream;
-        for (const auto& dim : shapeValues) {
-            keyStream << dim << ';';
-        }
-        const std::string key = keyStream.str();
-
-        const auto it = shapeRefs.find(key);
-        if (it != shapeRefs.end()) {
-            return it->second;
+        std::string cacheKey;
+        llvm::raw_string_ostream os(cacheKey);
+        for (auto dim : shapeValues) {
+            os << dim << ';';
         }
 
-        const auto symNameAttr = makeUniqueSymbolName("shape_", "value");
         const auto shapeType = mlir::RankedTensorType::get({static_cast<int64_t>(shapeValues.size())},
                                                            mlir::IntegerType::get(ctx, 64));
-        const auto shapeAttr = mlir::DenseIntElementsAttr::get(shapeType, shapeValues);
-        constantsBuilder.create<bytecode::ConstantOp>(constantsBuilder.getUnknownLoc(), symNameAttr, shapeAttr);
-
-        auto ref = toSymbolRef(symNameAttr);
-        shapeRefs.emplace(key, ref);
-        return ref;
+        const auto data = mlir::DenseIntElementsAttr::get(shapeType, shapeValues);
+        auto symName = sections.addConstant(cacheKey, makeSymbolBase("shape_", "value"),
+                                            metadataBuilder.getUnknownLoc(), data);
+        return mlir::FlatSymbolRefAttr::get(symName);
     };
 
     const auto networkNameRef = getStringRef(module.getName().value_or("network"), "network_name");

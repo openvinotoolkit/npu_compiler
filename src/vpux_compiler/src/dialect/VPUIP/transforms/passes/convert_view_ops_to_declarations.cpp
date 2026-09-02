@@ -258,12 +258,25 @@ mlir::LogicalResult ViewLikeRewrite::matchAndRewrite(mlir::ViewLikeOpInterface o
         }
     }
 
-    if ((section == VPURT::BufferSection::NetworkInput || section == VPURT::BufferSection::NetworkOutput) &&
-        vpux::net::isArgStrided(origOp->getParentOfType<mlir::ModuleOp>(),
-                                declareOp.getNonEmptySectionIndex().front())) {
-        auto dimOffsets = calculateDimOffsets(origVal);
-        if (!dimOffsets.empty()) {
-            newDeclareOp->setAttr(vpux::viewOffsetsAttrName, getIntArrayAttr(getContext(), dimOffsets));
+    if (section == VPURT::BufferSection::NetworkInput || section == VPURT::BufferSection::NetworkOutput) {
+        auto module = origOp->getParentOfType<mlir::ModuleOp>();
+        // isArgStrided expects a global argument index with network inputs enumerated first
+        // and outputs afterwards. getNonEmptySectionIndex is local to the buffer's section, so
+        // NetworkOutput indices must be shifted past all network inputs to select the right arg.
+        size_t argIndex = declareOp.getNonEmptySectionIndex().front();
+        if (section == VPURT::BufferSection::NetworkOutput) {
+            auto netInfoOps = module.getOps<net::NetworkInfoOp>();
+            if (!netInfoOps.empty()) {
+                auto netInfo = *netInfoOps.begin();
+                auto inputs = netInfo.getInputsInfo().getOps<net::DataInfoOp>();
+                argIndex += std::distance(inputs.begin(), inputs.end());
+            }
+        }
+        if (vpux::net::isArgStrided(module, argIndex)) {
+            auto dimOffsets = calculateDimOffsets(origVal);
+            if (!dimOffsets.empty()) {
+                newDeclareOp->setAttr(vpux::viewOffsetsAttrName, getIntArrayAttr(getContext(), dimOffsets));
+            }
         }
     }
 

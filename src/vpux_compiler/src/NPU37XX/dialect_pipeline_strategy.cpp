@@ -29,14 +29,13 @@ public:
     using Base::Base;
 
     static void setupOptionsImpl(DefaultHWOptions37XX& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
+                                 const vpux::OV::Config& config) {
         Base::setupOptionsImpl(options, initCompilerOptions, config);
         setupOptionsCommon(options);
     }
 
     static void setupOptionsCommon(DefaultHWOptions37XX& options) {
         overwriteIfUnset(options.enableDummyOpReplacement, false);
-        overwriteIfUnset(options.constantFoldingInBackground, false);
         overwriteIfUnset(options.enableOptimizeReorders, false);
         overwriteIfUnset(options.enableExperimentalSEPtrsOperations, false);
         overwriteIfUnset(options.enableFuseClampOperations, false);
@@ -74,7 +73,7 @@ public:
     }
 
     static void setupOptionsImpl(DefaultHWOptions37XX& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
+                                 const vpux::OV::Config& config) {
         setupWSInitOptionsCommon<DefaultHWOptions37XX>(options);
         Base::setupOptionsImpl(options, initCompilerOptions, config);
     }
@@ -91,7 +90,7 @@ public:
     }
 
     static void setupOptionsImpl(DefaultHWOptions37XX& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
+                                 const vpux::OV::Config& config) {
         setupWSMainOptionsCommon<DefaultHWOptions37XX>(options);
         Base::setupOptionsImpl(options, initCompilerOptions, config);
     }
@@ -104,7 +103,7 @@ public:
 template <class OptionsContainerType, class Enable = void>
 class DialectPipelineStrategy37XX final : public IDialectPipelineStrategy {
 public:
-    explicit DialectPipelineStrategy37XX(const intel_npu::Config& config)
+    explicit DialectPipelineStrategy37XX(const vpux::OV::Config& config)
             : _optionsContainer(std::make_unique<OptionsContainerType>(config)) {
     }
 
@@ -153,7 +152,7 @@ private:
 
 class DialectPipelineStrategyReferenceSW37XX final : public IDialectPipelineStrategy {
 public:
-    explicit DialectPipelineStrategyReferenceSW37XX(const intel_npu::Config& config)
+    explicit DialectPipelineStrategyReferenceSW37XX(const vpux::OV::Config& config)
             : _optionsContainer(std::make_unique<ReferenceSWSetup37XX>(config)) {
     }
 
@@ -201,7 +200,7 @@ private:
 //
 
 std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy37XX(
-        config::CompilationMode compilationMode, const intel_npu::Config& config) {
+        config::CompilationMode compilationMode, const vpux::OV::Config& config) {
     switch (compilationMode) {
     case config::CompilationMode::DefaultHW: {
         return std::make_unique<DialectPipelineStrategy37XX<DefaultHWSetup37XX>>(config);
@@ -244,7 +243,7 @@ std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy37X
 
 template <>
 std::tuple<std::unique_ptr<VPU::InitCompilerOptions>, std::unique_ptr<DefaultHWOptions37XX>>
-vpux::createOptionsDefaultHW(const intel_npu::Config& config) {
+vpux::createOptionsDefaultHW(const vpux::OV::Config& config) {
     // NOTE: DefaultHWSetup37XX is defined in this file which is why helper is called
     auto defaultHWSetup = std::make_unique<DefaultHWSetup37XX>(config);
     return createOptionsDefaultHWHelper<DefaultHWSetup37XX, DefaultHWOptions37XX>(std::move(defaultHWSetup));

@@ -21,7 +21,7 @@ func.func @Int8ActDepthConvWithoutL1Opt(
     %weight_table: tensor<80x1x1x4xsi32, {mem_space = @CMX_NN}>
 ) -> tensor<1x80x64x64x!qElemType, {order = #NHWC, mem_space = @CMX_NN}> {
 
-    %0 = VPU.NCE.DepthConvolution(%input, %weights, %weight_table) rawFilterShape [80, 1, 3, 3] {
+    %0 = VPU.NCE.DepthConvolution(%input, %weights, %weight_table) rawFilterShape [80, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -1.280000e+02 : f64, clamp_high = 1.270000e+02 : f64,
             scale = 0.073115045214323729 : f64, prelu_alpha = [1.000000e+00],

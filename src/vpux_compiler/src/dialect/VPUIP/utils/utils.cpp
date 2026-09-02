@@ -456,8 +456,8 @@ SmallVector<mlir::Value> getPerClusterBuffers(mlir::MLIRContext* ctx, mlir::Loca
         const auto order = distType.getDimsOrder();
         const auto orderAttr = mlir::AffineMapAttr::get(order.toAffineMap(ctx));
         const auto stridesAttr = getIntArrayAttr(ctx, elemStrides);
-        return vpux::MemRefAttr::get(orderAttr, stridesAttr, /*allocSize=*/nullptr, {distType.getSparsityCompression()},
-                                     ctx);
+        return vpux::MemRefAttr::get(orderAttr, stridesAttr, /*allocSize=*/nullptr, /*optionalBounds=*/{},
+                                     {distType.getSparsityCompression()}, ctx);
     };
     //       Task1(SOK)
     // CMX0 |-out part1-|-out part2-|
@@ -671,7 +671,7 @@ SmallVector<mlir::Value> getPerClusterSWBuffers(mlir::MLIRContext* ctx, mlir::Lo
         const auto order = distributedType.getDimsOrder();
         const auto orderAttr = mlir::AffineMapAttr::get(order.toAffineMap(ctx));
         const auto stridesAttr = getIntArrayAttr(ctx, elemStrides);
-        auto layout = vpux::MemRefAttr::get(orderAttr, stridesAttr, /*allocSize=*/nullptr,
+        auto layout = vpux::MemRefAttr::get(orderAttr, stridesAttr, /*allocSize=*/nullptr, /*optionalBounds=*/{},
                                             {distributedType.getSparsityCompression()}, ctx);
         auto insertionPoint = declBuff.getOperation();
         auto offset = declBuff.getByteOffset();
@@ -883,7 +883,7 @@ std::pair<outputBuffers, outputItiBuffers> VPUIP::getPerClusterOutputHaloBuffers
                 const auto stridesAttr =
                         isDiscontinuousBufferType(operandType) ? getIntArrayAttr(ctx, elemStrides) : nullptr;
                 const auto layout = vpux::MemRefAttr::get(
-                        orderAttr, stridesAttr, nullptr,
+                        orderAttr, stridesAttr, nullptr, /*optionalBounds=*/{},
                         {getSwizzlingSchemeAttr(operandType), VPUIP::getSparsityCompressionAttr(operandType)}, ctx);
 
                 cmxBuffType = VPUIP::ITIBufferType::get(
@@ -967,12 +967,20 @@ std::pair<outputBuffers, outputItiBuffers> VPUIP::getPerClusterOutputHaloBuffers
         }
 
         auto insertionPoint = declBuff.getOperation();
+        // E#222633: Remove this workaround after fixing DistributedBuffer layout. It happens as
+        // Distributed buffer explicitly uses AffineMapAttr instead of MemRefAttr.
+        auto normalizedLayout = distributedType.getLayout();
+        if (auto mapAttr = mlir::dyn_cast<mlir::AffineMapAttr>(normalizedLayout)) {
+            normalizedLayout =
+                    vpux::MemRefAttr::get(mapAttr, /*optionalStrides=*/nullptr, /*optionalAllocSize=*/nullptr,
+                                          /*hwSpecificFields=*/{}, ctx);
+        }
         for (int64_t clusterId = 0; clusterId < tileCount; ++clusterId) {
             const auto symbolAttr = vpux::IndexedSymbolAttr::get(ctx, {cmxNameAttr, vpux::getIntAttr(ctx, clusterId)});
-            auto itiBuffType = VPUIP::ITIBufferType::get(
-                    ctx, mlir::cast<vpux::NDTypeInterface>(distributedType).getShape().raw(),
-                    operandType.getElementType(), distributedType.getLayout(), symbolAttr, nullptr,
-                    inwardHalosPerCluster[clusterId], outwardHalosPerCluster[clusterId]);
+            auto itiBuffType =
+                    VPUIP::ITIBufferType::get(ctx, mlir::cast<vpux::NDTypeInterface>(distributedType).getShape().raw(),
+                                              operandType.getElementType(), normalizedLayout, symbolAttr, nullptr,
+                                              inwardHalosPerCluster[clusterId], outwardHalosPerCluster[clusterId]);
 
             const auto newLoc = appendLoc(loc, "{0}_cluster_{1}", bufferName, clusterId);
             mlir::OpBuilder::InsertionGuard guard(builder);
@@ -1099,7 +1107,7 @@ std::pair<outputBuffers, outputItiBuffers> VPUIP::getPerClusterOutputHaloBuffers
                 const auto stridesAttr =
                         isDiscontinuousBufferType(operandType) ? getIntArrayAttr(ctx, elemStrides) : nullptr;
                 const auto layout = vpux::MemRefAttr::get(
-                        orderAttr, stridesAttr, nullptr,
+                        orderAttr, stridesAttr, nullptr, /*optionalBounds=*/{},
                         {getSwizzlingSchemeAttr(operandType), VPUIP::getSparsityCompressionAttr(operandType)}, ctx);
 
                 cmxBuffType = VPUIP::ITIBufferType::get(ctx, operandType.getShape(), operandType.getElementType(),
@@ -1756,6 +1764,60 @@ std::optional<int64_t> vpux::VPUIP::getTilingDimIndex(mlir::Type type) {
 }
 
 //
+// Buffer type tiling
+//
+
+NDTypeInterface vpux::VPUIP::getNewBufferType(NDTypeInterface bufferType, Dim tileDim, int64_t dimOffset,
+                                              int64_t newDimSize) {
+    const auto newShape = getSplitShape(bufferType, tileDim, newDimSize);
+    Shape newOffset(SmallVector<int64_t>(newShape.size(), 0));
+    newOffset[tileDim] = dimOffset;
+
+    NDTypeInterface newType;
+    if (auto distributedType = mlir::dyn_cast<VPUIP::DistributedBufferType>(bufferType)) {
+        const auto origDistAttr = distributedType.getDistribution();
+        VPUX_THROW_UNLESS(VPU::isDuplicated(origDistAttr), "Only support DUPLICATED distributed buffer type");
+
+        // When DistributionInfoAttr has explicit per cluster memory/compute shapes, recompute them for the new shape
+        // Since changeShape is not applicable for explicit distribution
+        if (VPU::isDistributedAttrWithExplicitShapesAndOffsets(origDistAttr)) {
+            auto ctx = bufferType.getContext();
+            auto duplicatedOutputMode = VPU::DistributionModeAttr::get(ctx, VPU::DistributionMode::DUPLICATED);
+            auto newDistribution = VPU::getNonOverlappedDistributedAttr(
+                    newShape, duplicatedOutputMode, nullptr, origDistAttr.getNumClusters(), nullptr,
+                    origDistAttr.getUniformDistributedSegments(), ctx);
+
+            auto newElemType = bufferType.getElementType();
+            if (auto qType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(bufferType.getElementType())) {
+                newElemType = tileScalesAndZP(qType, newShape, newOffset);
+            }
+
+            auto order = mlir::AffineMapAttr::get(bufferType.getDimsOrder().toAffineMap(ctx));
+            auto memSpace = mlir::cast<VPUIP::DistributedBufferType>(bufferType).getMemSpace();
+
+            newType = VPUIP::DistributedBufferType::get(ctx, newShape.raw(), newElemType, order, memSpace,
+                                                        newDistribution);
+
+            return VPUIP::tileTypeSparsityCompression(newType, newOffset, newShape);
+        }
+    }
+
+    if (auto qType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(bufferType.getElementType())) {
+        auto newElemType = tileScalesAndZP(qType, newShape, newOffset);
+        newType = bufferType.changeShapeElemType(newShape, newElemType);
+    } else {
+        newType = bufferType.changeShape(newShape);
+    }
+    return VPUIP::tileTypeSparsityCompression(newType, newOffset, newShape);
+}
+
+Shape vpux::VPUIP::getSplitShape(NDTypeInterface bufferType, Dim tileDim, int64_t newDimSize) {
+    Shape subShape = bufferType.getShape().toValues();
+    subShape[tileDim] = newDimSize;
+    return subShape;
+}
+
+//
 // Check if memory is contiguous with tiling
 //
 
@@ -2122,8 +2184,9 @@ int64_t getFirstStridingMemDimIdx(mlir::Operation* op) {
 // regardless the layout
 // For example: NCHW - C, NHWC - H, NWHC - W
 std::optional<vpux::Dim> vpux::VPUIP::getCopyDMATilingDim(mlir::Operation* op) {
-    VPUX_THROW_WHEN(mlir::dyn_cast<VPUIP::CopyOp>(op) == nullptr && mlir::dyn_cast<VPUIP::NNDMAOp>(op) == nullptr,
-                    "getCopyDMATilingDim: not a CopyOp or NNDMAOp");
+    VPUX_THROW_WHEN(mlir::dyn_cast<VPUIP::CopyOp>(op) == nullptr && mlir::dyn_cast<VPUIP::NNDMAOp>(op) == nullptr &&
+                            mlir::dyn_cast<VPUIP::ConvertDMAOp>(op) == nullptr,
+                    "getCopyDMATilingDim: not a CopyOp, NNDMAOp or ConvertDMAOp");
     const auto inputShape = getShape(op->getOperand(0));
     const auto inOrder = DimsOrder::fromValue(op->getOperand(0));
 

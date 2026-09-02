@@ -71,3 +71,45 @@ module @PaddedReduce {
     // CHECK: return
   }
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#map = affine_map<(d0, d1, d2, d3) -> (d0, 0, 0, 0)>
+
+module @WithScalarIndexArg {
+  module @VPU.SW {
+    func.func @generated_0(%arg0: tensor<1x3x16x16xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: index) -> tensor<1x3x16x16xf32> {
+      %0 = tensor.empty() : tensor<1x3x16x16xf32>
+      %1 = linalg.generic {indexing_maps = [#NCHW, #map, #NCHW], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins(%arg0, %arg1 : tensor<1x3x16x16xf32>, tensor<1x1x1x1xf32>) outs(%0 : tensor<1x3x16x16xf32>) {
+      ^bb0(%in: f32, %in_0: f32, %out: f32):
+        %2 = arith.mulf %in, %in_0 : f32
+        linalg.yield %2 : f32
+      } -> tensor<1x3x16x16xf32>
+      return %1 : tensor<1x3x16x16xf32>
+    }
+    // CHECK: func.func @generated_0(
+    // CHECK-SAME: [[ARG0:%.+]]: tensor<1x3x16x16xf32>, [[ARG1:%.+]]: tensor<1x1x1x1xf32>, [[RET:%.+]]: memref<1x3x16x16xf32>, {{%.+}}: index)
+    // CHECK-NOT: tensor.empty()
+    // CHECK-NEXT: [[RET_TENSOR:%.+]] = bufferization.to_tensor [[RET]] restrict writable : memref<1x3x16x16xf32>
+    // CHECK-NEXT: [[OP:%.+]] = linalg.generic
+    // CHECK-SAME: ins([[ARG0]], [[ARG1]] : tensor<1x3x16x16xf32>, tensor<1x1x1x1xf32>)
+    // CHECK-SAME: outs([[RET_TENSOR]] : tensor<1x3x16x16xf32>)
+    // CHECK: bufferization.materialize_in_destination [[OP]] in writable [[RET]] : (tensor<1x3x16x16xf32>, memref<1x3x16x16xf32>)
+  }
+}
+
+// -----
+
+module @WithTilingInfoFunc {
+  module @VPU.SW {
+    func.func @generated_info_0(%arg0: index, %arg1: index, %arg2: index) -> (index, index, index, index) {
+      %c0 = arith.constant 0 : index
+      return %arg0, %arg1, %arg2, %c0 : index, index, index, index
+    }
+    // CHECK:      func.func @generated_info_0(
+    // CHECK-SAME:   [[SIZE_0:%[^:]+]]: index, [[SIZE_1:%[^:]+]]: index, [[OFFSET_0:%[^:]+]]: index) -> (index, index, index, index)
+    // CHECK:        [[C0:%.+]] = arith.constant 0 : index
+    // CHECK:        return [[SIZE_0]], [[SIZE_1]], [[OFFSET_0]], [[C0]] : index, index, index, index
+  }
+}

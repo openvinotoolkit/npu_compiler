@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
-#include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 using namespace vpux;
 
@@ -19,17 +19,10 @@ mlir::LogicalResult vpux::IE::ReduceMaxOp::inferReturnTypeComponents(
     if (mlir::failed(reduceMax.verify(loc))) {
         return mlir::failure();
     }
-    if (reduceMax.getAxes() != nullptr && reduceMax.getAxesValue().has_value()) {
-        return errorAt(loc, "Ambiguous axes representation");
-    } else if (reduceMax.getAxes() == nullptr && !reduceMax.getAxesValue().has_value()) {
-        return errorAt(loc, "Axes was not provided properly");
-    }
 
     const auto input = reduceMax.getInput();
     const auto keepDims = reduceMax.getKeepDims();
-
-    auto axesValue = IE::extractAxes(loc, reduceMax);
-
+    auto axesValue = parseIntArrayAttr<int64_t>(reduceMax.getAxesValue());
     return IE::inferReduceReturnTypeComponents(loc, input, keepDims, axesValue, inferredReturnShapes);
 }
 
@@ -43,8 +36,4 @@ mlir::OpFoldResult vpux::IE::ReduceMaxOp::fold(FoldAdaptor) {
     }
 
     return nullptr;
-}
-
-void vpux::IE::ReduceMaxOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* context) {
-    patterns.add<ConvertConstToAttr<vpux::IE::ReduceMaxOp>>(context);
 }

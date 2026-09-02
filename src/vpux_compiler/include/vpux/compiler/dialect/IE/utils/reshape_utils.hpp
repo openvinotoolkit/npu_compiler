@@ -25,7 +25,6 @@ mlir::FailureOr<SmallVector<SmallVector<int64_t>>> getReassociationMap(ArrayRef<
 mlir::FailureOr<SmallVector<SmallVector<int64_t>>> getReassociationMapExtension(ArrayRef<int64_t> inShape,
                                                                                 ArrayRef<int64_t> outShape);
 
-bool isNotDimExpansionReshape(ShapeRef origShape, ShapeRef reshapeShape);
 bool isNotDimShrinkReshape(ShapeRef origShape, ShapeRef reshapeShape);
 
 IE::ShapeCastOp buildShapeCast(mlir::Location loc, mlir::Value input, ArrayRef<int64_t> targetShape,

@@ -36,6 +36,10 @@ bld/
 [Bb]in/
 [Oo]bj/
 
+# Do not ignore build scripts and documentation build folders
+!scripts/build/
+!src/vpux_driver_compiler/docs/build/
+
 # PY.TEST
 *.pyc
 tests/integration/report.html
@@ -343,6 +347,3 @@ rtlCases
 
 # SW Kernels
 sw_runtime_kernels/kernels/prebuild/3720_ELF/report.xml
-
-# Do not ignore build documentation.
-!src/vpux_driver_compiler/docs/build/

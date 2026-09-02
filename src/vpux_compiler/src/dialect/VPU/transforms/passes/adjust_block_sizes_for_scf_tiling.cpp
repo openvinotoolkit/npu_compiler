@@ -105,7 +105,6 @@ private:
     mlir::scf::IfOp getTensorBlockPosition(mlir::scf::ForOp forOp, mlir::OpBuilder builder, mlir::Value offsetVal,
                                            mlir::Operation* insertionPoint, mlir::Value currentBlkSize,
                                            mlir::Value upperBound);
-    mlir::scf::ForOp getEnclosingForOp(mlir::Value offsetVal);
     mlir::LogicalResult processIndexTypeArgsInCallOp(mlir::func::CallOp callOp,
                                                      const IndexOperandConversionInfo& conversionInfo);
     mlir::LogicalResult processIndexTypeArgsInCallOp(mlir::OpBuilder& builder, mlir::func::FuncOp funcOp,
@@ -175,29 +174,31 @@ mlir::Operation* getOffsetInsertionPosition(mlir::Operation* op) {
     return firstNonArithOp;
 }
 
-mlir::scf::ForOp AdjustBlockSizeForScfTilingPass::getEnclosingForOp(mlir::Value offsetVal) {
-    auto checkForBlockArgument = [&](mlir::Value val) -> mlir::Operation* {
+// Helper function that returns the scf::ForOp on which the `offsetVal` transitively depends.
+// Returns `nullptr` if it does not depend on any `scf::ForOp`.
+mlir::scf::ForOp getEnclosingForOp(mlir::Value offsetVal, OpChainAnalysis& opChainAnalysis) {
+    auto getForOpFromBlockArg = [](mlir::Value val) -> mlir::scf::ForOp {
         if (auto blockOperand = mlir::dyn_cast<mlir::BlockArgument>(val)) {
-            return blockOperand.getOwner()->getParentOp();
+            auto parentOp = blockOperand.getOwner()->getParentOp();
+            return mlir::dyn_cast_or_null<mlir::scf::ForOp>(parentOp);
         }
-        return nullptr;
+        return {};
     };
 
-    if (auto parentOp = checkForBlockArgument(offsetVal)) {
-        return mlir::dyn_cast_or_null<mlir::scf::ForOp>(parentOp);
+    if (auto forOp = getForOpFromBlockArg(offsetVal)) {
+        return forOp;
     }
 
-    auto opChain = _opChainAnalysis.collectParentOpsChain(offsetVal);
+    auto opChain = opChainAnalysis.collectParentOpsChain(offsetVal);
     for (auto op : opChain) {
         for (auto operand : op->getOperands()) {
-            if (auto parentOp = checkForBlockArgument(operand)) {
-                return mlir::dyn_cast<mlir::scf::ForOp>(parentOp);
+            if (auto forOp = getForOpFromBlockArg(operand)) {
+                return forOp;
             }
         }
     }
-
     return nullptr;
-};
+}
 
 // Get the top-most scf.for op in the nested loops
 mlir::scf::ForOp getOutermostForOp(mlir::scf::ForOp forOp) {
@@ -325,8 +326,7 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::adjustOutputBlockIdxAndSize
 
             auto offset = insertSliceOp.getMixedOffsets()[idx];
             newOffsets.push_back(offset);
-
-            auto forOp = getEnclosingForOp(val);
+            auto forOp = getEnclosingForOp(val, _opChainAnalysis);
             VPUX_THROW_UNLESS(forOp != nullptr, "Expected parent scf.for operation for slice size but got none");
             auto blockSize = forOp.getStep();
             newSizes.push_back(blockSize);
@@ -368,25 +368,9 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::adjustOutputBlockIdxAndSize
     return mlir::success();
 }
 
-bool getTensorBlockSizes(mlir::Value val, llvm::DenseMap<int64_t, int64_t>& mapToDimBlockSizes, Logger& log) {
-    mlir::Value blockArgVal;
-    mlir::BlockArgument blockArg = nullptr;
-    OpChainAnalysis opChainAnalysis;
-    auto opFoldChain = opChainAnalysis.collectParentOpsChain(val);
-    for (auto op : opFoldChain) {
-        for (auto operand : op->getOperands()) {
-            if (operand.getDefiningOp() == nullptr) {
-                blockArg = mlir::dyn_cast_or_null<mlir::BlockArgument>(operand);
-                blockArgVal = operand;
-            }
-        }
-    }
-    if (blockArg == nullptr) {
-        log.trace("Failed to find block argument for slice size");
-        return false;
-    }
-
-    auto forOp = mlir::dyn_cast_or_null<mlir::scf::ForOp>(blockArg.getOwner()->getParentOp());
+bool getTensorBlockSizes(mlir::Value val, llvm::DenseMap<int64_t, int64_t>& mapToDimBlockSizes,
+                         OpChainAnalysis& opChainAnalysis, Logger& log) {
+    auto forOp = getEnclosingForOp(val, opChainAnalysis);
     if (forOp == nullptr) {
         log.trace("Failed to find parent scf.for operation for slice size");
         return false;
@@ -394,7 +378,6 @@ bool getTensorBlockSizes(mlir::Value val, llvm::DenseMap<int64_t, int64_t>& mapT
 
     auto upperBound = opChainAnalysis.getIntegerFromValue(forOp.getUpperBound(), true);
     auto stepSize = opChainAnalysis.getIntegerFromValue(forOp.getStep());
-
     if (!upperBound.has_value() || !stepSize.has_value()) {
         log.trace("Failed to get integer value for step size and upper bound");
         return false;
@@ -422,8 +405,7 @@ bool getTensorBlockSizes(mlir::Value val, llvm::DenseMap<int64_t, int64_t>& mapT
     }
 
     ValueRangeMap mapToValues;
-    mapToValues[blockArgVal] = std::move(valueMap);
-
+    mapToValues.insert_or_assign(forOp.getInductionVar(), std::move(valueMap));
     auto blockSizesVal = opChainAnalysis.getOpFoldResultValue(val, mapToValues, OpChainAnalysis::MODE::ALL_VALUES);
     assert(blockSizesVal.has_value() && "Failed to get block sizes from operation chain");
     auto blockSizes = blockSizesVal.value();
@@ -526,13 +508,13 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::calculateInputBlockPosAndSh
 
             // Get block sizes for each tile position along this dynamic dimension
             llvm::DenseMap<int64_t, int64_t> mapPosToBlockSizes;
-            if (!getTensorBlockSizes(val, mapPosToBlockSizes, _log)) {
+            if (!getTensorBlockSizes(val, mapPosToBlockSizes, _opChainAnalysis, _log)) {
                 return errorAt(sliceOp, "Failed to get block sizes for each tile position for dim {0}", idx);
             }
             dynDimsToTilePositionAndSizeVec.push_back({vpux::Dim(idx), mapPosToBlockSizes});
 
-            if (auto enclosingForOp = getEnclosingForOp(val)) {
-                forOpToDim.insert({enclosingForOp, static_cast<int64_t>(idx)});
+            if (auto forOp = getEnclosingForOp(val, _opChainAnalysis)) {
+                forOpToDim.insert({forOp, static_cast<int64_t>(idx)});
             }
 
             if (mapPosToBlockSizes.size() == 1) {
@@ -929,12 +911,12 @@ mlir::LogicalResult AdjustBlockSizeForScfTilingPass::processIndexTypeArgsInCallO
             return mlir::failure();
         }
 
-        auto enclosingForOp = getEnclosingForOp(callOp->getOperand(checked_cast<unsigned int>(operandIdx)));
-        if (!enclosingForOp || !forOpToDimInfo.contains(enclosingForOp)) {
+        auto forOp = getEnclosingForOp(callOp->getOperand(checked_cast<unsigned int>(operandIdx)), _opChainAnalysis);
+        if ((forOp == nullptr) || !forOpToDimInfo.contains(forOp)) {
             return mlir::failure();
         }
 
-        int64_t dimension = forOpToDimInfo.at(enclosingForOp);
+        int64_t dimension = forOpToDimInfo.at(forOp);
         if (!dimToEncodingIndex.contains(dimension)) {
             return mlir::failure();
         }

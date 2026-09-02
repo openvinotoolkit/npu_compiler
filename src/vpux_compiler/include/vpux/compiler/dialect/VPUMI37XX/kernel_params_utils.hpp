@@ -20,7 +20,6 @@ public:
     static SmallVector<uint8_t> createKernelParams(VPUIP::SwKernelOp swKernelOp);
 
     static sw_params::Location getSwParamsLocationFromMemKind(VPU::MemoryKind memKind);
-    static sw_params::DataType getDataTypeFromMlirType(mlir::Type type);
 
 private:
     static void addTensorArgToVector(SmallVector<uint8_t>& vec, mlir::Value value, bool isDynamic);

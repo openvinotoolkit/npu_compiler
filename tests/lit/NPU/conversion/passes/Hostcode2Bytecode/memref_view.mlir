@@ -22,17 +22,12 @@ func.func @view_static_reshape() -> () attributes {config.pureHostCompileFunc} {
 // CHECK-NOT:   memref.reinterpret_cast
 // CHECK:       [[BUF:%.+]] = bytecode.virtual_general_register
 // CHECK:       bytecode.ext.buffer.create [[BUF]], memref<8xf32>
-// CHECK:       [[SZ0:%.+]] = bytecode.virtual_general_register
-// CHECK:       bytecode.set_imm [[SZ0]], 2
-// CHECK:       [[SZ1:%.+]] = bytecode.virtual_general_register
-// CHECK:       bytecode.set_imm [[SZ1]], 4
-// CHECK:       [[ST0:%.+]] = bytecode.virtual_general_register
-// CHECK:       bytecode.set_imm [[ST0]], 4
-// CHECK:       [[ST1:%.+]] = bytecode.virtual_general_register
-// CHECK:       bytecode.set_imm [[ST1]], 1
+// CHECK:       [[SZ0:%.+]] = bytecode.imm_register 2
+// CHECK:       [[SZ1:%.+]] = bytecode.imm_register 4
+// CHECK:       [[ST0:%.+]] = bytecode.imm_register 4
+// CHECK:       [[ST1:%.+]] = bytecode.imm_register 1
 // CHECK:       [[VIEW:%.+]] = bytecode.virtual_general_register
-// CHECK:       [[ZERO:%.+]] = bytecode.virtual_general_register
-// CHECK:       bytecode.set_imm [[ZERO]], 0
+// CHECK:       [[ZERO:%.+]] = bytecode.imm_register 0
 // CHECK:       bytecode.ext.buffer.view [[VIEW]], [[BUF]], f32 offset([[ZERO]]) shape([[SZ0]], [[SZ1]]) strides([[ST0]], [[ST1]])
 // CHECK:       bytecode.ret
 // CHECK:    }
@@ -54,15 +49,11 @@ func.func @view_dynamic_size(%src: memref<1x?xf32>, %rows: index) -> ()
 // CHECK-NOT:    memref.reinterpret_cast
 // CHECK-DAG:    [[ARG0:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK-DAG:    [[ARG1:%.+]] = bytecode.virtual_parameter_register 1
-// CHECK:        [[SZ1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[SZ1]], 16
-// CHECK:        [[ST0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST0]], 16
-// CHECK:        [[ST1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST1]], 1
+// CHECK:        [[SZ1:%.+]] = bytecode.imm_register 16
+// CHECK:        [[ST0:%.+]] = bytecode.imm_register 16
+// CHECK:        [[ST1:%.+]] = bytecode.imm_register 1
 // CHECK:        [[VIEW:%.+]] = bytecode.virtual_general_register
-// CHECK:        [[ZERO:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ZERO]], 0
+// CHECK:        [[ZERO:%.+]] = bytecode.imm_register 0
 // CHECK:        bytecode.ext.buffer.view [[VIEW]], [[ARG0]], f32 offset([[ZERO]]) shape([[ARG1]], [[SZ1]]) strides([[ST0]], [[ST1]])
 // CHECK:        bytecode.ret
 
@@ -86,13 +77,10 @@ func.func @view_element_type_cast() -> () attributes {config.pureHostCompileFunc
 // CHECK-NOT:    memref.reinterpret_cast
 // CHECK:        [[BUF:%.+]] = bytecode.virtual_general_register
 // CHECK:        bytecode.ext.buffer.create [[BUF]], memref<16xi8>
-// CHECK:        [[SZ0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[SZ0]], 4
-// CHECK:        [[ST0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST0]], 1
+// CHECK:        [[SZ0:%.+]] = bytecode.imm_register 4
+// CHECK:        [[ST0:%.+]] = bytecode.imm_register 1
 // CHECK:        [[VIEW:%.+]] = bytecode.virtual_general_register
-// CHECK:        [[ZERO:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ZERO]], 0
+// CHECK:        [[ZERO:%.+]] = bytecode.imm_register 0
 // CHECK:        bytecode.ext.buffer.view [[VIEW]], [[BUF]], i8 offset([[ZERO]]) shape([[SZ0]]) strides([[ST0]])
 // CHECK:        bytecode.ret
 
@@ -114,10 +102,8 @@ func.func @view_2d(%base: memref<64xi8>, %rows: index, %cols: index) -> ()
 // CHECK-DAG:    [[ARG0:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK-DAG:    [[ARG1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK-DAG:    [[ARG2:%.+]] = bytecode.virtual_parameter_register 2
-// CHECK:        [[C0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[C0]], 0
-// CHECK:        [[ST1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST1]], 1
+// CHECK:        [[C0:%.+]] = bytecode.imm_register 0
+// CHECK:        [[ST1:%.+]] = bytecode.imm_register 1
 // CHECK:        [[ST0:%.+]] = bytecode.virtual_general_register
 // CHECK:        bytecode.mul.i64 [[ST0]], [[ARG2]], [[ST1]]
 // CHECK:        [[VIEW:%.+]] = bytecode.virtual_general_register
@@ -146,14 +132,10 @@ func.func @view_4d_mixed(%base: memref<1024xi8>, %h: index, %w: index) -> ()
 // CHECK-DAG:    [[W:%.+]] = bytecode.virtual_parameter_register 2
 // CHECK-DAG:    [[H:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK-DAG:    [[BASE:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:        [[C0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[C0]], 0
-// CHECK:        [[D0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[D0]], 1
-// CHECK:        [[D3:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[D3]], 16
-// CHECK:        [[ST3:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST3]], 1
+// CHECK:        [[C0:%.+]] = bytecode.imm_register 0
+// CHECK:        [[D0:%.+]] = bytecode.imm_register 1
+// CHECK:        [[D3:%.+]] = bytecode.imm_register 16
+// CHECK:        [[ST3:%.+]] = bytecode.imm_register 1
 // CHECK:        [[ST2:%.+]] = bytecode.virtual_general_register
 // CHECK:        bytecode.mul.i64 [[ST2]], [[D3]], [[ST3]]
 // CHECK:        [[ST1:%.+]] = bytecode.virtual_general_register

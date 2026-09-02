@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
@@ -438,13 +439,18 @@ std::optional<SmallVector<IE::DynamicDequantizeOp>> getDynamicDequantizeOpWithSa
         if (dynamicDequant == nullptr || !dynamicDequant->hasOneUse() || !dynamicDequant.getDstElemType()) {
             return std::nullopt;
         }
+        if (dynamicDequant.getZp()) {
+            return std::nullopt;
+        }
         dynamicDequantOps.push_back(dynamicDequant);
     }
 
     auto refDynamicDequant = dynamicDequantOps.back();
     auto refOrderValue = refDynamicDequant.getDstElemType();
+    auto refSyntheticAttr = dynamicDequantOps.back()->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR);
     for (auto dynamicDequant : dynamicDequantOps) {
-        if (dynamicDequant.getDstElemType() != refOrderValue) {
+        if ((dynamicDequant.getDstElemType() != refOrderValue) ||
+            (dynamicDequant->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR) != refSyntheticAttr)) {
             return std::nullopt;
         }
     }
@@ -486,6 +492,10 @@ IE::DynamicDequantizeOp createDynamicDequantize(SmallVector<IE::DynamicDequantiz
     auto newDynDQ =
             rewriter.create<IE::DynamicDequantizeOp>(appendLoc(refOp->getLoc(), "concat_"), concatInConst.getOutput(),
                                                      concatScaleConst.getOutput(), nullptr, refOp.getDstElemType());
+    if (dynamicDequantizeOps.front()->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
+        newDynDQ->setAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR,
+                          dynamicDequantizeOps.front()->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR));
+    }
     return newDynDQ;
 }
 

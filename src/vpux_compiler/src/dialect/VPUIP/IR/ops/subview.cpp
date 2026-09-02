@@ -7,11 +7,15 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/back_infer_utils.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/distributed_buffer_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
+#include <mlir/IR/Diagnostics.h>
 #include <mlir/IR/PatternMatch.h>
 
 using namespace vpux;
@@ -63,6 +67,184 @@ mlir::Value VPUIP::SubViewOp::getViewSource() {
     return getSource();
 }
 
+namespace {
+
+bool isValidSubViewTile(vpux::NDTypeInterface inputType, ArrayRef<int64_t> staticOffsets, ArrayRef<int64_t> staticSizes,
+                        ArrayRef<int64_t> staticStrides) {
+    const auto rank = checked_cast<size_t>(inputType.getRank());
+    if (staticOffsets.size() != rank || staticSizes.size() != rank || staticStrides.size() != rank) {
+        return false;
+    }
+
+    const auto inputShape = inputType.getShape();
+    for (auto idx : irange(rank)) {
+        const auto offset = staticOffsets[idx];
+        const auto size = staticSizes[idx];
+        const auto stride = staticStrides[idx];
+        if (offset < 0 || size <= 0 || stride <= 0) {
+            return false;
+        }
+
+        const auto dimSize = inputShape[Dim(checked_cast<int32_t>(idx))];
+        if (offset >= dimSize || (size - 1) > (dimSize - offset - 1) / stride) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool isValidTileElementType(mlir::Type elemType, ArrayRef<int64_t> staticOffsets, ArrayRef<int64_t> staticSizes) {
+    const auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(elemType);
+    if (perAxisType == nullptr) {
+        return true;
+    }
+
+    const auto quantizedAxis = perAxisType.getQuantizedDimension();
+    if (quantizedAxis < 0 || checked_cast<size_t>(quantizedAxis) >= staticSizes.size()) {
+        return false;
+    }
+    const auto numScales = checked_cast<int64_t>(perAxisType.getScales().size());
+    return staticOffsets[quantizedAxis] + staticSizes[quantizedAxis] <= numScales;
+}
+
+bool isValidTileSparsityCompression(VPUIP::SparsityCompressionAttr sparsityCompression, ArrayRef<int64_t> staticOffsets,
+                                    ArrayRef<int64_t> staticSizes) {
+    if (sparsityCompression == nullptr) {
+        return true;
+    }
+    const auto axisAttr = sparsityCompression.getAxis();
+    if (axisAttr == nullptr) {
+        return false;
+    }
+
+    const auto axis = checked_cast<size_t>(axisAttr.getInt());
+    if (axis >= staticOffsets.size() || axis >= staticSizes.size()) {
+        return false;
+    }
+
+    const auto numElems = sparsityCompression.getNumElems().getValues<int64_t>();
+    return staticOffsets[axis] + staticSizes[axis] <= checked_cast<int64_t>(numElems.size());
+}
+
+bool isValidExplicitSliceDistribution(VPU::DistributionInfoAttr distribution) {
+    const auto mode = distribution.getMode().getValue();
+    return mode == VPU::DistributionMode::SEGMENTED || mode == VPU::DistributionMode::OVERLAPPED ||
+           VPU::bitEnumContainsAny(mode, VPU::DistributionMode::DUPLICATED) ||
+           VPU::bitEnumContainsAny(mode, VPU::DistributionMode::MULTICASTED);
+}
+
+SmallVector<int64_t> parseStaticStrides(std::optional<mlir::ArrayAttr> staticStridesAttr, int64_t rank) {
+    return staticStridesAttr.has_value() ? parseIntArrayAttr<int64_t>(staticStridesAttr.value())
+                                         : SmallVector<int64_t>(checked_cast<size_t>(rank), 1);
+}
+
+std::optional<mlir::Type> inferSubViewOutputType(mlir::Type inputType, ArrayRef<int64_t> staticOffsets,
+                                                 ArrayRef<int64_t> staticSizes, ArrayRef<int64_t> staticStrides) {
+    // Infer the result of slicing a candidate input type without requiring an
+    // actual SubViewOp. Example: a planned tile offsets [0, 0, 16, 0],
+    // sizes [1, 16, 16, 32] over a 1x16x32x32 input should produce the same
+    // type that SubViewOp::inferReturnTypes would later create.
+    auto newInputNDType = mlir::dyn_cast_or_null<vpux::NDTypeInterface>(inputType);
+    if (newInputNDType == nullptr || !isValidSubViewTile(newInputNDType, staticOffsets, staticSizes, staticStrides)) {
+        return std::nullopt;
+    }
+    if (!isValidTileElementType(newInputNDType.getElementType(), staticOffsets, staticSizes)) {
+        return std::nullopt;
+    }
+
+    // SubView back inference may test distributed slice candidates that are not
+    // legal. Keep that path quiet and return std::nullopt; real diagnostics are
+    // still emitted by the verifier.
+    mlir::ScopedDiagnosticHandler diagnosticGuard(inputType.getContext(), [](mlir::Diagnostic&) {
+        return mlir::success();
+    });
+    if (auto distType = mlir::dyn_cast<VPUIP::DistributedBufferType>(newInputNDType)) {
+        auto distribution = distType.getDistribution();
+        if (distribution.getMode().getValue() == VPU::DistributionMode::OVERLAPPED &&
+            VPU::isSegmentedOverlappedAxisSameAsSliceAxis(distribution.getNumTiles(), newInputNDType.getShape().raw(),
+                                                          staticSizes)) {
+            return std::nullopt;
+        }
+        if (!isValidTileSparsityCompression(distType.getSparsityCompression(), staticOffsets, staticSizes)) {
+            return std::nullopt;
+        }
+
+        auto* ctx = inputType.getContext();
+        auto newDistribution =
+                VPU::updateSliceLikeOpsAlignment(ctx, newInputNDType.getShape(), ShapeRef(staticSizes), distribution);
+        if (VPU::isDistributedAttrWithExplicitShapesAndOffsets(newDistribution)) {
+            // Explicit distributions must be sliced with explicit
+            // per-cluster shapes/offsets. For example, slicing H from 32 to 16
+            // has to update each cluster's memory view before extracting the
+            // tile.
+            if (!isValidExplicitSliceDistribution(newDistribution)) {
+                return std::nullopt;
+            }
+            const auto sliceDistAttr = VPU::getExplicitDistrAttrForSliceLikeOps(newDistribution, staticSizes,
+                                                                                newInputNDType.getShape().raw(), ctx);
+            auto outType = distType.extractViewTileForExplicitDistribution(
+                    ShapeRef(staticOffsets), ShapeRef(staticSizes), ShapeRef(staticStrides), sliceDistAttr);
+            return mlir::cast<mlir::Type>(outType);
+        }
+        auto newBufferType = VPUIP::createDistributedBufferTypeOrNull(
+                ctx, distType.getShape(), distType.getElementType(), distType.getLayout(), distType.getMemSpace(),
+                newDistribution, distType.getSparsityCompression());
+        if (!newBufferType.has_value()) {
+            return std::nullopt;
+        }
+        auto outType = newBufferType.value().extractViewTile(ShapeRef(staticOffsets), ShapeRef(staticSizes),
+                                                             ShapeRef(staticStrides));
+        return mlir::cast<mlir::Type>(outType);
+    }
+
+    if (!isValidTileSparsityCompression(VPUIP::getSparsityCompressionAttr(inputType), staticOffsets, staticSizes)) {
+        return std::nullopt;
+    }
+    auto outType =
+            newInputNDType.extractViewTile(ShapeRef(staticOffsets), ShapeRef(staticSizes), ShapeRef(staticStrides));
+    return mlir::cast<mlir::Type>(outType);
+}
+
+}  // namespace
+
+std::optional<mlir::Type> VPUIP::inferSubViewOutputTypeFromTile(mlir::Type inputType, ArrayRef<int64_t> staticOffsets,
+                                                                ArrayRef<int64_t> staticSizes) {
+    auto inputNDType = mlir::dyn_cast_or_null<vpux::NDTypeInterface>(inputType);
+    if (inputNDType == nullptr) {
+        return std::nullopt;
+    }
+
+    SmallVector<int64_t> unitStrides(checked_cast<size_t>(inputNDType.getRank()), 1);
+    return inferSubViewOutputType(inputType, staticOffsets, staticSizes, unitStrides);
+}
+
+std::optional<mlir::Type> VPUIP::inferSubViewOutputTypeFromTile(mlir::Type inputType, ArrayRef<int64_t> staticOffsets,
+                                                                ArrayRef<int64_t> staticSizes,
+                                                                ArrayRef<int64_t> staticStrides) {
+    return inferSubViewOutputType(inputType, staticOffsets, staticSizes, staticStrides);
+}
+
+//
+// BackInferViewTypeOpInterface
+//
+
+std::optional<mlir::Type> VPUIP::SubViewOp::inferOutputTypeFromInput(mlir::Type newInputType) {
+    auto newInputNDType = mlir::dyn_cast<vpux::NDTypeInterface>(newInputType);
+    if (newInputNDType == nullptr) {
+        return std::nullopt;
+    }
+
+    const auto staticSizes = parseIntArrayAttr<int64_t>(getStaticSizes());
+    const auto staticOffsets = parseIntArrayAttr<int64_t>(getStaticOffsets());
+    const auto staticStrides = parseStaticStrides(getStaticStrides(), newInputNDType.getRank());
+    return inferSubViewOutputType(newInputType, staticOffsets, staticSizes, staticStrides);
+}
+
+std::optional<mlir::Type> VPUIP::SubViewOp::inferInputTypeFromOutput(mlir::Type) {
+    return std::nullopt;
+}
+
 //
 // InferTypeOpInterface
 //
@@ -82,9 +264,7 @@ mlir::LogicalResult VPUIP::SubViewOp::inferReturnTypes(mlir::MLIRContext* ctx, s
 
     const auto subViewShape = parseIntArrayAttr<int64_t>(subViewOp.getStaticSizes());
     const auto subViewOffsets = parseIntArrayAttr<int64_t>(subViewOp.getStaticOffsets());
-    const auto subViewStrides = subViewOp.getStaticStrides().has_value()
-                                        ? parseIntArrayAttr<int64_t>(subViewOp.getStaticStrides().value())
-                                        : SmallVector<int64_t>(origType.getRank(), 1);
+    const auto subViewStrides = parseStaticStrides(subViewOp.getStaticStrides(), origType.getRank());
 
     if (subViewShape.size() != checked_cast<size_t>(origType.getRank())) {
         return errorAt(loc, "Tile shape '{0}' doesn't match MemRef rank '{1}'", subViewShape, origType.getRank());
@@ -124,8 +304,7 @@ mlir::LogicalResult VPUIP::SubViewOp::inferReturnTypes(mlir::MLIRContext* ctx, s
         }
         if (mode != VPU::DistributionMode::OVERLAPPED ||
             !VPU::isSegmentedOverlappedAxisSameAsSliceAxis(origDistribution.getNumTiles(), inShape, subViewShape)) {
-            return VPU::getExplicitDistrAttrForSliceLikeOps(origDistribution, subViewShape, inShape,
-                                                            origType.getElementType(), ctx);
+            return VPU::getExplicitDistrAttrForSliceLikeOps(origDistribution, subViewShape, inShape, ctx);
         }
 
         // When clustering axis == slice axis, we cannot infer per cluster shape from op itself

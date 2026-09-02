@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -27,22 +28,22 @@ mlir::LogicalResult vpux::VPU::MaximumOp::inferReturnTypes(mlir::MLIRContext* ct
 }
 
 bool vpux::VPU::MaximumOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t) {
-    const auto inputType = mlir::cast<vpux::NDTypeInterface>(getInput1().getType());
-    const auto inShape = inputType.getShape();
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
+    const auto shape = getBoundedShape(outputType);
 
     if (strategy == VPU::MultiClusterStrategy::Clustering) {
         return true;
     }
 
-    if (strategy == VPU::MultiClusterStrategy::SplitOverHeight && inShape[Dims4D::Act::H] > 1) {
+    if (strategy == VPU::MultiClusterStrategy::SplitOverHeight && shape[Dims4D::Act::H] > 1) {
         return true;
     }
 
-    if (strategy == VPU::MultiClusterStrategy::SplitOverKernel && inShape[Dims4D::Act::C] > 1) {
+    if (strategy == VPU::MultiClusterStrategy::SplitOverKernel && shape[Dims4D::Act::C] > 1) {
         return true;
     }
 
-    if (strategy == VPU::MultiClusterStrategy::SplitOverWidth && inShape[Dims4D::Act::W] > 1) {
+    if (strategy == VPU::MultiClusterStrategy::SplitOverWidth && shape[Dims4D::Act::W] > 1) {
         return true;
     }
 
@@ -57,6 +58,15 @@ vpux::VPU::DistributionInfo vpux::VPU::MaximumOp::getExplicitDistributionInfoAtt
     return VPU::getSWExplicitDistributionInfo(mlir::cast<VPU::SWOpInterface>(getOperation()), shape, distributionMode,
                                               numTiles, numClusters, alignment, uniformDistributedSegments,
                                               overlapParams);
+}
+
+bool vpux::VPU::MaximumOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& outputTile) {
+    return VPU::isEltwiseSWOpSplitOverHeightCompatible(getOperation(), outputTile.shape);
+}
+
+bool vpux::VPU::MaximumOp::isOperationSplitOverWidthCompatible(ShapeRef outputShape, ShapeRef /*offset*/,
+                                                               ShapeRef /*axis*/) {
+    return VPU::isEltwiseSWOpSplitOverWidthCompatible(getOperation(), outputShape);
 }
 
 bool vpux::VPU::MaximumOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {

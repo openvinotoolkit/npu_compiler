@@ -59,7 +59,7 @@ module @ReduceMaxUI32 {
     return %0 : tensor<2x3x5xui32>
 
 // CHECK:    IE.CodeGenCapsule inputs({{.+}} as [[ARG:%.+]]: tensor<2x3x4x5xi32>) {
-// CHECK-NEXT:      [[CST:%.+]] = arith.constant 0 : i32  
+// CHECK-NEXT:      [[CST:%.+]] = arith.constant 0 : i32
 // CHECK-NEXT:      [[EMPTY:%.+]] = tensor.empty() : tensor<2x3x5xi32>
 // CHECK-NEXT:      [[FILL:%.+]] = linalg.fill ins([[CST]] : i32) outs([[EMPTY]] : tensor<2x3x5xi32>) -> tensor<2x3x5xi32>
 // CHECK-NEXT:      [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[map]]], iterator_types = ["parallel", "parallel", "reduction", "parallel"]} ins([[ARG]] : tensor<2x3x4x5xi32>) outs([[FILL]] : tensor<2x3x5xi32>) {

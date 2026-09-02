@@ -314,6 +314,25 @@ func.func @FailedConvertTrivialTransposeToReshapeWhenInputHasLayout(%arg0: tenso
 
 // -----
 
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+func.func @DoNotConvertTrivialTransposeToReshapeForDynamicTensors(
+        %arg0: tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 2160, 3840, 1]> : tensor<4xsi64>, order = #NCHW}>)
+        -> tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}> {
+    %0 = IE.Transpose(%arg0) {order_value = #NWCH} :
+        tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 2160, 3840, 1]> : tensor<4xsi64>, order = #NCHW}>
+        -> tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+
+    return %0 : tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK-NOT: IE.Reshape
+    // CHECK-NOT: IE.AffineReshape
+    // CHECK: IE.Transpose
+}
+
+// -----
+
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
 #map = affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>
 

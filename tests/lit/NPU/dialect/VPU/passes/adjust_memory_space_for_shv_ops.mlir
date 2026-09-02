@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --adjust-memory-space-for-shv-ops %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --cmx-additional-stack-frames-reserve-mem --adjust-memory-space-for-shv-ops %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 // Case A: Not all input and output tensors fit in CMX. Try to work as much as possible with CMX.
@@ -12,7 +12,7 @@
 // CHECK-LABEL:  func.func @SingleSWLayerTooLargeForCMXCaseA
 // CHECK-SAME:      ([[INPUT_DDR:%.+]]: tensor<1x128x50x50xf16>)
 func.func @SingleSWLayerTooLargeForCMXCaseA(%input: tensor<1x128x50x50xf16>) -> tensor<1x128x75x75xf16> {
-    %output = VPU.Interpolate(%input) {attr = #IE.Interpolate<antialias = false, coord_mode = <ALIGN_CORNERS>, cube_coeff = -7.500000e-01 : f64, mode = <LINEAR_ONNX>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>, axes_attr = [0, 1, 2, 3], initial_input_dims_attr = [1, 128, 50, 50], initial_input_offset_attr = [0, 0, 0, 0], initial_output_dims_attr = [1, 128, 75, 75], initial_output_offset_attr = [0, 0, 0, 0], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, scales_attr = [1.000000e+00, 1.000000e+00, 1.50000e+00, 1.50000e+00], sizes_attr = [1, 128, 75, 75], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} : tensor<1x128x50x50xf16> -> tensor<1x128x75x75xf16>
+    %output = VPU.Interpolate(%input) {attr = #IE.Interpolate<antialias = false, coord_mode = <ALIGN_CORNERS>, cube_coeff = -7.500000e-01 : f64, mode = <LINEAR_ONNX>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>, axes_attr = [0, 1, 2, 3], initial_input_dims_attr = [1, 128, 50, 50], initial_input_offset_attr = [0, 0, 0, 0], initial_output_dims_attr = [1, 128, 75, 75], initial_output_offset_attr = [0, 0, 0, 0], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>, scales_attr = [1.000000e+00, 1.000000e+00, 1.50000e+00, 1.50000e+00], sizes_attr = [1, 128, 75, 75], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} : tensor<1x128x50x50xf16> -> tensor<1x128x75x75xf16>
     return %output : tensor<1x128x75x75xf16>
 
     // CHECK:      [[OUTPUT_CMX:%.+]] = VPU.Interpolate([[INPUT_DDR]])
@@ -31,7 +31,7 @@ func.func @SingleSWLayerTooLargeForCMXCaseA(%input: tensor<1x128x50x50xf16>) -> 
 // CHECK-LABEL:  @SingleSWLayerTooLargeForCMXCaseB
 // CHECK-SAME:      ([[INPUT_DDR:%.+]]: tensor<1x128x75x75xf16>)
 func.func @SingleSWLayerTooLargeForCMXCaseB(%input: tensor<1x128x75x75xf16>) -> tensor<1x128x50x50xf16> {
-    %output = VPU.Interpolate(%input) {attr = #IE.Interpolate<antialias = false, coord_mode = <ALIGN_CORNERS>, cube_coeff = -7.500000e-01 : f64, mode = <LINEAR_ONNX>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>, axes_attr = [0, 1, 2, 3], initial_input_dims_attr = [1, 128, 75, 75], initial_input_offset_attr = [0, 0, 0, 0], initial_output_dims_attr = [1, 128, 50, 50], initial_output_offset_attr = [0, 0, 0, 0], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, scales_attr = [1.000000e+00, 1.000000e+00, 0.666666e+00, 0.666666e+00], sizes_attr = [1, 128, 50, 50], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} : tensor<1x128x75x75xf16> -> tensor<1x128x50x50xf16>
+    %output = VPU.Interpolate(%input) {attr = #IE.Interpolate<antialias = false, coord_mode = <ALIGN_CORNERS>, cube_coeff = -7.500000e-01 : f64, mode = <LINEAR_ONNX>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>, axes_attr = [0, 1, 2, 3], initial_input_dims_attr = [1, 128, 75, 75], initial_input_offset_attr = [0, 0, 0, 0], initial_output_dims_attr = [1, 128, 50, 50], initial_output_offset_attr = [0, 0, 0, 0], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>, scales_attr = [1.000000e+00, 1.000000e+00, 0.666666e+00, 0.666666e+00], sizes_attr = [1, 128, 50, 50], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} : tensor<1x128x75x75xf16> -> tensor<1x128x50x50xf16>
     return %output : tensor<1x128x50x50xf16>
 
     // CHECK:      [[COPY_CMX:%.+]] = VPU.Copy([[INPUT_DDR]])
@@ -108,25 +108,25 @@ func.func @SkipNonSHAVEConcat(%input0: tensor<1x2x3x8xf16>,
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CHECK-LABEL:  @SHAVEConcat
-// CHECK-SAME:      ([[INPUT0_DDR:%.+]]: tensor<1x2x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>,
-// CHECK-SAME:       [[INPUT1_DDR:%.+]]: tensor<1x2x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>)
-func.func @SHAVEConcat(%input0: tensor<1x2x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>,
-                       %input1: tensor<1x2x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>)
-        -> tensor<1x4x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NCHW}> {
+// CHECK-SAME:      ([[INPUT0_DDR:%.+]]: tensor<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}>,
+// CHECK-SAME:       [[INPUT1_DDR:%.+]]: tensor<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}>)
+func.func @SHAVEConcat(%input0: tensor<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}>,
+                       %input1: tensor<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}>)
+        -> tensor<1x4x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 3, 8]>: tensor<4xsi64>, order = #NCHW}> {
     %concat = VPU.Concat(%input0, %input1) {static_offsets = [[0, 0, 0, 0], [0, 2, 0, 0]]}
-        : tensor<1x2x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>,
-          tensor<1x2x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>
-        -> tensor<1x4x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>
-    return %concat : tensor<1x4x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>
+        : tensor<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}>,
+          tensor<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}>
+        -> tensor<1x4x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 3, 8]> : tensor<4xsi64>, order = #NCHW}>
+    return %concat : tensor<1x4x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 3, 8]> : tensor<4xsi64>, order = #NCHW}>
 
     // CHECK:       [[INPUT0_CMX:%.+]] = VPU.Copy([[INPUT0_DDR]])
-    // CHECK-SAME:    -> tensor<1x2x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
+    // CHECK-SAME:    -> tensor<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
     // CHECK:       [[INPUT1_CMX:%.+]] = VPU.Copy([[INPUT1_DDR]])
-    // CHECK-SAME:    -> tensor<1x2x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
+    // CHECK-SAME:    -> tensor<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat([[INPUT0_CMX]], [[INPUT1_CMX]])
-    // CHECK-SAME:    -> tensor<1x4x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
+    // CHECK-SAME:    -> tensor<1x4x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 3, 8]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
     // CHECK:       [[OUTPUT_DDR:%.+]] = VPU.Copy([[CONCAT]])
-    // CHECK-SAME:    -> tensor<1x4x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-SAME:    -> tensor<1x4x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 3, 8]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:       return [[OUTPUT_DDR]]
 }
 
@@ -167,9 +167,9 @@ func.func @SkipNonSHAVEStridedSlice(%input: tensor<1x16x64x128xf16>)
 // CHECK-SAME:       [[ENDS_DDR:%.+]]: tensor<4xsi32>)
 func.func @SHAVEStridedSlice(%input: tensor<1x16x64x128xf16>,
                              %ends: tensor<4xsi32>)
-        -> tensor<1x16x64x128xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]>: tensor<4xsi64>, order = #NCHW}> {
+        -> tensor<?x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 128]>: tensor<4xsi64>, order = #NCHW}> {
     %strided_slice = VPU.StridedSlice(%input, %ends) {
-        bounds_representation = #VPU.bounds_representation<DYNAMIC_DIMS_MASK>,
+        bounds_representation = #VPU.bounds_representation<BOUNDS>,
         begin_mask = [],
         begins_attr = [0, 0, 0, 0],
         ellipsis_mask = [],
@@ -179,17 +179,17 @@ func.func @SHAVEStridedSlice(%input: tensor<1x16x64x128xf16>,
         shrink_axis_mask = [],
         strides_attr = [1, 1, 1, 1]
     } : tensor<1x16x64x128xf16>, tensor<4xsi32>
-      -> tensor<1x16x64x128xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]>: tensor<4xsi64>, order = #NCHW}>
-    return %strided_slice : tensor<1x16x64x128xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]>: tensor<4xsi64>, order = #NCHW}>
+      -> tensor<?x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 128]>: tensor<4xsi64>, order = #NCHW}>
+    return %strided_slice : tensor<?x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 128]>: tensor<4xsi64>, order = #NCHW}>
 
     // CHECK:       [[INPUT_CMX:%.+]] = VPU.Copy([[INPUT_DDR]])
     // CHECK-SAME:    -> tensor<1x16x64x128xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}>
     // CHECK:       [[ENDS_CMX:%.+]] = VPU.Copy([[ENDS_DDR]])
     // CHECK-SAME:    -> tensor<4xsi32, {mem_space = [@CMX_NN, 0], order = #C}>
     // CHECK:       [[STRIDED_SLICE:%.+]] = VPU.StridedSlice([[INPUT_CMX]], [[ENDS_CMX]])
-    // CHECK-SAME:    -> tensor<1x16x64x128xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
+    // CHECK-SAME:    -> tensor<?x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 128]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
     // CHECK:       [[OUTPUT_DDR:%.+]] = VPU.Copy([[STRIDED_SLICE]])
-    // CHECK-SAME:    -> tensor<1x16x64x128xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 1, 1, 1]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-SAME:    -> tensor<?x?x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 128]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:       return [[OUTPUT_DDR]]
 }
 
@@ -221,22 +221,22 @@ func.func @SkipNonSHAVEPermuteCast(%input: tensor<1x32x32x16xf16>)
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL:  @SHAVEPermuteCast
-// CHECK-SAME:      ([[INPUT_DDR:%.+]]: tensor<1x32x64x16xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 1, 1, 0]> : tensor<4xsi64>, order = #NCHW}>)
-func.func @SHAVEPermuteCast(%input: tensor<1x32x64x16xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 1, 1, 0]>: tensor<4xsi64>, order = #NCHW}>)
-        -> tensor<1x16x32x64xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NHWC}> {
+// CHECK-SAME:      ([[INPUT_DDR:%.+]]: tensor<1x?x?x16xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 64, 16]> : tensor<4xsi64>, order = #NCHW}>)
+func.func @SHAVEPermuteCast(%input: tensor<1x?x?x16xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 64, 16]>: tensor<4xsi64>, order = #NCHW}>)
+        -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]>: tensor<4xsi64>, order = #NHWC}> {
     %permute_cast = VPU.PermuteCast(%input) {
         dst_order = #NHWC,
         mem_perm = #NCHW
-    } : tensor<1x32x64x16xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 1, 1, 0]>: tensor<4xsi64>, order = #NCHW}>
-        -> tensor<1x16x32x64xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NHWC}>
-    return %permute_cast : tensor<1x16x32x64xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NHWC}>
+    } : tensor<1x?x?x16xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 64, 16]>: tensor<4xsi64>, order = #NCHW}>
+        -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]>: tensor<4xsi64>, order = #NHWC}>
+    return %permute_cast : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]>: tensor<4xsi64>, order = #NHWC}>
 
     // CHECK:       [[INPUT_CMX:%.+]] = VPU.Copy([[INPUT_DDR]])
-    // CHECK-SAME:    -> tensor<1x32x64x16xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 1, 1, 0]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
+    // CHECK-SAME:    -> tensor<1x?x?x16xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 64, 16]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NCHW}>
     // CHECK:       [[PERMUTE_CAST:%.+]] = VPU.PermuteCast([[INPUT_CMX]])
-    // CHECK-SAME:    -> tensor<1x16x32x64xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NHWC}>
+    // CHECK-SAME:    -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, mem_space = [@CMX_NN, 0], order = #NHWC}>
     // CHECK:       [[OUTPUT_DDR:%.+]] = VPU.Copy([[PERMUTE_CAST]])
-    // CHECK-SAME:    -> tensor<1x16x32x64xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK-SAME:    -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NHWC}>
     // CHECK:       return [[OUTPUT_DDR]]
 }
 
@@ -314,4 +314,22 @@ func.func @DetectionOutputSortWithConstantAuxBuffers(%confidence: tensor<1x1x11x
     // CHECK:       return [[OUT_CONFIDENCE]], [[OUT_INDICES]], [[OUT_SIZES_DDR]] : tensor<1x1x11x76725xf16>, tensor<1x1x11x76725xsi32>, tensor<1x1x11x1xsi32>
 }
 
+}
+
+// -----
+
+// CHECK-LABEL:  func.func @SingleGenericSwLayerTooLargeForCMXCaseA
+// CHECK-SAME:      ([[INPUT_DDR:%.+]]: tensor<1x128x50x50xf16>)
+func.func private @callee(%arg0: tensor<1x128x50x50xf16>) -> tensor<1x128x75x75xf16>
+
+func.func @SingleGenericSwLayerTooLargeForCMXCaseA(%input: tensor<1x128x50x50xf16>) -> tensor<1x128x75x75xf16> {
+    %output = VPU.GenericSwLayer(%input : tensor<1x128x50x50xf16>) @callee -> tensor<1x128x75x75xf16>
+    return %output : tensor<1x128x75x75xf16>
+
+    // CHECK:      [[OUTPUT_CMX:%.+]] = VPU.GenericSwLayer([[INPUT_DDR]] : tensor<1x128x50x50xf16>)
+    // CHECK-SAME:   @callee
+    // CHECK-SAME:   -> tensor<1x128x75x75xf16, {mem_space = [@CMX_NN, 0], order = #NCHW}>
+    // CHECK:      [[COPY_DDR:%.+]] = VPU.Copy([[OUTPUT_CMX]])
+    // CHECK-SAME:   -> tensor<1x128x75x75xf16>
+    // CHECK:      return [[COPY_DDR]]
 }

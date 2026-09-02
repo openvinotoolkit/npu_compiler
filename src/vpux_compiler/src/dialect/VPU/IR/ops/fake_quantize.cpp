@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -118,6 +119,15 @@ vpux::VPU::DistributionInfo vpux::VPU::FakeQuantizeOp::getExplicitDistributionIn
 //
 // SWOpInterface
 //
+
+bool vpux::VPU::FakeQuantizeOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& outputTile) {
+    return VPU::isEltwiseSWOpSplitOverHeightCompatible(getOperation(), outputTile.shape);
+}
+
+bool vpux::VPU::FakeQuantizeOp::isOperationSplitOverWidthCompatible(ShapeRef outputShape, ShapeRef /*offset*/,
+                                                                    ShapeRef /*axis*/) {
+    return VPU::isEltwiseSWOpSplitOverWidthCompatible(getOperation(), outputShape);
+}
 
 bool vpux::VPU::FakeQuantizeOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {
     VPUX_THROW_UNLESS(buffers.size() == 6,

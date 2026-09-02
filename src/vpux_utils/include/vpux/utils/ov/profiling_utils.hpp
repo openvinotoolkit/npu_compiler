@@ -8,8 +8,8 @@
 #include <openvino/openvino.hpp>
 
 #include <vpux/utils/logger/logger.hpp>
-
-#include "intel_npu/config/options.hpp"
+#include <vpux/utils/ov/config.hpp>
+#include <vpux/utils/ov/options.hpp>
 
 #include <chrono>
 #include <type_traits>
@@ -17,8 +17,8 @@
 
 namespace vpux {
 
-static inline bool isInfoOrDefaultLogLevel(const intel_npu::Config& config) {
-    return !config.has<intel_npu::LOG_LEVEL>() || config.get<intel_npu::LOG_LEVEL>() == ov::log::Level::INFO;
+static inline bool isInfoOrDefaultLogLevel(const vpux::OV::Config& config) {
+    return !config.has<vpux::OV::LOG_LEVEL>() || config.get<vpux::OV::LOG_LEVEL>() == LogLevel::Info;
 }
 
 template <class Callable>
@@ -26,7 +26,7 @@ class ScopedTimer {
 public:
     using fp_milliseconds = std::chrono::duration<double, std::chrono::milliseconds::period>;
 
-    explicit ScopedTimer(const intel_npu::Config& config, Callable&& callable)
+    explicit ScopedTimer(const vpux::OV::Config& config, Callable&& callable)
             : _enabled(isInfoOrDefaultLogLevel(config)), _callable(std::forward<Callable>(callable)) {
         if (_enabled) {
             start();
@@ -71,7 +71,7 @@ private:
 };
 
 template <class Callable>
-auto startScopedTimer(const intel_npu::Config& config, Callable&& callable) {
+auto startScopedTimer(const vpux::OV::Config& config, Callable&& callable) {
     return ScopedTimer<std::decay_t<Callable>>(config, std::forward<Callable>(callable));
 }
 

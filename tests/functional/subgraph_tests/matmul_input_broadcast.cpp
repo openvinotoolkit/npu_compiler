@@ -30,8 +30,8 @@ class MatMulInputBroadCastTestCommon :
 
         auto createAndFillTensor = [](ov::Shape inputStaticShape) -> ov::Tensor {
             auto inputTensor = ov::Tensor{ov::element::f16, inputStaticShape};
-            const auto totalSize =
-                    std::accumulate(inputStaticShape.begin(), inputStaticShape.end(), 1, std::multiplies<size_t>());
+            const auto totalSize = std::accumulate(inputStaticShape.begin(), inputStaticShape.end(), size_t{1},
+                                                   std::multiplies<size_t>());
             auto inputData = inputTensor.data<ov::element_type_traits<ov::element::f16>::value_type>();
             const int64_t upperBound = 127;
             const int64_t lowerBound = -127;
@@ -104,9 +104,6 @@ public:
         result << "TestIdx=" << obj.index << sep;
         return result.str();
     };
-
-private:
-    const double _relativeThreashold = 0.001;
 };
 
 TEST_P(MatMulInputBroadCastTestCommon, HW) {

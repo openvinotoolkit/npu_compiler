@@ -29,6 +29,7 @@
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 #include <climits>
+#include <cstdint>
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_TILEACTSHAVEKERNELTASK
@@ -87,6 +88,27 @@ bool isTopKAxis(VPUIP::SwKernelOp swKernelOp, Dim axis) {
     auto topKAxis = convertKernelAxisToDim(swKernelOp.getResult(0), kernelAxis);
 
     return topKAxis == axis;
+}
+
+// The log_softmax_topk kernel stores the axis as a reverse-memory-dim value in args[0]
+// (see VPU::LogSoftmaxTopKOp lowering in sw_kernel.cpp). Convert it back to a logical Dim.
+Dim getLogSoftmaxTopKAxis(VPUIP::SwKernelOp swKernelOp) {
+    auto taskArgs = kernelArgsRange(swKernelOp);
+    const auto kernelAxis = mlir::cast<mlir::IntegerAttr>(taskArgs.front()).getInt();
+    return convertKernelAxisToDim(swKernelOp.getResult(0), kernelAxis);
+}
+
+// ScatterElementsUpdate scatters each row's updates only into that same row's
+// elements along the scatter axis. Tiling is therefore only legal on a non-scatter
+// dim; tiling on the scatter axis would split the updated range of a single row
+// across tiles. The scatter axis is stored as the first kernel attr (reverse-mem
+// dim), see VPU::ScatterElementsUpdateOp lowering in sw_kernel.cpp.
+bool isScatterElementsUpdateAxis(VPUIP::SwKernelOp swKernelOp, Dim axis) {
+    auto taskArgs = kernelArgsRange(swKernelOp);
+    const auto kernelAxis = mlir::cast<mlir::IntegerAttr>(taskArgs.front()).getInt();
+    auto scatterAxis = convertKernelAxisToDim(swKernelOp.getResult(0), kernelAxis);
+
+    return scatterAxis == axis;
 }
 
 bool isNormalizeL2Axis(VPUIP::SwKernelOp swKernelOp, Dim axis) {
@@ -252,7 +274,7 @@ Dim getSwKernelTileDim(VPUIP::SwKernelOp swKernelOp) {
                 (mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType())).getShape().size() - 1;
         return Dim(tileDim);
     } else if (kernelEntryName == "lstm_sequence" || (kernelEntryName == "attention") ||
-               (kernelEntryName == "flash_sdpa")) {
+               (kernelEntryName == "flash_sdpa") || (kernelEntryName == "gated_delta_net")) {
         const auto tileDim =
                 (mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType())).getShape().size() - 1;
         return Dim(tileDim);
@@ -281,6 +303,23 @@ Dim getSwKernelTileDim(VPUIP::SwKernelOp swKernelOp) {
         return Dim(tileDim);
     } else if (kernelEntryName == "cum_sum") {
         return getHighestNonAxisDimOfSwKernel(swKernelOp);
+    } else if (kernelEntryName == "scatter_elements_update") {
+        const auto output = swKernelOp->getResult(0);
+        const auto outputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
+        const auto outOrder = outputType.getDimsOrder();
+        const auto outShape = outputType.getShape();
+        const auto indicesShape = mlir::cast<vpux::NDTypeInterface>(swKernelOp.getInputs()[1].getType()).getShape();
+
+        auto taskArgs = kernelArgsRange(swKernelOp);
+        const auto kernelAxis = mlir::cast<mlir::IntegerAttr>(taskArgs.front()).getInt();
+        auto axisVal = convertKernelAxisToDim(output, kernelAxis);
+
+        for (auto i : irange(outOrder.numDims())) {
+            auto dim = outOrder.dimAt(i);
+            if (dim != axisVal && outShape[dim] > 1 && indicesShape[dim] == outShape[dim]) {
+                return dim;
+            }
+        }
     }
 
     auto isHighestDimTilingPerformant = [&]() {
@@ -512,6 +551,21 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
         return true;
     }
 
+    if (kernelEntryName == "gated_delta_net") {
+        for (auto value : llvm::concat<mlir::Value>(swKernelOp.getInputs(), swKernelOp.getOutputs())) {
+            if (mlir::cast<mlir::ShapedType>(value.getType()).getNumDynamicDims() > 0) {
+                return false;
+            }
+        }
+        auto module = swKernelOp.getOperation()->getParentOfType<mlir::ModuleOp>();
+        auto tileOp = vpux::config::getTileExecutor(module);
+        if (tileOp == nullptr || !tileOp.hasSubExecutor(config::ExecutorKind::SHAVE_ACT)) {
+            return false;
+        }
+        auto actShavePerTile = tileOp.getSubExecutor(config::ExecutorKind::SHAVE_ACT);
+        return getShape(swKernelOp->getResult(0))[Dims4D::Act::H] >= actShavePerTile.getCount();
+    }
+
     SmallVector<mlir::Value> outputBuffers;
     for (auto buffer : swKernelOp.getOutputs()) {
         // Some buffers, such as auxiliary buffers, can be passed as both inputs and outputs to the operations
@@ -525,7 +579,7 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
         return getShape(output) == getShape(*outputBuffers.begin());
     });
 
-    // GRUSequenceOp/GRUSequenceLastPartOp has two different output shapes.
+    // Ops have two different output shapes.
     if ((kernelEntryName != "gru_sequence") && (kernelEntryName != "gru_sequence_last_part") &&
         (kernelEntryName != "lstm_sequence") && (kernelEntryName != "lstm_dpu") &&
         (kernelEntryName != "log_softmax_topk") && (kernelEntryName != "log_softmax_peak") &&
@@ -578,6 +632,31 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
         if (isTopKAxis(swKernelOp, highestDim)) {
             return false;
         }
+    } else if (kernelEntryName == "scatter_elements_update") {
+        // A non-scatter split is only bit-exact when the tiled dim is FULLY addressed by the
+        // indices/updates (indices.shape[d] == output.shape[d]). On a partially-addressed dim
+        // the trailing slices are pure passthrough (output = data); the indices/updates are
+        // DUPLICATED to every tile, so a split there would re-run the scatter on those
+        // passthrough slices and corrupt them. Reject the scatter axis and any partially
+        // addressed dim.
+        const auto outputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
+        const auto outShape = outputType.getShape();
+        // Validate the dim the pass will actually split on, not the output's highest dim.
+        // getSwKernelTileDim may re-point the tiling dim to align with a distributed buffer
+        // (see the generic tail of getSwKernelTileDim), so highestDim and the tiled dim can
+        // diverge; validating highestDim would let an illegal split on the scatter axis or a
+        // partially-addressed dim slip through.
+        const auto tileDim = getSwKernelTileDim(swKernelOp);
+        if (isScatterElementsUpdateAxis(swKernelOp, tileDim)) {
+            return false;
+        }
+        // indices (operand 1) and updates (operand 2) must match the output on the tiled dim.
+        for (const auto idx : {1, 2}) {
+            const auto operandShape = getShape(swKernelOp.getInputs()[idx]);
+            if (operandShape[tileDim] != outShape[tileDim]) {
+                return false;
+            }
+        }
     } else if (kernelEntryName == "normalize_l2" || kernelEntryName == "normalize_l2_innermost") {
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
         auto highestDim = getHighestNonTrivialDim(outputType.getShape(), outputType.getDimsOrder()).value_or(Dim(0));
@@ -608,7 +687,6 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
         if (!canGatherElementsOpTileAtHighestDim(swKernelOp)) {
             return false;
         }
-
     } else if (kernelEntryName == "activation_sigmoid") {
         // E#92211: Measurements for the performance profiling, see this ticket for details.
         const auto inputSize = getTotalSize(swKernelOp.getInputs()[0]);
@@ -651,7 +729,8 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
             log.trace("random_uniform cannot be tiled with non-zero seeds");
             return false;
         }
-    } else if (kernelEntryName == "eltwise_mul" || kernelEntryName == "eltwise_select") {
+    } else if (kernelEntryName == "eltwise_mul" || kernelEntryName == "eltwise_mul_quantized_output" ||
+               kernelEntryName == "eltwise_select") {
         const auto outputSize = getTotalSize(swKernelOp.getOutputs()[0]);
         const auto minimalSize = Byte(1024);
         if (outputSize < minimalSize) {
@@ -808,7 +887,8 @@ int64_t getSwKernelByteAddressableTileAlignment(VPUIP::SwKernelOp swKernelOp, Di
 mlir::FailureOr<OutputTiling> getSwKernelOutputTiling(VPUIP::SwKernelOp swKernelOp, ShapeRef outputShape,
                                                       int64_t maxNumTiles, bool insertSubview, vpux::Logger log) {
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
-    if (kernelEntryName == "lstm_sequence" || kernelEntryName == "attention" || kernelEntryName == "flash_sdpa") {
+    if (kernelEntryName == "lstm_sequence" || kernelEntryName == "attention" || kernelEntryName == "flash_sdpa" ||
+        kernelEntryName == "gated_delta_net") {
         OutputTiling dividedTiles;
         TileInfo tileFullOutput(outputShape);
         log.trace("{0} no tiles is {1}", kernelEntryName, maxNumTiles);
@@ -979,22 +1059,28 @@ bool checkSwKernelTilingAlignment(VPUIP::SwKernelOp swKernelOp, const vpux::NDTy
 // SwKernelRewriterBase
 //
 
-static OutputTiling computeOutputTiling(VPUIP::SwKernelOp /*swKernelOp*/, const SmallString& kernelEntryName,
+static OutputTiling computeOutputTiling(VPUIP::SwKernelOp swKernelOp, const SmallString& kernelEntryName,
                                         const TileInfo& firstOutputTile) {
     if (kernelEntryName == "detection_output_sort") {
         return vpux::VPU::DetectionOutputSortOpOutputTiling(firstOutputTile);
     } else if (kernelEntryName == "topk") {
         return {firstOutputTile, firstOutputTile};
     } else if (kernelEntryName == "log_softmax_topk") {
-        return vpux::VPU::logSoftmaxTopKOutputTiling(firstOutputTile);
+        const auto axis = getLogSoftmaxTopKAxis(swKernelOp).ind();
+        return vpux::VPU::logSoftmaxTopKOutputTiling(firstOutputTile, axis);
     } else if (kernelEntryName == "log_softmax_peak") {
-        return vpux::VPU::logSoftmaxPeakOutputTiling(firstOutputTile);
+        return OutputTiling({firstOutputTile, firstOutputTile});
     } else if (kernelEntryName == "gru_sequence" || kernelEntryName == "gru_sequence_last_part") {
         return vpux::VPU::GRUSequenceOutputTiling(firstOutputTile);
     } else if ((kernelEntryName == "lstm_gates") || (kernelEntryName == "lstm_cell")) {
         return {firstOutputTile, firstOutputTile};
     } else if (kernelEntryName == "lstm_sequence") {
         return vpux::VPU::lstmSequenceOutputTiling(firstOutputTile);
+    } else if (kernelEntryName == "gated_delta_net") {
+        OutputTiling tiles;
+        tiles.push_back(firstOutputTile);
+        tiles.push_back(TileInfo(getShape(swKernelOp->getResult(1))));
+        return tiles;
     } else if ((kernelEntryName == "lstm_dpu")) {
         return vpux::VPU::lstmDpuOutputTiling(firstOutputTile);
     } else if (kernelEntryName == "flash_sdpa") {
@@ -1224,7 +1310,7 @@ bool SwKernelRewriterBase::needInsertSubviewOnly(VPUIP::SwKernelOp swKernelOp) c
         return isTopKOpTileAtHighestDim(swKernelOp);
     }
 
-    if (kernelEntryName == "flash_sdpa") {
+    if (kernelEntryName == "flash_sdpa" || kernelEntryName == "gated_delta_net") {
         return true;
     }
 
@@ -3000,9 +3086,16 @@ vpux::NDTypeInterface ClusterSwKernelRewriter::getNewTiledDistributedType(
             const auto tilingScheme = parseIntArrayAttr<int64_t>(distributionAttr.getNumTiles());
             const auto axis = vpux::VPU::getDistributedTilingAxis(tilingScheme);
             adjustedOffset = SmallVector<int64_t>(dimSize, 0);
-            for (auto preClusterId : irange(clusterId)) {
-                auto preTileOnSameShave = getTileInfo(preClusterId, outTileIndex, numClusters, mode, insertSubview);
-                adjustedOffset[axis] += preTileOnSameShave.shape[Dim(axis)];
+            if (tile.shape[Dim(axis)] == tiledShape[Dim(axis)]) {
+                const auto perClusterShapes = VPU::getPerClusterComputeShapes(tiledShape, distributionAttr);
+                const auto perClusterOffsets = VPU::getPerClusterComputeShapeOffsets(tiledShape, distributionAttr);
+                newTiledShape.back()[axis] = perClusterShapes[clusterId][Dim(axis)];
+                adjustedOffset[axis] = perClusterOffsets[clusterId][Dim(axis)];
+            } else {
+                for (auto preClusterId : irange(clusterId)) {
+                    auto preTileOnSameShave = getTileInfo(preClusterId, outTileIndex, numClusters, mode, insertSubview);
+                    adjustedOffset[axis] += preTileOnSameShave.shape[Dim(axis)];
+                }
             }
         } else {
             // In this case, CopyOp is used to generate the tiled distributed type. So the original buffer will copy
@@ -3053,13 +3146,11 @@ std::optional<vpux::NDTypeInterface> ClusterSwKernelRewriter::getImplicitDistrib
     auto ctx = swKernelOp->getContext();
     distributionAttr = VPU::updateSliceLikeOpsAlignment(ctx, srcDistributedType.getShape(), newShape, distributionAttr);
 
-    const auto memoryShapes =
-            VPU::getPerClusterMemoryShapes(newShape, distributionAttr, srcDistributedType.getElementType());
+    const auto memoryShapes = VPU::getPerClusterMemoryShapes(newShape, distributionAttr);
     if (!memoryShapes.has_value()) {
         return std::nullopt;
     }
-    const auto memoryOffsets =
-            VPU::getPerClusterMemoryShapeOffsets(newShape, distributionAttr, srcDistributedType.getElementType());
+    const auto memoryOffsets = VPU::getPerClusterMemoryShapeOffsets(newShape, distributionAttr);
     auto hasSameShapeValue = [&](ArrayRef<Shape> implicitShapes, ArrayRef<SmallVector<int64_t>> expectedShapes) {
         if (implicitShapes.size() != expectedShapes.size()) {
             return false;

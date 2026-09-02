@@ -24,11 +24,7 @@ mlir::LogicalResult vpux::VPU::GatherDMAOp::inferReturnTypes(mlir::MLIRContext*,
     const auto indicesType = mlir::cast<vpux::NDTypeInterface>(gatherDMAOp.getIndices().getType());
     const auto indicesShape = indicesType.getShape();
 
-    if (!gatherDMAOp.getAxisValue().has_value()) {
-        return mlir::failure();
-    }
-    const auto axis = gatherDMAOp.getAxisValue().value();
-
+    const auto axis = gatherDMAOp.getAxisValue();
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(gatherDMAOp.getInput().getType());
     const auto inputShape = inputType.getShape();
     auto outputShape = inputShape.toValues();
@@ -50,20 +46,7 @@ vpux::InputTiling vpux::VPU::GatherDMAOp::backInferTileInfo(const vpux::TileInfo
     const auto origIndicesShape = getShape(getIndices());
     bool hasAxisTensor = false;
 
-    int64_t axisValue = 0;
-
-    if (getAxisValueAttr() != nullptr) {
-        axisValue = mlir::cast<mlir::IntegerAttr>(getAxisValueAttr()).getValue().getSExtValue();
-    }
-    if (getAxis() != nullptr) {
-        auto axisConst = getAxis().getDefiningOp<Const::DeclareOp>();
-        VPUX_THROW_UNLESS(axisConst != nullptr, "Only constant input is supported for axis");
-        VPUX_THROW_UNLESS(axisConst.getContentAttr().isSplat(), "Axis value must be a scalar");
-        const auto axisContent = axisConst.getContent();
-        axisValue = axisContent.getSplatValue<int64_t>();
-        hasAxisTensor = true;
-    }
-
+    const int64_t axisValue = getAxisValue();
     return vpux::backInferGatherDMATile(outputTile, origInputShape, origIndicesShape, axisValue, hasAxisTensor, log);
 }
 
@@ -76,10 +59,7 @@ mlir::FailureOr<OutputTiling> vpux::VPU::GatherDMAOp::getTilingStrategy(TilingMo
                     "Only supporting isolated tiling for Gather currently, for op {0} at '{1}'", baseOp->getName(),
                     getLoc());
 
-    VPUX_THROW_WHEN(getAxisValueAttr() == nullptr, "Miss axis value, for op {0} at '{1}'", baseOp->getName(), getLoc());
-
-    auto axisValue = mlir::dyn_cast_or_null<mlir::IntegerAttr>(getAxisValueAttr()).getValue().getSExtValue();
-
+    const auto axisValue = getAxisValue();
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(baseOp->getResult(0).getType());
     const auto outputShape = outputType.getShape();
 
@@ -184,9 +164,8 @@ vpux::VPU::DistributionInfo vpux::VPU::GatherDMAOp::getExplicitDistributionInfoA
     VPUX_THROW_UNLESS(distributionMode != VPU::DistributionMode::OVERLAPPED,
                       "Overlapped distribution mode is not supported for GatherDMAOp");
 
-    auto outputType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
     return getNonOverlappedDistributedNative(shape, distributionMode, numTiles, numClusters, alignment,
-                                             uniformDistributedSegments, outputType.getElementType());
+                                             uniformDistributedSegments);
 }
 
 vpux::NDTypeInterface vpux::VPU::GatherDMAOp::getDistributedTypeForOpOperand(mlir::OpOperand& operand,

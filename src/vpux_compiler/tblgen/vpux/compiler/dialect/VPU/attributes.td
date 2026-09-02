@@ -1171,4 +1171,73 @@ def VPU_S2DD2SConfigAttr : VPU_Attr<"S2DD2SConfig"> {
     let assemblyFormat = "`<` struct(params) `>`";
 }
 
+def VPU_KernelInfoAttr : VPU_Attr<"KernelInfo"> {
+    let cppNamespace = "vpux::VPU";
+
+    let description = [{
+        Encodes information about how a JIT'ed kernel can be tiled.
+
+        `tilingInfoFunc` - a symref to a function that, given the scalar operands
+            of the kernel and the sizes/offsets of the current iteration-space tile,
+            returns the sizes and offsets of each sliced input.
+
+            For each input that needs to be sliced (see numSlicedInputs) and each
+            scratch buffer, this function returns the sizes and offsets of the input
+            slices encoded in memory order in the coordinates of the original inputs.
+            Note that the last arguments of this function are sizes/offsets into the
+            iteration space of the original untiled operation.
+
+            Example: for an op where we need to slice two tensor inputs a and b,
+            both having rank 4 and in NHWC layout, the op having a three-dimensional
+            iteration space and no extra arguments, this function
+            takes as arguments size0, size1, size2, off0, off1, off2 as sizes/offsets
+            into the iteration space and produces
+               tilesize(N)(a), tilesize(H)(a), tilesize(W)(a), tilesize(C)(a),
+               tileoffset(N)(a), tileoffset(H)(a), tileoffset(W)(a), tileoffset(C)(a),
+               tilesize(N)(b), tilesize(H)(b), tilesize(W)(b), tilesize(C)(b),
+               tileoffset(N)(b), tileoffset(H)(b), tileoffset(W)(b), tileoffset(C)(b)
+
+        `tilingAxes` - axes of the first result shape (in memory order) that
+            can be tiled. Stored in strictly ascending order.
+
+            Example: the first result of the op is in order NHWC, and tiling axes is [1, 2].
+            This means that the valid logical tiling dimensions are H and W.
+
+        `numSlicedInputs` - integer, the number of tensor arguments that require slicing
+            when tiling.
+    }];
+
+    let parameters = (ins
+        "mlir::SymbolRefAttr":$tilingInfoFunc,
+        "mlir::DenseI64ArrayAttr":$tilingAxes,
+        "mlir::IntegerAttr":$numSlicedInputs
+    );
+
+    let extraClassDeclaration = [{
+        /// Name under which this attribute is stored on the callee function.
+        static constexpr llvm::StringLiteral kFuncAttrName = "kernelInfo";
+    }];
+}
+
+def VPU_JITTilingAttr : VPU_Attr<"JITTiling"> {
+    let cppNamespace = "vpux::VPU";
+
+    let description = [{
+        Encodes the slice of the original (untiled) iteration space for a JIT'ed kernel.
+
+        `static_sizes` - sizes of the slice from the original iteration space computed
+            by this op, one entry per tiling axis, with mlir::ShapedType::kDynamic where
+            dynamic.
+
+        `static_offsets` - offsets of the slice from the original iteration space computed
+            by this op, one entry per tiling axis, with mlir::ShapedType::kDynamic where
+            dynamic.
+    }];
+
+    let parameters = (ins
+        "mlir::DenseI64ArrayAttr":$static_sizes,
+        "mlir::DenseI64ArrayAttr":$static_offsets
+    );
+}
+
 #endif

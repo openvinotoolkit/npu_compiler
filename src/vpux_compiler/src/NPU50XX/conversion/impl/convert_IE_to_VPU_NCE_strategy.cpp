@@ -19,12 +19,13 @@
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 namespace vpux::arch50xx {
 template <typename ConcreteOp>
 class ReduceToNCE final : public mlir::OpRewritePattern<ConcreteOp> {
 public:
-    ReduceToNCE<ConcreteOp>(mlir::MLIRContext* ctx, VPU::ReduceType opType, config::ArchKind arch, Logger log)
+    ReduceToNCE(mlir::MLIRContext* ctx, VPU::ReduceType opType, config::ArchKind arch, Logger log)
             : mlir::OpRewritePattern<ConcreteOp>(ctx), _opType(opType), _arch(arch), _log(log) {
     }
 
@@ -39,14 +40,16 @@ private:
 template <typename ConcreteOp>
 mlir::LogicalResult ReduceToNCE<ConcreteOp>::matchAndRewrite(ConcreteOp origOp, mlir::PatternRewriter& rewriter) const {
     auto* ctx = origOp.getContext();
-    auto axes = getIntArrayAttr(ctx, IE::extractAxes(origOp->getLoc(), origOp));
+    auto axes = origOp.getAxesValue();
     auto ppeAttr = VPU::getPpeConfig(ctx).retrievePPEAttribute(origOp);
 
     auto mpeEngineInterface = mlir::cast<IE::MPEEngineInfoOpInterface>(origOp.getOperation());
-    auto mpeEngineModeAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineMode());
+    const auto activationZp = getPerTensorZeroPointAttr(origOp.getInput());
+    auto mpeEngineAttr =
+            mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineWithZP(/*weightZp=*/nullptr, activationZp));
 
     auto nceOp = rewriter.create<VPU::NCEReduceOp>(origOp->getLoc(), origOp.getType(), origOp.getInput(), axes, ppeAttr,
-                                                   mpeEngineModeAttr, VPU::ReduceTypeAttr::get(ctx, _opType),
+                                                   mpeEngineAttr, VPU::ReduceTypeAttr::get(ctx, _opType),
                                                    /*multiClusterStrategy=*/nullptr, origOp.getOutputPaddingAttr(),
                                                    origOp.getInputPaddingAttr());
 

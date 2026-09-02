@@ -11,8 +11,7 @@
 
 #include "vpux/compiler/core/pipelines_options.hpp"
 #include "vpux/utils/logger/logger.hpp"
-
-#include "intel_npu/config/options.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 namespace vpux {
 
@@ -76,7 +75,7 @@ bool collectDebatchCoeffDescriptionIfPossible(std::ostream& stream, const ov::La
  * `tests/unit/vpux_compiler/frontend/auto_batch_compiler_detection_utils.cpp` where you can find information about
  * suitable combinations of params and options
  */
-bool isExplicitCfgBatchMethodOptionRequested(const intel_npu::Config& config, vpux::Logger& logger);
+bool isExplicitCfgBatchMethodOptionRequested(const vpux::OV::Config& config, vpux::Logger& logger);
 
 /* @brief checks whether inputs and outputs layouts of a @model have no batch dimensions.
  * If there are no batch dimensions neither in inputs not outputs, which have their layouts set explicitly,
@@ -141,7 +140,7 @@ std::tuple<bool, std::string> isBatchDetectedByOVHeuristic(const std::shared_ptr
  * @details For further details please check out `tests/unit/vpux_compiler/frontend/auto_batch_compiler_detection.cpp`
  * where you can find information about suitable usecases
  */
-bool isModelSuitableForDebatching(const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config,
+bool isModelSuitableForDebatching(const std::shared_ptr<ov::Model>& model, const vpux::OV::Config& config,
                                   vpux::Logger& logger);
 
 /**
@@ -159,8 +158,8 @@ bool isModelSuitableForDebatching(const std::shared_ptr<ov::Model>& model, const
  * @details For further details please check out tests/unit/vpux_compiler/frontend/auto_batch_compiler_detection.cpp
  * where you can find information about suitable combinations of @model and @config
  */
-std::tuple<intel_npu::Config, bool> autoDetectBatchedModelIfPossible(const std::shared_ptr<ov::Model>& model,
-                                                                     const intel_npu::Config& config);
+std::tuple<vpux::OV::Config, bool> autoDetectBatchedModelIfPossible(const std::shared_ptr<ov::Model>& model,
+                                                                    const vpux::OV::Config& config);
 
 /**
  * @brief the function analyses existing batch @config options requested explicitly and checks its controversy.
@@ -173,7 +172,7 @@ std::tuple<intel_npu::Config, bool> autoDetectBatchedModelIfPossible(const std::
  * tests/unit/vpux_compiler/frontend/auto_batch_compiler_detection.cpp
  * where you can find information about suitable combination of configuration options
  */
-bool checkCfgOnBatchOptionConsistency(const intel_npu::Config& config, std::ostream& outDescr);
+bool checkCfgOnBatchOptionConsistency(const vpux::OV::Config& config, std::ostream& outDescr);
 
 std::shared_ptr<ov::Model> debatchDynamicModel(const std::shared_ptr<ov::Model>& origModel, Logger& logger);
 }  // namespace vpux

@@ -73,7 +73,6 @@ if(ENABLE_MANAGEMENT_KERNEL_BUILD)
         "${MV_TOOLS_PATH}/common/moviCompile/lib/50xxxx/mlibcrt.a"
     )
     # Platform list: each entry maps a kernel CPU number to the firmware source subdirectory.
-    # 8000 shares the 7000 firmware sources.
     set(_rt_subdir_3720 3720)
     set(_rt_subdir_4000 4000)
     set(_rt_subdir_5000 5000)
@@ -198,10 +197,12 @@ foreach(platform IN LISTS _rt_platforms)
             "${FIRMWARE_VPU_DIR}/slimfw/drivers/nn/inc"
         )
 
+        set(_l2_cache_op_src "${_slimfw_ar}/src/common/nnActL2CacheOp.cpp")
         set(extra_src_list
             "${_slimfw_ar}/src/${platform_subdir}/nnActRtFuncs.cpp"
             "${_slimfw_ar}/src/common/nnActPerfManager.cpp"
             "${_slimfw_ar}/src/common/nnActCache.cpp"
+            "${_l2_cache_op_src}"
             "${FIRMWARE_VPU_DIR}/slimfw/drivers/nn/src/nn_fifo.cpp"
             "${FIRMWARE_VPU_DIR}/slimfw/drivers/shave/cache/ShaveL1Cache-Shave.c"
         )
@@ -231,6 +232,7 @@ foreach(platform IN LISTS _rt_platforms)
         "-fno-exceptions"
         "-ffunction-sections"
         "-fdata-sections"
+        "-mllvm" "-shave-align-stack=32"
         ${include_dirs_list}
         ${define_symbols_list}
         "-mshave-preemption-checks=off")

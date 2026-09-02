@@ -4,9 +4,8 @@
 //
 
 #include "vpux/compiler/frontend/ov_batch_detection.hpp"
-#include "intel_npu/config/options.hpp"
 #include "vpux/compiler/utils/batch.hpp"
-#include "vpux/utils/ov/config.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 #include <openvino/core/dimension.hpp>
 #include <openvino/core/preprocess/pre_post_process.hpp>
@@ -69,11 +68,11 @@ bool collectDebatchCoeffDescriptionIfPossible(std::ostream& stream, const ov::La
     return false;
 }
 
-bool isExplicitCfgBatchMethodOptionRequested(const intel_npu::Config& config, vpux::Logger& logger) {
-    if (!config.has<intel_npu::BATCH_COMPILER_MODE_SETTINGS>()) {
+bool isExplicitCfgBatchMethodOptionRequested(const vpux::OV::Config& config, vpux::Logger& logger) {
+    if (!config.has<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>()) {
         return false;
     }
-    const std::string& compilationModeParams = config.get<intel_npu::BATCH_COMPILER_MODE_SETTINGS>();
+    const std::string& compilationModeParams = config.get<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>();
     auto batchingAdapterView = BatchCompilerOptionsAdapterView::tryExtractFromString(compilationModeParams);
     if (!batchingAdapterView.has_value()) {
         logger.debug("Cannot parse BatchCompileOptionsAdapter from BATCH_COMPILER_MODE_SETTINGS. Skip explicit batch "
@@ -245,12 +244,12 @@ std::tuple<bool, std::string> isBatchDetectedByOVHeuristic(const std::shared_ptr
     return std::make_tuple(true, debatchingCoefficientsStream.str());
 }
 
-bool isModelSuitableForDebatching(const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config,
+bool isModelSuitableForDebatching(const std::shared_ptr<ov::Model>& model, const vpux::OV::Config& config,
                                   vpux::Logger& logger) {
     size_t modelOpsNumberEnableThreshold = 10;
     size_t maxBatchNumberDisableLimit = 10;  // TODO E####-59453
-    if (config.has<intel_npu::BATCH_COMPILER_MODE_SETTINGS>()) {
-        const std::string& compilationModeParams = config.get<intel_npu::BATCH_COMPILER_MODE_SETTINGS>();
+    if (config.has<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>()) {
+        const std::string& compilationModeParams = config.get<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>();
         auto batchingAdapterView = BatchCompilerOptionsAdapterView::tryExtractFromString(compilationModeParams);
         if (batchingAdapterView.has_value()) {
             if (auto debatcherOptionPtr = DebatcherOptions::create(batchingAdapterView->get());
@@ -298,9 +297,9 @@ bool isModelSuitableForDebatching(const std::shared_ptr<ov::Model>& model, const
     return true;
 }
 
-std::string_view chooseAppropriateDebatchingMethod(const intel_npu::Config& config) {
-    if (config.has<intel_npu::COMPILATION_MODE>()) {
-        if (config.get<intel_npu::COMPILATION_MODE>().find("HostCompile") != std::string::npos) {
+std::string_view chooseAppropriateDebatchingMethod(const vpux::OV::Config& config) {
+    if (config.has<vpux::OV::COMPILATION_MODE>()) {
+        if (config.get<vpux::OV::COMPILATION_MODE>().find("HostCompile") != std::string::npos) {
             return "host_pipeline";
         }
     }
@@ -308,20 +307,20 @@ std::string_view chooseAppropriateDebatchingMethod(const intel_npu::Config& conf
     return "naive";
 }
 
-std::tuple<intel_npu::Config, bool> autoDetectBatchedModelIfPossible(const std::shared_ptr<ov::Model>& model,
-                                                                     const intel_npu::Config& config) {
-    vpux::Logger logger("autoDetectBatchedModelIfPossible", getLogLevel(config));
+std::tuple<vpux::OV::Config, bool> autoDetectBatchedModelIfPossible(const std::shared_ptr<ov::Model>& model,
+                                                                    const vpux::OV::Config& config) {
+    vpux::Logger logger("autoDetectBatchedModelIfPossible", config.get<vpux::OV::LOG_LEVEL>());
 
-    if (!config.has<intel_npu::BATCH_MODE>()) {
+    if (!config.has<vpux::OV::BATCH_MODE>()) {
         return {config, false};
     }
 
-    if (config.get<intel_npu::BATCH_MODE>() != ov::intel_npu::BatchMode::COMPILER &&
-        config.get<intel_npu::BATCH_MODE>() != ov::intel_npu::BatchMode::AUTO) {
+    if (config.get<vpux::OV::BATCH_MODE>() != vpux::OV::BatchMode::COMPILER &&
+        config.get<vpux::OV::BATCH_MODE>() != vpux::OV::BatchMode::AUTO) {
         logger.debug("Config option \"{0}\" is incompatible with batch-network auto detection. Use \"{1}\" or \"{2}\" "
                      "instead",
-                     intel_npu::BATCH_MODE::key(), intel_npu::BATCH_MODE::toString(ov::intel_npu::BatchMode::COMPILER),
-                     intel_npu::BATCH_MODE::toString(ov::intel_npu::BatchMode::AUTO));
+                     vpux::OV::BATCH_MODE::key(), vpux::OV::BATCH_MODE::toString(vpux::OV::BatchMode::COMPILER),
+                     vpux::OV::BATCH_MODE::toString(vpux::OV::BatchMode::AUTO));
         return {config, false};
     }
 
@@ -351,10 +350,10 @@ std::tuple<intel_npu::Config, bool> autoDetectBatchedModelIfPossible(const std::
                           "Cannot create BatchCompilerOptionsAdapterView from: \"{0}\"", debatchingCompileMethodParams);
 
         std::map<std::string, std::string> toUpdate;
-        toUpdate[ov::intel_npu::batch_compiler_mode_settings.name()] =
-                autoDebatcherOptions->injectInto(config.get<intel_npu::BATCH_COMPILER_MODE_SETTINGS>());
+        toUpdate[vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data()] =
+                autoDebatcherOptions->injectInto(config.get<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>());
 
-        intel_npu::Config newConfig = config;
+        vpux::OV::Config newConfig = config;
         newConfig.update(toUpdate);
         return newConfig;
     };
@@ -381,9 +380,9 @@ std::tuple<intel_npu::Config, bool> autoDetectBatchedModelIfPossible(const std::
     return {config, false};
 }
 
-bool checkCfgOnBatchOptionConsistency(const intel_npu::Config& config, std::ostream& outDescr) {
-    if ((config.get<intel_npu::BATCH_MODE>() == ov::intel_npu::BatchMode::PLUGIN) &&
-        config.has<intel_npu::BATCH_COMPILER_MODE_SETTINGS>()) {
+bool checkCfgOnBatchOptionConsistency(const vpux::OV::Config& config, std::ostream& outDescr) {
+    if ((config.get<vpux::OV::BATCH_MODE>() == vpux::OV::BatchMode::PLUGIN) &&
+        config.has<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>()) {
         outDescr << "BATCH_COMPILER_MODE_SETTINGS can't be specified while BATCH_MODE is PLUGIN";
         return false;
     }

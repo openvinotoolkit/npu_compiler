@@ -54,15 +54,19 @@ public:
                              std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& taskQueueTypeMap, size_t pageSize,
                              size_t barrierFifoDepth = 1, size_t numClusters = 1,
                              const SmallVector<size_t>& shvTasksWithDpu = {},
-                             const SmallVector<size_t>& shvTasksWithDma = {}, Logger log = Logger::global());
+                             const SmallVector<size_t>& shvTasksWithDma = {},
+                             bool initializeAndVerifyBoundaryTasksData = true, Logger log = Logger::global());
 
     // Reconfigure barrier FIFO depth. Meant to be used in case of LIT tests
     void reconfigureBarrierFifoDepth(size_t barrierFifoDepth);
+    // Reconfigure allowDepsChangeDuringInitialization flag. Meant to be used in unit tests
+    void reconfigureAllowDepsChangeDuringInitialization(bool allowDepsChange);
     void initializeForAssignment(mlir::func::FuncOp func);
-    void initializeForLegalization();
+    void initializeForLegalization(bool allowDepsChange = false);
     void initializeForEnqueue(mlir::func::FuncOp func);
     void initializeForVerification(mlir::func::FuncOp func);
     void initializeTaskQueueTypeMap(mlir::func::FuncOp func);
+    void initializeBoundaryTasksData();
 
     SmallVector<size_t> getFirstAndLastBoundaryTasksForPage(size_t pageInd);
 
@@ -84,6 +88,7 @@ public:
     void readTaskPageAssignmentFromIr();
 
     void updateTaskPageAssignmentForShvInCaseOfNoDedicatedShvFifos();
+    void ensureBoundaryTasksHaveUpdateBarriers();
 
     struct DummyDmaDataForPagesWithNoTasks {
         size_t pageInd;
@@ -185,8 +190,8 @@ private:
     VPURT::TaskQueueType getTaskQueueTypeWithExplicitFifo(size_t taskInd);
 
     void updateBoundaryTasksDataForTask(size_t taskInd);
+    bool verifyBoundaryTaskHasUpdateBarrier(size_t pageInd);
     void enforceBoundaryTaskHasUpdateBarrier(size_t pageInd);
-    void initializeBoundaryTasksData();
     void updateBoundaryTasksDataForPage(size_t pageInd);
     bool isTaskWithNonAdjacentPageDependency(size_t taskInd);
 
@@ -233,6 +238,7 @@ private:
     SmallVector<mlir::DenseMap<VPURT::TaskQueueType, std::pair<size_t, size_t>>> getFirstAndLastDmaOfTypePerPage();
 
     void findShvTasksWithDpuOrDma(mlir::func::FuncOp func);
+    void findShvSubmitSyncDmaTasks();
 
     SmallVector<size_t> getBarrierPidPrevUsageVec(BarrierInfo::TaskSet& barriers);
 
@@ -256,9 +262,13 @@ private:
             const DenseMap<VPURT::TaskQueueType, std::optional<size_t>>& previousTaskIndOptPerQueue,
             std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue);
 
-    void updateDpuEnqPositionToAccountForSyncTask(
+    void updateDpuEnqPositionToAccountForControlBlockSyncTask(
             size_t taskInd, VPURT::TaskQueueType queueType, const VPURT::TaskQueueType& enqueueDmaQueueType,
             std::map<VPURT::TaskQueueType, SmallVector<EnqueueDmaData>>& enqDmaDataVecPerQueue);
+
+    bool updateDpuEnqPositionToAccountForShvDependentSyncDmas(size_t taskInd, VPURT::TaskQueueType queueType,
+                                                              const VPURT::TaskQueueType& enqueueDmaQueueType,
+                                                              EnqueueDmaData& lastEnqDmaData);
 
     SmallVector<size_t> _barrierToPageAssignment;
 
@@ -312,6 +322,12 @@ private:
     // to be taken into account
     mlir::DenseMap<size_t, mlir::DenseSet<size_t>> _shvTasksWithDmaPerTile;
 
+    // Cache SHV submit SyncDMA task index on DMA port0 DDR queue by logical task index.
+    mlir::DenseMap<int64_t, size_t> _shvSubmitSyncDmaP0DdrByLogicalTask;
+
+    // Direct mapping used by enqueue legalization: SHV task index -> matching submit
+    // SyncDMA task index on DMA port0 DDR queue.
+    mlir::DenseMap<size_t, size_t> _shvSubmitSyncDmaP0DdrByShvTask;
     // Store information about task control map that will be initialized through
     // barrierInfo for given control graph split block index
     std::optional<size_t> _blockIdxOfTaskControlMap;
@@ -321,7 +337,11 @@ private:
     // TaskOp. In case of UnitTest to be set to "false" to remove dependency on IR
     bool _getNumberOfWorkloadsFromTaskOpFlag = true;
 
-    bool _legalizationMode = false;
+    // During initialization of BarrierPagesSplitHandler, by default, code that may modify barrier dependencies is
+    // disabled. For verification purposes, this is to ensure that during initialization we do not modify any
+    // dependencies. During legalization this flag may be enabled to perform initial legalization, which may modify
+    // barrier dependencies.
+    bool _allowDepsChangeDuringInitialization = false;
 
     Logger _log;
 };

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023-2025 Intel Corporation
+// Copyright (C) 2023-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -16,8 +16,6 @@ class ReshapeWithTransposeTest_NPU3720 :
         public testing::WithParamInterface<std::vector<int64_t>> {
     void SetUp() override {
         const auto transposeOrder = GetParam();
-        const size_t inputColumns = 64;
-        const size_t outputColumns = 76;
         const ov::Shape lhsInputShape = {1, 768, 14, 14};
         init_input_shapes(static_shapes_to_test_representation({lhsInputShape}));
 

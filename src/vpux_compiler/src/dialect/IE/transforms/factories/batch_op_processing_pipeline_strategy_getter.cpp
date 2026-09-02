@@ -10,9 +10,10 @@
 using namespace vpux;
 
 void IE::BatchOpProcessingPipelineStrategy::registerRewriters(RewriterRegistry& registry, Logger& log) const {
-    SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(4);
+    SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(5);
     IE::registerMatMulInputsTo2dRewriters(registry, log, benefitLevels, 0, _enableGroupedMatMul);
-    IE::registerPropagateOpThroughBatchConcatRewriters(registry, log, benefitLevels, 3);
+    IE::registerEliminateReshapeRoundtripInSDPARewriters(registry, log, benefitLevels, 1);
+    IE::registerPropagateOpThroughBatchConcatRewriters(registry, log, benefitLevels, 4);
 }
 
 std::unique_ptr<IDynamicRewriterStrategy> IE::createBatchOpProcessingPipelineStrategy(mlir::func::FuncOp,

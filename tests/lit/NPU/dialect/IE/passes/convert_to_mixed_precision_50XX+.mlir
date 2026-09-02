@@ -467,3 +467,216 @@ func.func @ConvertConvWithLeakyReluConsumer(%arg0: tensor<1x16x3x3xf16>) -> tens
 
     // CHECK: return [[LEAKY]]
 }
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16, 0.28679281496534159>
+
+// CHECK-LABEL: @FuseQuantizeIntoMultiply
+// CHECK-SAME:     [[ARG_0:%[^:]+]]: tensor<1x16x4x4xf16>
+// CHECK-SAME:     [[ARG_1:%[^:]+]]: tensor<1x16x4x4xf16>
+func.func @FuseQuantizeIntoMultiply(%arg0: tensor<1x16x4x4xf16>, %arg1: tensor<1x16x4x4xf16>) -> tensor<1x16x4x4x!qElemType> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>}
+        : tensor<1x16x4x4xf16>, tensor<1x16x4x4xf16> -> tensor<1x16x4x4xf16>
+    %1 = IE.Quantize(%0) {dstElemType = !qElemType} : tensor<1x16x4x4xf16> -> tensor<1x16x4x4x!qElemType>
+    return %1 : tensor<1x16x4x4x!qElemType>
+
+    // CHECK-NOT: IE.Quantize
+    // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[ARG_0]], [[ARG_1]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>}
+    // CHECK-SAME:     : tensor<1x16x4x4xf16>, tensor<1x16x4x4xf16> -> tensor<1x16x4x4x!qElemType>
+    // CHECK: return [[MULTIPLY]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16:1, {0.10000000000000001,0.20000000000000001,0.30000000000000004}>
+
+// CHECK-LABEL: @DoNotFuseQuantizeIntoMultiplyPerAxis
+// CHECK-SAME:     [[ARG_0:%[^:]+]]: tensor<1x3x4x4xf16>
+// CHECK-SAME:     [[ARG_1:%[^:]+]]: tensor<1x3x4x4xf16>
+func.func @DoNotFuseQuantizeIntoMultiplyPerAxis(%arg0: tensor<1x3x4x4xf16>, %arg1: tensor<1x3x4x4xf16>) -> tensor<1x3x4x4x!qElemType> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>}
+        : tensor<1x3x4x4xf16>, tensor<1x3x4x4xf16> -> tensor<1x3x4x4xf16>
+    %1 = IE.Quantize(%0) {dstElemType = !qElemType} : tensor<1x3x4x4xf16> -> tensor<1x3x4x4x!qElemType>
+    return %1 : tensor<1x3x4x4x!qElemType>
+
+    // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[ARG_0]], [[ARG_1]])
+    // CHECK-SAME:     : tensor<1x3x4x4xf16>, tensor<1x3x4x4xf16> -> tensor<1x3x4x4xf16>
+    // CHECK: [[QUANTIZE:%.+]] = IE.Quantize([[MULTIPLY]]) {dstElemType = !qElemType}
+    // CHECK: return [[QUANTIZE]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16, 0.28679281496534159>
+!qElemType1 = !quant.uniform<u8:f16, 0.081176862529679844:128>
+
+// CHECK-LABEL: @DoNotFuseQuantizeIntoMultiplyMultipleConsumers
+// CHECK-SAME:     [[ARG_0:%[^:]+]]: tensor<1x16x4x4xf16>
+// CHECK-SAME:     [[ARG_1:%[^:]+]]: tensor<1x16x4x4xf16>
+func.func @DoNotFuseQuantizeIntoMultiplyMultipleConsumers(%arg0: tensor<1x16x4x4xf16>, %arg1: tensor<1x16x4x4xf16>) -> (tensor<1x16x4x4x!qElemType>, tensor<1x16x4x4x!qElemType1>) {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>}
+        : tensor<1x16x4x4xf16>, tensor<1x16x4x4xf16> -> tensor<1x16x4x4xf16>
+    %1 = IE.Quantize(%0) {dstElemType = !qElemType} : tensor<1x16x4x4xf16> -> tensor<1x16x4x4x!qElemType>
+    %2 = IE.Quantize(%0) {dstElemType = !qElemType1} : tensor<1x16x4x4xf16> -> tensor<1x16x4x4x!qElemType1>
+    return %1, %2 : tensor<1x16x4x4x!qElemType>, tensor<1x16x4x4x!qElemType1>
+
+    // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[ARG_0]], [[ARG_1]])
+    // CHECK-SAME:     : tensor<1x16x4x4xf16>, tensor<1x16x4x4xf16> -> tensor<1x16x4x4xf16>
+    // CHECK: [[Q1:%.+]] = IE.Quantize([[MULTIPLY]]) {dstElemType = !qElemType}
+    // CHECK: [[Q2:%.+]] = IE.Quantize([[MULTIPLY]]) {dstElemType = !qElemType1}
+    // CHECK: return [[Q1]], [[Q2]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.0013184806879828958:128>
+
+// CHECK-LABEL: @DoNotFuseQuantizeIntoMultiplyBroadcastInputs
+// CHECK-SAME:     [[ARG_0:%[^:]+]]: tensor<1x1x4x4xf16>
+// CHECK-SAME:     [[ARG_1:%[^:]+]]: tensor<1x4x4x4xf16>
+func.func @DoNotFuseQuantizeIntoMultiplyBroadcastInputs(%arg0: tensor<1x1x4x4xf16>,
+                                                        %arg1: tensor<1x4x4x4xf16>) -> tensor<1x4x4x4x!qElemType> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+        : tensor<1x1x4x4xf16>, tensor<1x4x4x4xf16> -> tensor<1x4x4x4xf16>
+    %1 = IE.Quantize(%0) {dstElemType = !qElemType} : tensor<1x4x4x4xf16> -> tensor<1x4x4x4x!qElemType>
+    return %1 : tensor<1x4x4x4x!qElemType>
+
+    // Fusion must be skipped: inputs have different shapes (broadcast over C dim).
+    // IE.Multiply and IE.Quantize must remain as separate ops.
+    // CHECK-NOT: IE.Multiply{{.*}}-> tensor<1x4x4x4x!qElemType>
+    // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[ARG_0]], [[ARG_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK-SAME:     : tensor<1x1x4x4xf16>, tensor<1x4x4x4xf16> -> tensor<1x4x4x4xf16>
+    // CHECK: [[QUANTIZE:%.+]] = IE.Quantize([[MULTIPLY]]) {dstElemType = !qElemType}
+    // CHECK-SAME:     : tensor<1x4x4x4xf16> -> tensor<1x4x4x4x!qElemType>
+    // CHECK: return [[QUANTIZE]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 1.250000e-01:123>
+
+// CHECK-LABEL: @RejectFusionOnConvSoftmaxViewConvQuantize
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x128x32x32xf16>)
+func.func @RejectFusionOnConvSoftmaxViewConvQuantize(%arg0: tensor<1x128x32x32xf16>) -> tensor<1x8x1024x1x!qElemType> {
+    %weights0 = const.Declare tensor<128x128x1x1xf16> = dense<1.0> : tensor<128x128x1x1xf16>
+    %weights1 = const.Declare tensor<8x128x1x1xf16> = dense<1.0> : tensor<8x128x1x1xf16>
+
+    %conv0 = IE.Convolution(%arg0, %weights0) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x128x32x32xf16>, tensor<128x128x1x1xf16> -> tensor<1x128x32x32xf16>
+    %softmax = IE.SoftMax(%conv0) {axisInd = 1 : i64} : tensor<1x128x32x32xf16> -> tensor<1x128x32x32xf16>
+    %reshape = IE.Reshape(%softmax) {shape_value = [1, 128, 1024, 1]} : tensor<1x128x32x32xf16> -> tensor<1x128x1024x1xf16>
+    %conv1 = IE.Convolution(%reshape, %weights1) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x128x1024x1xf16>, tensor<8x128x1x1xf16> -> tensor<1x8x1024x1xf16>
+    %quantize = IE.Quantize(%conv1) {dstElemType = !qElemType} : tensor<1x8x1024x1xf16> -> tensor<1x8x1024x1x!qElemType>
+
+    return %quantize : tensor<1x8x1024x1x!qElemType>
+
+    // CHECK-DAG: [[WEIGHTS0:%.+]] = const.Declare tensor<128x128x1x1xf16>
+    // CHECK-DAG: [[WEIGHTS1:%.+]] = const.Declare tensor<8x128x1x1xf16>
+    // CHECK: [[CONV0:%.+]] = IE.Convolution([[ARG0]], [[WEIGHTS0]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x128x32x32xf16>, tensor<128x128x1x1xf16> -> tensor<1x128x32x32xf16>
+    // CHECK: [[SOFTMAX:%.+]] = IE.SoftMax([[CONV0]]) {axisInd = 1 : i64} : tensor<1x128x32x32xf16> -> tensor<1x128x32x32xf16>
+    // CHECK: [[RESHAPE:%.+]] = IE.Reshape([[SOFTMAX]]) {shape_value = [1, 128, 1024, 1]} : tensor<1x128x32x32xf16> -> tensor<1x128x1024x1xf16>
+    // CHECK: [[CONV1:%.+]] = IE.Convolution([[RESHAPE]], [[WEIGHTS1]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x128x1024x1xf16>, tensor<8x128x1x1xf16> -> tensor<1x8x1024x1xf16>
+    // CHECK: [[QUANT:%.+]] = IE.Quantize([[CONV1]]) {dstElemType = !qElemType} : tensor<1x8x1024x1xf16> -> tensor<1x8x1024x1x!qElemType>
+    // CHECK: return [[QUANT]] : tensor<1x8x1024x1x!qElemType>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 1.250000e-01:123>
+
+// CHECK-LABEL: @RejectFusionOnConvSoftmaxConvQuantize
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x128x32x32xf16>)
+func.func @RejectFusionOnConvSoftmaxConvQuantize(%arg0: tensor<1x128x32x32xf16>) -> tensor<1x8x32x32x!qElemType> {
+    %weights0 = const.Declare tensor<128x128x1x1xf16> = dense<1.0> : tensor<128x128x1x1xf16>
+    %weights1 = const.Declare tensor<8x128x1x1xf16> = dense<1.0> : tensor<8x128x1x1xf16>
+
+    %conv0 = IE.Convolution(%arg0, %weights0) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x128x32x32xf16>, tensor<128x128x1x1xf16> -> tensor<1x128x32x32xf16>
+    %softmax = IE.SoftMax(%conv0) {axisInd = 1 : i64} : tensor<1x128x32x32xf16> -> tensor<1x128x32x32xf16>
+    %conv1 = IE.Convolution(%softmax, %weights1) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x128x32x32xf16>, tensor<8x128x1x1xf16> -> tensor<1x8x32x32xf16>
+    %quantize = IE.Quantize(%conv1) {dstElemType = !qElemType} : tensor<1x8x32x32xf16> -> tensor<1x8x32x32x!qElemType>
+
+    return %quantize : tensor<1x8x32x32x!qElemType>
+
+    // CHECK-DAG: [[WEIGHTS0:%.+]] = const.Declare tensor<128x128x1x1xf16>
+    // CHECK-DAG: [[WEIGHTS1:%.+]] = const.Declare tensor<8x128x1x1xf16>
+    // CHECK: [[CONV0:%.+]] = IE.Convolution([[ARG0]], [[WEIGHTS0]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x128x32x32xf16>, tensor<128x128x1x1xf16> -> tensor<1x128x32x32xf16>
+    // CHECK: [[SOFTMAX:%.+]] = IE.SoftMax([[CONV0]]) {axisInd = 1 : i64} : tensor<1x128x32x32xf16> -> tensor<1x128x32x32xf16>
+    // CHECK: [[CONV1:%.+]] = IE.Convolution([[SOFTMAX]], [[WEIGHTS1]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x128x32x32xf16>, tensor<8x128x1x1xf16> -> tensor<1x8x32x32xf16>
+    // CHECK: [[QUANT:%.+]] = IE.Quantize([[CONV1]]) {dstElemType = !qElemType} : tensor<1x8x32x32xf16> -> tensor<1x8x32x32x!qElemType>
+    // CHECK: return [[QUANT]] : tensor<1x8x32x32x!qElemType>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 1.250000e-01:123>
+
+// CHECK-LABEL: @DoNotRejectFusionOnConvSoftmaxConvQuantizeSmallSoftmax
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x64x16x16xf16>)
+func.func @DoNotRejectFusionOnConvSoftmaxConvQuantizeSmallSoftmax(%arg0: tensor<1x64x16x16xf16>) -> tensor<1x8x16x16x!qElemType> {
+    %weights0 = const.Declare tensor<64x64x1x1xf16> = dense<1.0> : tensor<64x64x1x1xf16>
+    %weights1 = const.Declare tensor<8x64x1x1xf16> = dense<1.0> : tensor<8x64x1x1xf16>
+
+    %conv0 = IE.Convolution(%arg0, %weights0) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x16x16xf16>, tensor<64x64x1x1xf16> -> tensor<1x64x16x16xf16>
+    %softmax = IE.SoftMax(%conv0) {axisInd = 1 : i64} : tensor<1x64x16x16xf16> -> tensor<1x64x16x16xf16>
+    %conv1 = IE.Convolution(%softmax, %weights1) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x16x16xf16>, tensor<8x64x1x1xf16> -> tensor<1x8x16x16xf16>
+    %quantize = IE.Quantize(%conv1) {dstElemType = !qElemType} : tensor<1x8x16x16xf16> -> tensor<1x8x16x16x!qElemType>
+
+    return %quantize : tensor<1x8x16x16x!qElemType>
+
+    // CHECK-DAG: [[WEIGHTS0:%.+]] = const.Declare tensor<64x64x1x1xf16>
+    // CHECK-DAG: [[WEIGHTS1:%.+]] = const.Declare tensor<8x64x1x1xf16>
+    // CHECK: [[CONV0:%.+]] = IE.Convolution([[ARG0]], [[WEIGHTS0]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x16x16xf16>, tensor<64x64x1x1xf16> -> tensor<1x64x16x16xf16>
+    // CHECK: [[SOFTMAX:%.+]] = IE.SoftMax([[CONV0]]) {axisInd = 1 : i64} : tensor<1x64x16x16xf16> -> tensor<1x64x16x16xf16>
+    // CHECK: [[CONV1:%.+]] = IE.Convolution([[SOFTMAX]], [[WEIGHTS1]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x16x16xf16>, tensor<8x64x1x1xf16> -> tensor<1x8x16x16x!qElemType>
+    // CHECK-NOT: IE.Quantize
+    // CHECK: return [[CONV1]] : tensor<1x8x16x16x!qElemType>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 1.250000e-01:123>
+
+// CHECK-LABEL: @DoNotRejectFusionOnConvSoftmaxConvQuantizeLowRatio
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x64x32x32xf16>)
+func.func @DoNotRejectFusionOnConvSoftmaxConvQuantizeLowRatio(%arg0: tensor<1x64x32x32xf16>) -> tensor<1x8x32x32x!qElemType> {
+    %weights0 = const.Declare tensor<64x64x1x1xf16> = dense<1.0> : tensor<64x64x1x1xf16>
+    %weights1 = const.Declare tensor<8x64x1x1xf16> = dense<1.0> : tensor<8x64x1x1xf16>
+
+    %conv0 = IE.Convolution(%arg0, %weights0) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x32x32xf16>, tensor<64x64x1x1xf16> -> tensor<1x64x32x32xf16>
+    %softmax = IE.SoftMax(%conv0) {axisInd = 1 : i64} : tensor<1x64x32x32xf16> -> tensor<1x64x32x32xf16>
+    %conv1 = IE.Convolution(%softmax, %weights1) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x32x32xf16>, tensor<8x64x1x1xf16> -> tensor<1x8x32x32xf16>
+    %quantize = IE.Quantize(%conv1) {dstElemType = !qElemType} : tensor<1x8x32x32xf16> -> tensor<1x8x32x32x!qElemType>
+
+    return %quantize : tensor<1x8x32x32x!qElemType>
+
+    // CHECK-DAG: [[WEIGHTS0:%.+]] = const.Declare tensor<64x64x1x1xf16>
+    // CHECK-DAG: [[WEIGHTS1:%.+]] = const.Declare tensor<8x64x1x1xf16>
+    // CHECK: [[CONV0:%.+]] = IE.Convolution([[ARG0]], [[WEIGHTS0]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x32x32xf16>, tensor<64x64x1x1xf16> -> tensor<1x64x32x32xf16>
+    // CHECK: [[SOFTMAX:%.+]] = IE.SoftMax([[CONV0]]) {axisInd = 1 : i64} : tensor<1x64x32x32xf16> -> tensor<1x64x32x32xf16>
+    // CHECK: [[CONV1:%.+]] = IE.Convolution([[SOFTMAX]], [[WEIGHTS1]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x32x32xf16>, tensor<8x64x1x1xf16> -> tensor<1x8x32x32x!qElemType>
+    // CHECK-NOT: IE.Quantize
+    // CHECK: return [[CONV1]] : tensor<1x8x32x32x!qElemType>
+}
+
+// -----
+!qElemType = !quant.uniform<u8:f16, 1.250000e-01:123>
+// CHECK-LABEL: @FuseQuantizeOnMatMulSoftmaxMatMul
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x8x1x64xf16>)
+func.func @FuseQuantizeOnMatMulSoftmaxMatMul(%arg0: tensor<1x8x1x64xf16>) -> tensor<1x8x1x1024x!qElemType> {
+    %weights0 = const.Declare tensor<1x8x16384x64xf16> = dense<1.0> : tensor<1x8x16384x64xf16>
+    %weights1 = const.Declare tensor<1x8x16384x1024xf16> = dense<1.0> : tensor<1x8x16384x1024xf16>
+    %matmul0 = IE.MatMul(%arg0, %weights0) {transpose_b} : tensor<1x8x1x64xf16>, tensor<1x8x16384x64xf16> -> tensor<1x8x1x16384xf16>
+    %softmax = IE.SoftMax(%matmul0) {axisInd = 1 : i64} : tensor<1x8x1x16384xf16> -> tensor<1x8x1x16384xf16>
+    %matmul1 = IE.MatMul(%softmax, %weights1) : tensor<1x8x1x16384xf16>, tensor<1x8x16384x1024xf16> -> tensor<1x8x1x1024xf16>
+    %quantize = IE.Quantize(%matmul1) {dstElemType = !qElemType} : tensor<1x8x1x1024xf16> -> tensor<1x8x1x1024x!qElemType>
+
+    return %quantize : tensor<1x8x1x1024x!qElemType>
+
+    // CHECK-DAG: [[WEIGHTS0:%.+]] = const.Declare tensor<1x8x16384x64xf16> = dense<1.000000e+00> : tensor<1x8x16384x64xf16>
+    // CHECK-DAG: [[WEIGHTS1:%.+]] = const.Declare tensor<1x8x16384x1024xf16> = dense<1.000000e+00> : tensor<1x8x16384x1024xf16>
+    // CHECK: [[MATMUL0:%.+]] = IE.MatMul([[ARG0]], [[WEIGHTS0]]) {transpose_b} : tensor<1x8x1x64xf16>, tensor<1x8x16384x64xf16> -> tensor<1x8x1x16384xf16>
+    // CHECK: [[SOFTMAX:%.+]] = IE.SoftMax([[MATMUL0]]) {axisInd = 1 : i64} : tensor<1x8x1x16384xf16> -> tensor<1x8x1x16384xf16>
+    // CHECK: [[MATMUL1:%.+]] = IE.MatMul([[SOFTMAX]], [[WEIGHTS1]]) : tensor<1x8x1x16384xf16>, tensor<1x8x16384x1024xf16> -> tensor<1x8x1x1024x!qElemType>
+    // CHECK-NOT: IE.Quantize
+    // CHECK: return [[MATMUL1]] : tensor<1x8x1x1024x!qElemType>
+}

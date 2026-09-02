@@ -37,14 +37,34 @@ bool checkMatMul(IE::MatMulOp origOp) {
         return false;
     }
 
-    if (lhsShape[H] == 1) {
-        return true;
-    }
-
-    // The optimization will break the VF pattern for MatMul-Add-Softmax-MatMul in LLM, but VF pattern needs
-    // unrolled MatMul, not grouped MatMul. So here we check if it is beneficial for group MatMul.
-    bool res = isGroupedMatMulBeneficial(origOp, lhsShape, rhsShape);
-    return res;
+    // Shrinking groups is beneficial only when the LHS sequence-length dimension (H) is small.
+    //
+    // When the optimization fires the head count on the group axis decreases by the group
+    // size, while H grows proportionally.  This reshapes the surrounding SDPA chain into:
+    //
+    //   MatMul (reduced heads) -> Add (original heads) -> Softmax (original heads)
+    //                          -> MatMul (reduced heads)
+    //
+    // Whether this is a net win depends on how the downstream MatMul is lowered:
+    //   - Grouped MatMul:  neutral; no structural change to the schedule.
+    //   - Unrolled MatMul: the head-count mismatch across the chain breaks vertical
+    //                      fusion within the SDPA pattern, which can regress performance.
+    //
+    // For prefill workloads H is large (typically 512/1024), so the unrolled-MatMul path
+    // is more likely to dominate and shrinking is harmful.
+    //
+    // For generation workloads the MatMul is memory-bandwidth bound rather than
+    // compute bound, so eliminating the Broadcast reduces memory traffic enough to
+    // outweigh any VF disruption.  Two generation sub-cases exist:
+    //   - Standard decode:        H == 1 (one new token per step).
+    //   - Speculative decoding:   H is small but greater than 1 (a short draft
+    //                             sequence that is verified in a single forward pass).
+    // The threshold below covers both sub-cases.
+    // For large H (prefill), only proceed when the grouped-MatMul cost model judges
+    // the transformation profitable; this avoids triggering the unrolled-MatMul path
+    // that would break vertical fusion across the SDPA chain.
+    constexpr int64_t MAX_LHS_H_FOR_SHRINK = 32;
+    return lhsShape[H] <= MAX_LHS_H_FOR_SHRINK || isGroupedMatMulBeneficial(origOp, lhsShape, rhsShape);
 }
 
 bool checkSwapLast2DimsTranspose(IE::TransposeOp transposeOp) {

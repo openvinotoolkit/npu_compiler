@@ -10,6 +10,8 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
@@ -23,6 +25,7 @@
 #include "vpux/compiler/utils/hw_settings.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
 
 #include <mlir/IR/Value.h>
@@ -197,7 +200,7 @@ NewWeightsTableTensors::NewWeightsTableTensors(bool useNewWeightTableFormat, con
     const auto newWeightsTableData = NewWeightsTableData(useNewWeightTableFormat, params);
 
     scaleTensor = initializeScaleBiasTensor(builder, loc, newWeightsTableData.scaleData, weightTableShape);
-    biasTensor = initializeScaleBiasTensor(builder, loc, newWeightsTableData.biasData, weightTableShape);
+    biasTensor = initializeBiasTensor(builder, loc, newWeightsTableData.biasData, weightTableShape, params.runtimeBias);
 
     // The workload-dependent table (data-pointer or zero-point) is materialized later in create-new-weight-tables-data
     // pass, after workloads are known. Initialize the relevant tensor with dummy values now.
@@ -239,6 +242,15 @@ mlir::Value NewWeightsTableTensors::initializeScaleBiasTensor(mlir::OpBuilder& b
     return tableData.empty()
                    ? nullptr
                    : createTensorFromTableData<float>(builder, loc, tableData, weightTableShape, builder.getF32Type());
+}
+
+mlir::Value NewWeightsTableTensors::initializeBiasTensor(mlir::OpBuilder& builder, mlir::Location loc,
+                                                         ArrayRef<float> tableData, ShapeRef weightTableShape,
+                                                         mlir::Value runtimeBias) {
+    if (runtimeBias != nullptr) {
+        return runtimeBias;
+    }
+    return initializeScaleBiasTensor(builder, loc, tableData, weightTableShape);
 }
 
 mlir::Value NewWeightsTableTensors::initializeZeroPointsTensorWithDummyValues(mlir::OpBuilder& builder,
@@ -406,6 +418,7 @@ mlir::Value alignDepthWiseWeightsTensor(mlir::OpBuilder& builder, mlir::Location
 }
 
 mlir::Value alignConvWeightsTensor(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value origFilter) {
+    VPUX_THROW_WHEN(origFilter == nullptr, "No filter to align for op at {0}", loc);
     const auto filterShape = getShape(origFilter);
     const auto OC = filterShape[Dims4D::Filter::OC];
     const auto IC = filterShape[Dims4D::Filter::IC];
@@ -425,7 +438,8 @@ mlir::Value alignConvWeightsTensor(mlir::OpBuilder& builder, mlir::Location loc,
     const auto flatWeightShape = Shape{OC, 1, 1, IC * KY * KX};
     const auto padding = alignment - remainder;
 
-    if (mlir::isa<mlir::BlockArgument>(origFilter)) {
+    auto weightsConst = origFilter.getDefiningOp<Const::DeclareOp>();
+    if (weightsConst == nullptr) {
         auto reshape = builder.create<VPU::ReshapeOp>(loc, origFilter, getIntArrayAttr(builder, flatWeightShape));
 
         auto padBeginAttr = getIntArrayAttr(builder, Shape{{0, 0, 0, 0}});
@@ -435,9 +449,6 @@ mlir::Value alignConvWeightsTensor(mlir::OpBuilder& builder, mlir::Location loc,
                                                             DimsOrder::NHWC.toAffineMap(origFilter.getContext()));
         return layoutCast.getOutput();
     }
-
-    auto weightsConst = origFilter.getDefiningOp<Const::DeclareOp>();
-    VPUX_THROW_UNLESS(weightsConst != nullptr, "Convolution does not provide constant weights");
 
     auto alignedWeightsContentAttr = weightsConst.getContentAttr()
                                              .transform()
@@ -478,15 +489,6 @@ bool isNullOrConstWithSingleValue(mlir::Value value) {
     return declareOp.getContentAttr().isSplat();
 }
 
-vpux::TensorAttr createTensorAttrFromType(vpux::NDTypeInterface inType, mlir::MLIRContext* ctx) {
-    if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(inType)) {
-        return getTensorAttr(inType.getContext(), inType.getDimsOrder().toAffineMap(ctx), inType.getMemSpace(),
-                             boundedType.getBounds());
-    }
-
-    return getTensorAttr(inType.getContext(), inType.getDimsOrder().toAffineMap(ctx), inType.getMemSpace());
-}
-
 mlir::FailureOr<SmallVector<int64_t>> extractConstData(mlir::Location loc, mlir::Value value) {
     if (value == nullptr) {
         return errorAt(loc, "Target shape was not provided");
@@ -503,6 +505,19 @@ mlir::FailureOr<SmallVector<int64_t>> extractConstData(mlir::Location loc, mlir:
 
     const auto valueContent = valueConst.getContent();
     return to_small_vector(valueContent.getValues<int64_t>());
+}
+
+mlir::Value createRuntimeBiasForWeightTable(mlir::PatternRewriter& rewriter, mlir::Location loc, mlir::Value bias,
+                                            int64_t OC) {
+    // Weight-table bias entries are always f32 per hardware spec. Convert via a DPU identity MaxPool
+    // (createConvertPoolingForScaleTable reshapes to a near-square [1,C,H,W] with genuine spatial
+    // extent, so the pool is a valid DPU workload) rather than a SW Convert.
+    mlir::Value converted = IE::createConvertPoolingForScaleTable(bias, rewriter);
+    // createConvertPoolingForScaleTable returns its input unchanged for an already-f32 bias, so
+    // reshape explicitly to the [OC,1,1,1] weight_table_bias shape required by NCE.DepthConvolution.
+    const SmallVector<int64_t> wtBiasShape = {OC, 1, 1, 1};
+    return rewriter.createOrFold<IE::ReshapeOp>(appendLoc(loc, "bias_reshape_out"), converted,
+                                                getIntArrayAttr(rewriter.getContext(), wtBiasShape));
 }
 
 }  // namespace VPU

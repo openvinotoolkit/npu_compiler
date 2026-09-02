@@ -181,14 +181,28 @@ using OutputTiling = SmallVector<TileInfo>;
 
 bool requiresDimsGroups5D(mlir::Operation* op);
 
-// helper function to generate a set of tiles from dividing a shape. A shape divided across multiple
+// NCE Ops with weights-like inputs need a different mapping compared to activation-like inputs.
+// This set of functions checks if the op needs this handling and does translation between weights and output tiling
+// dims and strategies.
+bool nceOpNeedsTilingAxisInference(mlir::Operation* curOp, mlir::Value operand);
+std::optional<Dim> nceBackInferWeightsTilingAxisFromOut(const Dim& outDim, bool is5DTensor);
+std::optional<Dim> nceInferOutTilingAxisFromWeights(const Dim& weightsDim, bool is5DTensor);
+SmallVector<int64_t> nceBackInferWeightsTilingStrategyFromOut(ArrayRef<int64_t> outStrategy);
+SmallVector<int64_t> nceInferOutTilingStrategyFromWeights(ArrayRef<int64_t> weightsStrategy);
+
+// Helper function to generate a set of tiles from dividing a shape. A shape divided across multiple
 // dimensions will generate a set of tiles, each having its own size and offsets. Additionally an alignment
 // can be specified per each dimension.
 mlir::FailureOr<OutputTiling> fillDividedTiles(ShapeRef divisors, ShapeRef orig,
                                                std::optional<ArrayRef<int64_t>> alignment = std::nullopt,
                                                bool unrollSpatialFirst = false,
                                                std::optional<ArrayRef<int64_t>> customChannelSplit = std::nullopt);
-mlir::FailureOr<OutputTiling> fillDividedTiles(mlir::Operation* op, ShapeRef divisors, ShapeRef shape);
+// Helper function to generate a set of tiles from dividing a shape.
+// When efficientWorkloadAlign is true
+// the H and W alignment is tightened to prefer workload-efficient H/W tile sizes
+// Keep it false for legacy tiling to preserve existing strategies.
+mlir::FailureOr<OutputTiling> fillDividedTiles(mlir::Operation* op, ShapeRef divisors, ShapeRef shape,
+                                               bool efficientWorkloadAlign = false);
 
 // YUV-specific tiling function that ensures even-dimension alignment for color conversion operations
 mlir::FailureOr<OutputTiling> fillDividedTilesYuvToRgbOp(ShapeRef divisors, ShapeRef shape);
@@ -197,7 +211,8 @@ mlir::FailureOr<OutputTiling> fillDividedTilesYuvToRgbOp(ShapeRef divisors, Shap
 // This function is used for VF tile size calculation
 mlir::FailureOr<OutputTiling> fillDividedTiles(mlir::Operation* lastOp, ArrayRef<mlir::Operation*> targetOps,
                                                ShapeRef divisors, ShapeRef shape,
-                                               const std::function<bool(mlir::Operation*)>& isOpNeedDynAlignment);
+                                               const std::function<bool(mlir::Operation*)>& isOpNeedDynAlignment,
+                                               bool enableSWOptimizationAlignment, bool efficientWorkloadAlign = false);
 
 bool isSpatialFirstNestedTiling(mlir::Operation* op, ShapeRef divisors);
 bool isWeightsFirstNestedTiling(mlir::Operation* op, ShapeRef divisors);
@@ -362,9 +377,8 @@ InputTiling backInferInterpolateTile(const vpux::TileInfo& outputTile, ArrayRef<
                                      std::optional<ArrayRef<int64_t>> lambdasDims,
                                      vpux::IE::InterpolateMode interpolateMode,
                                      vpux::IE::InterpolateCoordMode coordMode,
-                                     vpux::IE::InterpolateNearestMode nearestMode,
-                                     vpux::IE::InterpolateCalcMode calcMode, ArrayRef<double> originalScales,
-                                     ArrayRef<int64_t> axesAttr, vpux::Logger log);
+                                     vpux::IE::InterpolateNearestMode nearestMode, bool useScaleAttr,
+                                     ArrayRef<double> originalScales, ArrayRef<int64_t> axesAttr, vpux::Logger log);
 
 //
 // Gather tiling
@@ -601,9 +615,13 @@ std::pair<Dim, int64_t> getAlignDimAndSize(mlir::Operation* op);
 
 /*
  * Gets alignment for operation based on tiling
+ * When efficientWorkloadAlign is true, the H and W alignment is tightened to prefer workload-efficient H/W tile sizes
+ * Only used for temporal tiling full-search callers, or preComputedStrategy (with pinnedStrategy in applyTiling).
+ * Keep it false for legacy tiling to preserve existing strategies.
  */
 SmallVector<int64_t> getAlignment(mlir::Operation* op, ShapeRef divisors, ShapeRef shape,
-                                  bool canUseDynamicAlignment = true, const bool enableOptimizationAlignment = true);
+                                  bool canUseDynamicAlignment = true, const bool enableSWOptimizationAlignment = true,
+                                  const bool efficientWorkloadAlign = false);
 
 /*
  * Check if the shape size is divisible with alignment

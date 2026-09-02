@@ -104,24 +104,34 @@ mlir::FailureOr<OutputTiling> vpux::VPU::ScatterElementsUpdateOp::getTilingStrat
 bool vpux::VPU::ScatterElementsUpdateOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t) {
     const auto inShape = getShape(getInput());
     const auto indicesShape = getShape(getIndices());
+    const auto updatesShape = getShape(getUpdates());
     const auto axis = getAxis();
 
     if (strategy == VPU::MultiClusterStrategy::Clustering) {
         return true;
     }
 
-    if (strategy == VPU::MultiClusterStrategy::SplitOverHeight && axis < Dims4D::Act::H.ind() &&
-        inShape[Dims4D::Act::H] > 1 && indicesShape[Dims4D::Act::H] > 1) {
+    // A cluster split is bit-exact only when the split dim is not the scatter axis and is fully
+    // addressed by indices and updates. axis != dim covers the non-scatter requirement (axis < dim was
+    // sufficient but rejected the scatter-innermost layout); indicesShape == inShape and
+    // updatesShape == inShape on the dim guarantee full addressing so no passthrough slice is
+    // re-scattered. Both operands are checked explicitly because the op definitions do not enforce
+    // updatesShape == indicesShape.
+    if (strategy == VPU::MultiClusterStrategy::SplitOverHeight && axis != Dims4D::Act::H.ind() &&
+        inShape[Dims4D::Act::H] > 1 && indicesShape[Dims4D::Act::H] == inShape[Dims4D::Act::H] &&
+        updatesShape[Dims4D::Act::H] == inShape[Dims4D::Act::H]) {
         return true;
     }
 
-    if (strategy == VPU::MultiClusterStrategy::SplitOverKernel && axis < Dims4D::Act::C.ind() &&
-        inShape[Dims4D::Act::C] > 1 && indicesShape[Dims4D::Act::C] > 1) {
+    if (strategy == VPU::MultiClusterStrategy::SplitOverKernel && axis != Dims4D::Act::C.ind() &&
+        inShape[Dims4D::Act::C] > 1 && indicesShape[Dims4D::Act::C] == inShape[Dims4D::Act::C] &&
+        updatesShape[Dims4D::Act::C] == inShape[Dims4D::Act::C]) {
         return true;
     }
 
-    if (strategy == VPU::MultiClusterStrategy::SplitOverWidth && axis < Dims4D::Act::W.ind() &&
-        inShape[Dims4D::Act::W] > 1 && indicesShape[Dims4D::Act::W] > 1) {
+    if (strategy == VPU::MultiClusterStrategy::SplitOverWidth && axis != Dims4D::Act::W.ind() &&
+        inShape[Dims4D::Act::W] > 1 && indicesShape[Dims4D::Act::W] == inShape[Dims4D::Act::W] &&
+        updatesShape[Dims4D::Act::W] == inShape[Dims4D::Act::W]) {
         return true;
     }
 

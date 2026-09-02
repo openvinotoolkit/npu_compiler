@@ -6,8 +6,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --tile-act-shave-kernel-task %s | FileCheck %s
 // REQUIRES: platform-NPU3720
 
-// -----
-
 #NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
 
 module @VPU.SW {

@@ -30,13 +30,13 @@ func.func @MergeDueToLowerCost(%arg0: tensor<1x1x1x4096xf16>, %arg1: tensor<5504
             prelu_alpha = [1.000000e+00],
             bias = 0.000000e+00 : f64,
             adder = 0.000000e+00 : f64>,
-            
+
             strides = [1, 1]} : tensor<1x4096x1x1xf16, {order = #NHWC}>, tensor<5504x4096x1x1x!qElemType, {order = #NHWC}> -> tensor<1x5504x1x1xf16, {order = #NHWC}>
     VPU.Yield %inner
   }
   %4 = VPU.VerticalFusion (%3 as %arg3: tensor<1x5504x1x1xf16, {order = #NHWC}>,
                            %arg2 as %arg4: tensor<1x5504x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x5504x1x1xf16, {order = #NHWC}> {
-    %inner = VPU.NCE.Eltwise(%arg3, %arg4) {
+    %inner = VPU.NCE.Eltwise(%arg3, %arg4) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
             op_type = #VPU.eltwise_type<MULTIPLY>,
             ppe = #VPU.PPEFp<mode = <NOOP>,

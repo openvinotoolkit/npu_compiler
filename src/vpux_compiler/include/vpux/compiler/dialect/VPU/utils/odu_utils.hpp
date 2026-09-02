@@ -7,9 +7,13 @@
 
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 
+#include <llvm/ADT/ArrayRef.h>
 #include <optional>
 
 namespace vpux {
+
+struct TileInfo;
+
 namespace VPU {
 
 struct ODUS2DD2STransformInfo final {
@@ -48,6 +52,19 @@ struct ODUDimScale {
 ///
 /// DISABLED mode: all elements are {1, 1}.
 SmallVector<ODUDimScale> getODUS2DD2SScaling(const ODUS2DD2STransformInfo& transformInfo, int64_t rank);
+
+/// @brief Return true if tiling or multiclustering over @p outputDim is supported
+/// for an op whose ODU is configured with @p s2dd2sCfg.
+///
+/// For BLOCK_FIRST mode (S2D or D2S): splitting over the channel dimension (C) requires interleaved access on the
+/// channel-rich side (input for D2S, output for S2D) in order to produce a contiguous space-rich side tile (output for
+/// D2S, input for S2D). This is not supported by the current tiling model, so C-dim splits are rejected. Spatial (H/W)
+/// splits do not suffer from this limitation and are always supported. A null or DISABLED config always returns true.
+bool isS2DD2SDimSplitSupported(S2DD2SConfigAttr s2dd2sCfg, Dim outputDim);
+
+/// @brief Returns true when all ODU scaling factors are identity (multiplier == divisor for every
+/// dimension), meaning the ODU transform has no net effect on dimension sizes.
+bool isODUScalingNeutral(ArrayRef<ODUDimScale> scales);
 
 /// @brief Apply @p scales to @p preODU, returning the scaled value or failure() if any
 /// dimension is not exactly scalable.

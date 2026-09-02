@@ -127,7 +127,7 @@ void intel_npu::vm::details::DataSectionInfo::print(size_t indentLevel) const {
     intel_npu::vm::printIndent(indentLevel);
     std::cout << "Number of entries: " << numData << std::endl;
     for (uint64_t i = 0; i < dataInfos.size(); ++i) {
-        const auto& dataInfo = dataInfos[i];
+        const auto& dataInfo = dataInfos.at(i);
         intel_npu::vm::printIndent(indentLevel + 1);
         std::cout << "Entry " << i << " offset: " << dataInfo.offset << ", size: " << dataInfo.size << std::endl;
     }

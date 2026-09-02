@@ -608,11 +608,11 @@ mlir::Value GeneralMaxPoolRewriter::handlePoolWithPadding(IE::MaxPoolOp origOp, 
 
     _log.trace("Replace MaxPoolOp has Padding value with Slice and Concat to avoid accuracy issue");
     return rewriter
-            .replaceOpWithNewOp<IE::MaxPoolOp>(origOp, inputVal, origOp.getKernelSizeAttr(), origOp.getStridesAttr(),
-                                               origOp.getPadsBeginAttr(), getIntArrayAttr(ctx, padsEnd),
-                                               origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
-                                               origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(),
-                                               origOp.getInputPaddingAttr())
+            .replaceOpWithNewOp<IE::MaxPoolOp>(
+                    origOp, inputVal, origOp.getScale(), origOp.getKernelSizeAttr(), origOp.getStridesAttr(),
+                    origOp.getPadsBeginAttr(), getIntArrayAttr(ctx, padsEnd), origOp.getRoundingType(),
+                    origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
+                    origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr())
             .getOutput();
 }
 
@@ -719,18 +719,18 @@ mlir::LogicalResult OverlappedMaxPoolRewriter::matchAndRewrite(IE::MaxPoolOp ori
                                                       padsEndVal[Dims4D::PadsEnd::Right.ind()] / 2});
 
     auto firstOp = rewriter.create<IE::MaxPoolOp>(
-            takeOpLoc(origOp, "first_split"), origOp.getInput(), newKernelsAttr, origOp.getStridesAttr(),
+            takeOpLoc(origOp, "first_split"), origOp.getInput(), nullptr, newKernelsAttr, origOp.getStridesAttr(),
             newPadsBeginAttr, newPadsEndAttr, origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
-            origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     _log.nest(2).trace("Create firstSplitOp with Kernel: '{0}', Stride: '{1}', PadBegin: '{2}', PadEnd: '{3}'",
                        newKernelsAttr, origOp.getStridesAttr(), newPadsBeginAttr, newPadsEndAttr);
 
     _log.nest(2).trace("Create secondSplitOp with Kernel: '{0}', Stride: '{1}', PadBegin: '{2}', PadEnd: '{3}'",
                        newKernelsAttr, origOp.getStridesAttr(), newPadsBeginAttr, newPadsEndAttr);
     auto secondOp = rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(
-            origOp, firstOp.getOutput(), newKernelsAttr, origOp.getStridesAttr(), newPadsBeginAttr, newPadsEndAttr,
-            origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
-            origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            origOp, firstOp.getOutput(), origOp.getScale(), newKernelsAttr, origOp.getStridesAttr(), newPadsBeginAttr,
+            newPadsEndAttr, origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+            origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     extendOpLoc(secondOp, "second_split");
 
     return mlir::success();
@@ -1246,8 +1246,8 @@ mlir::LogicalResult SliceLargeKernelAvgPoolRewriter::matchAndRewrite(IE::AvgPool
             // Create sub-AvgPool with corrected static_scale and no padding
             const auto subKernelAttr = getIntArrayAttr(ctx, SmallVector<int64_t>{subKY, subKX});
             auto subAvgPool = rewriter.create<IE::AvgPoolOp>(
-                    takeOpLoc(origOp, "sub_avgpool_{0}_{1}", j, i), sliceOp.getResult(), subKernelAttr, stridesAttr,
-                    zeroPadAttr, zeroPadAttr, origOp.getRoundingTypeAttr(),
+                    takeOpLoc(origOp, "sub_avgpool_{0}_{1}", j, i), sliceOp.getResult(), origOp.getScale(),
+                    subKernelAttr, stridesAttr, zeroPadAttr, zeroPadAttr, origOp.getRoundingTypeAttr(),
                     /*exclude_pads=*/nullptr,
                     /*post_op=*/nullptr, /*clamp=*/nullptr, subStaticScaleAttr, outputPaddingAttr, inputPaddingAttr);
 

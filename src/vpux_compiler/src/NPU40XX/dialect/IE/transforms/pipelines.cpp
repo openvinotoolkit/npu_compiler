@@ -8,6 +8,7 @@
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/Shave/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/locverif/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -50,7 +51,7 @@ void vpux::IE::arch40xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
         pm.addPass(IE::createSwapTransposeWithFQPass(log));
     }
     pm.addPass(IE::createPropagateDequantThroughConcatPass(log));
-    pm.addPass(IE::createConvertWeightsToU8Pass(log));
+    pm.addPass(IE::createConvertWeightsToUnsignedPass(log));
     pm.addPass(IE::createFuseQuantizedOpsPass(log));
 
     // Enable sequence FuseQuantizedOps->FuseActivationOps->FuseOutstandingDequant->ConvertToMixedPrecision->
@@ -69,14 +70,14 @@ void vpux::IE::arch40xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
         pm.addPass(IE::createRemoveQuantDequantSeqPass(log));
     }
     if (options.enableConvertWeightsToU8I4) {
-        pm.addPass(IE::createConvertWeightsToU8Pass(log));
+        pm.addPass(IE::createConvertWeightsToUnsignedPass(log));
         pm.addPass(IE::createConvertWeightsToI4Pass(log));
     }
-    // After the execution of ConvertWeightsToU8 could appear new cases when FuseQuantizedOps and
-    // ConvertToMixedPrecision can be applied. The execution ConvertWeightsToU8 can align the data type of the operands
-    // of NCE operations to U8, condition that is necessary in rewriters like: FuseWithEltwiseConverter,
+    // After the execution of ConvertWeightsToUnsigned could appear new cases when FuseQuantizedOps and
+    // ConvertToMixedPrecision can be applied. The execution ConvertWeightsToUnsigned can align the data type of the
+    // operands of NCE operations to U8, condition that is necessary in rewriters like: FuseWithEltwiseConverter,
     // FloatOutAddRewriter where it required that the operands to have the same data type and this happens only after
-    // execution of ConvertWeightsToU8.
+    // execution of ConvertWeightsToUnsigned.
     pm.addPass(IE::createFuseQuantizedOpsPass(log));
     if (options.enableFuseOutstandingDequant) {
         if (!options.functionOutlining.hasValue()) {
@@ -143,19 +144,20 @@ void vpux::IE::arch40xx::buildAttentionProcessingPipeline(mlir::OpPassManager& p
                                                           const IE::AttentionProcessingOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
+    pm.addPass(IE::createOptimizeQuantizationForAttentionPass(log));
     if (options.enableFlashSDPAConversion) {
         pm.addPass(IE::createConvertSDPAToFlashSDPAPass(log));
     }
     pm.addPass(IE::createResolveStridedSlicePass(log));
     if (options.enableConvertToAttention) {
         pm.addPass(IE::createFuseAttentionPass(log));
+        pm.addPass(IE::createFuseSDPAPass(log));
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
-    if (options.enableFuseSoftwareSDPA) {
-        pm.addPass(IE::createFuseSDPAPass(log));
-    }
     if (options.enableDecomposeAttention) {
-        pm.addPass(IE::createDecomposeAttentionPass(log));
+        pm.addPass(IE::createAdjustQKVTransposeForUnrollSDPAPass(log));
+        pm.addPass(mlir::createCanonicalizerPass(grc));
+        pm.addPass(IE::createDecomposeAttentionPass(options.forceAttentionDecomposition, log));
     }
     pm.addPass(IE::createReshapeMatMulInputsPass(options.enableGroupedMatMul, log));
 }
@@ -168,8 +170,11 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
                                                 Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
+    // E#224661: CMX reserve mem passes moved to the beginning of IE pipeline to get correct available memory size.
+    pm.addPass(VPU::createCMXStackFramesReserveMemPass(log));
+    pm.addPass(VPU::createCMXMetadataReserveMemPass(log));
+
     pm.addPass(locverif::createStartLocationVerifierPass(log, options.locationsVerificationMode));
-    pm.addPass(IE::createForbidFourBitOutputsPass(log));
 
     IE::buildOutliningPipeline(pm, options, log);
 
@@ -198,6 +203,9 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     if (options.enableAdjustPrecisionPipeline) {
         IE::buildAdjustPrecisionPipeline(pm, IE::AdjustPrecisionOptions(options), log);
     }
+    if (options.enableConvertToReduceSquare) {
+        pm.addPass(IE::createFuseReduceSquarePass(log));
+    }
 
     // Couldn't move the pass before convert_precision_to_fp16 because of regressions, extra conversions are added
     pm.addPass(IE::createConvertAssignReadValueToReturnsAndInputs(log));
@@ -218,8 +226,10 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     pm.addPass(mlir::createCanonicalizerPass(grc));
     IE::buildScaleShiftProcessingPipeline(pm, log);
 
+    pm.addPass(IE::createConvertConstantDynamicDequantizeToDequantizePass(log));
     IE::arch40xx::buildLowPrecisionPipeline(pm, IE::LowPrecisionOptions(options), log);
-    pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D), log));
+    pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D),
+                                              /*enableShapeVerification=*/true, log));
     pm.addPass(IE::createSwapViewOpAndClampPass(log));
 
     IE::buildOptimizeActivationsPipeline(pm, IE::OptimizeActivationsOptions(options), log);
@@ -247,7 +257,7 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     // Shave related optimization
     pm.addPass(Shave::createLoadExternalKernelResourcesPass(log));
     if (options.enableShaveCodeGen) {
-        ShaveCodeGen::buildShaveCodeGenPipelineIE(pm, log);
+        ShaveCodeGen::buildShaveCodeGenPipelineIE(pm, log, options.enableShaveCodeGenTiling);
     }
 
     // Logging of optimizations post-check at the end of the pipeline
@@ -262,6 +272,10 @@ void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
                                                   const IE::arch40xx::DefaultHWOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
+    // E#224661: CMX reserve mem passes moved to the beginning of IE pipeline to get correct available memory size.
+    pm.addPass(VPU::createCMXStackFramesReserveMemPass(log));
+    pm.addPass(VPU::createCMXMetadataReserveMemPass(log));
+
     // No passes should be run before this pipeline, with very few exceptions.
     IE::buildPostImportPipeline(pm, log);
 
@@ -271,6 +285,9 @@ void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     IE::arch40xx::buildAttentionProcessingPipeline(pm, IE::AttentionProcessingOptions(options), log);
     IE::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
     IE::buildAdjustPrecisionPipeline(pm, IE::AdjustPrecisionOptions(options), log);
+    if (options.enableConvertToReduceSquare) {
+        pm.addPass(IE::createFuseReduceSquarePass(log));
+    }
 
     // Couldn't move the pass before convert_precision_to_fp16 because of regressions, extra conversions are added
     pm.addPass(IE::createConvertAssignReadValueToReturnsAndInputs(log));
@@ -310,7 +327,7 @@ void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
     if (options.enableShaveCodeGen) {
-        ShaveCodeGen::buildShaveCodeGenPipelineIE(pm, log);
+        ShaveCodeGen::buildShaveCodeGenPipelineIE(pm, log, options.enableShaveCodeGenTiling);
     }
 }
 

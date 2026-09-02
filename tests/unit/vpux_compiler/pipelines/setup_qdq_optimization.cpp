@@ -7,9 +7,10 @@
 #include "vpux/compiler/NPU37XX/dialect_pipeline_strategy.hpp"
 #include "vpux/compiler/NPU40XX/dialect_pipeline_strategy.hpp"
 #include "vpux/compiler/NPU50XX/dialect_pipeline_strategy.hpp"
+#include "vpux/utils/ov/config.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 #include <gtest/gtest.h>
-#include <intel_npu/config/options.hpp>
 
 using namespace vpux;
 
@@ -47,23 +48,23 @@ void checkQDQOptimizationDisabled(
 class QDQOptimizationTest : public MLIR_UnitBase, public ::testing::WithParamInterface<config::Platform> {
 public:
     void SetUp() override {
-        _optionDesc = std::make_shared<intel_npu::OptionsDesc>();
-        _optionDesc->add<intel_npu::PLATFORM>();
-        _optionDesc->add<intel_npu::QDQ_OPTIMIZATION>();
+        _optionDesc = std::make_shared<vpux::OV::OptionsDesc>();
+        _optionDesc->add<vpux::OV::PLATFORM>();
+        _optionDesc->add<vpux::OV::QDQ_OPTIMIZATION>();
     }
 
-    intel_npu::Config makeQDQConfig(config::Platform platform, const std::string& enableQDQOptimizationString) {
-        intel_npu::Config config(_optionDesc);
+    vpux::OV::Config makeQDQConfig(config::Platform platform, const std::string& enableQDQOptimizationString) {
+        vpux::OV::Config config(_optionDesc);
         config.update({
-                {std::string(intel_npu::PLATFORM::key()), config::stringifyPlatform(platform).str()},
-                {std::string(intel_npu::QDQ_OPTIMIZATION::key()), enableQDQOptimizationString},
+                {std::string(vpux::OV::PLATFORM::key()), config::stringifyPlatform(platform).str()},
+                {std::string(vpux::OV::QDQ_OPTIMIZATION::key()), enableQDQOptimizationString},
         });
         return config;
     }
 
-    intel_npu::Config makeQDQConfig(config::Platform platform) {
-        intel_npu::Config config(_optionDesc);
-        config.update({{std::string(intel_npu::PLATFORM::key()), config::stringifyPlatform(platform).str()}});
+    vpux::OV::Config makeQDQConfig(config::Platform platform) {
+        vpux::OV::Config config(_optionDesc);
+        config.update({{std::string(vpux::OV::PLATFORM::key()), config::stringifyPlatform(platform).str()}});
         return config;
     }
 
@@ -88,7 +89,7 @@ public:
     }
 
 private:
-    void isQDQOptimizationEnabled(config::Platform platform, const intel_npu::Config& config) {
+    void isQDQOptimizationEnabled(config::Platform platform, const vpux::OV::Config& config) {
         switch (platform) {
         case config::Platform::NPU3720:
             checkQDQOptimizationEnabled(createOptionsDefaultHW<DefaultHWOptions37XX>(config));
@@ -105,7 +106,7 @@ private:
         }
     }
 
-    void isQDQOptimizationDisabled(config::Platform platform, const intel_npu::Config& config) {
+    void isQDQOptimizationDisabled(config::Platform platform, const vpux::OV::Config& config) {
         switch (platform) {
         case config::Platform::NPU3720:
             checkQDQOptimizationDisabled(createOptionsDefaultHW<DefaultHWOptions37XX>(config));
@@ -122,7 +123,7 @@ private:
         }
     }
 
-    std::shared_ptr<intel_npu::OptionsDesc> _optionDesc;
+    std::shared_ptr<vpux::OV::OptionsDesc> _optionDesc;
 };
 
 TEST_P(QDQOptimizationTest, QDQOptimizationFlagsDisabled) {

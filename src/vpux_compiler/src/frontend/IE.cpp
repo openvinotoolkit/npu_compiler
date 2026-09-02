@@ -9,6 +9,8 @@
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/import/batch_norm.hpp"
+#include "vpux/compiler/dialect/IE/IR/import/gather.hpp"
 #include "vpux/compiler/dialect/IE/IR/import/reshape.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
@@ -29,10 +31,13 @@
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
+#include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/Shave/IR/dialect.hpp"
 #include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/attributes_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/sub_byte.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/IR/strided_dmas_utils.hpp"
@@ -43,21 +48,24 @@
 #include "vpux/compiler/utils/cal_range_data.hpp"
 #include "vpux/compiler/utils/locations.hpp"
 #include "vpux/compiler/utils/logging.hpp"
+#include "vpux/compiler/utils/npu_actions.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/strings.hpp"
 #include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/core/array_ref.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
+#include "vpux/utils/core/common_string_utils.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/range.hpp"
 #include "vpux/utils/core/small_vector.hpp"
 #include "vpux/utils/ov/format.hpp"
+
 #if defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
 #include "vpux/utils/core/developer_build_utils.hpp"
 #include "vpux/utils/core/developer_path_utils.hpp"
 #endif
 
-#include "intel_npu/config/config.hpp"
+#include "vpux/utils/ov/config.hpp"
 
 #include <llvm/ADT/ArrayRef.h>
 #include <mlir/Dialect/Shape/IR/Shape.h>
@@ -69,19 +77,25 @@
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/DialectResourceBlobManager.h>
 #include <mlir/IR/Verifier.h>
+#include <limits>
 
 #include <openvino/core/node.hpp>
 #include <openvino/core/rt_info/weightless_caching_attributes.hpp>
 #include <openvino/core/type.hpp>
 #include <openvino/core/type/element_type.hpp>
+#include <openvino/op/gated_delta_net.hpp>
 #include <openvino/op/identity.hpp>
 #include <openvino/op/istft.hpp>
+#include <openvino/op/loop.hpp>
 #include <openvino/op/stft.hpp>
 #include <openvino/op/strided_slice.hpp>
 #include <openvino/opsets/opset14.hpp>
 #include <openvino/opsets/opset15.hpp>
 #include <openvino/pass/constant_folding.hpp>
 #include <openvino/pass/manager.hpp>
+#include <openvino/pass/pattern/matcher.hpp>
+#include <openvino/pass/pattern/op/optional.hpp>
+#include <openvino/pass/pattern/op/wrap_type.hpp>
 #include <openvino/pass/serialize.hpp>
 
 #include <transformations/common_optimizations/add_fake_quantize_fusion.hpp>
@@ -91,6 +105,7 @@
 #include <transformations/common_optimizations/depth_to_space_fusion.hpp>
 #include <transformations/common_optimizations/dropout_with_random_uniform_replacer.hpp>
 #include <transformations/common_optimizations/fq_mul_fusion.hpp>
+#include <transformations/common_optimizations/fuse_gated_delta_net.hpp>
 #include <transformations/common_optimizations/fuse_rotary_positional_embeddings.hpp>
 #include <transformations/common_optimizations/lin_op_sequence_fusion.hpp>
 #include <transformations/common_optimizations/moc_transformations.hpp>
@@ -111,6 +126,7 @@
 #include <transformations/common_optimizations/weights_dequantize_to_fake_quantize.hpp>
 #include <transformations/control_flow/unroll_if.hpp>
 #include <transformations/control_flow/unroll_tensor_iterator.hpp>
+#include <transformations/fp16_compression/convert_legacy_precision_attribute.hpp>
 #include <transformations/fp16_compression/mark_decompression_convert_constant_folding.hpp>
 #include <transformations/fp16_compression/mark_subgraphs_to_keep_in_mixed_precision.hpp>
 #include <transformations/init_node_info.hpp>
@@ -146,7 +162,7 @@
 #include <transformations/op_conversions/normalize_l2_decomposition.hpp>
 #include <transformations/op_conversions/scaled_dot_product_attention_decomposition.hpp>
 #include <transformations/op_conversions/softmax_decomposition.hpp>
-#include <transformations/rt_info/disable_fp16_compression.hpp>
+#include <transformations/rt_info/disable_precision_conversion.hpp>
 #include <transformations/rt_info/fused_names_attribute.hpp>
 
 #include <algorithm>
@@ -471,6 +487,7 @@ NGraphImporter::Callback NGraphImporter::getParser(const std::shared_ptr<ov::Nod
             MAP_ENTRY(ov::opset4::Mish),
             MAP_ENTRY(ov::opset1::Erf),
             MAP_ENTRY(ov::opset1::Broadcast),
+            MAP_ENTRY(ov::opset17::ErfInv),
             MAP_ENTRY(ov::opset3::Broadcast),
             MAP_ENTRY(ov::opset3::Bucketize),
             MAP_ENTRY(ov::opset1::Transpose),
@@ -560,6 +577,8 @@ NGraphImporter::Callback NGraphImporter::getParser(const std::shared_ptr<ov::Nod
             MAP_ENTRY(ov::opset1::ShapeOf),
             MAP_ENTRY(ov::opset4::Range),
             MAP_ENTRY(ov::opset3::NonZero),
+            MAP_ENTRY(ov::op::internal::GatedDeltaNet),
+            MAP_ENTRY(ov::op::internal::DynamicQuantize),
             MAP_ENTRY(ov::op::internal::RMS),
             MAP_ENTRY(ov::opset14::Inverse),
             MAP_ENTRY(ov::opset8::DeformableConvolution),
@@ -642,6 +661,86 @@ mlir::Type importPrecision(mlir::MLIRContext* ctx, const ov::element::Type& prec
     }
 }
 
+bool isIdentityOrder(const std::vector<uint64_t>& order) {
+    for (size_t ind = 0; ind < order.size(); ++ind) {
+        if (order[ind] != ind) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+SmallVector<int64_t> getDynamicQuantizeReductionAxes(
+        const std::shared_ptr<ov::op::internal::DynamicQuantize>& origNode) {
+    const auto& groupSizes = origNode->get_group_sizes();
+    const auto inputShape = origNode->get_input_partial_shape(0);
+
+    VPUX_THROW_UNLESS(inputShape.rank().is_static(),
+                      "nGraph DynamicQuantize node '{0}' has input with dynamic rank, which is not supported",
+                      origNode->get_friendly_name());
+    VPUX_THROW_UNLESS(groupSizes.size() == checked_cast<size_t>(inputShape.rank().get_length()),
+                      "nGraph DynamicQuantize node '{0}' has group_sizes rank '{1}', expected '{2}'",
+                      origNode->get_friendly_name(), groupSizes.size(), inputShape.rank().get_length());
+
+    SmallVector<int64_t> axes;
+    constexpr auto WHOLE_DIM = std::numeric_limits<uint64_t>::max();
+    for (size_t ind = 0; ind < groupSizes.size(); ++ind) {
+        const auto groupSize = groupSizes[ind];
+        VPUX_THROW_UNLESS(groupSize > 0, "nGraph DynamicQuantize node '{0}' has zero group size at dimension '{1}'",
+                          origNode->get_friendly_name(), ind);
+
+        if (groupSize == 1) {
+            continue;
+        }
+
+        if (groupSize == WHOLE_DIM) {
+            axes.push_back(checked_cast<int64_t>(ind));
+            continue;
+        }
+
+        VPUX_THROW_UNLESS(
+                inputShape[ind].is_static(),
+                "nGraph DynamicQuantize node '{0}' has non-scalar group size '{1}' on dynamic dimension '{2}'",
+                origNode->get_friendly_name(), groupSize, ind);
+        const auto dimSize = checked_cast<uint64_t>(inputShape[ind].get_length());
+        VPUX_THROW_UNLESS(groupSize == dimSize,
+                          "nGraph DynamicQuantize node '{0}' has unsupported group size '{1}' at dimension '{2}'. "
+                          "Only 1 or full-dimension group sizes are supported",
+                          origNode->get_friendly_name(), groupSize, ind);
+        axes.push_back(checked_cast<int64_t>(ind));
+    }
+
+    VPUX_THROW_UNLESS(!axes.empty(),
+                      "nGraph DynamicQuantize node '{0}' requires at least one reduced dimension for import",
+                      origNode->get_friendly_name());
+
+    return axes;
+}
+
+mlir::Value convertToElemType(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input, mlir::Type elemType) {
+    const auto inputType = mlir::cast<NDTypeInterface>(input.getType());
+    if (inputType.getElementType() == elemType) {
+        return input;
+    }
+
+    return builder.create<IE::ConvertOp>(loc, input, mlir::TypeAttr::get(elemType)).getOutput();
+}
+
+template <typename ReduceOp>
+mlir::Value buildDynamicQuantizeReduction(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
+                                          ArrayRef<int64_t> reductionAxes, StringRef locSuffix) {
+    auto value = input;
+    for (const auto indexedAxis : reductionAxes | indexed) {
+        const auto axisAttr = getIntArrayAttr(builder.getContext(), SmallVector<int64_t>{indexedAxis.value()});
+        value = builder.create<ReduceOp>(appendLoc(loc, "{0}_axis_{1}", locSuffix, indexedAxis.index()), value,
+                                         axisAttr, true)
+                        .getOutput();
+    }
+
+    return value;
+}
+
 }  // namespace
 
 //
@@ -703,32 +802,27 @@ bool NGraphImporter::hasValidBounds(const ov::PartialShape& partialShape) {
 void NGraphImporter::extractPrecisionInfo(mlir::OpBuilder& moduleBuilder, const OrigNodePtr& origNode,
                                           const ImportNetworkConfig& importCfg, mlir::Operation* op,
                                           std::optional<net::PrecisionRequirementOp>& precReqOp) {
-    using RTMap = std::map<std::string, ov::Any>;
     if (!importCfg.executionModeAccuracy) {
         return;
     }
     if (op == nullptr) {
         return;
     }
-    RTMap& rt = origNode->get_rt_info();
-    if (!rt.empty()) {
-        const std::string name = ov::DisableFP16Compression::get_type_info_static();
-        const auto precisionInfo = rt.find(name);
-
-        if (precisionInfo != rt.end()) {
-            auto* ctx = moduleBuilder.getContext();
-            if (!precReqOp.has_value()) {
-                precReqOp = moduleBuilder.create<net::PrecisionRequirementOp>(mlir::UnknownLoc::get(ctx));
-                precReqOp.value().getPrecisionInfo().emplaceBlock();
-            }
-            auto precBuilder = mlir::OpBuilder::atBlockBegin(&precReqOp.value().getPrecisionInfo().front(),
-                                                             moduleBuilder.getListener());
-            const auto opName = origNode->get_friendly_name();
-            const auto opType = op->getName();
-            precBuilder.create<net::PrecisionInfoOp>(mlir::UnknownLoc::get(ctx), mlir::StringAttr::get(ctx, opName),
-                                                     mlir::StringAttr::get(ctx, opType.getStringRef()));
-        }
+    if (!ov::is_conversion_disabled(origNode, ov::element::f16)) {
+        return;
     }
+
+    auto* ctx = moduleBuilder.getContext();
+    if (!precReqOp.has_value()) {
+        precReqOp = moduleBuilder.create<net::PrecisionRequirementOp>(mlir::UnknownLoc::get(ctx));
+        precReqOp.value().getPrecisionInfo().emplaceBlock();
+    }
+    auto precBuilder =
+            mlir::OpBuilder::atBlockBegin(&precReqOp.value().getPrecisionInfo().front(), moduleBuilder.getListener());
+    const auto opName = origNode->get_friendly_name();
+    const auto opType = op->getName();
+    precBuilder.create<net::PrecisionInfoOp>(mlir::UnknownLoc::get(ctx), mlir::StringAttr::get(ctx, opName),
+                                             mlir::StringAttr::get(ctx, opType.getStringRef()));
 }
 
 //
@@ -1077,8 +1171,17 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 4, "nGraph BatchToSpace node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::BatchToSpace>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
-                                               nullptr, nullptr, nullptr);
+    const auto blockShape = Const::getConstArrValue(inputs[1]);
+    const auto cropsBegin = Const::getConstArrValue(inputs[2]);
+    const auto cropsEnd = Const::getConstArrValue(inputs[3]);
+    if (mlir::failed(blockShape) || mlir::failed(cropsBegin) || mlir::failed(cropsEnd)) {
+        VPUX_THROW("nGraph BatchToSpace node '{0}' has non-constant attribute inputs", origNode->get_friendly_name());
+    }
+
+    auto op = builder.create<IE::BatchToSpace>(createLocation(origNode), inputs[0],
+                                               getIntArrayAttr(builder.getContext(), blockShape.value()),
+                                               getIntArrayAttr(builder.getContext(), cropsBegin.value()),
+                                               getIntArrayAttr(builder.getContext(), cropsEnd.value()));
     addOutputs(origNode, op);
     return op;
 }
@@ -1250,7 +1353,18 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto inputs = getInputs(origNode);
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph Tile node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
-    auto op = builder.create<IE::TileOp>(createLocation(origNode), inputs[0], inputs[1], nullptr);
+
+    auto repeatsConst = inputs[1].getDefiningOp<Const::DeclareOp>();
+    if (repeatsConst == nullptr) {
+        VPUX_THROW("nGraph Tile node '{0}' has non-constant repeats input", origNode->get_friendly_name());
+    }
+
+    // convert repeats into attribute
+    const auto repeatsContent = repeatsConst.getContent();
+    auto repeats_values = to_small_vector(repeatsContent.getValues<int64_t>());
+    const auto repeatsAttr = getIntArrayAttr(builder.getContext(), repeats_values);
+
+    auto op = builder.create<IE::TileOp>(createLocation(origNode), inputs[0], repeatsAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1486,7 +1600,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto attrRoundingType = importRoundingType(origNode->get_rounding_type());
     const auto attrExcludePads = origNode->get_exclude_pad() ? mlir::UnitAttr::get(_ctx) : nullptr;
 
-    auto op = builder.create<IE::AvgPoolOp>(createLocation(origNode), inputs[0], attrKernelSize, attrStride,
+    auto op = builder.create<IE::AvgPoolOp>(createLocation(origNode), inputs[0], nullptr, attrKernelSize, attrStride,
                                             attrPadsBegin, attrPadsEnd, attrRoundingType, attrExcludePads, nullptr,
                                             nullptr, nullptr, nullptr, nullptr);
     addOutputs(origNode, op);
@@ -1534,7 +1648,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto attrRoundingType = importRoundingType(origNode->get_rounding_type());
 
-    auto op = builder.create<IE::MaxPoolOp>(createLocation(origNode), inputs[0], attrKernelSize, attrStride,
+    auto op = builder.create<IE::MaxPoolOp>(createLocation(origNode), inputs[0], nullptr, attrKernelSize, attrStride,
                                             attrPadsBegin, attrPadsEnd, attrRoundingType, nullptr, nullptr, nullptr,
                                             nullptr, nullptr);
     addOutputs(origNode, op);
@@ -1739,8 +1853,13 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     auto normBatchDims = getIntAttr(_ctx, batchDims);
     VPUX_THROW_UNLESS(batchDims >= 0, "Invalid batch_dims value '{0}'", batchDims);
 
-    auto op = builder.create<IE::GatherOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], nullptr,
-                                           normBatchDims, getIntAttr(_ctx, idxRank));
+    const auto loc = createLocation(origNode);
+    const auto axis = IE::Gather::parseAxis(loc, inputs);
+    VPUX_THROW_WHEN(mlir::failed(axis), "nGraph Gather node '{0}' has non-constant axis '{1}'",
+                    origNode->get_friendly_name(), inputs[2]);
+    const auto axisValue = getIntAttr(_ctx, *axis);
+    auto op = builder.create<IE::GatherOp>(loc, inputs[0], inputs[1], axisValue, normBatchDims,
+                                           getIntAttr(_ctx, idxRank));
     addOutputs(origNode, op);
     return op;
 }
@@ -1930,9 +2049,14 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       origNode->get_friendly_name(), inputs.size());
 
     auto epsAttr = getFPAttr(_ctx, origNode->get_eps_value());
-    auto op =
-            builder.create<IE::BatchNormInferenceOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2],
-                                                     inputs[3], inputs[4], nullptr, nullptr, nullptr, nullptr, epsAttr);
+    auto parsedAttrs = IE::BatchNormInference::parseAttributes(builder.getContext(), inputs);
+    if (mlir::failed(parsedAttrs)) {
+        VPUX_THROW("nGraph BatchNorm node '{0}' has unsupported attributes", origNode->get_friendly_name());
+    }
+    const auto& [gammaAttr, betaAttr, meanAttr, varAttr] = *parsedAttrs;
+
+    auto op = builder.create<IE::BatchNormInferenceOp>(createLocation(origNode), inputs[0], gammaAttr, betaAttr,
+                                                       meanAttr, varAttr, epsAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2353,9 +2477,13 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph ReduceMax node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    const auto keep_dims = origNode->get_keep_dims();
-
-    auto op = builder.create<IE::ReduceMaxOp>(createLocation(origNode), inputs[0], inputs[1], nullptr, keep_dims);
+    const auto loc = createLocation(origNode);
+    const auto axes = vpux::IE::getReduceAxes(loc, inputs[1], getShape(inputs[0]).size());
+    VPUX_THROW_WHEN(mlir::failed(axes), "nGraph ReduceMax node '{0}' has non-constant axes '{1}'",
+                    origNode->get_friendly_name(), inputs[1]);
+    const auto keepDims = origNode->get_keep_dims();
+    const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
+    auto op = builder.create<IE::ReduceMaxOp>(loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2369,10 +2497,13 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph ReduceMean node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    const auto keep_dims = origNode->get_keep_dims();
-
-    auto op = builder.create<IE::ReduceMeanOp>(createLocation(origNode), inputs[0], inputs[1], nullptr, keep_dims,
-                                               nullptr, nullptr);
+    const auto loc = createLocation(origNode);
+    const auto axes = vpux::IE::getReduceAxes(loc, inputs[1], getShape(inputs[0]).size());
+    VPUX_THROW_WHEN(mlir::failed(axes), "nGraph ReduceMean node '{0}' has non-constant axes '{1}'",
+                    origNode->get_friendly_name(), inputs[1]);
+    const auto keepDims = origNode->get_keep_dims();
+    const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
+    auto op = builder.create<IE::ReduceMeanOp>(loc, inputs[0], axesValue, keepDims, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2386,9 +2517,13 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph ReduceLogicalOr node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    const auto keep_dims = origNode->get_keep_dims();
-
-    auto op = builder.create<IE::ReduceLogicalOrOp>(createLocation(origNode), inputs[0], inputs[1], nullptr, keep_dims);
+    const auto loc = createLocation(origNode);
+    const auto axes = vpux::IE::getReduceAxes(loc, inputs[1], getShape(inputs[0]).size());
+    VPUX_THROW_WHEN(mlir::failed(axes), "nGraph ReduceLogicalOr node '{0}' has non-constant axes '{1}'",
+                    origNode->get_friendly_name(), inputs[1]);
+    const auto keepDims = origNode->get_keep_dims();
+    const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
+    auto op = builder.create<IE::ReduceLogicalOrOp>(loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2402,10 +2537,13 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph ReduceLogicalAnd node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    const auto keep_dims = origNode->get_keep_dims();
-
-    auto op =
-            builder.create<IE::ReduceLogicalAndOp>(createLocation(origNode), inputs[0], inputs[1], nullptr, keep_dims);
+    const auto loc = createLocation(origNode);
+    const auto axes = vpux::IE::getReduceAxes(loc, inputs[1], getShape(inputs[0]).size());
+    VPUX_THROW_WHEN(mlir::failed(axes), "nGraph ReduceLogicalAnd node '{0}' has non-constant axes '{1}'",
+                    origNode->get_friendly_name(), inputs[1]);
+    const auto keepDims = origNode->get_keep_dims();
+    const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
+    auto op = builder.create<IE::ReduceLogicalAndOp>(loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2419,9 +2557,13 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph ReduceProd node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    const auto keep_dims = origNode->get_keep_dims();
-
-    auto op = builder.create<IE::ReduceProdOp>(createLocation(origNode), inputs[0], inputs[1], nullptr, keep_dims);
+    const auto loc = createLocation(origNode);
+    const auto axes = vpux::IE::getReduceAxes(loc, inputs[1], getShape(inputs[0]).size());
+    VPUX_THROW_WHEN(mlir::failed(axes), "nGraph ReduceProd node '{0}' has non-constant axes '{1}'",
+                    origNode->get_friendly_name(), inputs[1]);
+    const auto keepDims = origNode->get_keep_dims();
+    const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
+    auto op = builder.create<IE::ReduceProdOp>(loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2435,10 +2577,13 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph ReduceSum node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    const auto keep_dims = origNode->get_keep_dims();
-
-    auto op = builder.create<IE::ReduceSumOp>(createLocation(origNode), inputs[0], inputs[1], nullptr, keep_dims,
-                                              nullptr, nullptr);
+    const auto loc = createLocation(origNode);
+    const auto axes = vpux::IE::getReduceAxes(loc, inputs[1], getShape(inputs[0]).size());
+    VPUX_THROW_WHEN(mlir::failed(axes), "nGraph ReduceSum node '{0}' has non-constant axes '{1}'",
+                    origNode->get_friendly_name(), inputs[1]);
+    const auto keepDims = origNode->get_keep_dims();
+    const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
+    auto op = builder.create<IE::ReduceSumOp>(loc, inputs[0], axesValue, keepDims, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2452,9 +2597,13 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph ReduceMin node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    const auto keep_dims = origNode->get_keep_dims();
-
-    auto op = builder.create<IE::ReduceMinOp>(createLocation(origNode), inputs[0], inputs[1], nullptr, keep_dims);
+    const auto loc = createLocation(origNode);
+    const auto axes = vpux::IE::getReduceAxes(loc, inputs[1], getShape(inputs[0]).size());
+    VPUX_THROW_WHEN(mlir::failed(axes), "nGraph ReduceMin node '{0}' has non-constant axes '{1}'",
+                    origNode->get_friendly_name(), inputs[1]);
+    const auto keepDims = origNode->get_keep_dims();
+    const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
+    auto op = builder.create<IE::ReduceMinOp>(loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2468,9 +2617,13 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph ReduceL1 node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    const auto keep_dims = origNode->get_keep_dims();
-
-    auto op = builder.create<IE::ReduceL1Op>(createLocation(origNode), inputs[0], inputs[1], nullptr, keep_dims);
+    const auto loc = createLocation(origNode);
+    const auto axes = vpux::IE::getReduceAxes(loc, inputs[1], getShape(inputs[0]).size());
+    VPUX_THROW_WHEN(mlir::failed(axes), "nGraph ReduceL1 node '{0}' has non-constant axes '{1}'",
+                    origNode->get_friendly_name(), inputs[1]);
+    const auto keepDims = origNode->get_keep_dims();
+    const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
+    auto op = builder.create<IE::ReduceL1Op>(loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2484,9 +2637,13 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph ReduceL2 node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    const auto keep_dims = origNode->get_keep_dims();
-
-    auto op = builder.create<IE::ReduceL2Op>(createLocation(origNode), inputs[0], inputs[1], nullptr, keep_dims);
+    const auto loc = createLocation(origNode);
+    const auto axes = vpux::IE::getReduceAxes(loc, inputs[1], getShape(inputs[0]).size());
+    VPUX_THROW_WHEN(mlir::failed(axes), "nGraph ReduceL2 node '{0}' has non-constant axes '{1}'",
+                    origNode->get_friendly_name(), inputs[1]);
+    const auto keepDims = origNode->get_keep_dims();
+    const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
+    auto op = builder.create<IE::ReduceL2Op>(loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2842,6 +2999,20 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
                       origNode->get_friendly_name(), inputs.size());
 
     auto op = builder.create<IE::ErfOp>(createLocation(origNode), inputs[0]);
+    addOutputs(origNode, op);
+    return op;
+}
+
+mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
+                                           const std::shared_ptr<ov::opset17::ErfInv>& origNode) {
+    static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::v17::ErfInv>::value,
+                  "opset operation mismatch");
+
+    const auto inputs = getInputs(origNode);
+    VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph ErfInv node '{0}' has unsupported number of inputs '{1}'",
+                      origNode->get_friendly_name(), inputs.size());
+
+    auto op = builder.create<IE::ErfInvOp>(createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -3642,6 +3813,86 @@ mlir::Operation* NGraphImporter::parseNode(
                                                       sortResultDescendingAttr, nullptr, nullptr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
+}
+
+mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
+                                           const std::shared_ptr<ov::op::internal::GatedDeltaNet>& origNode) {
+    static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::internal::GatedDeltaNet>::value,
+                  "opset operation mismatch");
+    const auto inputs = getInputs(origNode);
+    VPUX_THROW_UNLESS(inputs.size() == 6, "nGraph GatedDeltaNet node '{0}' has unsupported number of inputs '{1}'",
+                      origNode->get_friendly_name(), inputs.size());
+
+    const auto fuseQkL2Norm = origNode->get_fuse_qk_l2norm() ? mlir::UnitAttr::get(_ctx) : nullptr;
+    auto op = builder.create<IE::GatedDeltaNetOp>(
+            createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3], inputs[4], inputs[5], fuseQkL2Norm,
+            getFPAttr(_ctx, origNode->get_q_l2_norm_eps()), getFPAttr(_ctx, origNode->get_k_l2_norm_eps()));
+    addOutputs(origNode, op);
+    return op;
+}
+
+mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
+                                           const std::shared_ptr<ov::op::internal::DynamicQuantize>& origNode) {
+    static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::internal::DynamicQuantize>::value,
+                  "opset operation mismatch");
+
+    const auto inputs = getInputs(origNode);
+    VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph DynamicQuantize node '{0}' has unsupported number of inputs '{1}'",
+                      origNode->get_friendly_name(), inputs.size());
+
+    const auto& attrs = origNode->get_attrs();
+    VPUX_THROW_UNLESS(attrs.quantization_type == ov::op::internal::DynamicQuantize::QuantizationType::Asymmetric,
+                      "nGraph DynamicQuantize node '{0}' supports only asymmetric quantization in NPU frontend",
+                      origNode->get_friendly_name());
+    VPUX_THROW_UNLESS(attrs.output_storage_type == ov::op::internal::DynamicQuantize::OutputStorageType::Planar,
+                      "nGraph DynamicQuantize node '{0}' supports only planar output storage in NPU frontend",
+                      origNode->get_friendly_name());
+    VPUX_THROW_UNLESS(!attrs.precomputed_reduction,
+                      "nGraph DynamicQuantize node '{0}' does not support precomputed reduction in NPU frontend",
+                      origNode->get_friendly_name());
+    VPUX_THROW_UNLESS(attrs.quantization_dt.is_integral_number() && attrs.quantization_dt.bitwidth() == 8,
+                      "nGraph DynamicQuantize node '{0}' supports only 8-bit integer quantization, got '{1}'",
+                      origNode->get_friendly_name(), attrs.quantization_dt);
+    VPUX_THROW_UNLESS(attrs.scale_dt == ov::element::f32 || attrs.scale_dt == ov::element::f16,
+                      "nGraph DynamicQuantize node '{0}' supports only f32/f16 scale output, got '{1}'",
+                      origNode->get_friendly_name(), attrs.scale_dt);
+    VPUX_THROW_UNLESS(attrs.zp_dt == attrs.quantization_dt,
+                      "nGraph DynamicQuantize node '{0}' requires zero-point type '{1}' to match quantized type '{2}'",
+                      origNode->get_friendly_name(), attrs.zp_dt, attrs.quantization_dt);
+    VPUX_THROW_UNLESS(isIdentityOrder(origNode->get_scales_zp_output_order()),
+                      "nGraph DynamicQuantize node '{0}' supports only identity scales_zp_output_order in NPU frontend",
+                      origNode->get_friendly_name());
+
+    const auto inputType = mlir::cast<NDTypeInterface>(inputs[0].getType());
+    VPUX_THROW_UNLESS(inputType.getElementType().isF32() || inputType.getElementType().isF16(),
+                      "nGraph DynamicQuantize node '{0}' supports only f32/f16 input in NPU frontend, got '{1}'",
+                      origNode->get_friendly_name(), inputType.getElementType());
+
+    // Keep the import aligned with the existing DynamicQuantize subgraph pipeline:
+    // ov::op::internal::DynamicQuantize carries reduction axes and f16-facing types, while the compiler path
+    // still expects explicit min/max handling and f32 kernel tensors. A direct 1:1 import can replace this after kernel
+    // support covers internal reduction and f16.
+    const auto loc = createLocation(origNode);
+    const auto fp32Type = mlir::Float32Type::get(_ctx);
+    const auto dqInput = convertToElemType(builder, appendLoc(loc, "input_to_fp32"), inputs[0], fp32Type);
+
+    const auto reductionAxes = getDynamicQuantizeReductionAxes(origNode);
+    auto minValue = buildDynamicQuantizeReduction<IE::ReduceMinOp>(builder, loc, dqInput, reductionAxes, "reduce_min");
+    auto maxValue = buildDynamicQuantizeReduction<IE::ReduceMaxOp>(builder, loc, dqInput, reductionAxes, "reduce_max");
+
+    const auto dstElemTypeAttr = mlir::TypeAttr::get(importPrecision(_ctx, attrs.quantization_dt));
+    const auto outputType = importTensor(origNode->get_output_partial_shape(0), origNode->get_output_element_type(0));
+    const auto scaleType = minValue.getType();
+    const auto zeroPointType =
+            importTensor(origNode->get_output_partial_shape(2), origNode->get_output_element_type(2));
+    auto dqOp = builder.create<IE::DynamicQuantizeOp>(loc, mlir::TypeRange{outputType, scaleType, zeroPointType},
+                                                      dqInput, minValue, maxValue, dstElemTypeAttr);
+
+    const auto scaleElemType = importPrecision(_ctx, attrs.scale_dt);
+    auto scaleOutput = convertToElemType(builder, appendLoc(loc, "scale_to_orig_type"), dqOp.getScale(), scaleElemType);
+
+    addOutputs(origNode, std::vector<mlir::Value>{dqOp.getOutput(), scaleOutput, dqOp.getZeroPoint()});
+    return dqOp;
 }
 
 mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
@@ -5930,6 +6181,80 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager, const Impor
     manager.register_pass<ov::pass::StridesOptimization>();
 }
 
+namespace {
+namespace pattern = ov::pass::pattern;
+
+// Matches the body pattern of a GatedDeltaNet recurrent loop.
+// This is a local copy of matches_linear_attention_loop from OV's fuse_gated_delta_net.cpp.
+// TODO: Request OV to expose matches_linear_attention_loop as a public API, then replace this.
+bool isGatedDeltaNetLoop(const std::shared_ptr<ov::Node>& node) {
+    auto loop = ov::as_type_ptr<ov::op::v5::Loop>(node);
+    if (!loop) {
+        return false;
+    }
+    if (loop->get_input_size() < 9 || loop->get_output_size() != 2) {
+        return false;
+    }
+
+    auto output_attn_buffer = pattern::any_input(pattern::shape_matches("[?, head_num, ?, v_head_size]"));
+    auto recurrent_state = pattern::any_input(pattern::shape_matches("[?, head_num, k_head_size, v_head_size]"));
+    auto beta = pattern::any_input(pattern::shape_matches("[?, head_num, 1]"));
+    auto gate = pattern::any_input(pattern::shape_matches("[?, head_num, 1]"));
+    auto value = pattern::any_input(pattern::shape_matches("[?, head_num, 1, value_head_size]"));
+    auto key = pattern::any_input(pattern::shape_matches("[?, head_num, 1, k_head_size]"));
+    auto query = pattern::any_input(pattern::shape_matches("[?, head_num, 1, k_head_size]"));
+    auto step_index = pattern::any_input();
+
+    auto step_index_unsqueeze = pattern::wrap_type<ov::op::v0::Unsqueeze>({step_index, 0});
+    auto gate_f32 = pattern::optional<ov::op::v0::Convert>({gate});
+
+    auto exp_gate = pattern::wrap_type<ov::op::v0::Exp>({gate_f32});
+    auto exp_gate_unsqueeze = pattern::wrap_type<ov::op::v0::Unsqueeze>({exp_gate, {-1}});
+    auto gated_state = pattern::wrap_type<ov::op::v1::Multiply>({recurrent_state, exp_gate_unsqueeze});
+
+    auto key_squeezed = pattern::wrap_type<ov::op::v0::Squeeze>({key, {2}});
+    auto key_unsqueeze = pattern::wrap_type<ov::op::v0::Unsqueeze>({key_squeezed, {-1}});
+
+    auto value_squeezed = pattern::wrap_type<ov::op::v0::Squeeze>({value, {2}});
+
+    auto projected_value = pattern::wrap_type<ov::op::v1::Multiply>({gated_state, key_unsqueeze});
+    auto projected_sum = pattern::wrap_type<ov::op::v1::ReduceSum>({projected_value, {-2}}, {{"keep_dims", false}});
+    auto delta = pattern::wrap_type<ov::op::v1::Subtract>({value_squeezed, projected_sum});
+
+    auto scaled_delta = pattern::wrap_type<ov::op::v1::Multiply>({delta, beta});
+    auto scaled_delta_unsqueeze = pattern::wrap_type<ov::op::v0::Unsqueeze>({scaled_delta, {-2}});
+    auto outer_update = pattern::wrap_type<ov::op::v1::Multiply>({key_unsqueeze, scaled_delta_unsqueeze});
+    auto updated_state = pattern::wrap_type<ov::op::v1::Add>({gated_state, outer_update});
+
+    auto query_squeezed = pattern::wrap_type<ov::op::v0::Squeeze>({query, 2});
+    auto query_unsqueeze = pattern::wrap_type<ov::op::v0::Unsqueeze>({query_squeezed, {-1}});
+    auto weighted_output = pattern::wrap_type<ov::op::v1::Multiply>({updated_state, query_unsqueeze});
+
+    auto output_reduce_sum = pattern::wrap_type<ov::op::v1::ReduceSum>({weighted_output, {-2}}, {{"keep_dims", true}});
+    auto output_reduce_sum_fp16 = pattern::optional<ov::op::v0::Convert>({output_reduce_sum});
+    auto scatter_update_output = pattern::wrap_type<ov::op::v3::ScatterUpdate>(
+            {output_attn_buffer, step_index_unsqueeze, output_reduce_sum_fp16, 2});
+    auto output_result = pattern::wrap_type<ov::op::v0::Result>({scatter_update_output});
+
+    auto updated_state_fp16 = pattern::optional<ov::op::v0::Convert>({updated_state});
+    auto state_result = pattern::wrap_type<ov::op::v0::Result>({updated_state_fp16});
+
+    pattern::Matcher loop_output_matcher(std::move(output_result));
+    pattern::Matcher loop_state_matcher(std::move(state_result));
+    auto body = loop->get_function();
+    const auto& body_results = body->get_results();
+
+    if (!loop_output_matcher.match(body_results[2]->output(0))) {
+        return false;
+    }
+    if (!loop_state_matcher.match(body_results[1]->output(0))) {
+        return false;
+    }
+    return true;
+}
+
+}  // namespace
+
 void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, mlir::TimingScope& rootTiming,
                                    const ImportNetworkConfig& importCfg) {
     auto scopeTiming = rootTiming.nest("Common nGraph passes");
@@ -5937,6 +6262,10 @@ void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, m
     ov::pass::Manager manager;
     auto passConfig = manager.get_pass_config();
     manager.register_pass<ov::pass::InitNodeInfo>();
+
+    // Migrate any legacy DisableFP16Compression RT attribute to the new
+    // DisablePrecisionConversion attribute.
+    manager.register_pass<ov::pass::ConvertLegacyPrecisionAttribute>();
 
     // Dequantization of the constants with types specified here will not be folded. If folding occurs the compiler will
     // think weights are FP16/FP32 resulting in high-precision execution.
@@ -5965,6 +6294,28 @@ void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, m
             });
     manager.register_pass<ov::pass::SharedOpOptimization>();
     manager.register_pass<ov::pass::ConvertQuantizeDequantize>();
+    // Skip GatedDeltaNet fusion for decode models (seq_len == 1):
+    // keeping the original loop graph yields better NPU performance for single-token inference.
+    {
+        bool hasNonDecodeLoop = false;
+        for (const auto& op : netGraph->get_ordered_ops()) {
+            if (!isGatedDeltaNetLoop(op)) {
+                continue;
+            }
+            // Query input is at index 2 in the GDN loop pattern, shape: [batch, head_num, seq_len, head_size]
+            auto qShape = op->get_input_partial_shape(2);
+            if (qShape.rank().is_static() && qShape.rank().get_length() == 4) {
+                auto seqDim = qShape[2];
+                if (!seqDim.is_static() || seqDim.get_length() > 1) {
+                    hasNonDecodeLoop = true;
+                    break;
+                }
+            }
+        }
+        if (hasNonDecodeLoop) {
+            manager.register_pass<ov::pass::GatedDeltaNetFusion>();
+        }
+    }
     manager.register_pass<ov::pass::ConstantFolding>();
     manager.register_pass<ov::pass::ConvertScatterElementsUpdate12ToScatterElementsUpdate3>();
     manager.register_pass<ov::pass::ConvertInterpolate1ToInterpolate4>();
@@ -5984,11 +6335,11 @@ void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, m
     const auto serializeCanonicalModelVar = std::getenv("NPU_SERIALIZE_CANONICAL_MODEL");
     const bool serializeCanonicalModelEnabled =
             serializeCanonicalModelVar != nullptr &&
-            intel_npu::envVarStrToBool("NPU_SERIALIZE_CANONICAL_MODEL", serializeCanonicalModelVar);
+            vpux::OV::envVarStrToBool("NPU_SERIALIZE_CANONICAL_MODEL", serializeCanonicalModelVar);
     const bool perfDebugModeEnabled = isPerfDebugMode();
 
     if (serializeCanonicalModelEnabled || perfDebugModeEnabled) {
-        const auto& graphName = netGraph->get_friendly_name();
+        const auto graphName = sanitizeFilename(netGraph->get_friendly_name());
 
         std::string xmlPath, binPath;
         if (perfDebugModeEnabled) {
@@ -6154,6 +6505,7 @@ void addSparsityStatistics(const std::shared_ptr<ov::Model>& model, mlir::Module
     auto statsBuilder = mlir::OpBuilder::atBlockBegin(&statsOp.getSparsityInfo().front(), builder.getListener());
 
     auto actSparsityStats = model->get_rt_info<RTMap>(NGRAPH_ACT_SPARSITY_STATS_KEY);
+
     static const std::string nodeNameField = "node_name";
     static const std::string portIdField = "port_id";
     static const std::string statisticField = "statistic";
@@ -6206,7 +6558,9 @@ mlir::OwningOpRef<mlir::ModuleOp> vpux::IE::importNetwork(
     }
 
     log.trace("Run common nGraph passes");
-    NGraphPasses::runNGraphPasses(model, rootTiming, importCfg);
+    NPU_EXECUTE_ACTION(ctx, "run-ngraph-passes", {}) {
+        NGraphPasses::runNGraphPasses(model, rootTiming, importCfg);
+    };
 
     const auto moduleLoc = createLayerLocation(ctx, "module", "Module");
     auto module = mlir::ModuleOp::create(moduleLoc, StringRef(model->get_friendly_name()));
@@ -6222,8 +6576,10 @@ mlir::OwningOpRef<mlir::ModuleOp> vpux::IE::importNetwork(
 
     log.trace("Import nGraph function");
 
-    NGraphImporter importer(ctx, model, importCfg.sharedConstants, log);
-    importer.buildMainFunc(builder, mainFuncName.getValue(), rootTiming, importCfg);
+    NPU_EXECUTE_ACTION(ctx, "import-ov-into-mlir", {module.getOperation()}) {
+        NGraphImporter importer(ctx, model, importCfg.sharedConstants, log);
+        importer.buildMainFunc(builder, mainFuncName.getValue(), rootTiming, importCfg);
+    };
 
     log.trace("Validate MLIR module");
     auto finalTiming = rootTiming.nest("Validate MLIR module");

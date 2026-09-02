@@ -98,7 +98,13 @@ INSTANTIATE_TEST_SUITE_P(smoke_ScatterElementsUpdate, ScatterElementsUpdateLayer
 namespace {  // ScatterElementsUpdate12
 
 std::map<std::vector<size_t>, std::map<std::vector<size_t>, std::vector<int>>> axesShapeInShapeV12{
-        {{2, 3, 4}, {{{1, 7, 1}, {1, -1}}}},
+        // Cover an axis-1 update and an innermost-axis update represented by
+        // -1, which is normalized by the operation before kernel dispatch.
+        {{2, 3, 4},
+         {
+                 {{1, 7, 1}, {1}},
+                 {{1, 1, 7}, {-1}},
+         }},
 };
 
 const std::vector<std::vector<int64_t>> idxWithNegativeValues = {
@@ -153,5 +159,75 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::Values(ov::element::f32), ::testing::Values(ov::element::i32),
                            ::testing::Values(test_utils::TARGET_DEVICE)),
         ScatterElementsUpdate12LayerTestCommon::getTestCaseName);
+
+}  // namespace
+
+namespace {
+
+std::map<std::vector<size_t>, std::map<std::vector<size_t>, std::vector<int>>> innermostFastPathShape{
+        {{2, 64}, {{{2, 16}, {1}}}},
+};
+
+// Dense innermost-axis, reduction=NONE cases exercise direct stores in the
+// fp16 fast path, including valid negative indices and both init-value modes.
+const std::vector<std::vector<int64_t>> innermostFastPathIndices{
+        {3, -1, -64, 5, 10, 15, 20, 7,  8, 12, 22, 30, 40, 50, 60, 2,
+         1, 2,  4,   8, 16, 32, -1, -2, 9, 25, 5,  7,  11, 13, 17, 19},
+};
+
+INSTANTIATE_TEST_SUITE_P(smoke_ScatterElementsUpdate12_InnermostFp16FastPath, ScatterElementsUpdate12LayerTestCommon,
+                         ::testing::Combine(::testing::ValuesIn(combineShapes(innermostFastPathShape)),
+                                            ::testing::ValuesIn(innermostFastPathIndices),
+                                            ::testing::Values(ov::op::v12::ScatterElementsUpdate::Reduction::NONE),
+                                            ::testing::ValuesIn({true, false}), ::testing::Values(ov::element::f16),
+                                            ::testing::Values(ov::element::i32),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
+                         ScatterElementsUpdate12LayerTestCommon::getTestCaseName);
+
+std::map<std::vector<size_t>, std::map<std::vector<size_t>, std::vector<int>>> innermostCollapseShape{
+        {{2, 3, 8, 1}, {{{2, 1, 8, 1}, {1}}}},
+};
+
+// The singleton innermost dimension makes the scatter axis eligible for the
+// kernel's axis-1-to-innermost collapse path; negatives and both init modes
+// keep normalization and initialization behavior covered.
+const std::vector<std::vector<int64_t>> innermostCollapseIndices{
+        {0, 1, 2, 0, -1, -2, -3, 1, 2, 0, 1, -1, -3, 2, 0, -2},
+};
+
+INSTANTIATE_TEST_SUITE_P(smoke_ScatterElementsUpdate12_InnermostFp16CollapsePath,
+                         ScatterElementsUpdate12LayerTestCommon,
+                         ::testing::Combine(::testing::ValuesIn(combineShapes(innermostCollapseShape)),
+                                            ::testing::ValuesIn(innermostCollapseIndices),
+                                            ::testing::Values(ov::op::v12::ScatterElementsUpdate::Reduction::NONE),
+                                            ::testing::ValuesIn({true, false}), ::testing::Values(ov::element::f16),
+                                            ::testing::Values(ov::element::i32),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
+                         ScatterElementsUpdate12LayerTestCommon::getTestCaseName);
+
+// Innermost-axis update with a smaller non-axis outer dim that wraps into a
+// further outer dim (data [3,5,4], updates/indices [3,2,4], axis=2): the
+// dimension right before the innermost axis is legally smaller in updates
+// than in data (2 < 5, per spec updates dims may be <= data dims outside
+// axis) while the outermost dim (3) is > 1, so the fast path's flat
+// pOut += wDim row walk would skip/misalign output addresses if the
+// updateShape/outputShape equality guard were missing.
+std::map<std::vector<size_t>, std::map<std::vector<size_t>, std::vector<int>>> innermostWrappingOuterDimShape{
+        {{3, 5, 4}, {{{3, 2, 4}, {2}}}},
+};
+
+const std::vector<std::vector<int64_t>> innermostWrappingOuterDimIndices{
+        {0, -1, 2, -4, 1, 3, -2, -3, 3, 0, -1, 2, -3, -4, 1, 2, 2, 1, -2, 0, -1, 3, -4, 0},
+};
+
+INSTANTIATE_TEST_SUITE_P(smoke_ScatterElementsUpdate12_InnermostFp16WrappingOuterDim,
+                         ScatterElementsUpdate12LayerTestCommon,
+                         ::testing::Combine(::testing::ValuesIn(combineShapes(innermostWrappingOuterDimShape)),
+                                            ::testing::ValuesIn(innermostWrappingOuterDimIndices),
+                                            ::testing::Values(ov::op::v12::ScatterElementsUpdate::Reduction::NONE),
+                                            ::testing::ValuesIn({true, false}), ::testing::Values(ov::element::f16),
+                                            ::testing::Values(ov::element::i32),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
+                         ScatterElementsUpdate12LayerTestCommon::getTestCaseName);
 
 }  // namespace

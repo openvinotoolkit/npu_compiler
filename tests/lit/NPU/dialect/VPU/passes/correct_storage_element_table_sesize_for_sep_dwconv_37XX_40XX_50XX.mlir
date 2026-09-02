@@ -37,11 +37,11 @@ func.func @DWConvWithSEPSOK(%arg0: tensor<1x160x1x1xf16, {order = #NHWC}>) -> te
                            #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 160, 2, 2]>>
 
-    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [160, 1, 1, 1] {
+    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [160, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1]
     } -> tensor<1x160x2x2xf16, {order = #NHWC}>
 
@@ -85,11 +85,11 @@ func.func @DWConvWithSEPSOH(%arg0: tensor<1x64x4x4xf16, {order = #NHWC}>) -> ten
                            #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 64, 8, 8]>>
 
-    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [64, 1, 1, 1] {
+    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [64, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1]
     } -> tensor<1x64x8x8xf16, {order = #NHWC}>
 
@@ -130,10 +130,10 @@ func.func @DWConvWithSEPNoMCStrategy(%arg0: tensor<1x64x1x1xf16, {order = #NHWC}
                            #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 64, 2, 2]>>
 
-    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [64, 1, 1, 1] {
+    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [64, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1]
     } -> tensor<1x64x2x2xf16, {order = #NHWC}>
 
@@ -183,10 +183,10 @@ func.func @DWConvWithSEPChannelSliceWithDepth1(%arg0: tensor<1x64x1x1xf16, {orde
                            #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 64, 2, 2]>>
 
-    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [64, 1, 1, 1] {
+    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [64, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1]
     } -> tensor<1x64x2x2xf16, {order = #NHWC}>
 

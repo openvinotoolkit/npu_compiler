@@ -36,7 +36,9 @@ public:
                                       const VPU::TilingOperationStorage::UPtr& tilingInfo, const int64_t tileIdx,
                                       const bool isInput) const {
         auto params = fillInCostParam(operation, tilingInfo, tileIdx);
-        return getPrefetchingCost(operation, config, costFunction, params, isInput, tilingInfo, tileIdx);
+        VPU::VF::v2::ParentVFTilingInfoCache parentVFTilingInfoCache;
+        return getPrefetchingCost(operation, config, costFunction, params, isInput, tilingInfo, tileIdx,
+                                  parentVFTilingInfoCache);
     }
 
     std::optional<VPU::StrategyCost> getViewLikeOpDMACost(
@@ -47,6 +49,75 @@ public:
     }
 };
 }  // namespace
+
+TEST_F(MLIR_VPU_VFScheduling, StrategyCostHashUsesFullTileForPaddedNCEOps) {
+    constexpr llvm::StringLiteral inputIR = R"(
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module @main {
+    func.func @main(%arg0: tensor<1x16x288x288xf16, {order = #NHWC}>,
+                    %argW: tensor<32x16x3x3xf16, {order = #NHWC}>)
+    -> (tensor<1x32x286x286xf16, {order = #NHWC}>, tensor<1x32x288x288xf16, {order = #NHWC}>) {
+        %zeroPad = VPU.NCE.Convolution(%arg0, %argW) rawFilterShape [32, 16, 3, 3] {
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            ppe = #VPU.PPEStub<>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            strides = [1, 1]
+        } : tensor<1x16x288x288xf16, {order = #NHWC}>, tensor<32x16x3x3xf16, {order = #NHWC}>
+            -> tensor<1x32x286x286xf16, {order = #NHWC}>
+        %padded = VPU.NCE.Convolution(%arg0, %argW) rawFilterShape [32, 16, 3, 3] {
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            ppe = #VPU.PPEStub<>,
+            pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+            strides = [1, 1]
+        } : tensor<1x16x288x288xf16, {order = #NHWC}>, tensor<32x16x3x3xf16, {order = #NHWC}>
+            -> tensor<1x32x288x288xf16, {order = #NHWC}>
+        return %zeroPad, %padded : tensor<1x32x286x286xf16, {order = #NHWC}>, tensor<1x32x288x288xf16, {order = #NHWC}>
+    }
+}
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module->lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    auto nceOps = to_small_vector(func.getOps<VPU::NCEOpInterface>());
+    ASSERT_EQ(nceOps.size(), 2);
+    auto zeroPadConv = nceOps[0];
+    auto paddedConv = nceOps[1];
+    ASSERT_TRUE(VPU::hasZeroPadding(zeroPadConv.getPad()));
+    ASSERT_FALSE(VPU::hasZeroPadding(paddedConv.getPad()));
+
+    const Shape outputShape({1, 32, 16, 16});
+    const Shape firstOutputOffsets({0, 0, 0, 0});
+    const Shape secondOutputOffsets({0, 0, 16, 16});
+    const Shape outputAxis({1, 1, 1, 1});
+    const TileInfo firstOutputTile(outputShape, firstOutputOffsets, outputAxis, true);
+    const TileInfo secondOutputTile(outputShape, secondOutputOffsets, outputAxis, true);
+
+    const Shape inputShape({1, 16, 16, 16});
+    const Shape firstInputOffsets({0, 0, 0, 0});
+    const Shape secondInputOffsets({0, 0, 16, 16});
+    const Shape inputAxis({1, 1, 1, 1});
+    const TileInfo firstInputTile(inputShape, firstInputOffsets, inputAxis);
+    const TileInfo secondInputTile(inputShape, secondInputOffsets, inputAxis);
+
+    const auto firstParams = VPU::VPUNNCostParameters(
+            VPU::MultiClusterStrategy::SplitOverHeight, OutputTiling{firstOutputTile}, TilingMode::ISOLATED,
+            SmallVector<SmallVector<TileInfo>>{SmallVector<TileInfo>{firstInputTile}}, false);
+    const auto secondParams = VPU::VPUNNCostParameters(
+            VPU::MultiClusterStrategy::SplitOverHeight, OutputTiling{secondOutputTile}, TilingMode::ISOLATED,
+            SmallVector<SmallVector<TileInfo>>{SmallVector<TileInfo>{secondInputTile}}, false);
+
+    EXPECT_EQ(VPU::VF::v2::getStrategyCostHash(zeroPadConv.getOperation(), firstParams),
+              VPU::VF::v2::getStrategyCostHash(zeroPadConv.getOperation(), secondParams));
+    EXPECT_NE(VPU::VF::v2::getStrategyCostHash(paddedConv.getOperation(), firstParams),
+              VPU::VF::v2::getStrategyCostHash(paddedConv.getOperation(), secondParams));
+}
 
 TEST_F(MLIR_VPU_VFScheduling, PrefetchDMAUsesVFBlockArgumentThroughViewLikeOp) {
     constexpr llvm::StringLiteral inputIR = R"(
@@ -101,7 +172,8 @@ module @main {
     ASSERT_TRUE(weightsOperand != nullptr);
     EXPECT_TRUE(VPU::VF::v2::getVFBlockArgument(weightsOperand) != nullptr);
 
-    auto config = VPU::VF::v2::VFConfig(vfOp);
+    VPU::VF::v2::VFCacheAnalysis cache(vfOp.getOperation());
+    auto config = VPU::VF::v2::VFConfig(vfOp, cache);
     auto layerCost = std::make_unique<VPU::LayerVPUNNCost>(func);
     auto scheduling = TestVFScheduling(vpux::Logger::global());
 
@@ -195,7 +267,8 @@ module @main {
     ASSERT_EQ(groupSparseOps.size(), 1);
 
     auto groupSparseOp = groupSparseOps.front();
-    auto config = VPU::VF::v2::VFConfig(vfOp);
+    VPU::VF::v2::VFCacheAnalysis cache(vfOp.getOperation());
+    auto config = VPU::VF::v2::VFConfig(vfOp, cache);
     auto layerCost = std::make_unique<VPU::LayerVPUNNCost>(func);
     auto scheduling = TestVFScheduling(vpux::Logger::global());
 

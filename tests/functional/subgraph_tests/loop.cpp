@@ -32,7 +32,6 @@ public:
         inType = ov::element::i32;
         std::vector<std::vector<size_t>> exInputShapes, bodyInputShapes;
         exInputShapes = {{1, 3, 2, 2}};
-        int64_t axis = 1;
         bodyInputShapes = {{1, 3, 2, 2}};
         const ov::Shape weightsShape{1};
 
@@ -91,7 +90,6 @@ public:
         inType = ov::element::i32;
         std::vector<std::vector<size_t>> exInputShapes, bodyInputShapes;
         exInputShapes = {{1, 3, 2, 2}};
-        int64_t axis = 1;
         bodyInputShapes = {{1, 3, 2, 2}, {1}};
         const ov::Shape weightsShape{1};
 
@@ -149,7 +147,6 @@ public:
         inType = ov::element::i32;
         std::vector<std::vector<size_t>> exInputShapes, bodyInputShapes;
         exInputShapes = {{1, 5, 3, 2}};
-        int64_t axis = 1;
         bodyInputShapes = {{1, 5, 3, 2}, {1}};
         const ov::Shape weightsShape{1};
 

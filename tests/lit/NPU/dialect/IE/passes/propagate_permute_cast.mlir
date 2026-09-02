@@ -171,3 +171,93 @@ func.func @DontPropagateThroughSliceNoParentPermuteCast(%arg0: tensor<1x16x55x55
     // CHECK:       [[PERMUTECAST:%.+]] = IE.PermuteCast([[SLICE]])
     // CHECK:       return [[PERMUTECAST]]
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+#NCHW_TO_NHWC = affine_map<(d0, d1, d2, d3) -> (d2, d0, d3, d1)>
+
+// CHECK-LABEL: func.func @PropagateThroughSwish
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<4x4x1x1xf16>)
+func.func @PropagateThroughSwish(%arg0: tensor<4x4x1x1xf16>) -> tensor<1x4x4x1xf16, {order = #NHWC}> {
+    %swish = IE.Swish(%arg0) {beta_value = 1.000000e+00 : f64} : tensor<4x4x1x1xf16> -> tensor<4x4x1x1xf16>
+    %permute_cast = IE.PermuteCast(%swish) {dst_order = #NHWC, mem_perm = #NCHW_TO_NHWC} : tensor<4x4x1x1xf16> -> tensor<1x4x4x1xf16, {order = #NHWC}>
+    return %permute_cast : tensor<1x4x4x1xf16, {order = #NHWC}>
+
+    // PermuteCast is pushed before Swish; Swish now runs in NHWC layout
+    // CHECK:       [[PC:%.+]] = IE.PermuteCast([[ARG_0]]) {dst_order = #NHWC, mem_perm = #map} : tensor<4x4x1x1xf16> -> tensor<1x4x4x1xf16, {order = #NHWC}>
+    // CHECK:       [[SW:%.+]] = IE.Swish([[PC]]) {beta_value = {{.+}}} : tensor<1x4x4x1xf16, {order = #NHWC}> -> tensor<1x4x4x1xf16, {order = #NHWC}>
+    // CHECK:       return [[SW]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NCHW_TO_NHWC = affine_map<(d0, d1, d2, d3) -> (d2, d0, d3, d1)>
+
+// CHECK-LABEL: func.func @PropagateThroughSwishWithAffineReshape
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<4x4x1x1xf16>)
+func.func @PropagateThroughSwishWithAffineReshape(%arg0: tensor<4x4x1x1xf16>) -> tensor<1x4x2x2xf16, {order = #NHWC}> {
+    %swish = IE.Swish(%arg0) {beta_value = 1.000000e+00 : f64} : tensor<4x4x1x1xf16> -> tensor<4x4x1x1xf16>
+    %permute_cast = IE.PermuteCast(%swish) {dst_order = #NHWC, mem_perm = #NCHW_TO_NHWC} : tensor<4x4x1x1xf16> -> tensor<1x4x4x1xf16, {order = #NHWC}>
+    %reshape = IE.AffineReshape(%permute_cast) {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 4, 2, 2]} : tensor<1x4x4x1xf16, {order = #NHWC}> -> tensor<1x4x2x2xf16, {order = #NHWC}>
+    return %reshape : tensor<1x4x2x2xf16, {order = #NHWC}>
+
+    // AffineReshape moves before Swish; Swish runs at the Multiply shape enabling VerticalFusion
+    // CHECK:       [[PC:%.+]] = IE.PermuteCast([[ARG_0]]) {dst_order = #NHWC, mem_perm = #map} : tensor<4x4x1x1xf16> -> tensor<1x4x4x1xf16, {order = #NHWC}>
+    // CHECK:       [[AR:%.+]] = IE.AffineReshape([[PC]]) {{{.+}} shape_value = [1, 4, 2, 2]} : tensor<1x4x4x1xf16, {order = #NHWC}> -> tensor<1x4x2x2xf16, {order = #NHWC}>
+    // CHECK:       [[SW:%.+]] = IE.Swish([[AR]]) {beta_value = {{.+}}} : tensor<1x4x2x2xf16, {order = #NHWC}> -> tensor<1x4x2x2xf16, {order = #NHWC}>
+    // CHECK:       return [[SW]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+#NHWC_TO_NCHW = affine_map<(d0, d1, d2, d3) -> (d1, d3, d0, d2)>
+#NCHW_TO_NHWC = affine_map<(d0, d1, d2, d3) -> (d2, d0, d3, d1)>
+
+// CHECK-LABEL: func.func @SwiGLUGateOptimization
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x8x4x1xf16, {order = #NHWC}>)
+func.func @SwiGLUGateOptimization(%arg0: tensor<1x8x4x1xf16, {order = #NHWC}>) -> tensor<1x4x2x2xf16, {order = #NHWC}> {
+    // Gate path: PermuteCast(NHWC→NCHW) → Slice → Swish → PermuteCast(NCHW→NHWC) → AffineReshape
+    // PropagateThroughSwish absorbs AffineReshape into Swish input,
+    // then PropagateThroughSlice cancels the two PermuteCasts,
+    // yielding: Slice(NHWC) → AffineReshape → Swish(NHWC)
+    %pc1 = IE.PermuteCast(%arg0) {dst_order = #NCHW, mem_perm = #NHWC_TO_NCHW} : tensor<1x8x4x1xf16, {order = #NHWC}> -> tensor<4x8x1x1xf16>
+    %slice = IE.Slice %pc1 [0, 0, 0, 0] [4, 4, 1, 1] : tensor<4x8x1x1xf16> to tensor<4x4x1x1xf16>
+    %swish = IE.Swish(%slice) {beta_value = 1.000000e+00 : f64} : tensor<4x4x1x1xf16> -> tensor<4x4x1x1xf16>
+    %pc2 = IE.PermuteCast(%swish) {dst_order = #NHWC, mem_perm = #NCHW_TO_NHWC} : tensor<4x4x1x1xf16> -> tensor<1x4x4x1xf16, {order = #NHWC}>
+    %reshape = IE.AffineReshape(%pc2) {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 4, 2, 2]} : tensor<1x4x4x1xf16, {order = #NHWC}> -> tensor<1x4x2x2xf16, {order = #NHWC}>
+    return %reshape : tensor<1x4x2x2xf16, {order = #NHWC}>
+
+    // Both PermuteCasts are eliminated; Slice moves to NHWC; AffineReshape precedes Swish
+    // CHECK-NOT:   IE.PermuteCast
+    // CHECK:       [[SL:%.+]] = IE.Slice [[ARG_0]] [0, 0, 0, 0] [1, 4, 4, 1] : tensor<1x8x4x1xf16, {order = #NHWC}> to tensor<1x4x4x1xf16, {order = #NHWC}>
+    // CHECK:       [[AR:%.+]] = IE.AffineReshape([[SL]]) {{{.+}} shape_value = [1, 4, 2, 2]} : tensor<1x4x4x1xf16, {order = #NHWC}> -> tensor<1x4x2x2xf16, {order = #NHWC}>
+    // CHECK:       [[SW:%.+]] = IE.Swish([[AR]]) {beta_value = {{.+}}} : tensor<1x4x2x2xf16, {order = #NHWC}> -> tensor<1x4x2x2xf16, {order = #NHWC}>
+    // CHECK:       return [[SW]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NCHW_TO_NHWC = affine_map<(d0, d1, d2, d3) -> (d2, d0, d3, d1)>
+
+// CHECK-LABEL: func.func @DontPropagateThroughSwishMultipleUses
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<4x4x1x1xf16>)
+func.func @DontPropagateThroughSwishMultipleUses(%arg0: tensor<4x4x1x1xf16>) -> (tensor<1x4x4x1xf16, {order = #NHWC}>, tensor<4x4x1x1xf16>) {
+    %swish = IE.Swish(%arg0) {beta_value = 1.000000e+00 : f64} : tensor<4x4x1x1xf16> -> tensor<4x4x1x1xf16>
+    %permute_cast = IE.PermuteCast(%swish) {dst_order = #NHWC, mem_perm = #NCHW_TO_NHWC} : tensor<4x4x1x1xf16> -> tensor<1x4x4x1xf16, {order = #NHWC}>
+    // %swish has 2 users (%permute_cast and the direct return) → propagation must not fire
+    return %permute_cast, %swish : tensor<1x4x4x1xf16, {order = #NHWC}>, tensor<4x4x1x1xf16>
+
+    // CHECK:       [[SW:%.+]] = IE.Swish([[ARG_0]])
+    // CHECK:       [[PC:%.+]] = IE.PermuteCast([[SW]])
+    // CHECK:       return [[PC]], [[SW]]
+}

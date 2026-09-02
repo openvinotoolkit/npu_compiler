@@ -22,6 +22,10 @@
 
 using namespace vpux;
 
+mlir::LogicalResult vpux::IE::InterpolateOp::verifyShapeInfo() {
+    return vpux::IE::verifyInputIs4D(getInput());
+}
+
 mlir::LogicalResult vpux::IE::InterpolateOp::inferReturnTypeComponents(
         mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc, mlir::ValueShapeRange operands,
         mlir::DictionaryAttr attrs, mlir::OpaqueProperties prop, mlir::RegionRange,
@@ -380,7 +384,7 @@ mlir::LogicalResult vpux::IE::InterpolateOp::reifyResultShapes(mlir::OpBuilder& 
 //
 
 mlir::OpFoldResult vpux::IE::InterpolateOp::fold(FoldAdaptor adaptor) {
-    if (getInput().getType() == getOutput().getType()) {
+    if (getInput().getType() == getOutput().getType() && !getShape(getInput()).isDynamic()) {
         return getInput();
     }
     const auto ctx = getContext();

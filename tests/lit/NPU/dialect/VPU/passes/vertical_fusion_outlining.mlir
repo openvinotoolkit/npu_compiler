@@ -88,7 +88,7 @@ module @VerticalFusionSimpleOutlining {
 
 // CHECK: func.func nested @main_vf1([[ARG0:%.+]]: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<4096x48x1x1xf16, {order = #NHWC}>) -> tensor<1x4096x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG0]] as {{[^:]+}}: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[ARG1]] as {{[^:]+}}: tensor<4096x48x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 10, 1]} -> tensor<1x4096x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [4096, 48, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [4096, 48, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -104,7 +104,7 @@ module @VerticalFusionSimpleOutlining {
 
 // CHECK: func.func nested @main_vf3([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>) -> tensor<1x48x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG1]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -113,7 +113,7 @@ module @VerticalFusionSimpleOutlining {
 
 // CHECK: func.func nested @main_vf4([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>) -> tensor<1x48x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG1]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -213,7 +213,7 @@ module @VerticalFusionWithViewOpOutlining {
 
 // CHECK: func.func nested @main_vf1([[ARG0:%.+]]: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<4096x48x1x1xf16, {order = #NHWC}>) -> tensor<1x4096x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG0]] as {{[^:]+}}: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[ARG1]] as {{[^:]+}}: tensor<4096x48x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 10, 1]} -> tensor<1x4096x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [4096, 48, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [4096, 48, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -229,7 +229,7 @@ module @VerticalFusionWithViewOpOutlining {
 
 // CHECK: func.func nested @main_vf3([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>) -> tensor<1x48x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG1]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -239,7 +239,7 @@ module @VerticalFusionWithViewOpOutlining {
 // CHECK: func.func nested @main_vf4([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>) -> tensor<1x48x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VIEW:%.+]] = VPU.ShapeCast {shape = [1, 4096, 1024, 4]} inputs([[ARG1]] : tensor<1x4096x1024x4xf16, {order = #NHWC}>) -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[VIEW]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -342,7 +342,7 @@ module @VerticalFusionWithSliceOpOutlining {
 
 // CHECK: func.func nested @main_vf1([[ARG0:%.+]]: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<4096x48x1x1xf16, {order = #NHWC}>) -> tensor<1x4096x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG0]] as {{[^:]+}}: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[ARG1]] as {{[^:]+}}: tensor<4096x48x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 10, 1]} -> tensor<1x4096x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [4096, 48, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [4096, 48, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -358,7 +358,7 @@ module @VerticalFusionWithSliceOpOutlining {
 
 // CHECK: func.func nested @main_vf3([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>) -> tensor<1x48x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG1]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -368,7 +368,7 @@ module @VerticalFusionWithSliceOpOutlining {
 
 // CHECK: func.func nested @main_vf4([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>) -> tensor<1x40x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG1]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -467,7 +467,7 @@ module @VerticalFusionWithSlicedConstantOutlining {
 
 // CHECK: func.func nested @main_vf1([[ARG0:%.+]]: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<4096x48x1x1xf16, {order = #NHWC}>) -> tensor<1x4096x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG0]] as {{[^:]+}}: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[ARG1]] as {{[^:]+}}: tensor<4096x48x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 10, 1]} -> tensor<1x4096x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [4096, 48, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [4096, 48, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -483,7 +483,7 @@ module @VerticalFusionWithSlicedConstantOutlining {
 
 // CHECK: func.func nested @main_vf3([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>) -> tensor<1x48x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG1]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -493,7 +493,7 @@ module @VerticalFusionWithSlicedConstantOutlining {
 
 // CHECK: func.func nested @main_vf4([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>) -> tensor<1x48x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG1]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -591,7 +591,7 @@ module @VerticalFusionWithConcatOpOutlining {
 
 // CHECK: func.func nested @main_vf1([[ARG0:%.+]]: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<4096x48x1x1xf16, {order = #NHWC}>) -> tensor<1x4096x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG0]] as {{[^:]+}}: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[ARG1]] as {{[^:]+}}: tensor<4096x48x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 10, 1]} -> tensor<1x4096x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [4096, 48, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [4096, 48, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -607,7 +607,7 @@ module @VerticalFusionWithConcatOpOutlining {
 
 // CHECK: func.func nested @main_vf3([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>) -> tensor<1x48x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG1]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -616,7 +616,7 @@ module @VerticalFusionWithConcatOpOutlining {
 
 // CHECK: func.func nested @main_vf4([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG2:%.+]]: tensor<1x48x1024x4xf16, {order = #NHWC}>) -> tensor<1x96x1024x4xf16, {order = #NHWC}> {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG1]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -817,7 +817,7 @@ module @OutliningMixedCase {
 // CHECK-SAME{LITERAL}:      {pads_begin = [0, 0, 0, 0], pads_end = [0, 8, 0, 0]}
 // CHECK-SAME:               : tensor<1x40x1024x4xf16, {order = #NHWC}> -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:  [[VF1:%.+]] = VPU.VerticalFusion ([[EXPAND]] as {{[^:]+}}: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[ARG1]] as {{[^:]+}}: tensor<4096x48x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 9, 1]} -> tensor<1x4096x1024x4xf16, {order = #NHWC}> {
-// CHECK:                 [[OP:%.+]] =  VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [4096, 48, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                 [[OP:%.+]] =  VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [4096, 48, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                 -> tensor<1x4096x1024x4xf16, {order = #NHWC}>
 // CHECK:                 VPU.Yield [[OP]]
@@ -832,7 +832,7 @@ module @OutliningMixedCase {
 
 // CHECK: func.func nested @main_vf2([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>) -> tensor<1x48x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG1]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -841,7 +841,7 @@ module @OutliningMixedCase {
 
 // CHECK: func.func nested @main_vf3([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>) -> tensor<1x48x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG1]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -850,7 +850,7 @@ module @OutliningMixedCase {
 
 // CHECK: func.func nested @main_vf4([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>) -> tensor<1x48x1024x4xf16, {order = #NHWC}> attributes {pure_vertical_fusion_region} {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG1]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]
@@ -859,7 +859,7 @@ module @OutliningMixedCase {
 
 // CHECK: func.func nested @main_vf5([[ARG0:%.+]]: tensor<48x4096x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG2:%.+]]: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[ARG3:%.+]]: tensor<1x48x1024x4xf16, {order = #NHWC}>, [[ARG4:%.+]]: tensor<1x48x1024x4xf16, {order = #NHWC}>) -> tensor<1x190x1024x4xf16, {order = #NHWC}> {
 // CHECK:  [[VF:%.+]] = VPU.VerticalFusion ([[ARG1]] as {{[^:]+}}: tensor<1x4096x1024x4xf16, {order = #NHWC}>, [[ARG0]] as {{[^:]+}}: tensor<48x4096x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 15, 1]} -> tensor<1x48x1024x4xf16, {order = #NHWC}> {
-// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:                [[OP:%.+]] = VPU.NCE.Convolution({{[^:]+}}, {{[^:]+}}) rawFilterShape [48, 4096, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME: strides = [1, 1]}
 // CHECK-SAME:                -> tensor<1x48x1024x4xf16, {order = #NHWC}>
 // CHECK:                VPU.Yield [[OP]]

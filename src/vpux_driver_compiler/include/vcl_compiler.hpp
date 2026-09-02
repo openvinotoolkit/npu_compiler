@@ -64,11 +64,9 @@ public:
      *
      * @param desc The description of the model and user configuration info
      * @param allocator Allocator for blob storage allocation
-     * @param allocateCompatibilityString Whether to return the compatibility string in NetworkDescriptionView
      * @return vpux::NetworkDescriptionView Include non-owning view into blob and metadata
      */
-    vpux::NetworkDescriptionView importNetwork(const vcl_executable_desc_t& desc, vpux::BlobAllocator& allocator,
-                                               bool allocateCompatibilityString = false);
+    vpux::NetworkDescriptionView importNetwork(const vcl_executable_desc_t& desc, vpux::BlobAllocator& allocator);
 
     /**
      * @brief Use VPUX MLIR compiler to create one shot weight-separated blob with user info
@@ -118,12 +116,12 @@ public:
     bool isOptionValueSupported(const char* option, const char* value) const;
 
 private:
-    std::shared_ptr<intel_npu::OptionsDesc> _options;  ///< The default compilation configs
-    std::unique_ptr<CompilerLoader> _compilerLoader;   ///< The handle of MLIR compiler
-    vcl_compiler_properties_t _compilerProp;           ///< The capabilities of compiler
-    vcl_compiler_desc_t _compilerDesc;                 ///< The info of platform and debug level
-    vcl_device_desc_t _deviceDesc;                     ///< The info of device
-    bool _isDeviceDescEmpty;                           ///< The info of deviceDesc status
+    std::shared_ptr<vpux::OV::OptionsDesc> _options;  ///< The default compilation configs
+    std::unique_ptr<CompilerLoader> _compilerLoader;  ///< The handle of MLIR compiler
+    vcl_compiler_properties_t _compilerProp;          ///< The capabilities of compiler
+    vcl_compiler_desc_t _compilerDesc;                ///< The info of platform and debug level
+    vcl_device_desc_t _deviceDesc;                    ///< The info of device
+    bool _isDeviceDescEmpty;                          ///< The info of deviceDesc status
     std::shared_ptr<VCLLogger> _logger;
 };
 

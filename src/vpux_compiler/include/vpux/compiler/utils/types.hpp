@@ -107,19 +107,20 @@ AddressType getAlignment(mlir::Value val, AddressType defaultAlignment = vpux::D
 //
 
 mlir::MemRefType getMemRefType(ShapeRef shape, mlir::Type elemType, const DimsOrder& order = {},
-                               IndexedSymbolAttr memSpace = nullptr, StridesRef strides = {},
+                               IndexedSymbolAttr memSpace = nullptr, StridesRef strides = {}, BoundsRef bounds = {},
                                VPUIP::SwizzlingSchemeAttr swizzlingSchemeAttr = nullptr,
                                VPUIP::SparsityCompressionAttr sparsityCompressionAttr = nullptr,
                                mlir::IntegerAttr allocSizeAttr = nullptr,
                                VPUIP::CompressionStateAttr compressionState = nullptr);
+
 template <typename Enum>
 memref_type_if<Enum> getMemRefType(ShapeRef shape, mlir::Type elemType, const DimsOrder& order, Enum kind,
-                                   StridesRef strides = StridesRef(),
+                                   StridesRef strides = StridesRef(), BoundsRef bounds = BoundsRef(),
                                    VPUIP::SwizzlingSchemeAttr swizzlingSchemeAttr = nullptr,
                                    VPUIP::SparsityCompressionAttr sparsityCompressionAttr = nullptr,
                                    mlir::IntegerAttr allocSizeAttr = nullptr) {
     return getMemRefType(shape, elemType, order, IndexedSymbolAttr::get(elemType.getContext(), stringifyEnum(kind)),
-                         strides, swizzlingSchemeAttr, sparsityCompressionAttr, allocSizeAttr);
+                         strides, bounds, swizzlingSchemeAttr, sparsityCompressionAttr, allocSizeAttr);
 }
 
 IndexedSymbolAttr getMemorySpace(mlir::MemRefType type);

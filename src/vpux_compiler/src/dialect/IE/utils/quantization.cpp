@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -371,7 +372,7 @@ std::optional<int64_t> IE::getQuantAxisIndex(mlir::Operation* op, Logger log) {
                 mlir::cast<vpux::NDTypeInterface>(tensor.getType()).getElementType());
     };
 
-    if (auto fqOp = mlir::dyn_cast_or_null<IE::FakeQuantizeOp>(op)) {
+    if (auto fqOp = mlir::dyn_cast_if_present<IE::FakeQuantizeOp>(op)) {
         axis = getFQAxisIndex(fqOp, log);
     } else if (mlir::isa<IE::DequantizeOp, IE::QuantizeOp>(op)) {
         if (const auto perAxisQType = getPerAxisQType(op->getOperand(0))) {
@@ -451,9 +452,11 @@ bool IE::checkQuantApproximation(mlir::Operation* op) {
     // Check that all scales can be approximated without post-shift (i.e. exponent must fit 15 bits).
     // Negative power is used here because rescaling is computed as scale_in * scale_w / scale_out
     // In case of float input and float weights, scale_in = 1, scale_w = 1, thus we get 1 / scale_out.
+    // The boundary is inclusive: scale == 2^-15 gives rescale == 2^15, whose exponent (16) still exceeds
+    // the 15 mantissa bits and therefore requires a post-shift.
     const double scaleLimit = std::pow(2, -15);
     for (const auto& scale : scales) {
-        if (std::fabs(scale) < scaleLimit) {
+        if (std::fabs(scale) <= scaleLimit) {
             return false;
         }
     }
@@ -461,7 +464,30 @@ bool IE::checkQuantApproximation(mlir::Operation* op) {
     return true;
 }
 
-mlir::Value IE::findQuantizedInput(mlir::Value opInput, bool allowPerAxisQuantize) {
+DimArr IE::getLegalActivationQuantAxes(mlir::Operation* op) {
+    if (mlir::isa_and_present<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::TransposedConvolutionOp, IE::MaxPoolOp,
+                              IE::AvgPoolOp, IE::AddOp, IE::MultiplyOp>(op)) {
+        return {Dims4D::Act::C};
+    } else if (mlir::isa_and_present<IE::MatMulOp>(op)) {
+        return {Dims4D::Act::C, Dims4D::Act::H};
+    }
+
+    return {};
+}
+
+DimArr IE::getLegalWeightsQuantAxes(mlir::Operation* op) {
+    if (mlir::isa_and_present<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::TransposedConvolutionOp>(op)) {
+        return {Dims4D::Filter::OC};
+    } else if (mlir::isa_and_present<IE::MaxPoolOp, IE::AvgPoolOp, IE::AddOp, IE::MultiplyOp>(op)) {
+        return {Dims4D::Filter::IC};
+    } else if (mlir::isa_and_present<IE::MatMulOp>(op)) {
+        return {Dims4D::Filter::IC, Dims4D::Filter::KY};
+    }
+
+    return {};
+}
+
+mlir::Value IE::findQuantizedInput(mlir::Value opInput, ArrayRef<Dim> allowedQuantAxes) {
     if (opInput == nullptr) {
         return nullptr;
     }
@@ -473,8 +499,23 @@ mlir::Value IE::findQuantizedInput(mlir::Value opInput, bool allowPerAxisQuantiz
     }
 
     const auto dequantType = mlir::cast<vpux::NDTypeInterface>(maybeDequant.getInput().getType());
-    if (!allowPerAxisQuantize && !mlir::isa<mlir::quant::UniformQuantizedType>(dequantType.getElementType())) {
-        return nullptr;
+    if (!mlir::isa_and_present<mlir::quant::UniformQuantizedType>(dequantType.getElementType())) {
+        if (allowedQuantAxes.empty()) {
+            return nullptr;
+        }
+
+        const auto quantType = dequantType.getElementType();
+
+        if (mlir::isa_and_present<mlir::quant::UniformQuantizedSubChannelType>(quantType)) {
+            return nullptr;
+        }
+
+        if (auto perAxisType = mlir::dyn_cast_if_present<mlir::quant::UniformQuantizedPerAxisType>(quantType)) {
+            auto quantDim = perAxisType.getQuantizedDimension();
+            if (std::find(allowedQuantAxes.begin(), allowedQuantAxes.end(), Dim(quantDim)) == allowedQuantAxes.end()) {
+                return nullptr;
+            }
+        }
     }
 
     return maybeDequant.getInput();
@@ -858,18 +899,21 @@ int64_t vpux::IE::getMaximumQuantizationLevels(int64_t currentLevels, mlir::Oper
     if (currentLevels != QuantizationLevels::QUANT_LEVELS_16BIT) {
         return QuantizationLevels::QUANT_LEVELS_8BIT;
     }
-    for (auto result : op->getResults()) {
-        if (result.use_empty()) {
-            continue;
-        }
-        // Allow 16-bit only if ALL users support it
-        if (llvm::all_of(result.getUsers(), [](mlir::Operation* userOp) {
-                if (auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(userOp)) {
-                    return quantizedLayerOp.getMaximumQuantizationLevels() == QuantizationLevels::QUANT_LEVELS_16BIT;
+    // Output FQ case: allow 16-bit only when this FQ feeds directly into the function return,
+    // meaning there are no downstream consumers that could be unable to handle 16-bit input.
+    if (auto fqOp = mlir::dyn_cast<IE::FakeQuantizeOp>(op)) {
+        const auto hasOnlyReturnUsers = llvm::all_of(fqOp->getResults(), [](mlir::Value result) {
+            return result.use_empty() || llvm::all_of(result.getUsers(), [](mlir::Operation* userOp) {
+                       return mlir::isa<mlir::func::ReturnOp>(userOp);
+                   });
+        });
+        if (hasOnlyReturnUsers) {
+            if (auto quantizedLayerOp =
+                        mlir::dyn_cast_if_present<IE::QuantizedLayerOpInterface>(fqOp.getInput().getDefiningOp())) {
+                if (quantizedLayerOp.getMaximumQuantizationLevels() == QuantizationLevels::QUANT_LEVELS_16BIT) {
+                    return QuantizationLevels::QUANT_LEVELS_16BIT;
                 }
-                return false;
-            })) {
-            return QuantizationLevels::QUANT_LEVELS_16BIT;
+            }
         }
     }
     return QuantizationLevels::QUANT_LEVELS_8BIT;
@@ -879,75 +923,159 @@ bool vpux::IE::isNCEOpCandidatesWithWeights(mlir::Operation* op) {
     return mlir::isa_and_nonnull<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::MatMulOp>(op);
 }
 
-bool nceOpCandidateHasSIWeightsAsInputOrConst(mlir::Operation* op) {
+// Walk up an NCE op's filter operand through view-like/quant ops to the originating
+// BlockArgument (weights-as-input) or Const::DeclareOp (weights-as-const). Returns failure
+// when neither is found (no WAI nor WAC), or when the op has no filter operand.
+//
+// When firstQuantType is non-null, it is populated with the first quantized element
+// type seen while walking the chain. For weights-as-input the terminal BlockArgument may carry a
+// bare (non-quantized) type, while the quantized type with its zero-point can be applied by a
+// QuantizeCast earlier in the chain, so it must be tracked separately to correctly detect SI
+// weights.
+static mlir::FailureOr<mlir::Value> findNCEOpWeightsAsInputOrConst(
+        mlir::Operation* op, mlir::quant::QuantizedType* firstQuantType = nullptr) {
+    if (op == nullptr || op->getNumOperands() < 2) {
+        return mlir::failure();
+    }
+
+    mlir::Value filterOperand = op->getOperand(1);
+
+    auto trackFirstQuantType = [&](mlir::Value value) {
+        if (firstQuantType == nullptr || *firstQuantType != nullptr) {
+            return;
+        }
+        const auto elemType = mlir::cast<NDTypeInterface>(value.getType()).getElementType();
+        const auto quantType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType);
+        if (quantType != nullptr) {
+            *firstQuantType = quantType;
+        }
+    };
+
+    while (true) {
+        trackFirstQuantType(filterOperand);
+        if (mlir::isa<mlir::BlockArgument>(filterOperand) ||
+            mlir::isa<Const::DeclareOp>(filterOperand.getDefiningOp())) {
+            return filterOperand;
+        } else if (auto concatOp = mlir::dyn_cast_if_present<IE::ConcatOp>(filterOperand.getDefiningOp())) {
+            for (auto input : concatOp.getInputs()) {
+                if (mlir::isa<mlir::BlockArgument>(input)) {
+                    trackFirstQuantType(input);
+                    return input;
+                }
+            }
+            break;
+        } else if (IE::isPureViewOp(filterOperand.getDefiningOp()) ||
+                   mlir::isa<IE::QuantizeCastOp, IE::DequantizeOp, IE::ConvertOp, IE::SliceOp, IE::TransposeOp>(
+                           filterOperand.getDefiningOp())) {
+            filterOperand = filterOperand.getDefiningOp()->getOperand(0);
+            continue;
+        } else {
+            break;
+        }
+    }
+
+    // Return failure if no BlockArgument or Const::DeclareOp is found (no WAI nor WAC)
+    return mlir::failure();
+}
+
+// Predicts whether an NCE op's signed weights will be converted to unsigned by the platform's
+// ConvertWeightsToUnsigned strategy. Block-argument (weights-as-input) weights keep their
+// external storage type and are never converted, so they are reported as staying signed. Used
+// to keep the producer/activation signedness aligned with the final weights signedness.
+// Strategy parameter allows amortizing allocations across multiple calls.
+static bool willNCEWeightsConvertToUnsigned(mlir::Operation* op,
+                                            const IE::IConvertWeightsToUnsignedStrategy* strategy = nullptr) {
+    const auto weights = findNCEOpWeightsAsInputOrConst(op);
+    if (mlir::failed(weights)) {
+        return false;
+    }
+    if (mlir::isa<mlir::BlockArgument>(weights.value())) {
+        return false;
+    }
+    const auto weightsElemType = mlir::cast<NDTypeInterface>(weights.value().getType()).getElementType();
+    const auto weightsQType = mlir::dyn_cast<mlir::quant::QuantizedType>(weightsElemType);
+    if (weightsQType == nullptr) {
+        return false;
+    }
+
+    // Use caller-provided strategy or retrieve one-off if not provided (for backward compatibility).
+    std::unique_ptr<IE::IConvertWeightsToUnsignedStrategy> ownedStrategy;
+    const IE::IConvertWeightsToUnsignedStrategy* strategyPtr = strategy;
+    if (strategyPtr == nullptr) {
+        const auto& strategyFactory = IE::getIEStrategyFactory(op->getContext());
+        if (strategyFactory == nullptr) {
+            return false;
+        }
+        ownedStrategy = strategyFactory->getConvertWeightsToUnsignedStrategy();
+        VPUX_THROW_UNLESS(ownedStrategy != nullptr, "ConvertWeightsToUnsigned strategy is not available");
+        strategyPtr = ownedStrategy.get();
+    }
+
+    return strategyPtr->tryChangeStorageTypeToUnsigned(weightsQType) != weightsQType;
+}
+
+static bool nceOpCandidateHasSIWeightsAsInputOrConst(mlir::Operation* op, bool isAsymmetricPerTensorZeroPointSupported,
+                                                     bool isAsymmetricPerChannelZeroPointSupported) {
     if (!vpux::IE::isNCEOpCandidatesWithWeights(op)) {
         return false;
     }
 
-    auto findNCEOpWeightsAsInputOrConst = [](mlir::Operation* op) -> mlir::FailureOr<mlir::Value> {
-        mlir::Value filterOperand = op->getOperand(1);
-
-        while (true) {
-            if (mlir::isa<mlir::BlockArgument>(filterOperand) ||
-                mlir::isa<Const::DeclareOp>(filterOperand.getDefiningOp())) {
-                return filterOperand;
-            } else if (auto concatOp = mlir::dyn_cast_or_null<IE::ConcatOp>(filterOperand.getDefiningOp())) {
-                for (auto input : concatOp.getInputs()) {
-                    if (mlir::isa<mlir::BlockArgument>(input)) {
-                        return input;
-                    }
-                }
-                break;
-            } else if (IE::isPureViewOp(filterOperand.getDefiningOp()) ||
-                       mlir::isa<IE::QuantizeCastOp, IE::DequantizeOp, IE::ConvertOp, IE::SliceOp, IE::TransposeOp>(
-                               filterOperand.getDefiningOp())) {
-                filterOperand = filterOperand.getDefiningOp()->getOperand(0);
-                continue;
-            } else {
-                break;
-            }
-        }
-
-        // Return failure if no BlockArgument or Const::DeclareOp is found (no WAI nor WAC)
-        return mlir::failure();
-    };
-
-    auto weights = findNCEOpWeightsAsInputOrConst(op);
+    mlir::quant::QuantizedType firstQuantType = nullptr;
+    auto weights = findNCEOpWeightsAsInputOrConst(op, &firstQuantType);
     if (mlir::failed(weights)) {
         return false;
     }
 
-    // Verify SI data type
-    auto inputElemType = mlir::cast<NDTypeInterface>(weights.value().getType()).getElementType();
-
-    if (auto inputQuantizeElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(inputElemType)) {
-        if (vpux::getElemTypeSize(inputQuantizeElemType).count() < CHAR_BIT) {
-            auto storageType = inputQuantizeElemType.getStorageType();
-            if (storageType.isSignedInteger()) {
-                return true;
-            }
-
-            if (storageType.isUnsignedInteger()) {
-                if (const auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
-                    return llvm::any_of(perAxisType.getZeroPoints(), [](int64_t zp) {
-                        return zp != 0;
-                    });
+    if (firstQuantType != nullptr) {
+        const auto elemTypeSize = vpux::getElemTypeSize(firstQuantType).count();
+        if (elemTypeSize >= CHAR_BIT) {
+            if (firstQuantType.isSigned() && !mlir::isa<mlir::BlockArgument>(weights.value())) {
+                // Verify that Asymmetric Zero Point is supported for the current platform.
+                // Keep signed when there is a non-zero zero point and the platform supports it.
+                if (const auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(firstQuantType)) {
+                    if (llvm::any_of(perAxisType.getZeroPoints(), [](int64_t zp) {
+                            return zp != 0;
+                        })) {
+                        return isAsymmetricPerChannelZeroPointSupported;
+                    }
                 }
-                if (const auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(inputElemType)) {
-                    return uniformType.getZeroPoint() != 0;
+                if (const auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(firstQuantType)) {
+                    if (uniformType.getZeroPoint() != 0) {
+                        return isAsymmetricPerTensorZeroPointSupported;
+                    }
                 }
             }
-
+            // For WAI, or for WAC with zero-point=0, the signedness is preserved
+            return firstQuantType.isSigned();
+        } else {
+            // Verify SI data type. The first quantized type seen while walking the chain is used
+            // because for weights-as-input the terminal BlockArgument can carry only a bare (non-quantized)
+            // type, while the quantized type with its zero-point is applied by a
+            // QuantizeCast earlier in the chain.
+            auto storageType = firstQuantType.getStorageType();
             if (auto quantileStorageType = mlir::dyn_cast<vpux::type::QuantileType>(storageType)) {
                 mlir::Type quantileType = quantileStorageType.getQuantileType();
                 if (auto intType = mlir::dyn_cast<mlir::IntegerType>(quantileType)) {
                     return intType.isSigned();
                 }
             }
+
+            if (firstQuantType.isSigned()) {
+                return true;
+            } else {
+                if (const auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(firstQuantType)) {
+                    return llvm::any_of(perAxisType.getZeroPoints(), [](int64_t zp) {
+                        return zp != 0;
+                    });
+                }
+                if (const auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(firstQuantType)) {
+                    return uniformType.getZeroPoint() != 0;
+                }
+            }
         }
     }
 
-    return inputElemType.isSignedInteger();
+    return false;
 }
 
 mlir::FailureOr<SmallVector<mlir::Operation*>> findNCEOpCandidatesWithWeights(mlir::Operation* origOp) {
@@ -985,12 +1113,13 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> findNCEOpCandidatesWithWeights(ml
     return nceOpCandidatesWithWeights;
 }
 
-bool vpux::IE::keepIntTypeForSIWeightsAsInputOrConst(mlir::Operation* op) {
+bool vpux::IE::keepIntTypeForSIWeightsAsInputOrConst(mlir::Operation* op,
+                                                     const IE::IConvertWeightsToUnsignedStrategy* strategy) {
     const auto moduleOp = getModuleOp(op);
     const auto isAsymmetricPerChannelZeroPointSupported = config::asymmetricPerChannelZeroPointSupported(moduleOp);
     const auto isAsymmetricPerTensorZeroPointSupported = config::asymmetricPerTensorZeroPointSupported(moduleOp);
 
-    if (auto fqOp = mlir::dyn_cast_or_null<IE::FakeQuantizeOp>(op)) {
+    if (auto fqOp = mlir::dyn_cast_if_present<IE::FakeQuantizeOp>(op)) {
         if (IE::hasStaticLowAndHighValues(fqOp)) {
             auto inLowConst = fqOp.getInputLow().getDefiningOp<Const::DeclareOp>();
             auto inHighConst = fqOp.getInputHigh().getDefiningOp<Const::DeclareOp>();
@@ -1031,70 +1160,40 @@ bool vpux::IE::keepIntTypeForSIWeightsAsInputOrConst(mlir::Operation* op) {
                     inLowConst.getContentAttr(), inHighConst.getContentAttr(), outLowConst.getContentAttr(),
                     outHighConst.getContentAttr(), fqOp.getLevels(), fqOp.getLowFpType(), fqOp.getAutoBroadcast());
 
-            if (isPerChannelQuant && isAsymmetricPerChannelZeroPointSupported && !canConvertToSigned) {
+            if (isPerChannelQuant && !isAsymmetricPerChannelZeroPointSupported && !canConvertToSigned) {
                 return false;
             }
-            if (!isPerAxisQuant && isAsymmetricPerTensorZeroPointSupported && !canConvertToSigned) {
+            if (!isPerAxisQuant && !isAsymmetricPerTensorZeroPointSupported && !canConvertToSigned) {
                 return false;
             }
         }
     }
 
-    auto isAsymmetricZPSupported = [isAsymmetricPerTensorZeroPointSupported,
-                                    isAsymmetricPerChannelZeroPointSupported](NDTypeInterface weightsType) {
-        auto elementType = weightsType.getElementType();
-        if (mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedType>(elementType) != nullptr &&
-            isAsymmetricPerTensorZeroPointSupported) {
-            return true;
-        } else if (mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>(elementType) != nullptr &&
-                   isAsymmetricPerChannelZeroPointSupported) {
-            return true;
+    // Helper lambda to validate whether SI is required for a given operation
+    // Checks if the operation traces to NCE candidates and validates their SI/asymmetric ZP requirements
+    auto checkNCECandidatesRequireSI = [isAsymmetricPerTensorZeroPointSupported,
+                                        isAsymmetricPerChannelZeroPointSupported,
+                                        strategy](mlir::Operation* currentOp) {
+        auto nceOps = findNCEOpCandidatesWithWeights(currentOp);
+        if (mlir::succeeded(nceOps)) {
+            if (llvm::all_of(nceOps.value(), [&](mlir::Operation* nceOp) {
+                    return nceOpCandidateHasSIWeightsAsInputOrConst(nceOp, isAsymmetricPerTensorZeroPointSupported,
+                                                                    isAsymmetricPerChannelZeroPointSupported);
+                })) {
+                const bool anyNCECandidateRequireSI = !llvm::all_of(nceOps.value(), [strategy](mlir::Operation* nceOp) {
+                    return willNCEWeightsConvertToUnsigned(nceOp, strategy);
+                });
+                return anyNCECandidateRequireSI;
+            }
         }
-
         return false;
     };
 
-    auto areBothInputAndWeightsSigned = [](mlir::Operation* op) -> bool {
-        auto inputElemType = mlir::cast<NDTypeInterface>(op->getOperand(0).getType()).getElementType();
-        auto weightsElemType = mlir::cast<NDTypeInterface>(op->getOperand(1).getType()).getElementType();
-        auto inputQType = mlir::dyn_cast<mlir::quant::QuantizedType>(inputElemType);
-        auto weightsQType = mlir::dyn_cast<mlir::quant::QuantizedType>(weightsElemType);
-        return inputQType != nullptr && weightsQType != nullptr && inputQType.isSigned() && weightsQType.isSigned();
-    };
-
-    // If current or child NCEOp candidate has SI weights as input, keep Integer data type
-    if (isNCEOpCandidatesWithWeights(op)) {
-        auto weightsType = mlir::cast<NDTypeInterface>(op->getOperand(0).getType());
-        if (!areBothInputAndWeightsSigned(op) && isAsymmetricZPSupported(weightsType)) {
-            return false;
-        }
-
-        if (nceOpCandidateHasSIWeightsAsInputOrConst(op)) {
-            return true;
-        }
+    if (vpux::IE::isNCEOpCandidatesWithWeights(op) && checkNCECandidatesRequireSI(op)) {
+        return true;
     }
 
-    auto isSIRequiredByAllUsers =
-            llvm::all_of(op->getUsers(), [isAsymmetricZPSupported, areBothInputAndWeightsSigned](const auto& user) {
-                auto childNCEOps = findNCEOpCandidatesWithWeights(user);
-                if (mlir::succeeded(childNCEOps)) {
-                    if (llvm::all_of(childNCEOps.value(), [&](mlir::Operation* childNCEOp) {
-                            auto weightsType = mlir::cast<NDTypeInterface>(childNCEOp->getOperand(1).getType());
-                            return !areBothInputAndWeightsSigned(childNCEOp) && isAsymmetricZPSupported(weightsType);
-                        })) {
-                        return false;
-                    }
-
-                    if (llvm::all_of(childNCEOps.value(), [&](mlir::Operation* childNCEOp) {
-                            return nceOpCandidateHasSIWeightsAsInputOrConst(childNCEOp);
-                        })) {
-                        return true;
-                    }
-                }
-                return false;
-            });
-
-    return isSIRequiredByAllUsers;
+    return llvm::all_of(op->getUsers(), checkNCECandidatesRequireSI);
 }
 
 bool vpux::IE::isQuantizationSupported(IE::QuantizeOp quantizeOp, mlir::Operation* mainOp,
@@ -1189,4 +1288,56 @@ bool vpux::IE::hasIdentityQuantizationParams(mlir::Type quantizedElemType) {
     }
 
     return false;
+}
+
+mlir::quant::QuantizedType IE::keepZeroScaleForConstDequant(mlir::quant::QuantizedType qElemType,
+                                                            const Const::ContentAttr& lowConst,
+                                                            const Const::ContentAttr& highConst,
+                                                            IE::AutoBroadcastType broadcast) {
+    const auto isZeroRange = [](double low, double high) {
+        return isDoubleEqual(low, high) && isDoubleEqual(low, 0.0);
+    };
+
+    const auto lowAttr = lowConst.fold();
+    const auto highAttr = highConst.fold();
+
+    if (auto perAxisType = mlir::dyn_cast_if_present<mlir::quant::UniformQuantizedPerAxisType>(qElemType)) {
+        auto lowVals = to_small_vector(lowAttr.getValues<double>());
+        auto highVals = to_small_vector(highAttr.getValues<double>());
+        broadcastRange(lowVals, highVals, broadcast);
+
+        SmallVector<double> scales(perAxisType.getScales());
+        if (scales.size() != lowVals.size() || scales.size() != highVals.size()) {
+            return qElemType;
+        }
+
+        bool changed = false;
+        for (size_t i = 0; i < scales.size(); ++i) {
+            if (isZeroRange(lowVals[i], highVals[i]) && !isDoubleEqual(scales[i], 0.0)) {
+                scales[i] = 0.0;
+                changed = true;
+            }
+        }
+        if (!changed) {
+            return qElemType;
+        }
+
+        return mlir::quant::UniformQuantizedPerAxisType::get(
+                perAxisType.getFlags(), perAxisType.getStorageType(), perAxisType.getExpressedType(), scales,
+                SmallVector<int64_t>(perAxisType.getZeroPoints()), perAxisType.getQuantizedDimension(),
+                perAxisType.getStorageTypeMin(), perAxisType.getStorageTypeMax());
+    }
+
+    if (auto perTensorType = mlir::dyn_cast_if_present<mlir::quant::UniformQuantizedType>(qElemType)) {
+        if (lowAttr.isSplat() && highAttr.isSplat() &&
+            isZeroRange(lowAttr.getSplatValue<double>(), highAttr.getSplatValue<double>()) &&
+            !isDoubleEqual(perTensorType.getScale(), 0.0)) {
+            return mlir::quant::UniformQuantizedType::get(
+                    perTensorType.getFlags(), perTensorType.getStorageType(), perTensorType.getExpressedType(),
+                    /*scale=*/0.0, perTensorType.getZeroPoint(), perTensorType.getStorageTypeMin(),
+                    perTensorType.getStorageTypeMax());
+        }
+    }
+
+    return qElemType;
 }

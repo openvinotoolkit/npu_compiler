@@ -147,6 +147,7 @@ def VPU_GroupConvolutionOp :
         OptionalAttr<IntAttr>:$groups,
 
         OptionalAttr<IE_PostOpAttrInterface>:$post_op,
+        OptionalAttr<DictionaryAttr>:$clamp,
         OptionalAttr<I64ArrayAttr>:$output_padding,
         OptionalAttr<I64ArrayAttr>:$input_padding
     );
@@ -155,7 +156,7 @@ def VPU_GroupConvolutionOp :
         RankedTensorOf<[F16, F32, quant_QuantizedType]>:$output
     );
 
-    list<string> elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT];
+    list<string> elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT];
 
     let extraClassDeclaration = [{
         bool fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter, vpux::NDTypeInterface output, Byte reservedMem);

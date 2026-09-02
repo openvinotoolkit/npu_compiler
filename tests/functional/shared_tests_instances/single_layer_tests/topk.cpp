@@ -24,6 +24,7 @@ class TopKDDRLayerTestCommon : public TopK11LayerTest, virtual public VpuOv2Laye
         configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
 };
+class TopkDmaLayerTestCommon : public TopKDDRLayerTestCommon {};
 class TopK_SCFTilingLayerTest : public TopKLayerTestCommon {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] =
@@ -53,6 +54,11 @@ TEST_P(TopKDDRLayerTestCommon, NPU4000_HW) {
 }
 
 TEST_P(TopKDDRLayerTestCommon, NPU5010_HW) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(TopkDmaLayerTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
@@ -107,7 +113,7 @@ class TopK1LayerTest : public TopKLayerTest, virtual public VpuOv2LayerTest {
                 std::make_shared<ov::op::v3::TopK>(param, k, axis, mode, sort));
 
         ov::ResultVector results;
-        for (int i = 0; i < topk->get_output_size(); i++) {
+        for (size_t i = 0; i < topk->get_output_size(); i++) {
             results.push_back(std::make_shared<ov::op::v0::Result>(topk->output(i)));
         }
         function = std::make_shared<ov::Model>(results, ov::ParameterVector{param}, "TopK");
@@ -126,6 +132,7 @@ using ov::test::TopK11LayerTestCommon;
 using ov::test::TopK1LayerTest;
 using ov::test::TopK_SCFTilingLayerTest;
 using ov::test::TopKDDRLayerTestCommon;
+using ov::test::TopkDmaLayerTestCommon;
 using ov::test::TopKLayerTestCommon;
 
 namespace {
@@ -216,6 +223,37 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::Values(test_utils::TARGET_DEVICE)),
         TopKLayerTestCommon::getTestCaseName);
 
+// Reduced (last) axis lengths chosen to exercise every branch of the K=8/axis-0
+// fold: the initial K-element seed, the scalar bridge that aligns j from K to the
+// first VW=32 boundary, the 32-lane SIMD chunk loop with its chunk-skip gate, and
+// the final scalar tail loop. Chunk count for W >= VW is floor((W - VW) / VW).
+// Stable (value desc, index asc) tie-break is covered by the default filler
+// (InputGenerateData{0,10,1} => 10 distinct fp16 values), which guarantees
+// duplicates for any N>=11 and a tied rank-8 boundary with probability >99.95%
+// for N>=96.
+const std::vector<std::vector<ov::Shape>> inShapes_K8Axis0 = {
+        {{64, 8}},       // W == k: seed-only path, no bridge/chunk/tail
+        {{64, 32}},      // W == VW: bridge only, no chunk, no tail
+        {{64, 33}},      // bridge + 1-element tail, no chunk
+        {{64, 96}},      // bridge + 2 full chunks, no tail
+        {{64, 100}},     // bridge + 2 full chunks + 4-element tail
+        {{64, 128}},     // Qwen3-30B-A3B router width: bridge + 3 full chunks
+        {{8, 16, 257}},  // bridge + 7 full chunks + 1-element tail, rank-3
+        {{64, 4096}},    // bridge + 127 full chunks, wide line
+        {{4, 8192}},     // maximum supported reduced-axis length: bridge + 255 chunks
+};
+
+const auto paramsK8Axis0 =
+        ::testing::Combine(::testing::Values(int64_t{8}),   // k == 8
+                           ::testing::Values(int64_t{-1}),  // reduce last (contiguous) axis -> kernel axis 0
+                           ::testing::Values(ov::op::v3::TopK::Mode::MAX),              // mode == MAX
+                           ::testing::Values(ov::op::v3::TopK::SortType::SORT_VALUES),  // sort == SORT_VALUES
+                           ::testing::ValuesIn(modelTypeFP16),                          // fp16
+                           ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShapes_K8Axis0)),
+                           ::testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_TopK_K8Axis0, TopKLayerTestCommon, paramsK8Axis0, TopKLayerTestCommon::getTestCaseName);
+
 INSTANTIATE_TEST_SUITE_P(smoke_TopK_SCFTiling, TopK_SCFTilingLayerTest,
                          ::testing::Combine(::testing::ValuesIn(k_Tilling), ::testing::ValuesIn(axes_Tilling),
                                             ::testing::ValuesIn(modes_Tilling), ::testing::ValuesIn(sortTypes_Tilling),
@@ -288,6 +326,16 @@ INSTANTIATE_TEST_SUITE_P(smoke_TopK11_DDRAccess, TopKDDRLayerTestCommon,
                                                     std::vector<ov::Shape>({{{1, 5898240}}}))),
                                             ::testing::Values(true), ::testing::Values(test_utils::TARGET_DEVICE)),
                          TopKDDRLayerTestCommon::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_TopK11_Dma, TopkDmaLayerTestCommon,
+                         ::testing::Combine(::testing::Values(1, 100, 300), ::testing::Values(-1),
+                                            ::testing::Values(ov::op::v3::TopK::Mode::MAX, ov::op::v3::TopK::Mode::MIN),
+                                            ::testing::Values(ov::op::v3::TopK::SortType::SORT_VALUES),
+                                            ::testing::Values(ov::element::f16, ov::element::i32),
+                                            ::testing::Values(ov::test::static_shapes_to_test_representation(
+                                                    std::vector<ov::Shape>({{{1, 1, 17, 399999}}}))),
+                                            ::testing::Values(true), ::testing::Values(test_utils::TARGET_DEVICE)),
+                         TopkDmaLayerTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(
         smoke_TopK11_DDRAccess_LargeLineBuffer, TopKDDRLayerTestCommon,

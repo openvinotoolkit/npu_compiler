@@ -25,22 +25,18 @@ using namespace vpux;
 
 void bytecode::CmpI64Op::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto dstReg = getRegisterNumber(getDst());
     const auto lhsReg = getRegisterNumber(getLhs());
     const auto rhsReg = getRegisterNumber(getRhs());
     const auto flag = static_cast<uint16_t>(getFlag());
-    writer.appendInstruction(opcode, addrMode,
-                             SmallVector<int16_t>{dstReg, lhsReg, rhsReg, static_cast<int16_t>(flag)});
+    writer.appendInstruction(opcode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg, static_cast<int16_t>(flag)});
 }
 
 void bytecode::CmpF64Op::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto dstReg = getRegisterNumber(getDst());
     const auto lhsReg = getRegisterNumber(getLhs());
     const auto rhsReg = getRegisterNumber(getRhs());
     const auto flag = static_cast<uint16_t>(getFlag());
-    writer.appendInstruction(opcode, addrMode,
-                             SmallVector<int16_t>{dstReg, lhsReg, rhsReg, static_cast<int16_t>(flag)});
+    writer.appendInstruction(opcode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg, static_cast<int16_t>(flag)});
 }

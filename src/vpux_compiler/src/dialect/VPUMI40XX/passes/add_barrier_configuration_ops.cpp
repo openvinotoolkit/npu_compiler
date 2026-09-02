@@ -232,7 +232,10 @@ void AddBarrierConfigurationOps::fillPhysicalBarrierUsage(
         desc.wlmPage = barrierOp.getWlmPage().value_or(-1);
 
         if (barrierOp.getIsFinalBarrier()) {
-            desc.consumerCount = 1;
+            desc.consumerCount = config::isFinalBarrierConsumerRequired(
+                    config::getArch(barrierOp),
+                    _workloadManagementBarrierProgrammingMode ==
+                            WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED_4K);
             desc.producerInterrupt = 1;
             desc.consumerInterrupt = 0;
             desc.isFinalBarrier = 1;

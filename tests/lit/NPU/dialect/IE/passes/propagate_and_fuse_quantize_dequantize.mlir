@@ -359,7 +359,6 @@ func.func @PerAxisQuantOtherAxisConcat(%arg0: tensor<1x2x3x4x!qElemType>, %arg1:
 // CHECK-LABEL: @PerAxisQuantSameAxisConcat
 // CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x2x3x4x!qElemType>, [[ARG_1:%[^:]+]]: tensor<1x2x3x4x!qElemType1>) -> tensor<1x4x3x4xf16>
 func.func @PerAxisQuantSameAxisConcat(%arg0: tensor<1x2x3x4x!qElemType>, %arg1: tensor<1x2x3x4x!qElemType1>) -> tensor<1x4x3x4xf16> {
-    // expected-error@+1 {{Misaligned element types}}
     %0 = IE.Dequantize(%arg0) {dstElemType = f16} : tensor<1x2x3x4x!qElemType> -> tensor<1x2x3x4xf16>
     %1 = IE.Dequantize(%arg1) {dstElemType = f16} : tensor<1x2x3x4x!qElemType1> -> tensor<1x2x3x4xf16>
     %2 = IE.Concat(%0, %1) {per_axis = #IE.Concat<axis = 1>} : tensor<1x2x3x4xf16>, tensor<1x2x3x4xf16> -> tensor<1x4x3x4xf16>
@@ -2648,3 +2647,69 @@ func.func @NoPropagationQuantShapeCastPerAxis(%arg0: tensor<1x4x4x4xf32>) -> ten
 // CHECK-NEXT: [[SHAPECAST:%.+]] = IE.ShapeCast {shape = [1, 4, 16]} inputs([[CONVERT]] : tensor<1x4x4x4xf16>) -> tensor<1x4x16xf16>
 // CHECK-NEXT: [[QUANTIZE:%.+]] = IE.Quantize([[SHAPECAST]]) {dstElemType = !qElemType} : tensor<1x4x16xf16> -> tensor<1x4x16x!qElemType>
 // CHECK-NEXT: return [[QUANTIZE]] : tensor<1x4x16x!qElemType>
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16:0, {0.01,0.02,0.03,0.04,0.05,0.06}>
+
+// CHECK-LABEL: @PropagateSlicePerAxis
+func.func @PropagateSlicePerAxis() -> tensor<6x3x15x15xf16> {
+  %cst = const.Declare tensor<6x3x16x16x!qElemType> = dense<2> : tensor<6x3x16x16xsi8>, [#const.CastElemType<f16>, #const.CastElemType<!qElemType>]
+  %0 = IE.Dequantize(%cst) {dstElemType = f16} : tensor<6x3x16x16x!qElemType> -> tensor<6x3x16x16xf16>
+  %3 = IE.Slice %0 [0, 0, 0, 0] [6, 3, 15, 15] : tensor<6x3x16x16xf16> to tensor<6x3x15x15xf16>
+  %4 = IE.Slice %0 [0, 0, 0, 15] [6, 3, 15, 1] : tensor<6x3x16x16xf16> to tensor<6x3x15x1xf16>
+  %6 = IE.Add(%3, %4) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<6x3x15x15xf16>, tensor<6x3x15x1xf16> -> tensor<6x3x15x15xf16>
+  return %6 : tensor<6x3x15x15xf16>
+
+  // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<6x3x15x1x!qElemType> = dense<2> : tensor<6x3x16x16xsi8>, [#const.SubView<[0, 0, 0, 15], [6, 3, 15, 1]>, #const.CastElemType<f16>, #const.CastElemType<!qElemType>]
+  // CHECK-DAG: [[CST_1:%.+]] = const.Declare tensor<6x3x15x15x!qElemType> = dense<2> : tensor<6x3x16x16xsi8>, [#const.SubView<[0, 0, 0, 0], [6, 3, 15, 15]>, #const.CastElemType<f16>, #const.CastElemType<!qElemType>]
+  // CHECK:     [[DEQUANT_0:%.+]] = IE.Dequantize([[CST_1]]) {dstElemType = f16} : tensor<6x3x15x15x!qElemType> -> tensor<6x3x15x15xf16>
+  // CHECK:     [[DEQUANT_1:%.+]] = IE.Dequantize([[CST_0]]) {dstElemType = f16} : tensor<6x3x15x1x!qElemType> -> tensor<6x3x15x1xf16>
+  // CHECK:     [[ADD:%.+]] = IE.Add([[DEQUANT_0]], [[DEQUANT_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<6x3x15x15xf16>, tensor<6x3x15x1xf16> -> tensor<6x3x15x15xf16>
+
+  // CHECK: return [[ADD]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16:0, {0.01,0.02,0.03,0.04,0.05,0.06}>
+
+// CHECK-LABEL: @NoPropagateSlicePerAxisWithNonZeroOffset
+func.func @NoPropagateSlicePerAxisWithNonZeroOffset() -> tensor<4x3x15x15xf16> {
+  %cst = const.Declare tensor<6x3x16x16x!qElemType> = dense<2> : tensor<6x3x16x16xsi8>, [#const.CastElemType<f16>, #const.CastElemType<!qElemType>]
+  %0 = IE.Dequantize(%cst) {dstElemType = f16} : tensor<6x3x16x16x!qElemType> -> tensor<6x3x16x16xf16>
+  %3 = IE.Slice %0 [2, 0, 0, 0] [4, 3, 15, 15] : tensor<6x3x16x16xf16> to tensor<4x3x15x15xf16>
+  %4 = IE.Slice %0 [2, 0, 0, 15] [4, 3, 15, 1] : tensor<6x3x16x16xf16> to tensor<4x3x15x1xf16>
+  %6 = IE.Add(%3, %4) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x3x15x15xf16>, tensor<4x3x15x1xf16> -> tensor<4x3x15x15xf16>
+  return %6 : tensor<4x3x15x15xf16>
+
+  // CHECK: [[CST:%.+]] = const.Declare tensor<6x3x16x16x!qElemType> = dense<2> : tensor<6x3x16x16xsi8>, [#const.CastElemType<f16>, #const.CastElemType<!qElemType>]
+  // CHECK: [[DEQUANT:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<6x3x16x16x!qElemType> -> tensor<6x3x16x16xf16>
+  // CHECK: [[SLICE_0:%.+]] = IE.Slice [[DEQUANT]] [2, 0, 0, 0] [4, 3, 15, 15] : tensor<6x3x16x16xf16> to tensor<4x3x15x15xf16>
+  // CHECK: [[SLICE_1:%.+]] = IE.Slice [[DEQUANT]] [2, 0, 0, 15] [4, 3, 15, 1] : tensor<6x3x16x16xf16> to tensor<4x3x15x1xf16>
+  // CHECK: [[ADD:%.+]] = IE.Add([[SLICE_0]], [[SLICE_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x3x15x15xf16>, tensor<4x3x15x1xf16> -> tensor<4x3x15x15xf16>
+
+  // CHECK: return [[ADD]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16:0, {0.01,0.02,0.03,0.04,0.05,0.06}>
+
+// CHECK-LABEL: @NoPropagateSlicePerAxisWithTrimmedSize
+func.func @NoPropagateSlicePerAxisWithTrimmedSize() -> tensor<4x3x15x15xf16> {
+  %cst = const.Declare tensor<6x3x16x16x!qElemType> = dense<2> : tensor<6x3x16x16xsi8>, [#const.CastElemType<f16>, #const.CastElemType<!qElemType>]
+  %0 = IE.Dequantize(%cst) {dstElemType = f16} : tensor<6x3x16x16x!qElemType> -> tensor<6x3x16x16xf16>
+  %3 = IE.Slice %0 [0, 0, 0, 0] [4, 3, 15, 15] : tensor<6x3x16x16xf16> to tensor<4x3x15x15xf16>
+  %4 = IE.Slice %0 [0, 0, 0, 15] [4, 3, 15, 1] : tensor<6x3x16x16xf16> to tensor<4x3x15x1xf16>
+  %6 = IE.Add(%3, %4) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x3x15x15xf16>, tensor<4x3x15x1xf16> -> tensor<4x3x15x15xf16>
+  return %6 : tensor<4x3x15x15xf16>
+
+  // CHECK: [[CST:%.+]] = const.Declare tensor<6x3x16x16x!qElemType> = dense<2> : tensor<6x3x16x16xsi8>, [#const.CastElemType<f16>, #const.CastElemType<!qElemType>]
+  // CHECK: [[DEQUANT:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<6x3x16x16x!qElemType> -> tensor<6x3x16x16xf16>
+  // CHECK: [[SLICE_0:%.+]] = IE.Slice [[DEQUANT]] [0, 0, 0, 0] [4, 3, 15, 15] : tensor<6x3x16x16xf16> to tensor<4x3x15x15xf16>
+  // CHECK: [[SLICE_1:%.+]] = IE.Slice [[DEQUANT]] [0, 0, 0, 15] [4, 3, 15, 1] : tensor<6x3x16x16xf16> to tensor<4x3x15x1xf16>
+  // CHECK: [[ADD:%.+]] = IE.Add([[SLICE_0]], [[SLICE_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x3x15x15xf16>, tensor<4x3x15x1xf16> -> tensor<4x3x15x15xf16>
+
+  // CHECK: return [[ADD]]
+}

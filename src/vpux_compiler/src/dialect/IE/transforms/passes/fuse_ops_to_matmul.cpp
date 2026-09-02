@@ -289,7 +289,7 @@ mlir::LogicalResult BroadcastMultiplyReduceSumToMatMulRewriter::matchAndRewrite(
 
     // 3. The ReduceSum must reduce over exactly one contraction (K) dimension that is
     //    neither of the two broadcast dims (those are M and N).
-    const auto axes = IE::extractAxes(origOp->getLoc(), origOp);
+    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue());
     if (axes.size() != 1) {
         return mlir::failure();
     }
@@ -742,7 +742,7 @@ mlir::LogicalResult PropagateTransposeRewriter::matchAndRewrite(IE::ReduceSumOp 
         return mlir::failure();
     }
 
-    const auto axes = IE::extractAxes(origOp->getLoc(), origOp);
+    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue());
     if (axes.size() != 1) {
         return mlir::failure();
     }
@@ -784,9 +784,8 @@ mlir::LogicalResult PropagateTransposeRewriter::matchAndRewrite(IE::ReduceSumOp 
             mulOp.getAutoBroadcastAttr(), mulOp.getPostOpAttr(), mulOp.getClampAttr(), nullptr, nullptr);
 
     const auto newAxesAttr = getIntArrayAttr(ctx, ArrayRef<int64_t>{inputBranch1Info.newAxis});
-    auto newReduceSumOp =
-            rewriter.create<IE::ReduceSumOp>(appendLoc(origLoc, "changed"), newMultiply.getOutput(), nullptr,
-                                             newAxesAttr, origOp.getKeepDimsAttr(), nullptr, nullptr);
+    auto newReduceSumOp = rewriter.create<IE::ReduceSumOp>(appendLoc(origLoc, "changed"), newMultiply.getOutput(),
+                                                           newAxesAttr, origOp.getKeepDimsAttr(), nullptr, nullptr);
 
     rewriter.replaceOp(origOp, newReduceSumOp.getOutput());
 

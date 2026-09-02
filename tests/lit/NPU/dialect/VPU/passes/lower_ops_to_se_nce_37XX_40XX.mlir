@@ -30,7 +30,7 @@ func.func @InterpolateBilinearQuantized(%arg0: tensor<1x16x3x3x!qElemType, {orde
             axes_attr = [2, 3],
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3x!qElemType, {order = #NHWC}> -> tensor<1x16x6x6x!qElemType1, {order = #NHWC}>
 
     return %0 : tensor<1x16x6x6x!qElemType1, {order = #NHWC}>
@@ -275,7 +275,7 @@ func.func @InterpolateNearestScaleCalcModeAsymmetric(%arg0: tensor<1x16x3x3xf16,
             axes_attr = [2, 3],
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x6x6xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x6x6xf16, {order = #NHWC}>
@@ -331,7 +331,7 @@ func.func @InterpolateNearestSizesCalcModeAsymmetric(%arg0: tensor<1x16x3x3xf16,
             axes_attr = [2, 3],
             scales_attr = [2.300000e+00, 1.500000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x6x6xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x6x6xf16, {order = #NHWC}>
@@ -387,7 +387,7 @@ func.func @InterpolateBilinearAsymmetric(%arg0: tensor<1x16x3x3xf16, {order = #N
             axes_attr = [2, 3],
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x6x6xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x6x6xf16, {order = #NHWC}>
@@ -443,7 +443,7 @@ func.func @InterpolateBilinearHalfPixelWithEvenScale(%arg0: tensor<1x16x3x3xf16,
             axes_attr = [2, 3],
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x6x6xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x6x6xf16, {order = #NHWC}>
@@ -502,7 +502,7 @@ func.func @InterpolateBilinearHalfPixelWithOddScale(%arg0: tensor<1x16x3x3xf16, 
             axes_attr = [2, 3],
             scales_attr = [3.000000e+00, 3.000000e+00],
             sizes_attr = [9, 9],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x9x9xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x9x9xf16, {order = #NHWC}>
@@ -558,7 +558,7 @@ func.func @InterpolateBilinearPytorchHalfPixelWithEvenScale(%arg0: tensor<1x16x3
             axes_attr = [2, 3],
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x6x6xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x6x6xf16, {order = #NHWC}>
@@ -617,7 +617,7 @@ func.func @InterpolateBilinearAlignCorners(%arg0: tensor<1x16x3x3xf16, {order = 
             axes_attr = [2, 3],
             scales_attr = [1.000000e+00, 1.000000e+00],
             sizes_attr = [7, 7],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x7x7xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x7x7xf16, {order = #NHWC}>
@@ -676,7 +676,7 @@ func.func @InterpolateBilinearPytorchHalfPixelWithOddScale(%arg0: tensor<1x16x3x
             axes_attr = [2, 3],
             scales_attr = [3.000000e+00, 3.000000e+00],
             sizes_attr = [9, 9],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x9x9xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x9x9xf16, {order = #NHWC}>

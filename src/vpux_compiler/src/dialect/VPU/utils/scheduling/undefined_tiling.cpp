@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/scheduling/undefined_tiling.hpp"
+#include "vpux/compiler/core/scheduling/utils.hpp"
 #include "vpux/compiler/utils/stl_extras.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -17,14 +18,6 @@
 using BufferId = size_t;
 
 namespace {
-
-vpux::AddressType getRawBufferSize(mlir::Value buf) {
-    return static_cast<vpux::AddressType>(vpux::getTotalSize(buf).count());
-}
-
-vpux::AddressType getBufferAlignment(mlir::Value buf) {
-    return vpux::getAlignment(buf);
-}
 
 // The scheduling loop stores mlir::Value buffers.
 // Allocation/frequency logic operates on integral ids (BufferId) for fast lookup and stable indexing.
@@ -49,7 +42,7 @@ BufferInfoCache buildBufferInfoCache(const vpux::SchedulingLoop& schedulingLoop)
     for (auto buffer : orderedBuffers) {
         const size_t bufferId = bufferInfoCache.buffers.size();
         bufferInfoCache.bufferIds[buffer] = bufferId;
-        bufferInfoCache.buffers.emplace_back(buffer, getRawBufferSize(buffer), getBufferAlignment(buffer));
+        bufferInfoCache.buffers.emplace_back(buffer, vpux::getRawBufferSize(buffer), vpux::getAlignment(buffer));
     }
 
     return bufferInfoCache;
@@ -455,7 +448,7 @@ PredefinedSchedule buildPredefinedSchedule(const SchedulingLoop& schedulingLoop,
         std::unordered_set<size_t> orderedIndices;
         // Order DATA_IN DMAs first when no deallocation is required.
         for (const auto& index : irange(explicitSchedule.size())) {
-            const auto& [allocInfo, deallocations, _] = explicitSchedule[index];
+            const auto& [allocInfo, deallocations, _allocations, _templatePos] = explicitSchedule[index];
             if (allocInfo.allocationType != AllocationType::DATA_IN || !deallocations.empty()) {
                 continue;
             }

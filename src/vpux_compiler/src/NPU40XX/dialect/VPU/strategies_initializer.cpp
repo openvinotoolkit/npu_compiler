@@ -113,6 +113,10 @@ class StrategyFactory40XX : public VPU::StrategyFactory {
         return false;
     }
 
+    bool isConvertTileWithEltwiseToNCEPoolSupported() override {
+        return false;
+    }
+
     std::unique_ptr<IConvertIEToVPUNCEStrategy> getConvertIEToVPUNCEStrategy(const Logger& log) override {
         return std::make_unique<vpux::arch37xx::ConvertIEToVPUNCEStrategy>(log, config::ArchKind::NPU40XX);
     }

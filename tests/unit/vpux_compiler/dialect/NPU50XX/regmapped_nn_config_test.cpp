@@ -38,24 +38,13 @@ TEST_NPU5_NN_CFG_REG_FIELD(NNRTCfg_stack_9, shv_rt_configs.stack_frames[9])
 TEST_NPU5_NN_CFG_REG_FIELD(NNRTCfg_stack_10, shv_rt_configs.stack_frames[10])
 TEST_NPU5_NN_CFG_REG_FIELD(NNRTCfg_stack_11, shv_rt_configs.stack_frames[11])
 TEST_NPU5_NN_CFG_REG_FIELD(NNRTCfg_stack_size, shv_rt_configs.stack_size)
-TEST_NPU5_NN_CFG_REG_FIELD(NNRTCfg_code_window_buffer_size, shv_rt_configs.code_window_buffer_size)
+TEST_NPU5_NN_CFG_REG_FIELD(NNRTCfg_deprecated1, shv_rt_configs.deprecated1)
 TEST_NPU5_NN_CFG_REG_FIELD(NNRTCfg_perf_metrics_mask, shv_rt_configs.perf_metrics_mask)
 TEST_NPU5_NN_CFG_REG_FIELD(NNRTCfg_runtime_version, shv_rt_configs.runtime_version)
 TEST_NPU5_NN_CFG_REG_FIELD(NNRTCfg_use_schedule_embedded_rt, shv_rt_configs.use_schedule_embedded_rt)
+TEST_NPU5_NN_CFG_REG_FIELD(NNRTCfg_deprecated3, shv_rt_configs.deprecated3)
 TEST_NPU5_NN_CFG_REG_FIELD(NNRTCfg_logAddrDmaHwp, logaddr_dma_hwp)
 TEST_NPU5_NN_CFG_REG_FIELD(NNRTCfg_HwpCfgAddr, hwp_workpoint_cfg_addr)
-
-TEST_F(NPUReg50XX_NNRTCfgTest, NNRTDpuPerfModeTest) {
-    // Could not be tested through macro as this field is an enum
-    const auto value = nn_public::VpuHWPStatMode::INVALID_MODE;
-    actual.write<vpux::NPUReg50XX::Fields::NNRTCfg_dpu_perf_mode>(value);
-    const auto actualValue =
-            static_cast<nn_public::VpuHWPStatMode>(actual.read<vpux::NPUReg50XX::Fields::NNRTCfg_dpu_perf_mode>());
-    EXPECT_EQ(actualValue, value);
-
-    reference.shv_rt_configs.dpu_perf_mode = static_cast<uint8_t>(value);
-    ASSERT_TRUE(isContentEqual());
-}
 
 TEST_F(NPUReg50XX_NNRTCfgTest, NNRTCfgPad) {
     // Could not be tested through the macro as this fields are arrays

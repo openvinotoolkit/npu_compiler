@@ -238,7 +238,7 @@ void WlmSplitGraphToPagesPass::safeRunOnFunc() {
     if (!config::isFifoPerShaveEngineEnabled(func)) {
         _log.trace("Separate SHV FIFOs not supported - check SHV tasks on same cluster never have decreasing pages");
         VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(func, barrierInfo, numBarriers, _log);
-        barrierPagesSplitHandler.initializeForLegalization();
+        barrierPagesSplitHandler.initializeForLegalization(/* allowDepsChange */ true);
         barrierPagesSplitHandler.initializeTaskQueueTypeMap(func);
         barrierPagesSplitHandler.updateTaskPageAssignmentForShvInCaseOfNoDedicatedShvFifos();
         barrierInfo = barrierPagesSplitHandler.getUpdatedBarrierInfo();

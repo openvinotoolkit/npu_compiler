@@ -223,7 +223,8 @@ void computeHaloRegion(NCEClusterTaskOp nceOp, DPUTaskOp dpuTaskOp,
     auto newDpuTask = builder.create<DPUTaskOp>(
             nceOp.getLoc(), dpuTaskOp.getOutStart(), dpuTaskOp.getOutEnd(), dpuTaskOp.getInStartAttr(),
             dpuTaskOp.getInEndAttr(), dpuTaskOp.getPad(), dpuTaskOp.getMpeMode(), dpuTaskOp.getClusterIdAttr(),
-            builder.getArrayAttr(haloRegions), dpuTaskOp.getWorkloadIdAttr(), /*variant_primitive_id =*/nullptr);
+            builder.getArrayAttr(haloRegions), dpuTaskOp.getWorkloadIdAttr(), /*variant_primitive_id=*/nullptr,
+            dpuTaskOp.getIsDummy(), dpuTaskOp.getWeightTableOffsetAttr());
 
     log.trace("Computed halo regions for DPUTaskOp '{0}': halo regions = {1}", newDpuTask.getLoc(), haloRegions);
 

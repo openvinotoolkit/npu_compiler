@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/utils/gather_dma_utils.hpp"
@@ -76,7 +77,7 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
         // that stay in DDR and are not distributed across clusters.
         // The auxiliary buffer (identified via AuxiliaryBufferOpInterface) is
         // always rank 4 and DUPLICATED. Skip the rank check for this op
-        if (!mlir::isa<VPU::InterpolateDMAOp>(op)) {
+        if (!mlir::isa<VPU::InterpolateDMAOp, VPU::GatedDeltaNetOp>(op)) {
             for (const auto& input : op->getOperands()) {
                 const auto inputShape = mlir::cast<vpux::NDTypeInterface>(input.getType()).getShape();
                 if (inputShape.size() != RANK_REQUIRED_FOR_TILING && inputShape.size() != DimsGroups5D::Act::numDims) {
@@ -278,6 +279,20 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
                         if (bestStrategy.has_value()) {
                             _log.trace("AttentionOp assigned strategy: {0}", bestStrategy.value());
                             setLayerStrategy(bestStrategy.value(), origOp.getOperation());
+                        }
+                        return;
+                    }
+
+                    if (mlir::isa<VPU::GatedDeltaNetOp>(origOp)) {
+                        auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(origOp.getOperation());
+                        if (clusteredOp.checkStrategyCompatibility(VPU::MultiClusterStrategy::SplitOverHeight,
+                                                                   _numTiles)) {
+                            _log.trace("GatedDeltaNetOp assigned strategy: SplitOverHeight");
+                            setLayerStrategy(VPU::MultiClusterStrategy::SplitOverHeight, origOp.getOperation());
+                        } else {
+                            _log.trace("GatedDeltaNetOp not compatible with SplitOverHeight for {0} tiles, kept as "
+                                       "single-cluster",
+                                       _numTiles);
                         }
                         return;
                     }

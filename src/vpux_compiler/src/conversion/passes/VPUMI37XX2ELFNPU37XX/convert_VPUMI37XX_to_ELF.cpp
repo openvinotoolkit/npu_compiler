@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/act_kernels/shave_binary_resources.h"
+#include "vpux/compiler/backend/export_utils.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/ops.hpp"
@@ -11,6 +11,8 @@
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
@@ -1905,8 +1907,6 @@ void ConvertVPUMI37XX2ELFPass::safeRunOnModule() {
     mlir::MLIRContext* ctx = &(getContext());
     mlir::ModuleOp moduleOp = getOperation();
 
-    ShaveBinaryResources::loadElfData(moduleOp);
-
     _log.trace("ConvertVPUMI37XX2ELFPass::safeRunOnFunc(): START\n {0}\n", moduleOp);
 
     auto [netInfo, funcOp] = net::getFromModule(moduleOp);
@@ -2015,7 +2015,7 @@ void ConvertVPUMI37XX2ELFPass::safeRunOnModule() {
     );
 
     auto builderABINoteSec = mlir::OpBuilder::atBlockEnd(elfABINoteSectionOp.getBlock());
-    builderABINoteSec.create<ELFNPU37XX::ABIVersionOp>(mlir::UnknownLoc::get(ctx));
+    auto abiVersionOp = builderABINoteSec.create<ELFNPU37XX::ABIVersionOp>(mlir::UnknownLoc::get(ctx));
 
     //
     // Mapped Inference Version
@@ -2031,7 +2031,7 @@ void ConvertVPUMI37XX2ELFPass::safeRunOnModule() {
     );
 
     auto builderMINoteSec = mlir::OpBuilder::atBlockEnd(MINoteSectionOp.getBlock());
-    builderMINoteSec.create<VPUMI37XX::MappedInferenceVersionOp>(builderMINoteSec.getUnknownLoc());
+    auto miVersionOp = builderMINoteSec.create<VPUMI37XX::MappedInferenceVersionOp>(builderMINoteSec.getUnknownLoc());
 
     //
     // Platform Information
@@ -2048,6 +2048,29 @@ void ConvertVPUMI37XX2ELFPass::safeRunOnModule() {
 
     auto builderPlatformInfoSec = mlir::OpBuilder::atBlockEnd(platformInfoSectionOp.getBlock());
     builderPlatformInfoSec.create<VPUMI37XX::PlatformInfoOp>(builderPlatformInfoSec.getUnknownLoc());
+
+    // Compatibility String
+    const auto platformID = static_cast<uint64_t>(config::getPlatform(funcOp));
+    const auto numOfTiles = config::getNumOfTiles(funcOp);
+    const auto compatibilityString = backend::buildBlobCompatibilityString(backend::BlobCompatibilityInfo{
+            platformID, numOfTiles,
+            elf::Version{abiVersionOp.getMajor(), abiVersionOp.getMinor(), abiVersionOp.getPatch()},
+            elf::Version{miVersionOp.getMajor(), miVersionOp.getMinor(), miVersionOp.getPatch()}});
+
+    auto compatibilityStringSectionOp = builderFunc.create<ELFNPU37XX::CreateSectionOp>(
+            builderFunc.getUnknownLoc(),
+            ELFNPU37XX::SectionType::get(ctx),                             // mlir::Type
+            "compatibility_string",                                        // llvm::StringRef secName,
+            ELFNPU37XX::SectionTypeAttr::VPU_SHT_COMPAT_STR,               // ELFNPU37XX::SectionTypeAttr secType,
+            ELFNPU37XX::SectionFlagsAttr::SHF_NONE,                        // ELFNPU37XX::SectionFlagsAttr secFlags,
+            elf::VPU_SH_INFO_FOR_VPU,                                      // int64_t secInfo,
+            ELFNPU37XX::CompatibilityStringOp::getAlignmentRequirements()  // int64_t secAddrAlign
+    );
+
+    auto builderCompatibilityStringSec = mlir::OpBuilder::atBlockEnd(compatibilityStringSectionOp.getBlock());
+    builderCompatibilityStringSec.create<ELFNPU37XX::CompatibilityStringOp>(
+            builderCompatibilityStringSec.getUnknownLoc(),
+            builderCompatibilityStringSec.getStringAttr(compatibilityString));
 
     if (!netInfo.getProfilingOutputsInfo().empty()) {
         auto profilingSectionOp = builderFunc.create<ELFNPU37XX::CreateProfilingSectionOp>(

@@ -57,20 +57,9 @@ mlir::LogicalResult vpux::IE::TileOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    if (tile.getRepeats() != nullptr && tile.getRepeatsValues().has_value()) {
-        return errorAt(loc, "Ambiguous repeats representation");
-    }
-
-    SmallVector<int64_t> repeatsVector;
+    SmallVector<int64_t> repeatsVector = parseIntArrayAttr<int64_t>(tile.getRepeatsValues());
     const auto inType = mlir::cast<vpux::NDTypeInterface>(tile.getInput().getType());
-    if (tile.getRepeats() != nullptr) {
-        auto repeatsConst = tile.getRepeats().getDefiningOp<Const::DeclareOp>().getContent();
-        repeatsVector = to_small_vector(repeatsConst.getValues<int64_t>());
-    } else if (tile.getRepeatsValues().has_value()) {
-        repeatsVector = parseIntArrayAttr<int64_t>(tile.getRepeatsValues().value());
-    } else {
-        return errorAt(loc, "Repeats was not provided properly");
-    }
+
     auto [outStaticShape, outBounds, outDimMask] = calcTileOutputShape(tile.getInput(), repeatsVector);
     SmallVector<int64_t> outShape(outStaticShape.begin(), outStaticShape.end());
     const auto outDesc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace(), outBounds, outDimMask);
@@ -79,35 +68,7 @@ mlir::LogicalResult vpux::IE::TileOp::inferReturnTypeComponents(
     return mlir::success();
 }
 
-//
-// ConvertRepeatsToAttr
-//
-
 namespace {
-class ConvertRepeatsToAttr final : public mlir::OpRewritePattern<IE::TileOp> {
-public:
-    using mlir::OpRewritePattern<IE::TileOp>::OpRewritePattern;
-
-public:
-    mlir::LogicalResult matchAndRewrite(IE::TileOp tileOp, mlir::PatternRewriter& rewriter) const final;
-};
-
-mlir::LogicalResult ConvertRepeatsToAttr::matchAndRewrite(IE::TileOp tileOp, mlir::PatternRewriter& rewriter) const {
-    // check if input was already converted to Attr
-    if (tileOp.getRepeatsValues().has_value()) {
-        return mlir::failure();
-    }
-    // convert repeats into attribute
-    const auto repeatsContent = tileOp.getRepeats().getDefiningOp<Const::DeclareOp>().getContent();
-    auto repeats_values = to_small_vector(repeatsContent.getValues<int64_t>());
-    const auto repeatsAttr = getIntArrayAttr(tileOp.getContext(), repeats_values);
-
-    // rewrite layer pattern
-    rewriter.replaceOpWithNewOp<IE::TileOp>(tileOp, tileOp.getInput(), nullptr, repeatsAttr);
-
-    return mlir::success();
-}
-
 class AddUnsqueeze final : public mlir::OpRewritePattern<IE::TileOp> {
 public:
     using mlir::OpRewritePattern<IE::TileOp>::OpRewritePattern;
@@ -124,12 +85,7 @@ public:
 
 namespace {
 mlir::LogicalResult AddUnsqueeze::matchAndRewrite(IE::TileOp origOp, mlir::PatternRewriter& rewriter) const {
-    // repeats attribute has no value
-    if (!origOp.getRepeatsValues().has_value()) {
-        return mlir::failure();
-    }
-
-    auto newRepeats = parseIntArrayAttr<int64_t>(origOp.getRepeatsValues().value());
+    auto newRepeats = parseIntArrayAttr<int64_t>(origOp.getRepeatsValues());
     auto inputRank = mlir::cast<mlir::ShapedType>(origOp.getInput().getType()).getRank();
     auto numRepeats = static_cast<int64_t>(newRepeats.size());
     int64_t nDimsToAdd = 0;
@@ -143,7 +99,7 @@ mlir::LogicalResult AddUnsqueeze::matchAndRewrite(IE::TileOp origOp, mlir::Patte
         newRepeats.insert(newRepeats.begin(), inputRank - numRepeats, 1);
 
         auto newRepeatsAttr = getIntArrayAttr(origOp.getContext(), newRepeats);
-        rewriter.replaceOpWithNewOp<IE::TileOp>(origOp, origOp.getType(), origOp.getInput(), nullptr, newRepeatsAttr);
+        rewriter.replaceOpWithNewOp<IE::TileOp>(origOp, origOp.getType(), origOp.getInput(), newRepeatsAttr);
     } else {
         // need to increase input rank
         nDimsToAdd = numRepeats - inputRank;
@@ -156,7 +112,7 @@ mlir::LogicalResult AddUnsqueeze::matchAndRewrite(IE::TileOp origOp, mlir::Patte
         const auto unsqueezeParamsAttr = getIntArrayAttr(getContext(), unsqueezeParam);
         auto unsqueezeOp =
                 rewriter.create<IE::UnsqueezeOp>(origOp->getLoc(), origOp.getInput(), nullptr, unsqueezeParamsAttr);
-        rewriter.replaceOpWithNewOp<IE::TileOp>(origOp, origOp.getType(), unsqueezeOp->getResult(0), nullptr,
+        rewriter.replaceOpWithNewOp<IE::TileOp>(origOp, origOp.getType(), unsqueezeOp->getResult(0),
                                                 origOp.getRepeatsValuesAttr());
     }
 
@@ -188,12 +144,8 @@ mlir::LogicalResult FuseTileOp::matchAndRewrite(IE::TileOp tileOp, mlir::Pattern
         return mlir::failure();
     }
 
-    if (!tileOp.getRepeatsValues().has_value() || !nextTileOp.getRepeatsValues().has_value()) {
-        return mlir::failure();
-    }
-
-    auto firstTileRepeatsVal = parseIntArrayAttr<int64_t>(tileOp.getRepeatsValues().value());
-    auto secondTileRepeatsVal = parseIntArrayAttr<int64_t>(nextTileOp.getRepeatsValues().value());
+    auto firstTileRepeatsVal = parseIntArrayAttr<int64_t>(tileOp.getRepeatsValues());
+    auto secondTileRepeatsVal = parseIntArrayAttr<int64_t>(nextTileOp.getRepeatsValues());
 
     const auto firstRepeatsSize = firstTileRepeatsVal.size();
     const auto secondRepeatsSize = secondTileRepeatsVal.size();
@@ -209,7 +161,7 @@ mlir::LogicalResult FuseTileOp::matchAndRewrite(IE::TileOp tileOp, mlir::Pattern
     std::transform(firstTileRepeatsVal.begin(), firstTileRepeatsVal.end(), secondTileRepeatsVal.begin(),
                    fusedRepeatsVal.begin(), std::multiplies<int>());
 
-    rewriter.replaceOpWithNewOp<IE::TileOp>(nextTileOp, tileOp.getInput(), nullptr,
+    rewriter.replaceOpWithNewOp<IE::TileOp>(nextTileOp, tileOp.getInput(),
                                             getIntArrayAttr(tileOp.getContext(), fusedRepeatsVal));
 
     return mlir::success();
@@ -218,7 +170,6 @@ mlir::LogicalResult FuseTileOp::matchAndRewrite(IE::TileOp tileOp, mlir::Pattern
 }  // namespace
 
 void vpux::IE::TileOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* ctx) {
-    patterns.add<ConvertRepeatsToAttr>(ctx);
     patterns.add<AddUnsqueeze>(ctx);
     patterns.add<FuseTileOp>(ctx);
 }

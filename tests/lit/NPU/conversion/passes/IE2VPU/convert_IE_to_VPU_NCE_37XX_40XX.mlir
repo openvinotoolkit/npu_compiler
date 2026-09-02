@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --convert-IE-to-VPU-NCE %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --verify-diagnostics --init-compiler="platform=%platform% compilation-mode=DefaultHW" --convert-IE-to-VPU-NCE %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -175,6 +175,30 @@ func.func @DepthConvToNCE(%arg0: tensor<1x16x40x80xf16, {order = #NHWC}>) -> ten
 
     // CHECK-NEXT:      return [[OUT]] : tensor<1x16x37x73xf16, {order = #NHWC}>
 
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// On legacy-weight-table-format platforms there is no weight_table_bias operand able to accept a
+// runtime value, so a GroupConvolution with a non-constant bias cannot be lowered and the
+// conversion fails cleanly instead of crashing or producing invalid IR.
+func.func @DepthConvToNCEWithNonConstantBiasLegacyFormatUnsupported(
+        %arg0: tensor<1x16x1x1xf16, {order = #NHWC}>,
+        %arg1: tensor<1x16x1x1xf16>) -> tensor<1x16x1x1xf16, {order = #NHWC}> {
+    %weights = const.Declare tensor<16x1x1x1xf16, {order = #NHWC}> =
+        dense<1.000000e+00> : tensor<16x1x1x1xf16>, [#const.Reorder<#NHWC>]
+    // expected-error@+1 {{failed to legalize operation 'IE.GroupConvolution'}}
+    %0 = IE.GroupConvolution(%arg0, %weights, %arg1) {
+            dilations = [1, 1],
+            groups = 16 : i64,
+            pads_begin = [0, 0],
+            pads_end = [0, 0],
+            strides = [1, 1]
+        } : tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x1xf16, {order = #NHWC}>, tensor<1x16x1x1xf16>
+            -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    return %0 : tensor<1x16x1x1xf16, {order = #NHWC}>
 }
 
 // -----

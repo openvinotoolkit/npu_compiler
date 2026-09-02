@@ -25,13 +25,13 @@ module @EltwiseNHWCDynamic {
     }
 
     // CHECK: func.func @output_shape([[ARG0:%.+]]: memref<1x?x1000x16xf16>, [[ARG1:%.+]]: memref<1x?x1000x16xf16>, [[ARG2:%.+]]: memref<4xi64>) attributes {[[ANY_ATTR:.+]]} {
-    // CHECK:    [[CST_3:%.+]] = arith.constant 3 : index
-    // CHECK:    [[CST_0:%.+]] = arith.constant 0 : index
-    // CHECK:    [[CST_1000_i64:%.+]] = arith.constant 1000 : i64
-    // CHECK:    [[CST_2:%.+]] = arith.constant 2 : index
-    // CHECK:    [[CST_16_i64:%.+]] = arith.constant 16 : i64
-    // CHECK:    [[CST_1_i64:%.+]] = arith.constant 1 : i64
-    // CHECK:    [[CST_1:%.+]] = arith.constant 1 : index
+    // CHECK-DAG:    [[CST_3:%.+]] = arith.constant 3 : index
+    // CHECK-DAG:    [[CST_0:%.+]] = arith.constant 0 : index
+    // CHECK-DAG:    [[CST_1000_i64:%.+]] = arith.constant 1000 : i64
+    // CHECK-DAG:    [[CST_2:%.+]] = arith.constant 2 : index
+    // CHECK-DAG:    [[CST_16_i64:%.+]] = arith.constant 16 : i64
+    // CHECK-DAG:    [[CST_1_i64:%.+]] = arith.constant 1 : i64
+    // CHECK-DAG:    [[CST_1:%.+]] = arith.constant 1 : index
     // CHECK:    [[DIM:%.+]] = memref.dim [[ARG0]], [[CST_1]] : memref<1x?x1000x16xf16>
     // CHECK:    [[IDX_CAST:%.+]] = arith.index_cast [[DIM]] : index to i64
     // CHECK:    memref.store [[CST_1_i64]], [[ARG2]][[[CST_0]]] : memref<4xi64>

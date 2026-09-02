@@ -205,6 +205,10 @@ protected:
 
     virtual double getTaskDurationClock(const FrequenciesSetup& frequenciesSetup) const = 0;
 
+public:
+    void checkData(bool, Logger&) const override {
+    }
+
     CustomArgsVector getCustomArgs(const FrequenciesSetup&) const override;
 
 public:
@@ -261,7 +265,6 @@ public:
                                        uint32_t variantId, size_t inMemoryOffset, uint32_t inClusterIndex,
                                        std::shared_ptr<const TensorInfo> tensorInfo,
                                        std::unique_ptr<const DPUVariantInfo> variantInfo);
-    void checkData(bool failOnError, Logger& log) const override;
 
 private:
     ExecutorType getExecutorType() const override;
@@ -304,6 +307,7 @@ private:
     const ActShaveData_t _data;
     const uint32_t _bufferId;
     const uint32_t _clusterId;
+    const std::optional<uint8_t> _fifoId;
     std::unique_ptr<const TensorInfo> _tensorInfo;
 };
 
@@ -327,6 +331,7 @@ private:
     const ActShaveDataEx_t _data;
     const uint32_t _bufferId;
     const uint32_t _clusterId;
+    const std::optional<uint8_t> _fifoId;
     std::unique_ptr<const TensorInfo> _tensorInfo;
 };
 

@@ -132,10 +132,10 @@ net.NetworkInfo entryPoint : @main
 // -----
 
 // int4 embedding table WD chain (Const -> Multiply(per-row scale) -> Gather) is routed through
-// DynamicDequantize. swap-operation-with-gather hoists Gather before DynamicDequantize so that
+// DynamicDequantize. swap-operations-with-gather-and-slice hoists Gather before DynamicDequantize so that
 // dequantization runs on the gathered rows only, not the full 262144-row table.
 
-// CHECK: !qElemType = !quant.uniform<i4:f32, 1.000000e+00>
+// CHECK: !qElemType = !quant.uniform<i4:f16, 1.000000e+00>
 // CHECK-LABEL: @EmbeddingInt4WithDynamicDequantize
 module @EmbeddingInt4WithDynamicDequantize {
     net.NetworkInfo entryPoint : @main

@@ -22,49 +22,31 @@ class BucketizeLayerTestCommon : public BucketizeLayerTest, virtual public VpuOv
                  ) = GetParam();
 
         BucketizeLayerTest::SetUp();
+        setSkipCompilationCallback([](std::stringstream& skip) {
+            const auto outputType = std::get<4>(GetParam());
+            if (outputType == ov::element::i64) {
+                skip << "I64 Precision is not supported yet!";
+            }
+        });
     }
 };
 
 TEST_P(BucketizeLayerTestCommon, NPU3720_SW) {
-    setSkipCompilationCallback([](std::stringstream& skip) {
-        const auto outputType = std::get<4>(GetParam());
-        if (outputType == ov::element::i64) {
-            skip << "I64 Precision is not supported yet!";
-        }
-    });
     setReferenceSoftwareMode();
     run(Platform::NPU3720);
 }
 
 TEST_P(BucketizeLayerTestCommon, NPU4000_SW) {
-    setSkipCompilationCallback([](std::stringstream& skip) {
-        const auto outputType = std::get<4>(GetParam());
-        if (outputType == ov::element::i64) {
-            skip << "I64 Precision is not supported yet!";
-        }
-    });
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
 
 TEST_P(BucketizeLayerTestCommon, NPU5010_SW) {
-    setSkipCompilationCallback([](std::stringstream& skip) {
-        const auto outputType = std::get<4>(GetParam());
-        if (outputType == ov::element::i64) {
-            skip << "I64 Precision is not supported yet!";
-        }
-    });
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
 
 TEST_P(BucketizeLayerTestCommon, NPU5020_SW) {
-    setSkipCompilationCallback([](std::stringstream& skip) {
-        const auto outputType = std::get<4>(GetParam());
-        if (outputType == ov::element::i64) {
-            skip << "I64 Precision is not supported yet!";
-        }
-    });
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
 }

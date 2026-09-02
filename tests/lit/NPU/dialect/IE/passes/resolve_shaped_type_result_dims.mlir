@@ -55,6 +55,28 @@ func.func @ReifyTanhShape(%IN: !BoundedType) -> (!BoundedType, index) {
 
 !BoundedType = tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
 
+// CHECK-LABEL: @ReifyAtanShape
+func.func @ReifyAtanShape(%IN: !BoundedType) -> (!BoundedType, index) {
+    // CHECK: [[IN:%.+]]: tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+    %IDX_3 = arith.constant 3 : index
+    // CHECK: [[IDX_3:%.+]] = arith.constant 3 : index
+
+    %ATAN = IE.Atan(%IN) : !BoundedType -> !BoundedType
+    // CHECK: [[ATAN:%.+]] = IE.Atan([[IN]])
+
+    %DIM_3 = tensor.dim %ATAN, %IDX_3 : !BoundedType
+    // CHECK: [[DIM_3:%.+]] = tensor.dim [[IN]], [[IDX_3]]
+
+    return %ATAN, %DIM_3 : !BoundedType, index
+    // CHECK: return [[ATAN]], [[DIM_3]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!BoundedType = tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+
 // CHECK-LABEL: @ReifyClampShape
 func.func @ReifyClampShape(%IN: !BoundedType) -> (!BoundedType, index) {
     // CHECK: [[IN:%.+]]: tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
@@ -1337,4 +1359,29 @@ func.func @ReifyYuvToRgbShape(%arg0: !In0Type, %arg1: !In1Type) -> (!OutType, te
 
     return %0, %from_elements : !OutType, tensor<4xi64>
     // CHECK:           return [[RESULT]], [[OUT_SHAPE]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!QType = tensor<1x6x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 6, 256, 64]> : tensor<4xsi64>, order = #NCHW}>
+!KType = tensor<1x6x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 6, 256, 64]> : tensor<4xsi64>, order = #NCHW}>
+!VType = tensor<1x6x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 6, 256, 64]> : tensor<4xsi64>, order = #NCHW}>
+!OutType_Attn = tensor<1x6x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 6, 256, 64]> : tensor<4xsi64>, order = #NCHW}>
+
+// CHECK-LABEL: @ReifyAttentionDMADynSSL
+// CHECK-SAME:  [[Q:%arg[0-9]]]: tensor<1x6x?x64xf16
+func.func @ReifyAttentionDMADynSSL(%Q: !QType, %K: !KType, %V: !VType) -> (!OutType_Attn, index) {
+    %IDX_2 = arith.constant 2 : index
+    // CHECK: [[IDX_2:%.+]] = arith.constant 2 : index
+
+    %ATTN = IE.AttentionDMA(%Q, %K, %V) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 0>} : !QType, !KType, !VType -> !OutType_Attn
+    // CHECK: [[ATTN:%.+]] = IE.AttentionDMA
+
+    %DIM_2 = tensor.dim %ATTN, %IDX_2 : !OutType_Attn
+    // CHECK: [[DIM_2:%.+]] = tensor.dim [[Q]], [[IDX_2]]
+
+    return %ATTN, %DIM_2 : !OutType_Attn, index
+    // CHECK: return [[ATTN]], [[DIM_2]]
 }

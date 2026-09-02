@@ -65,7 +65,7 @@ func.func @ConvSOHOverlapped(%arg0: !Input_DDR) -> !Output_DDR {
     %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                
+
                 strides = [1, 1]
             } : !InputDistributed, !WeightsDistributed -> !OutputDistributed {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 8, 33] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
@@ -192,7 +192,7 @@ func.func @SparseConvSOHOverlapped(%arg0: !InputDataDistributed, %arg1: !InputSM
     %output_cmx = VPU.NCE.Convolution(%input_sparse, %weights_cmx) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                
+
                 strides = [1, 1]
             } : !Input_CMX, !WeightsDistributed -> !Output_CMX {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 8, 33] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
@@ -283,7 +283,7 @@ func.func @ConvSOHOverlappedMultipleWorkloads(%arg0: !Input_DDR) -> !Output_DDR 
     %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                
+
                 strides = [1, 1]
             } : !InputDistributed, !WeightsDistributed -> !OutputDistributed {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 8, 33] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
@@ -376,7 +376,7 @@ func.func @ConvSOHOverlappedNoOverlapAtStart(%arg0: !Input_DDR) -> !Output_DDR {
     %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) rawFilterShape [16, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                
+
                 strides = [1, 1]
             } : !InputDistributed, !WeightsDistributed -> !OutputDistributed {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 11, 33]pad [1, 1, 1, 0] #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
@@ -462,7 +462,7 @@ func.func @ConvSOKNoChange(%arg0: !Input_DDR) -> !Output_DDR {
     %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) rawFilterShape [32, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                
+
                 strides = [1, 1]
             } : !InputDistributed, !WeightsDistributed -> !OutputDistributed {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 30, 33] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 0 : i64}
@@ -561,4 +561,60 @@ func.func @NCEPermuteSOK(%arg0: !Input_DDR) -> !Output_DDR {
     // CHECK:          VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 32, 64] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 1 : i64}
     // CHECK:          VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 32, 64] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 2 : i64}
     // CHECK:          VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 32, 64] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 3 : i64}
+}
+
+// -----
+
+// For NCE.MaxPool with D2S ODU configuration and OVERLAPPED output distribution,
+// the pass must invert the post-ODU clustering offsets to pre-ODU coordinates
+// before subtracting them from the DPU workload offsets.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!InputDistributed = !VPU.DistributedTensor<
+    1x32x4x4xf16, #NHWC, @CMX_NN, {
+    mode = "SEGMENTED",
+    num_tiles = [1, 1, 2, 1],
+    num_clusters = 2,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 32, 2, 4], [1, 32, 2, 4]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 2, 0]],
+    memory_shapes = [[1, 32, 2, 4], [1, 32, 2, 4]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0]]
+}>
+
+!OutputDistributed = !VPU.DistributedTensor<
+    1x8x8x8xf16, #NHWC, @CMX_NN, {
+    mode = "OVERLAPPED",
+    num_tiles = [1, 1, 2, 1],
+    num_clusters = 2,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 8, 4, 8], [1, 8, 4, 8]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 4, 0]],
+    memory_shapes = [[1, 8, 4, 8], [1, 8, 4, 8]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 4, 0]]
+}>
+
+// CHECK-LABEL: @D2SMaxPoolSOHOverlappedODUScaling
+func.func @D2SMaxPoolSOHOverlappedODUScaling(%arg0: !InputDistributed) -> !OutputDistributed {
+    %output_cmx = VPU.NCE.MaxPool(%arg0) {
+        resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        kernel_size = [1, 1],
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEStub<>,
+        s2dd2s_config = #VPU.S2DD2SConfig<enable = <D2S>, variant = <BLOCK_FIRST>, blk_size = 2 : i64>,
+        strides = [1, 1]
+    } : !InputDistributed -> !OutputDistributed {
+        VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 2, 4] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
+        VPU.DPU.Workload outOffsets [0, 0, 2, 0] outSizes [1, 32, 2, 4] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 1 : i64}
+    }
+
+    return %output_cmx : !OutputDistributed
+
+    // CHECK:       [[RES:%.+]] = VPU.NCE.MaxPool
+    // CHECK-SAME:      s2dd2s_config = #VPU.S2DD2SConfig<enable = <D2S>, variant = <BLOCK_FIRST>, blk_size = 2 : i64>
+    // Cluster 0 offset unchanged (clustering offset is zero).
+    // CHECK:           DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 2, 4] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 0 : i64}
+    // Cluster 1 offset shifted: [0,0,2,0] - invertODUScaling([0,0,4,0]) = [0,0,2,0] - [0,0,2,0] = [0,0,0,0].
+    // CHECK:           DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 2, 4] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 1 : i64}
 }

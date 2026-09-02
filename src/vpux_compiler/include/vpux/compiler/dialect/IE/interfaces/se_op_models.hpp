@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -13,15 +13,13 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/core/layers.hpp"
+#include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/IE/IR/attributes.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/IE/utils/roll_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_interpolate_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
@@ -29,8 +27,24 @@
 #include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
-#include "vpux/compiler/dialect/core/types.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/utils/core/array_ref.hpp"
+#include "vpux/utils/core/error.hpp"
+#include "vpux/utils/core/format.hpp"
 #include "vpux/utils/core/numeric.hpp"
+#include "vpux/utils/core/small_vector.hpp"
+#include "vpux/utils/logger/logger.hpp"
+
+#include <llvm/Support/FormatVariadic.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/BuiltinTypes.h>
+#include <mlir/IR/Operation.h>
+#include <mlir/IR/Types.h>
+
+#include <cstdint>
 
 namespace vpux::IE {
 
@@ -56,12 +70,15 @@ public:
         if (checkBatch && inputShape[Dims4D::Act::N] != 1) {
             return false;
         }
-
+        if (inputShape.isDynamic() || outputShape.isDynamic()) {
+            logCb(formatv("Dynamic shapes are not supported. Input shape {0}, output shape {1}", inputShape,
+                          outputShape));
+            return false;
+        }
+        // TODO E#71403: remove dimension check
         auto exceedsDimLimit = [](int64_t dim) {
             return dim > VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
         };
-
-        // TODO E#71403: remove dimension check
         if (llvm::any_of(inputShape, exceedsDimLimit) || llvm::any_of(outputShape, exceedsDimLimit)) {
             logCb(formatv("Dimension sizes over {0} are not supported. Input shape {1}, output shape {2}",
                           VPU::NCEInvariant::VPU_DIMENSION_LIMIT, inputShape, outputShape));
@@ -86,23 +103,26 @@ public:
 
         if (inputShape[Dims4D::Act::C] < 8) {
             // Interpolate layers with fewer than 8 channels may perform better on SHAVE than on DPU #E100988.
-            // More experiments in #E156089 validated that:
-            // 1) for nearest mode with total spatial size >= 1320720 (e.g. 512x512, scale=2)
-            // DPU solution always has better performance even when channels < 8;
-            // 2) for other modes, spatial size hasn't show signficant impact.
             // A better cost model can be introduced in the future to clearly identify which scenarios
             // receive a hit in performance when executed on DPU
+            const auto totalSpatialSize = inputShape[Dims4D::Act::H] * inputShape[Dims4D::Act::W] +
+                                          outputShape[Dims4D::Act::H] * outputShape[Dims4D::Act::W];
             logCb(formatv("Interpolate has less than 8 channels: {0}", inputShape[Dims4D::Act::C]));
             if (attrModeValue == IE::InterpolateMode::NEAREST) {
-                // For Nearest mode, check the total spatial size to decide if it is supported
-                const auto totalSpatialSize = inputShape[Dims4D::Act::H] * inputShape[Dims4D::Act::W] +
-                                              outputShape[Dims4D::Act::H] * outputShape[Dims4D::Act::W];
+                // Experiments in E#156089 validated that, for nearest mode with total spatial size >= 1320720 (e.g.
+                // 512x512, scale=2) DPU solution always has better performance even when channels < 8
                 if (totalSpatialSize < 1320720) {
                     return false;
                 }
             } else {
-                // For other modes, directly return false
-                return false;
+                // Experiments in E#228181 showed that many cases for bilinear interpolate showed better performance
+                // with SEP. However, measuring the same interpolate in isolation differed in performance compared to
+                // executing it within a network (e.g. 4x160x160 -> 4x640x640 is better in isolation, worse in network),
+                // while other cases showed better performance in both isolation and network (e.g. 4x256x256 ->
+                // 4x1024x1024). The current threshold is focused on these examples.
+                if (totalSpatialSize < (256 * 256) + (1024 * 1024)) {
+                    return false;
+                }
             }
         }
 
@@ -181,11 +201,6 @@ public:
 template <class MainOpType, bool HasSparsityMapSupport = true>
 class SEPadOpModel final :
         public IE::SEOpInterface::ExternalModel<SEPadOpModel<MainOpType, HasSparsityMapSupport>, MainOpType> {
-private:
-    // Empirical threshold based on profiling traces and based on RTL simulations.
-    // VPUNN CostModel does not currently model differences in performance coming from SEP usage.
-    static constexpr int64_t SEP_PAD_IC_NUM_PERF_THRESHOLD = 32;
-
 public:
     bool isSupported(mlir::Operation* op, vpux::LogCb logCb, bool checkLayout, bool checkChannelAlignment,
                      bool /*checkBatch*/) const {
@@ -259,9 +274,12 @@ public:
         // into a 1x1 Convolution, input sparsity will be enabled and storage element pointers will be used.
         // E-163345 shows that the overhead of storage element table reads from CMX will bring a significant
         // performance regression when Conv Input Channel number is low.
-        if (newInputShape[Dims4D::Act::C] <= SEP_PAD_IC_NUM_PERF_THRESHOLD) {
+        const auto& strategyFactory = IE::getIEStrategyFactory(ctx);
+        const auto sePadICPerfThresholdVerifier = strategyFactory->getSEPadICPerfThresholdVerifier();
+        if (!sePadICPerfThresholdVerifier->isBeneficialForPerformance(newInputShape, op)) {
             return false;
         }
+
         auto weightShape =
                 Shape(SmallVector<int64_t>{inputShape[Dims4D::Act::C], inputShape[Dims4D::Act::C], /*KY=*/1, /*KX=*/1});
         mlir::Type elemType = mlir::Float16Type::get(ctx);

@@ -15,7 +15,7 @@ func.func @DoNotSparsifyFullyDense(%input: tensor<1x32x16x16xf16, {order = #NHWC
     %nce = VPU.NCE.Convolution(%input, %weights, %weight_table) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x16x16xf16, {order = #NHWC}>
 
@@ -39,7 +39,7 @@ func.func @DoNotSparsifyFullySparse(%input: tensor<1x32x16x16xf16, {order = #NHW
     %nce = VPU.NCE.Convolution(%input, %weights, %weight_table) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x16x16xf16, {order = #NHWC}>
 
@@ -64,7 +64,7 @@ func.func @SparsifyHalfDense(%input: tensor<1x32x16x16xf16, {order = #NHWC}>, %w
     %nce = VPU.NCE.Convolution(%input, %weights, %weight_table) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x16x16xf16, {order = #NHWC}>
 
@@ -92,13 +92,13 @@ func.func @SparsifyWithMultiUsers(%arg0: tensor<1x32x16x16xf16, {order = #NHWC}>
     %1 = VPU.NCE.Convolution(%arg0, %weights, %arg1) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x16x16xf16, {order = #NHWC}>
     %2 = VPU.NCE.Convolution(%arg2, %weights, %arg3) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x16x16xf16, {order = #NHWC}>
 

@@ -70,6 +70,26 @@ def AddProfilingSection : PassBase<"add-profiling-section", "vpux::ModulePass"> 
 }
 
 //
+// AddPerformanceMetricsSection
+//
+
+def AddPerformanceMetricsSection : PassBase<"add-performance-metrics-section", "vpux::FunctionPass"> {
+    let summary = "Insert ELF PerformanceMetrics section op into ELF main as a dedicated pass";
+
+    let description = [{
+        Creates an ELF PerformanceMetrics section operation in ELF.Main.
+        Fails if a PerformanceMetrics op already exists; the op must not be present before this pass runs.
+        This keeps PerformanceMetrics creation separate from VPUMI40XX-to-VPUASM conversion logic.
+    }];
+
+    let constructor = "vpux::VPUASM::createAddPerformanceMetricsSectionPass()";
+
+    let dependentDialects = [
+        "vpux::ELF::ELFDialect"
+    ];
+}
+
+//
 // AddCompilerHash
 //
 
@@ -83,6 +103,27 @@ def AddCompilerHash : PassBase<"add-compiler-hash", "vpux::FunctionPass"> {
     }];
 
     let constructor = "vpux::VPUASM::createAddCompilerHashPass()";
+
+    let dependentDialects = [
+        "vpux::VPUASM::VPUASMDialect",
+        "vpux::ELF::ELFDialect"
+    ];
+}
+
+//
+// AddHostParsedInference
+//
+
+def AddHostParsedInference : PassBase<"add-host-parsed-inference", "vpux::FunctionPass"> {
+    let summary = "Create the VPUASM HostParsedInference op and move it into its ELF section";
+
+    let description = [{
+        Creates a VPUASM HostParsedInference op that references the (managed) mapped inference and
+        carries the inference resource requirements, then moves it into a dedicated ELF section.
+        Kept separate from VPUMI40XX-to-VPUASM conversion logic and enabled only for newer architectures.
+    }];
+
+    let constructor = "vpux::VPUASM::createAddHostParsedInferencePass()";
 
     let dependentDialects = [
         "vpux::VPUASM::VPUASMDialect",

@@ -12,8 +12,8 @@ find_package(ZLIB)
 set(TARGET_NAME npu_ov_utils)
 
 list(APPEND SOURCES
-        compat_string_check.cpp
         config.cpp
+        compat_string_check.cpp
 )
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES})
 
@@ -41,5 +41,4 @@ ov_link_system_libraries(${TARGET_NAME}
     PUBLIC
         openvino::runtime
         openvino::runtime::dev
-        openvino::npu_al
 )

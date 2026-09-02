@@ -30,6 +30,7 @@ struct PatternOps {
     IE::SubtractOp subtractOp = nullptr;
     IE::MultiplyOp multiplyOp = nullptr;
     mlir::Operation* matMulOp = nullptr;
+    IE::TransposeOp transposeOp = nullptr;
 };
 
 mlir::Operation* createMatMulOrFullyConnected(mlir::Operation* origOp, mlir::Value lhs, mlir::Value rhs,
@@ -101,6 +102,13 @@ mlir::FailureOr<PatternOps> GroupWisePatternRewriter<ConcreteOp>::initializePatt
     }
 
     auto userOp = *lastOp->user_begin();
+    if (auto transposeOp = mlir::dyn_cast<IE::TransposeOp>(userOp)) {
+        if (!transposeOp->getResult(0).hasOneUse()) {
+            return mlir::failure();
+        }
+        patternOps.transposeOp = transposeOp;
+        userOp = *transposeOp->user_begin();
+    }
     while (mlir::isa<IE::ConvertOp, IE::AffineReshapeOp, IE::ReshapeOp>(userOp)) {
         if (!userOp->getResult(0).hasOneUse()) {
             return mlir::failure();
@@ -159,17 +167,19 @@ mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::matchAndRewrite(Concre
                                                                           mlir::PatternRewriter& rewriter) const {
     _log.trace("Got op {0} at {1}", origOp->getName(), origOp->getLoc());
 
-    // Do not decompose if asymmetric per-channel zero-point is supported
-    if (config::asymmetricPerChannelZeroPointSupported(getModuleOp(origOp))) {
-        return matchFailed(rewriter, origOp, "Don't decompose when asymmetricPerChannelZeroPoint enabled.");
-    }
-
     // Match the weights dequantize structure once...
     const auto maybeWdInfo = IE::WeightsDequantizeStructureInfo::create(origOp, _log.nest());
     if (mlir::failed(maybeWdInfo)) {
         return matchFailed(rewriter, origOp, "Failed to match WeightsDequantize structure.");
     }
     const auto& wdInfo = maybeWdInfo.value();
+
+    if (config::asymmetricPerChannelZeroPointSupported(getModuleOp(origOp)) &&
+        (wdInfo.hasConstWeights() || !IE::getTrueElemType(origOp).isInteger(2))) {
+        return matchFailed(rewriter, origOp,
+                           "Skip decomposition: asymmetricPerChannelZeroPoint is supported and weights are either "
+                           "constant or not int2.");
+    }
 
     if (!wdInfo.isKVcachedPattern() && IE::getTrueElemType(origOp).isInteger(2)) {
         return matchFailed(rewriter, origOp, "Skipping decomposing for u2 groupwise prefill pattern.");
@@ -187,6 +197,7 @@ mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::matchAndRewrite(Concre
     auto scale = patternOps.scale;
     auto zeroPoint = patternOps.zeroPoint;
     auto activation = patternOps.activation;
+    auto transposeOp = patternOps.transposeOp;
 
     auto is3DShape = [](mlir::Value val) {
         if (val == nullptr) {
@@ -213,30 +224,38 @@ mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::matchAndRewrite(Concre
     rewriter.setInsertionPointAfter(patternOps.matMulOp);
     auto actShape = getShape(activation);
     auto wtShape = getShape(origWeights->getResult(0));
-    VPUX_THROW_UNLESS(actShape.totalSize() % (wtShape[Dims3D::Filter::IC] * wtShape[Dims3D::Filter::OC]) == 0,
-                      "Got illegal group-wise pattern!");
-    auto seqLen = actShape.totalSize() / (wtShape[Dims3D::Filter::IC] * wtShape[Dims3D::Filter::OC]);
-    auto newActShape = Shape({seqLen, wtShape[Dims3D::Filter::IC], wtShape[Dims3D::Filter::OC]});
+
+    auto numGroups = transposeOp != nullptr ? wtShape[Dims3D::Filter::B] : wtShape[Dims3D::Filter::IC];
+    const auto innerDimSize = numGroups * wtShape[Dims3D::Filter::OC];
+    VPUX_THROW_UNLESS(actShape.totalSize() % innerDimSize == 0, "Got illegal group-wise pattern!");
+    auto seqLen = actShape.totalSize() / innerDimSize;
+    auto newActShape = Shape({seqLen, numGroups, wtShape[Dims3D::Filter::OC]});
     auto actReshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(origMatMulOp->getLoc(), "reshape_act"), activation,
                                                        getIntArrayAttr(rewriter.getContext(), newActShape));
 
     auto axis = actReshapeOp.getOutput().getType().getRank() - 1;
     auto axesAttr = getIntArrayAttr(rewriter, SmallVector<int64_t>{axis});
-    auto reduceSumOp =
-            rewriter.create<IE::ReduceSumOp>(appendLoc(actReshapeOp.getLoc(), "reduce_sum_act"),
-                                             actReshapeOp.getOutput(), nullptr, axesAttr, false, nullptr, nullptr);
+    auto reduceSumOp = rewriter.create<IE::ReduceSumOp>(appendLoc(actReshapeOp.getLoc(), "reduce_sum_act"),
+                                                        actReshapeOp.getOutput(), axesAttr, false, nullptr, nullptr);
 
     // Create Scale*ZP Multiply branch
     auto multiplyScaleZP =
             rewriter.create<IE::MultiplyOp>(appendLoc(origMatMulOp->getLoc(), "multiply_scale_zp"), scale, zeroPoint,
                                             IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
-    auto multiplyScaleZPOutShape = getShape(multiplyScaleZP.getOutput());
-    auto newMultiplyScaleZPOutShape =
-            Shape({multiplyScaleZPOutShape[Dims3D::Act::B],
-                   multiplyScaleZPOutShape.totalSize() / multiplyScaleZPOutShape[Dims3D::Act::B]});
-    auto multiplyScaleZPReshapeOp = rewriter.create<IE::ReshapeOp>(
-            appendLoc(multiplyScaleZP.getLoc(), "reshape_multiply_scale_zp"), multiplyScaleZP.getOutput(),
-            getIntArrayAttr(rewriter.getContext(), newMultiplyScaleZPOutShape));
+
+    mlir::Value zpScaleVal = multiplyScaleZP.getOutput();
+    if (transposeOp != nullptr) {
+        zpScaleVal = rewriter.create<IE::TransposeOp>(appendLoc(multiplyScaleZP.getLoc(), "transpose_zp"), zpScaleVal,
+                                                      nullptr, transposeOp.getOrderValueAttr())
+                             .getOutput();
+    }
+
+    const auto zpScaleShape = getShape(zpScaleVal);
+    const Shape newMultiplyScaleZPOutShape(
+            {zpScaleShape[Dims3D::Act::B], zpScaleShape.totalSize() / zpScaleShape[Dims3D::Act::B]});
+    auto multiplyScaleZPReshapeOp =
+            rewriter.create<IE::ReshapeOp>(appendLoc(multiplyScaleZP.getLoc(), "reshape_multiply_scale_zp"), zpScaleVal,
+                                           getIntArrayAttr(rewriter.getContext(), newMultiplyScaleZPOutShape));
 
     auto newMatMulRhs = multiplyScaleZPReshapeOp.getOutput();
     auto reduceSumOutElemType = mlir::cast<vpux::NDTypeInterface>(reduceSumOp.getOutput().getType()).getElementType();

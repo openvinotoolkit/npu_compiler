@@ -360,7 +360,7 @@ func.func @AlignD2SOutput(%arg0: tensor<1x64x?x?xf16, {bounds = #const.OpaqueI64
         : tensor<1x64x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 64, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
         -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
 
-   %1 = VPU.NCE.Eltwise(%0, %0) {
+   %1 = VPU.NCE.Eltwise(%0, %0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         tilingStrategy = [1, 1, 1, 72],
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>}
@@ -407,4 +407,65 @@ func.func @AlignD2SOutput(%arg0: tensor<1x64x?x?xf16, {bounds = #const.OpaqueI64
     // CHECK:   scf.yield [[LOOP_W]]
     // CHECK:   return [[LOOP_H]] : tensor<1x16x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 16, 1600, 2560]> : tensor<4xsi64>, order = #NCHW}>
 }
+}
+
+// -----
+
+// Test MC strategy adjustment with dynamic shapes:
+// Producer Conv 1x1 has SplitOverKernel, consumer Conv 3x3 has SplitOverHeight.
+// The adjustment logic should change the producer from SOK to a compatible strategy
+// (HKSwitch or SOH) so that fusion can proceed even with dynamic spatial dimensions.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!inputDynType = tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}>
+!outputDynType = tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}>
+
+module @testDynMCStrategyAdjust {
+config.Resources 3 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: @FusionWithMCStrategyAdjustmentDynamic
+func.func @FusionWithMCStrategyAdjustmentDynamic(%arg0: !inputDynType) -> !outputDynType {
+    %weights = const.Declare tensor<32x32x1x1xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %weights2 = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    // Producer: Conv 1x1 with SOK — will be adjusted to enable fusion
+    %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 1, 22]}
+      : !inputDynType, tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> !outputDynType
+
+    // Consumer: Conv 3x3 with SOH — requires OVERLAPPED input
+    %1 = VPU.NCE.Convolution(%0, %weights2) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 1, 22]}
+      : !outputDynType, tensor<32x32x3x3xf16, {order = #NHWC}>
+      -> !outputDynType
+
+    return %1 : !outputDynType
+}
+
+// Strategy adjustment enables fusion with dynamic shapes — producer adjusted from SOK
+// CHECK: scf.for
+// CHECK: VPU.NCE.Convolution
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<HKSwitch>
+// CHECK: VPU.NCE.Convolution
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
 }

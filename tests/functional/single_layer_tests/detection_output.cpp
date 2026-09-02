@@ -300,7 +300,8 @@ ov::Tensor generateClassPredictions(NumBatches numBatches, NumPriors numPriors, 
 
             genConfidenceUniform(confidence);
 
-            VPUX_THROW_UNLESS(confidence.size() == numPriors.value(), "Confidence values have unexpected size");
+            VPUX_THROW_UNLESS(confidence.size() == static_cast<size_t>(numPriors.value()),
+                              "Confidence values have unexpected size");
             for (int p = 0; p < numPriors.value(); p++) {
                 classPredictions.at(b, p, classIndex) = confidence[p];
             }
@@ -381,13 +382,13 @@ void removeUnwantedClassPredictions(TensorView<float, 3> classPredictions, Tenso
     detections.reserve(numPriors);
     goodBoxes.reserve(numPriors);
 
-    for (int b = 0; b < numBatches; b++) {
+    for (size_t b = 0; b < numBatches; b++) {
         for (int c = 0; c < numClasses.value(); c++) {
             detections.clear();
-            for (int p = 0; p < numPriors; p++) {
+            for (size_t p = 0; p < numPriors; p++) {
                 const auto box = decodedBoxes.at(b, c * !shareLocation.value(), p);
                 const auto conf = classPredictions.at(b, p, c);
-                detections.push_back(BoxConfidence{conf, p, box});
+                detections.push_back(BoxConfidence{conf, static_cast<int>(p), box});
             }
 
             const auto greaterConf = [](const BoxConfidence& lhs, const BoxConfidence& rhs) {
@@ -482,12 +483,12 @@ ov::Tensor decodeBoxes(TensorView<NormalizedBox, 3> boxLogits, TensorView<Normal
 
     const auto varianceEncodedInTarget = (normalizedPriorBox.getShape()[1] == 1);
 
-    for (int b = 0; b < numBatches; b++) {
-        for (int p = 0; p < numPriors; p++) {
+    for (size_t b = 0; b < numBatches; b++) {
+        for (size_t p = 0; p < numPriors; p++) {
             const auto priorBox = normalizedPriorBox.at(b, 0, p);
             const auto varianceBox =
                     varianceEncodedInTarget ? NormalizedBox{1.0f, 1.0f, 1.0f, 1.0f} : normalizedPriorBox.at(b, 1, p);
-            for (int c = 0; c < numLocClasses; c++) {
+            for (size_t c = 0; c < numLocClasses; c++) {
                 const auto boxLogit = boxLogits.at(b, p, c);
 
                 // store in more convenient "layout" (batch, classId, priorId)

@@ -111,9 +111,9 @@ module @Convolution attributes {config.compilationMode = #config.compilation_mod
 module @SoftMax {
     // CHECK-DAG: {{  }}config.Resources
     // CHECK-DAG: {{      }}module @DummySWKernelsForInstructionPrefetchReservedMemory
-    // CHECK-NEXT: {{        }}config.MemoryResource 16 bytes of @CMX_NN offset 1473008
+    // CHECK-NEXT: {{        }}config.MemoryResource 16 bytes of @CMX_NN offset 1571312
     // CHECK-DAG: {{      }}module @DmaProfilingReservedMemory
-    // CHECK-NEXT: {{        }}config.MemoryResource 512 bytes of @CMX_NN offset 1473024
+    // CHECK-NEXT: {{        }}config.MemoryResource 512 bytes of @CMX_NN offset 1571328
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input" : tensor<1x1000xf16>
     } outputsInfo : {
@@ -594,7 +594,6 @@ module @VerticalFusionOutlining {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat1T {
   config.Resources 1 of @NCE at 1.850000e+03 MHz {
-    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
@@ -695,7 +694,6 @@ module @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat1T {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat2T {
   config.Resources 2 of @NCE at 1.850000e+03 MHz {
-    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }

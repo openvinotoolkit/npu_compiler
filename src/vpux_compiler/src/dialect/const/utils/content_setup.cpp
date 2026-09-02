@@ -7,11 +7,8 @@
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/attr_interfaces.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
-#include "vpux/compiler/utils/stable_hash.hpp"
-#ifdef BACKGROUND_FOLDING_ENABLED
-#include "vpux/compiler/dialect/const/utils/constant_folding_cache.hpp"
-#endif
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/stable_hash.hpp"
 
 namespace vpux::Const {
 namespace detail {
@@ -253,24 +250,7 @@ template class SpecializedContentSetup<ContentAttr::SpecialSetupCallable>;
 
 }  // namespace vpux::Const
 
-namespace {
-void enqueueCache(mlir::MLIRContext* ctx, const vpux::Const::ContentAttr& attr) {
-#ifdef BACKGROUND_FOLDING_ENABLED
-    auto& cacheManager = vpux::Const::ConstantFoldingCacheManager::getInstance();
-    if (cacheManager.contains(ctx)) {
-        auto& cache = cacheManager.get(ctx);
-        cache.enqueueRequest(vpux::Const::FoldingRequest{attr, nullptr});
-    }
-#else
-    std::ignore = ctx;
-    std::ignore = attr;
-#endif
-}
-}  // namespace
-
 vpux::Const::ContentAttr vpux::Const::ContentAttr::get(mlir::ElementsAttr baseContent,
                                                        const Const::detail::ContentSetupBase& setup) {
-    auto resultAttr = ContentAttr::get(baseContent, setup.getTransformations());
-    enqueueCache(setup.getContext(), resultAttr);
-    return resultAttr;
+    return ContentAttr::get(baseContent, setup.getTransformations());
 }

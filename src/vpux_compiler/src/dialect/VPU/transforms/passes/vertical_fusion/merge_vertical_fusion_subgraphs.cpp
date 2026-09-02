@@ -99,8 +99,9 @@ void MergeVfSubgraphsPass::safeRunOnFunc() {
         patterns.add<VPU::VF::v1::MergeVFRegionRewriter>(&ctx, _enableVerticalFusionPipelining, _enablePrefetchTiling,
                                                          costFunction, _log);
     } else {
+        auto& vfCache = getAnalysis<VPU::VF::v2::VFCacheAnalysis>();
         patterns.add<VPU::VF::v2::MergeVFRegionRewriter>(&ctx, _enableVerticalFusionPipelining, _enablePrefetchTiling,
-                                                         costFunction, _log);
+                                                         costFunction, _log, vfCache);
     }
 
     auto config = getDefaultGreedyRewriteConfig();

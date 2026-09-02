@@ -285,10 +285,11 @@ TEST_NPU5_MI_REG_FIELD(MiNNRTCfg_stack_9, shv_rt_configs.stack_frames[9])
 TEST_NPU5_MI_REG_FIELD(MiNNRTCfg_stack_10, shv_rt_configs.stack_frames[10])
 TEST_NPU5_MI_REG_FIELD(MiNNRTCfg_stack_11, shv_rt_configs.stack_frames[11])
 TEST_NPU5_MI_REG_FIELD(MiNNRTCfg_stack_size, shv_rt_configs.stack_size)
-TEST_NPU5_MI_REG_FIELD(MiNNRTCfg_code_window_buffer_size, shv_rt_configs.code_window_buffer_size)
+TEST_NPU5_MI_REG_FIELD(MiNNRTCfg_deprecated1, shv_rt_configs.deprecated1)
 TEST_NPU5_MI_REG_FIELD(MiNNRTCfg_perf_metrics_mask, shv_rt_configs.perf_metrics_mask)
 TEST_NPU5_MI_REG_FIELD(MiNNRTCfg_runtime_version, shv_rt_configs.runtime_version)
 TEST_NPU5_MI_REG_FIELD(MiNNRTCfg_use_schedule_embedded_rt, shv_rt_configs.use_schedule_embedded_rt)
+TEST_NPU5_MI_REG_FIELD(MiNNRTCfg_deprecated3, shv_rt_configs.deprecated3)
 TEST_NPU5_MI_REG_FIELD(MihHwpWorkpointCfgAddr, hwp_workpoint_cfg_addr)
 
 TEST_NPU5_MI_REG_FIELD(taskReferenceR1_ManagedInference, managed_inference.reserved1)
@@ -296,18 +297,6 @@ TEST_NPU5_MI_REG_FIELD(taskReferenceR2_ManagedInference, managed_inference.reser
 TEST_NPU5_MI_REG_FIELD(taskReferenceR3_ManagedInference, managed_inference.reserved3)
 TEST_NPU5_MI_REG_FIELD(taskReferenceAddr_ManagedInference, managed_inference.address)
 TEST_NPU5_MI_REG_FIELD(taskReferenceCount_ManagedInference, managed_inference.count)
-
-TEST_F(NPUReg50XX_MappedInferenceTest, dpuPerfModeTest) {
-    // Could not be tested through macro as this field is an enum
-    const auto value = nn_public::VpuHWPStatMode::INVALID_MODE;
-    actual.write<vpux::NPUReg50XX::Fields::MiNNRTCfg_dpu_perf_mode>(value);
-    const auto actualValue =
-            static_cast<nn_public::VpuHWPStatMode>(actual.read<vpux::NPUReg50XX::Fields::MiNNRTCfg_dpu_perf_mode>());
-    EXPECT_EQ(actualValue, value);
-
-    reference.shv_rt_configs.dpu_perf_mode = static_cast<uint8_t>(value);
-    ASSERT_TRUE(isContentEqual());
-}
 
 TEST_F(NPUReg50XX_MappedInferenceTest, pad0Test) {
     // Could not be tested through the macro as this fields are arrays

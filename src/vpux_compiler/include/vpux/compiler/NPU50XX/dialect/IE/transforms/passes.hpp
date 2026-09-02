@@ -16,6 +16,7 @@ namespace arch50xx {
 // Passes
 //
 
+std::unique_ptr<mlir::Pass> createConvertFakeConvertToDynamicDequantizePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertFakeConvertToFakeQuantizePass(Logger log = Logger::global());
 
 //
@@ -27,8 +28,6 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
                                       llvm::cl::init(true)};
     BoolOption enableConvertToAttention{*this, "convert-to-attention", llvm::cl::desc("Enable conversion to Attention"),
                                         llvm::cl::init(true)};
-    BoolOption enableFuseSoftwareSDPA{*this, "fuse-software-sdpa", llvm::cl::desc("Enable fuse-sdpa pass"),
-                                      llvm::cl::init(false)};
     BoolOption enableConvertToReduceSquare{*this, "convert-to-reduce-square",
                                            llvm::cl::desc("Enable fuse-reduce-square pass"), llvm::cl::init(true)};
     BoolOption enableDecomposeGRUSequence{*this, "decompose-gru-sequence",
@@ -57,7 +56,7 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
             llvm::cl::init(250.0)};
     BoolOption broadcastInputForMultiply{*this, "broadcast-input-for-multiply",
                                          llvm::cl::desc("Enable broadcasting input for Multiply ops"),
-                                         llvm::cl::init(false)};
+                                         llvm::cl::init(true)};
     BoolOption enableReduceNumTilesForSmallModelsPass{*this, "reduce-num-tiles-for-small-models",
                                                       llvm::cl::desc("Enable reduce-num-tiles-for-small-models pass"),
                                                       llvm::cl::init(false)};

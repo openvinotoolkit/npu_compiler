@@ -99,7 +99,6 @@ protected:
         VpuOv2LayerTest::SetUp();
 
         auto params = static_cast<Derived*>(this)->GetParam();
-        auto kind = std::get<Kind>(params);
 
         this->attentionMask = std::get<AttentionMask>(params).value();
         this->hasScale = std::get<HasScale>(params).value();
@@ -124,9 +123,6 @@ protected:
 
     void TearDown() override {
         VpuOv2LayerTest::TearDown();
-
-        auto params = static_cast<Derived*>(this)->GetParam();
-        auto kind = std::get<Kind>(params);
     }
 
 public:

@@ -15,7 +15,7 @@ func.func @InterpolateStaticShape(%arg0: tensor<1x32x100x80xf16, {order = #NHWC}
         attr = #IE.Interpolate<antialias = false, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01, mode = <NEAREST>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>,
         axes_attr = [2, 3],
         scales_attr = [4.0, 4.0],
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
     } : tensor<1x32x100x80xf16, {order = #NHWC}> -> tensor<1x32x400x320xf16, {order = #NHWC}>
 
     return %0 : tensor<1x32x400x320xf16, {order = #NHWC}>
@@ -43,7 +43,7 @@ func.func @InterpolateDynamicShapeBounded(
         attr = #IE.Interpolate<antialias = false, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01, mode = <NEAREST>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>,
         axes_attr = [2, 3],
         scales_attr = [4.0, 4.0],
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
     } : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 100, 80]> : tensor<4xsi64>, order = #NHWC}>
         -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 320]> : tensor<4xsi64>, order = #NHWC}>
 
@@ -72,7 +72,7 @@ func.func @InterpolateDynamicHalfPixelLinear(
         attr = #IE.Interpolate<antialias = false, coord_mode = <HALF_PIXEL>, cube_coeff = -7.500000e-01, mode = <LINEAR>, nearest_mode = <FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>,
         axes_attr = [2, 3],
         scales_attr = [4.0, 4.0],
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
     } : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 100, 80]> : tensor<4xsi64>, order = #NHWC}>
         -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 320]> : tensor<4xsi64>, order = #NHWC}>
 
@@ -100,7 +100,7 @@ func.func @InterpolateDynamicAlignCorners(
         attr = #IE.Interpolate<antialias = false, coord_mode = <ALIGN_CORNERS>, cube_coeff = -7.500000e-01, mode = <LINEAR>, nearest_mode = <FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>,
         axes_attr = [2, 3],
         scales_attr = [4.0, 4.0],
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
     } : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 100, 80]> : tensor<4xsi64>, order = #NHWC}>
         -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 320]> : tensor<4xsi64>, order = #NHWC}>
 
@@ -128,7 +128,7 @@ func.func @InterpolateDynamicDownscale(
         attr = #IE.Interpolate<antialias = false, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01, mode = <NEAREST>, nearest_mode = <FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>,
         axes_attr = [2, 3],
         scales_attr = [0.25, 0.25],
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
     } : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 320]> : tensor<4xsi64>, order = #NHWC}>
         -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 100, 80]> : tensor<4xsi64>, order = #NHWC}>
 
@@ -157,7 +157,7 @@ func.func @InterpolateDynamicCubic(
         attr = #IE.Interpolate<antialias = false, coord_mode = <PYTORCH_HALF_PIXEL>, cube_coeff = -7.500000e-01, mode = <CUBIC>, nearest_mode = <FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>,
         axes_attr = [2, 3],
         scales_attr = [4.0, 4.0],
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
     } : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 100, 80]> : tensor<4xsi64>, order = #NHWC}>
         -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 320]> : tensor<4xsi64>, order = #NHWC}>
 
@@ -186,7 +186,7 @@ func.func @InterpolateDynamicTfHalfPixel(
         attr = #IE.Interpolate<antialias = false, coord_mode = <TF_HALF_PIXEL_FOR_NN>, cube_coeff = -7.500000e-01, mode = <NEAREST>, nearest_mode = <CEIL>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>,
         axes_attr = [2, 3],
         scales_attr = [4.0, 4.0],
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
     } : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 100, 80]> : tensor<4xsi64>, order = #NHWC}>
         -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 320]> : tensor<4xsi64>, order = #NHWC}>
 
@@ -215,7 +215,7 @@ func.func @InterpolateDynamicSingleAxis(
         attr = #IE.Interpolate<antialias = false, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01, mode = <NEAREST>, nearest_mode = <FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>,
         axes_attr = [2],
         scales_attr = [4.0],
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
     } : tensor<1x32x?x80xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 100, 80]> : tensor<4xsi64>, order = #NHWC}>
         -> tensor<1x32x?x80xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 80]> : tensor<4xsi64>, order = #NHWC}>
 
@@ -244,7 +244,7 @@ func.func @InterpolateDynamicHeightStaticWidth(
         attr = #IE.Interpolate<antialias = false, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01, mode = <NEAREST>, nearest_mode = <FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>,
         axes_attr = [2, 3],
         scales_attr = [4.0, 4.0],
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
     } : tensor<1x32x?x80xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 100, 80]> : tensor<4xsi64>, order = #NHWC}>
         -> tensor<1x32x?x320xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 320]> : tensor<4xsi64>, order = #NHWC}>
 
@@ -271,7 +271,7 @@ func.func @InterpolateDynamicLinearOnnx(
         attr = #IE.Interpolate<antialias = false, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01, mode = <LINEAR_ONNX>, nearest_mode = <FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>,
         axes_attr = [2, 3],
         scales_attr = [4.0, 4.0],
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
     } : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 100, 80]> : tensor<4xsi64>}>
         -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 400, 320]> : tensor<4xsi64>}>
 

@@ -65,3 +65,126 @@ func.func @DoNotPropagateShapeCastAfterPaddedEltwise(%input: tensor<1x48x512x32x
     // CHECK:  [[ADD:%.+]] = IE.Add([[SHAPE_CAST]], [[SHAPE_CAST]]
     // CHECK:  return [[ADD]]
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @AdjustBatchedMultiplyShape
+// CHECK-SAME:        [[IN1:%[^:]+]]: tensor<8x16x1x1xf16>,
+// CHECK-SAME:        [[IN2:%[^:]+]]: tensor<8x16x1x1xf16>
+func.func @AdjustBatchedMultiplyShape(%arg0: tensor<8x16x1x1xf16>, %arg1: tensor<8x16x1x1xf16>) -> tensor<8x16x1x1xf16> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<8x16x1x1xf16>, tensor<8x16x1x1xf16> -> tensor<8x16x1x1xf16>
+    return %0 : tensor<8x16x1x1xf16>
+
+    // CHECK:       [[PC1:%.+]] = IE.PermuteCast([[IN1]]) {dst_order = #NHWC, mem_perm = {{.*}}} : tensor<8x16x1x1xf16> -> tensor<1x16x8x1xf16, {order = #NHWC}>
+    // CHECK:       [[AR1:%.+]] = IE.AffineReshape([[PC1]])
+    // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 16, 2, 4]}
+    // CHECK-SAME:             tensor<1x16x8x1xf16, {order = #NHWC}> -> tensor<1x16x2x4xf16, {order = #NHWC}>
+    // CHECK:       [[PC2:%.+]] = IE.PermuteCast([[IN2]]) {dst_order = #NHWC, mem_perm = {{.*}}} : tensor<8x16x1x1xf16> -> tensor<1x16x8x1xf16, {order = #NHWC}>
+    // CHECK:       [[AR2:%.+]] = IE.AffineReshape([[PC2]])
+    // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 16, 2, 4]}
+    // CHECK-SAME:             tensor<1x16x8x1xf16, {order = #NHWC}> -> tensor<1x16x2x4xf16, {order = #NHWC}>
+    // CHECK:       [[MUL:%.+]] = IE.Multiply([[AR1]], [[AR2]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x16x2x4xf16, {order = #NHWC}>, tensor<1x16x2x4xf16, {order = #NHWC}> -> tensor<1x16x2x4xf16, {order = #NHWC}>
+    // CHECK:       [[AR_OUT:%.+]] = IE.AffineReshape([[MUL]])
+    // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 16, 8, 1]}
+    // CHECK-SAME:             tensor<1x16x2x4xf16, {order = #NHWC}> -> tensor<1x16x8x1xf16, {order = #NHWC}>
+    // CHECK:       [[PC_OUT:%.+]] = IE.PermuteCast([[AR_OUT]]) {dst_order = #NCHW, mem_perm = {{.*}}} : tensor<1x16x8x1xf16, {order = #NHWC}> -> tensor<8x16x1x1xf16>
+    // CHECK:       return [[PC_OUT]] : tensor<8x16x1x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @DoNotAdjustBatchedMultiplyShapeWhenBatchNotDivisibleBy4
+// CHECK-SAME:        [[IN1:%[^:]+]]: tensor<6x16x1x1xf16>,
+// CHECK-SAME:        [[IN2:%[^:]+]]: tensor<6x16x1x1xf16>
+func.func @DoNotAdjustBatchedMultiplyShapeWhenBatchNotDivisibleBy4(
+        %arg0: tensor<6x16x1x1xf16>, %arg1: tensor<6x16x1x1xf16>) -> tensor<6x16x1x1xf16> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<6x16x1x1xf16>, tensor<6x16x1x1xf16> -> tensor<6x16x1x1xf16>
+    return %0 : tensor<6x16x1x1xf16>
+
+    // CHECK-NOT:   IE.PermuteCast
+    // CHECK-NOT:   IE.AffineReshape
+    // CHECK:       [[MUL:%.+]] = IE.Multiply([[IN1]], [[IN2]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<6x16x1x1xf16>, tensor<6x16x1x1xf16> -> tensor<6x16x1x1xf16>
+    // CHECK:       return [[MUL]] : tensor<6x16x1x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @DoNotAdjustBatchedMultiplyShapeWhenBatchIsOne
+// CHECK-SAME:        [[IN1:%[^:]+]]: tensor<1x16x1x1xf16>,
+// CHECK-SAME:        [[IN2:%[^:]+]]: tensor<1x16x1x1xf16>
+func.func @DoNotAdjustBatchedMultiplyShapeWhenBatchIsOne(
+        %arg0: tensor<1x16x1x1xf16>, %arg1: tensor<1x16x1x1xf16>) -> tensor<1x16x1x1xf16> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x1x1xf16>
+    return %0 : tensor<1x16x1x1xf16>
+
+    // CHECK-NOT:   IE.PermuteCast
+    // CHECK-NOT:   IE.AffineReshape
+    // CHECK:       [[MUL:%.+]] = IE.Multiply([[IN1]], [[IN2]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x1x1xf16>
+    // CHECK:       return [[MUL]] : tensor<1x16x1x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @DoNotAdjustBatchedMultiplyShapeWhenSpatialDimsNotOne
+// CHECK-SAME:        [[IN1:%[^:]+]]: tensor<4x16x2x1xf16>,
+// CHECK-SAME:        [[IN2:%[^:]+]]: tensor<4x16x2x1xf16>
+func.func @DoNotAdjustBatchedMultiplyShapeWhenSpatialDimsNotOne(
+        %arg0: tensor<4x16x2x1xf16>, %arg1: tensor<4x16x2x1xf16>) -> tensor<4x16x2x1xf16> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<4x16x2x1xf16>, tensor<4x16x2x1xf16> -> tensor<4x16x2x1xf16>
+    return %0 : tensor<4x16x2x1xf16>
+
+    // CHECK-NOT:   IE.PermuteCast
+    // CHECK-NOT:   IE.AffineReshape
+    // CHECK:       [[MUL:%.+]] = IE.Multiply([[IN1]], [[IN2]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<4x16x2x1xf16>, tensor<4x16x2x1xf16> -> tensor<4x16x2x1xf16>
+    // CHECK:       return [[MUL]] : tensor<4x16x2x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @DoNotAdjustBatchedMultiplyShapeWithBroadcast
+// CHECK-SAME:        [[IN1:%[^:]+]]: tensor<8x16x1x1xf16>,
+// CHECK-SAME:        [[IN2:%[^:]+]]: tensor<1x16x1x1xf16>
+func.func @DoNotAdjustBatchedMultiplyShapeWithBroadcast(
+        %arg0: tensor<8x16x1x1xf16>, %arg1: tensor<1x16x1x1xf16>) -> tensor<8x16x1x1xf16> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<8x16x1x1xf16>
+    return %0 : tensor<8x16x1x1xf16>
+
+    // CHECK-NOT:   IE.PermuteCast
+    // CHECK-NOT:   IE.AffineReshape
+    // CHECK:       [[MUL:%.+]] = IE.Multiply([[IN1]], [[IN2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<8x16x1x1xf16>
+    // CHECK:       return [[MUL]] : tensor<8x16x1x1xf16>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW_TO_NHWC_8_16 = affine_map<(d0, d1, d2, d3) -> (d2, d3, d0, d1)>
+
+// CHECK-LABEL: @AdjustBatchedMultiplyShapeDerivesConsumerWThroughPermuteCast
+// CHECK-SAME:        [[IN1:%[^:]+]]: tensor<8x16x1x1xf16>,
+// CHECK-SAME:        [[IN2:%[^:]+]]: tensor<8x16x1x1xf16>
+func.func @AdjustBatchedMultiplyShapeDerivesConsumerWThroughPermuteCast(
+        %arg0: tensor<8x16x1x1xf16>, %arg1: tensor<8x16x1x1xf16>) -> tensor<1x16x1x8xf16, {order = #NHWC}> {
+    %mul = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<8x16x1x1xf16>, tensor<8x16x1x1xf16> -> tensor<8x16x1x1xf16>
+
+    %pc  = IE.PermuteCast(%mul) {dst_order = #NHWC, mem_perm = #NCHW_TO_NHWC_8_16} : tensor<8x16x1x1xf16> -> tensor<1x16x1x8xf16, {order = #NHWC}>
+    %pool = IE.MaxPool(%pc) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0],
+                             rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]}
+            : tensor<1x16x1x8xf16, {order = #NHWC}> -> tensor<1x16x1x8xf16, {order = #NHWC}>
+    return %pool : tensor<1x16x1x8xf16, {order = #NHWC}>
+
+    // CHECK:       [[PC1:%.+]] = IE.PermuteCast([[IN1]])
+    // CHECK:       [[AR1:%.+]] = IE.AffineReshape([[PC1]])
+    // CHECK-SAME:       shape_value = [1, 16, 1, 8]
+    // CHECK:       [[PC2:%.+]] = IE.PermuteCast([[IN2]])
+    // CHECK:       [[AR2:%.+]] = IE.AffineReshape([[PC2]])
+    // CHECK-SAME:       shape_value = [1, 16, 1, 8]
+    // CHECK:       [[MUL:%.+]] = IE.Multiply([[AR1]], [[AR2]])
+    // CHECK-SAME:       tensor<1x16x1x8xf16, {order = #NHWC}>, tensor<1x16x1x8xf16, {order = #NHWC}> -> tensor<1x16x1x8xf16, {order = #NHWC}>
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool({{.*}})
+    // CHECK-SAME:       tensor<1x16x1x8xf16, {order = #NHWC}> -> tensor<1x16x1x8xf16, {order = #NHWC}>
+    // CHECK:       return [[MAXPOOL]] : tensor<1x16x1x8xf16, {order = #NHWC}>
+}

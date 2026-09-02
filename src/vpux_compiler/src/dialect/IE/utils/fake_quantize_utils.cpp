@@ -157,6 +157,15 @@ bool isOnWeightsAsInputPath(mlir::Operation* op, mlir::Type lowPrecisionType, co
             return true;
         }
 
+        if (mlir::isa<IE::GatherOp>(opUser)) {
+            if (op->getResult(0) != opUser->getOperand(0)) {
+                log.trace("Match failed: Pattern is not on the gather input path");
+                return false;
+            }
+            op = opUser;
+            continue;
+        }
+
         if (mlir::isa<mlir::func::ReturnOp>(opUser)) {
             // Allows functional tests to validate isolated DynamicDequantize layers.
             return true;
@@ -174,6 +183,27 @@ bool isOnWeightsAsInputPath(mlir::Operation* op, mlir::Type lowPrecisionType, co
 }
 
 }  // namespace
+
+bool isOnWeightsPath(mlir::Operation* op, mlir::Type lowPrecisionType, const Logger& log) {
+    static constexpr uint8_t MAX_CHAIN_LENGTH = 8;
+    auto* currentOp = op;
+    for (uint8_t i = 0; i < MAX_CHAIN_LENGTH; ++i) {
+        if (!currentOp->hasOneUse()) {
+            return false;
+        }
+
+        auto* user = *currentOp->user_begin();
+        if (mlir::isa<mlir::func::ReturnOp>(user)) {
+            return false;
+        }
+        if (mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::MatMulOp, IE::FullyConnectedOp>(user)) {
+            break;
+        }
+        currentOp = user;
+    }
+
+    return isOnWeightsAsInputPath(op, lowPrecisionType, log);
+}
 
 mlir::LogicalResult WeightsDequantizeStructureInfo::checkAndSet(mlir::Value& out, mlir::Value value,
                                                                 bool allowConstant) const {
@@ -219,6 +249,14 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::checkAndSet(mlir::Value& out
         const auto gatherInput = gather.getInput();
         if (mlir::isa<mlir::BlockArgument>(gatherInput)) {
             out = gather.getResult();
+            return mlir::success();
+        }
+    }
+
+    if (auto affineReshape = mlir::dyn_cast<IE::AffineReshapeOp>(definingOp)) {
+        const auto reshapeInput = affineReshape.getInput();
+        if (mlir::isa_and_present<mlir::BlockArgument>(reshapeInput)) {
+            out = affineReshape.getResult();
             return mlir::success();
         }
     }
@@ -299,7 +337,6 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::Conv
         log.trace("Match failed: FakeQuantizeOp already present at end of structure");
         return mlir::failure();
     }
-
     if (auto subtractOp = mlir::dyn_cast<IE::SubtractOp>(opUser)) {
         return this->initializeStructure(subtractOp);
     }
@@ -318,10 +355,6 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(Const::D
     const auto& inputAttr = declareOp.getContentAttr();
     inputValue = declareOp.getOutput();
     lowPrecisionType = IE::getTrueElemType(declareOp);
-    if (lowPrecisionType.isInteger(16)) {
-        log.trace("Match failed: 16 bits weights as constant is not suitable for FQ");
-        return mlir::failure();
-    }
 
     const auto castedElemType = inputAttr.getType().getElementType();
     if (!mlir::isa<mlir::FloatType>(castedElemType)) {
@@ -347,13 +380,13 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(Const::D
     if (nextOp == nullptr) {
         const auto users = declareOp->getUsers();
         const auto it = llvm::find_if_not(users, [](const mlir::OpOperand& use) {
-            return mlir::isa<IE::FakeQuantizeOp>(use.getOwner());
+            return mlir::isa<IE::FakeQuantizeOp, IE::DynamicDequantizeOp>(use.getOwner());
         });
         nextOp = (it != users.end()) ? *it : nullptr;
     }
 
-    if (nextOp == nullptr || mlir::isa<IE::FakeQuantizeOp>(nextOp)) {
-        log.trace("Match failed: FakeQuantizeOp already present at end of structure");
+    if (nextOp == nullptr || mlir::isa<IE::FakeQuantizeOp, IE::DynamicDequantizeOp>(nextOp)) {
+        log.trace("Match failed: FakeQuantizeOp/DynamicDequantize already present at end of structure");
         return mlir::failure();
     }
 
@@ -516,7 +549,8 @@ bool WeightsDequantizeStructureInfo::hasShift() const {
 
 bool WeightsDequantizeStructureInfo::isKVcachedPattern() const {
     auto lastOp = getLastOp();
-    while (mlir::isa<IE::MultiplyOp, IE::SubtractOp, IE::ConvertOp, IE::AffineReshapeOp, IE::ReshapeOp>(lastOp)) {
+    while (mlir::isa<IE::MultiplyOp, IE::SubtractOp, IE::ConvertOp, IE::AffineReshapeOp, IE::ReshapeOp,
+                     IE::TransposeOp>(lastOp)) {
         if (!lastOp->getResult(0).hasOneUse()) {
             return false;
         }
@@ -717,10 +751,7 @@ bool WeightsDequantizeStructureInfo::isQuantizedConsumedByGather() const {
     // dequantization has no benefit. Return false to allow conversion to
     // FakeQuantize instead.
     const bool indicesAreConst = gatherOp.getIndices().getDefiningOp<Const::DeclareOp>() != nullptr;
-    const bool axisIsKnown =
-            gatherOp.getAxisValue().has_value() ||
-            (gatherOp.getAxis() != nullptr && gatherOp.getAxis().getDefiningOp<Const::DeclareOp>() != nullptr);
-    if (indicesAreConst && axisIsKnown) {
+    if (indicesAreConst) {
         return false;
     }
 

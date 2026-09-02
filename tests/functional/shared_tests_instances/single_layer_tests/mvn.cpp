@@ -139,6 +139,7 @@ TEST_P(Mvn1LayerTest_SW, NPU5020_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
 }
+
 TEST_P(Mvn1ZeroInputLayerTest_NPU3720_HW, HW) {
     abs_threshold = 0.003;
     setDefaultHardwareMode();
@@ -178,6 +179,7 @@ TEST_P(Mvn6LayerTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(Mvn6LayerTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     // TODO E####-159644
@@ -201,6 +203,7 @@ TEST_P(Mvn6LayerTestCommonFP32, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(Mvn6LayerTestCommonFP32, NPU5020_HW) {
     setDefaultHardwareMode();
     // TODO E####-159644
@@ -260,6 +263,12 @@ const std::vector<std::vector<ov::Shape>> inputShapesForDecomposition = {
         {{2, 3, 20, 35971}}, {{1, 1, 515971, 1}}, {{1, 1, 1, 515971}}, {{1, 12, 20, 35971}}};
 const std::vector<std::vector<ov::Shape>> inputShapesForNHWCOpt = {{{1, 16, 4, 32}}, {{1, 32, 4, 16}}};
 const std::vector<std::vector<ov::Shape>> inputShapesForBigSize = {{{1, 1, 8, 48}}, {{1, 2, 8, 128}}};
+// Shapes for RunMVNNormalizeOnDPU functional coverage: f16, 2D spatial (H>1, W>1), tensor large
+// enough (>= CMX) to trigger DecomposeMVN with from_force_decompose=true.
+const std::vector<std::vector<ov::Shape>> inputShapesForDPUNorm = {
+        {{1, 128, 64, 64}},  // 1 MB in f16 (>> per-tile CMX) -- force_decompose triggers, W=64>1
+        {{1, 64, 64, 128}},  // same byte count, different H/W aspect ratio
+};
 
 // -------------- MVN1 - NPU3270
 INSTANTIATE_TEST_SUITE_P(
@@ -330,6 +339,19 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(inputShapesForDecomposition)),
                            ::testing::Values(ov::element::f32), ::testing::ValuesIn(emptyReductionAxes),
                            ::testing::ValuesIn(acrossChannels), ::testing::ValuesIn(normalizeVariance),
+                           ::testing::ValuesIn(epsilon), ::testing::Values(test_utils::TARGET_DEVICE)),
+        Mvn1LayerTest_NPU5010_HW::getTestCaseName);
+
+// Validates RunMVNNormalizeOnDPU: f16 + 2D spatial (W>1, H>1) + tensor >= CMX causes
+// DecomposeMVN to set from_force_decompose=true, then RunMVNNormalizeOnDPU converts
+// MVN1Normalize to VPU.NCE.MaxPool. The existing smoke_MVN1_Decomposition test uses f32
+// (which the pass rejects), so it does NOT cover this path.
+INSTANTIATE_TEST_SUITE_P(
+        precommit_MVN1_DPU_Normalize, Mvn1LayerTest_NPU5010_HW,
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(inputShapesForDPUNorm)),
+                           ::testing::Values(ov::element::f16), ::testing::ValuesIn(emptyReductionAxes),
+                           ::testing::Values(false),  // acrossChannels=false: within-spatial (GroupNorm pattern)
+                           ::testing::Values(true),   // normalizeVariance=true: standard case
                            ::testing::ValuesIn(epsilon), ::testing::Values(test_utils::TARGET_DEVICE)),
         Mvn1LayerTest_NPU5010_HW::getTestCaseName);
 

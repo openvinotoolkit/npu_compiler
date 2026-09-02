@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/bytecode/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/types.hpp"
 
+#include <llvm/ADT/STLExtras.h>
 #include <mlir/IR/BuiltinTypes.h>
 
 //

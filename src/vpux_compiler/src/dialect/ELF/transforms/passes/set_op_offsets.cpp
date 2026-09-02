@@ -13,6 +13,8 @@
 
 #include <mlir/IR/SymbolTable.h>
 
+#include <algorithm>
+
 namespace vpux::ELF {
 #define GEN_PASS_DECL_SETOPOFFSETS
 #define GEN_PASS_DEF_SETOPOFFSETS
@@ -71,8 +73,10 @@ void SetOpOffsetsPass::safeRunOnFunc() {
         for (auto& operation : block->getOperations()) {
             auto offsetAttr = mlir::IntegerAttr::get(u64Type, mlir::APInt(64, tracker, false));
             if (auto binarySizeOperation = mlir::dyn_cast_or_null<ELF::BinarySizeOpInterface>(&operation)) {
-                tracker += binarySizeOperation.getBinarySizeCached(symRefMap, arch);
                 binarySizeOperation.setMemoryOffset(offsetAttr);
+                auto binarySize = binarySizeOperation.getBinarySizeCached(symRefMap, arch);
+                tracker = std::max(
+                        tracker, static_cast<uint64_t>(binarySizeOperation.getMemoryOffset().value_or(0)) + binarySize);
             }
         }
     }

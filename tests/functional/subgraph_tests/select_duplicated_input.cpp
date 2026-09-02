@@ -34,10 +34,10 @@ public:
                 std::accumulate(inputStaticShape.begin(), inputStaticShape.end(), 1, std::multiplies<size_t>());
         auto inputTensor = ov::Tensor{ov::element::f16, inputStaticShape};
         auto inputData = inputTensor.data<ov::element_type_traits<ov::element::f16>::value_type>();
-        for (size_t i = 0; i < totalSize; i += 2) {
+        for (int64_t i = 0; i < totalSize; i += 2) {
             inputData[i] = 0.0f;
         }
-        for (size_t i = 1; i < totalSize; i += 2) {
+        for (int64_t i = 1; i < totalSize; i += 2) {
             inputData[i] = 1.0f;
         }
         inputs = {{funcInputs[0].get_node_shared_ptr(), inputTensor}};

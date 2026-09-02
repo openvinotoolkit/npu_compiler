@@ -325,11 +325,13 @@ bool isMovingToCMXBeneficial(VPU::ConcatOp concatOp, const std::shared_ptr<VPUNN
     auto concatInputs = concatOp.getInputs();
     size_t dmasInDdrCost = 0;
     size_t dmasInCmxCost = 0;
+    auto archKind = config::getArch(concatOp.getOperation());
+
     for (auto input : concatInputs) {
         auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
-        dmasInDdrCost += getDMACost(inputType, outputType, vpuDevice, costModel, numDMAPorts);
+        dmasInDdrCost += getDMACost(inputType, outputType, archKind, vpuDevice, costModel, numDMAPorts);
         auto newInputType = inputType.changeMemSpace(memSpaceCMX);
-        dmasInCmxCost += getDMACost(newInputType, outputTypeCMX, vpuDevice, costModel, numDMAPorts);
+        dmasInCmxCost += getDMACost(newInputType, outputTypeCMX, archKind, vpuDevice, costModel, numDMAPorts);
     }
 
     return dmasInCmxCost < dmasInDdrCost;

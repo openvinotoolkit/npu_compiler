@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%  allow-custom-values=true num-of-dpu-groups=2" --incremental-pipeline %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%  allow-custom-values=true num-of-dpu-groups=2" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --incremental-pipeline %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -15,7 +15,7 @@ func.func @SubgraphIncrementalPipelineCheck(%arg0: tensor<1x16x227x227xf16, {ord
     %weights1 = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<1x1x1x1xf16>, [#const.Broadcast<0 : i64, 3 : i64>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [13, 0, 0, 0]>, #const.Reorder<#NCHW>, #const.Reshape<[16, 1, 1, 1]>, #const.PadWithZero<[0, 0, 0, 0], [0, 15, 0, 0]>, #const.Reorder<#NHWC>]
     %weightsTable1 = const.Declare tensor<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
 
-    %0 = VPU.NCE.DepthConvolution(%arg0, %weights1, %weightsTable1) rawFilterShape [16, 1, 1, 1] {
+    %0 = VPU.NCE.DepthConvolution(%arg0, %weights1, %weightsTable1) rawFilterShape [16, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
 
@@ -339,7 +339,7 @@ func.func @PerAxisQuantizedDWConvIncrementalPipelineCheck(%arg0: tensor<1x32x256
     %cst_522 = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x1x1x1xf16>, [#const.Reorder<#NHWC>, #const.Reorder<#NCHW>, #const.Reshape<[32, 1, 1, 1]>, #const.PadWithZero<[0, 0, 0, 0], [0, 15, 0, 0]>, #const.Reorder<#NHWC>]
     %cst_521 = const.Declare tensor<32x1x1x4xsi32> = dense<0> : tensor<32x1x1x4xsi32>
 
-    %0 = VPU.NCE.DepthConvolution(%arg0, %cst_522, %cst_521) rawFilterShape [32, 1, 1, 1] {
+    %0 = VPU.NCE.DepthConvolution(%arg0, %cst_522, %cst_521) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
  strides = [1, 1]

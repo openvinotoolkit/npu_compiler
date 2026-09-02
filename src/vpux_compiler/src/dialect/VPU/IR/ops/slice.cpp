@@ -67,8 +67,7 @@ mlir::LogicalResult vpux::VPU::SliceOp::inferReturnTypes(mlir::MLIRContext* ctx,
                                             ArrayRef<int64_t> inShape) -> VPU::DistributionInfoAttr {
         if (origDistribution.getMode().getValue() != VPU::DistributionMode::OVERLAPPED ||
             !VPU::isSegmentedOverlappedAxisSameAsSliceAxis(origDistribution.getNumTiles(), inShape, sliceShape)) {
-            return VPU::getExplicitDistrAttrForSliceLikeOps(origDistribution, sliceShape, inShape,
-                                                            origType.getElementType(), ctx);
+            return VPU::getExplicitDistrAttrForSliceLikeOps(origDistribution, sliceShape, inShape, ctx);
         }
 
         // When clustering axis == slice axis, we cannot infer per cluster shape from op itself

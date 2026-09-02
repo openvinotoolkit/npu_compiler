@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/const/attr_interfaces.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/npu_actions.hpp"
 #include "vpux/utils/core/small_vector.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
@@ -27,28 +28,20 @@ const mlir::tracing::ActionActiveStack*& getCurrentActionStack() {
     return currentStack;
 }
 
-CallStackCache::CallStackTy& CallStackCache::getCallStack() {
-    return _callStack;
-}
-
-std::mutex& CallStackCache::callStackCacheMutex() {
-    return _callStackMutex;
-}
-
 std::string gatherTrace() {
     SmallVector<std::string> trace;
-    auto currentStack = getCurrentActionStack();
 
-    while (currentStack != nullptr) {
-        if (const auto passAction = llvm::dyn_cast<mlir::PassExecutionAction>(&currentStack->getAction())) {
-            trace.push_back(passAction->getPass().getName().str());
-        } else {
-            std::string actionName;
-            llvm::raw_string_ostream actionOS(actionName);
-            currentStack->getAction().print(actionOS);
-            trace.push_back(std::move(actionName));
+    for (auto currentStack = getCurrentActionStack(); currentStack != nullptr;
+         currentStack = currentStack->getParent()) {
+        const auto* action = &currentStack->getAction();
+        auto actionName = getPrettyName(action);
+        if (actionName == "mlir::detail::OpToOpPassAdaptor") {
+            // ignore OpToOpPassAdaptor as it is "useless": provides no
+            // information, just a wrapper around pass execution
+            continue;
         }
-        currentStack = currentStack->getParent();
+
+        trace.push_back(std::move(actionName));
     }
 
     return llvm::join(llvm::reverse(trace), " -> ");
@@ -56,13 +49,20 @@ std::string gatherTrace() {
 
 std::string CallStackCache::getSpecificCallStack(mlir::ElementsAttr baseContent,
                                                  Const::TransformAttrInterface transformation) {
-    std::lock_guard<std::mutex> lock(_callStackMutex);
-    const auto& trs = _callStack[baseContent];
-    auto it = std::find_if(trs.begin(), trs.end(), [transformation](const auto& t) {
+    auto handle = _callStack.lock();
+    auto& callstack = *handle;
+
+    auto it = callstack.find(baseContent);
+    if (it == callstack.end()) {
+        return "NO_TRACE_FOR_PARSED_BASE_CONTENT";
+    }
+
+    const auto& trs = it->second;
+    auto transformIt = std::find_if(trs.begin(), trs.end(), [transformation](const auto& t) {
         return std::get<0>(t) == transformation;
     });
-    if (it != trs.end()) {
-        return std::get<1>(*it);
+    if (transformIt != trs.end()) {
+        return std::get<1>(*transformIt);
     }
     return "UNKNOWN_CALL_STACK";
 }

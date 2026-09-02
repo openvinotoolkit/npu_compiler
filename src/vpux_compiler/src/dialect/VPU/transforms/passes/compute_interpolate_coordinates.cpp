@@ -182,22 +182,28 @@ mlir::LogicalResult ComputeInterpolateCoordinates::matchAndRewrite(VPU::Interpol
     const auto initialOutputOffset =
             parseIntArrayAttrOr(interpolateOp.getInitialOutputOffsetAttr(), SmallVector<int64_t>(outShape.size(), 0));
 
+    // If the innermost axis has a dynamic offset (kDynamic sentinel), coordinate pre-computation
+    // cannot be done at compile time. Skip and let the runtime handle it.
+    if (initialInputOffset[innermostAxis] == mlir::ShapedType::kDynamic ||
+        initialOutputOffset[innermostAxis] == mlir::ShapedType::kDynamic) {
+        return mlir::failure();
+    }
+
     const auto innermostAxisInputDim = outShape[innermostAxis];
     const auto innermostAxisOuputDim = inShape[innermostAxis];
     const auto innermostAxisInitialInputDim = initialInputShape[innermostAxis];
     const auto innermostAxisInitialOutputDim = initialOutputShape[innermostAxis];
     const auto innermostAxisInputOffset = checked_cast<float>(initialInputOffset[innermostAxis]);
     const auto innermostAxisOutputOffset = checked_cast<int>(initialOutputOffset[innermostAxis]);
-    // Detect SCF/VF tiling by comparing initial_input_dims_attr against actual tensor shape.
-    // When tiling splits the op, initial dims differ from actual (tile) shape and scales_attr
-    // holds tile-local ratio (wrong); use global dims ratio. When no tiling occurred,
-    // initial dims == actual shape and scales_attr holds the user-specified scale (authoritative).
-    const bool isTiled = (initialInputShape != to_small_vector(inShape));
     float scale;
-    const auto calcMode = interpolateAttr.getShapeCalcMode();
+    // useScaleAttr is the sole marker that scales_attr holds the authoritative, GLOBAL coordinate-transform scale.
+    // adjustAttrs keeps scales_attr and useScaleAttr invariant across tiling (see VPU::InterpolateOp::adjustAttrs),
+    // so no tiling exception is needed: the rate is a global property and the loop below reconstructs global output
+    // coordinates via initial_output_offset. Mirror the SwKernel serializer and tile back-inference, which already
+    // key off useScaleAttr. Genuine SIZES-mode ops (no useScaleAttr) fall back to the global output/input dim ratio.
+    const bool useScaleAttr = interpolateOp.getUseScaleAttr();
     const auto scalesResult = IE::extractFPVector(loc, interpolateOp.getScales(), interpolateOp.getScalesAttrAttr());
-    if (!isTiled && calcMode != nullptr && calcMode.getValue() == IE::InterpolateCalcMode::SCALES &&
-        mlir::succeeded(scalesResult)) {
+    if (useScaleAttr && mlir::succeeded(scalesResult)) {
         const auto& axes = axesResult.value();
         size_t axisIdx = 0;
         for (size_t i = 0; i < axes.size(); i++) {

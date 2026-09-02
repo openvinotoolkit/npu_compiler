@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/IE/strategies_initializer.hpp"
+#include "vpux/compiler/NPU37XX/dialect/IE/impl/adjust_quantized_conv_shape_verifier.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/channel_axis_reduction_with_dpu_parent_checker.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/convert_quantize_ops_to_nce_ops_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/convert_to_mixed_precision_strategy.hpp"
@@ -13,10 +14,11 @@
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/fuse_quantized_ops_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/initial_low_precision_transformations_pipeline_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/propagate_and_fuse_quantize_dequantize_strategy.hpp"
-#include "vpux/compiler/NPU37XX/dialect/IE/impl/weights_dequantize_to_fakequantize_strategy.hpp"
+#include "vpux/compiler/NPU37XX/dialect/IE/impl/se_pad_ic_perf_threshold_verifier.hpp"
 #include "vpux/compiler/NPU40XX/dialect/IE/impl/convert_to_palletization_lut_strategy.hpp"
 #include "vpux/compiler/NPU40XX/dialect/IE/impl/d2s_to_transposed_conv_verifier.hpp"
 #include "vpux/compiler/NPU40XX/dialect/IE/impl/map_bilinear_interpolate_on_dpu_strategy.hpp"
+#include "vpux/compiler/NPU50XX/dialect/IE/impl/convert_weights_to_unsigned_strategy.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 
 #include <mlir/IR/MLIRContext.h>
@@ -27,16 +29,6 @@ namespace vpux::IE {
 class StrategyFactory40XX : public IE::StrategyFactory {
     std::unique_ptr<IE::IConvertQuantizeOpsToNceOpsStrategy> getConvertQuantizeOpsToNceOpsStrategy() override {
         return std::make_unique<IE::arch37xx::ConvertQuantizeOpsToNceOpsStrategy>();
-    }
-
-    std::unique_ptr<IDynamicRewriterStrategy> getWeightsDequantizeToDynamicDequantizeStrategy(
-            ArrayRef<mlir::PatternBenefit>, size_t) override {
-        return nullptr;
-    }
-
-    std::unique_ptr<IDynamicRewriterStrategy> getWeightsDequantizeToFakeQuantizeStrategy(
-            ArrayRef<mlir::PatternBenefit> benefitLevels, size_t index) override {
-        return std::make_unique<IE::arch37xx::WeightsDequantizeToFakeQuantizeStrategy>(benefitLevels, index);
     }
 
     std::unique_ptr<IMapBilinearInterpolateOnDPUStrategy> getMapBilinearInterpolateOnDPUStrategy(
@@ -79,14 +71,25 @@ class StrategyFactory40XX : public IE::StrategyFactory {
         return std::make_unique<IE::arch37xx::FuseConvertToDPUChecker>();
     }
 
-    std::unique_ptr<IDynamicRewriterStrategy> getInitialLowPrecisionTransformationsPipelineStrategy(
-            mlir::func::FuncOp func, bool /*enableDynamicQuantizationForStaticCase*/) override {
-        return std::make_unique<IE::arch37xx::InitialLowPrecisionTransformationsPipelineStrategy>(func);
+    std::unique_ptr<IDynamicRewriterStrategy> getInitialLowPrecisionTransformationsPipelineStrategy() override {
+        return std::make_unique<IE::arch37xx::InitialLowPrecisionTransformationsPipelineStrategy>();
     }
 
     std::unique_ptr<ChannelAxisReductionWithDPUParentCheckerBase> getChannelAxisReductionWithDPUParentChecker(
             bool /*enableFuseReduceMinMaxToDpu*/) override {
         return std::make_unique<IE::arch37xx::ChannelAxisReductionWithDPUParentChecker>();
+    }
+
+    std::unique_ptr<AdjustQuantizedConvShapeVerifierBase> getAdjustQuantizedConvShapeVerifier() override {
+        return std::make_unique<IE::arch37xx::AdjustQuantizedConvShapeVerifier>();
+    }
+
+    std::unique_ptr<IConvertWeightsToUnsignedStrategy> getConvertWeightsToUnsignedStrategy() override {
+        return std::make_unique<IE::arch50xx::ConvertWeightsToUnsignedStrategy>();
+    }
+
+    std::unique_ptr<SEPadICPerfThresholdVerifierBase> getSEPadICPerfThresholdVerifier() override {
+        return std::make_unique<IE::arch37xx::SEPadICPerfThresholdVerifier>();
     }
 };
 }  // namespace vpux::IE

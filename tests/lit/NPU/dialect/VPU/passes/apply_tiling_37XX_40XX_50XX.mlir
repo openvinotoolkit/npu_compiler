@@ -235,3 +235,50 @@ func.func @ApplyTilingNCEMatMulTileOverGroup(%arg0: tensor<64x8x64x32xf16>, %arg
     // CHECK-SAME:              tensor<512x1x64x16x4xf16, {order = #GNHWC}> -> tensor<512x1x64x64x1xf16, {order = #GNHWC}>
     // CHECK:               return [[OUTPUT_RESHAPE]] : tensor<512x1x64x64x1xf16, {order = #GNHWC}>
 }
+
+// -----
+
+// Regression test for tiled VPU.DynamicQuantize: the scale and zero-point outputs must be tiled
+// together with the main output on the tiled axis (H). Previously getOutputTiling returned the full
+// scale/zp shape for every tile, so the tiled-shape check in applyTileStrategy failed with
+// "Inferred output shape doesn't match tiled shape".
+
+// CHECK-LABEL:   @DynamicQuantizePerTokenTilingOnH
+// CHECK-SAME:  [[DATA:%arg[0-9]]]: tensor<1x4x8x6xf32>
+// CHECK-SAME:  [[MIN:%arg[0-9]]]: tensor<1x4x8x1xf32>
+// CHECK-SAME:  [[MAX:%arg[0-9]]]: tensor<1x4x8x1xf32>
+func.func @DynamicQuantizePerTokenTilingOnH(%arg0: tensor<1x4x8x6xf32>, %arg1: tensor<1x4x8x1xf32>, %arg2: tensor<1x4x8x1xf32>)
+        -> (tensor<1x4x8x6xsi8>, tensor<1x4x8x1xf32>, tensor<1x4x8x1xsi8>) {
+    %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {
+            dstElemType = si8,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
+            tilingStrategy = [1, 1, 2, 1]
+        } : tensor<1x4x8x6xf32>, tensor<1x4x8x1xf32>, tensor<1x4x8x1xf32>
+        -> tensor<1x4x8x6xsi8>, tensor<1x4x8x1xf32>, tensor<1x4x8x1xsi8>
+
+    return %output, %scale, %zero_point : tensor<1x4x8x6xsi8>, tensor<1x4x8x1xf32>, tensor<1x4x8x1xsi8>
+
+    // CHECK:       [[DATA_TILE0:%.+]] = VPU.Slice [[DATA]] [0, 0, 0, 0] [1, 4, 4, 6] : tensor<1x4x8x6xf32> to tensor<1x4x4x6xf32>
+    // CHECK:       [[MIN_TILE0:%.+]] = VPU.Slice [[MIN]] [0, 0, 0, 0] [1, 4, 4, 1] : tensor<1x4x8x1xf32> to tensor<1x4x4x1xf32>
+    // CHECK:       [[MAX_TILE0:%.+]] = VPU.Slice [[MAX]] [0, 0, 0, 0] [1, 4, 4, 1] : tensor<1x4x8x1xf32> to tensor<1x4x4x1xf32>
+    // CHECK:       [[OUT0:%.+]], [[SCALE0:%.+]], [[ZP0:%.+]] = VPU.DynamicQuantize([[DATA_TILE0]], [[MIN_TILE0]], [[MAX_TILE0]])
+    // CHECK-SAME:      : tensor<1x4x4x6xf32>, tensor<1x4x4x1xf32>, tensor<1x4x4x1xf32> -> tensor<1x4x4x6xsi8>, tensor<1x4x4x1xf32>, tensor<1x4x4x1xsi8>
+
+    // CHECK:       [[DATA_TILE1:%.+]] = VPU.Slice [[DATA]] [0, 0, 4, 0] [1, 4, 4, 6] : tensor<1x4x8x6xf32> to tensor<1x4x4x6xf32>
+    // CHECK:       [[MIN_TILE1:%.+]] = VPU.Slice [[MIN]] [0, 0, 4, 0] [1, 4, 4, 1] : tensor<1x4x8x1xf32> to tensor<1x4x4x1xf32>
+    // CHECK:       [[MAX_TILE1:%.+]] = VPU.Slice [[MAX]] [0, 0, 4, 0] [1, 4, 4, 1] : tensor<1x4x8x1xf32> to tensor<1x4x4x1xf32>
+    // CHECK:       [[OUT1:%.+]], [[SCALE1:%.+]], [[ZP1:%.+]] = VPU.DynamicQuantize([[DATA_TILE1]], [[MIN_TILE1]], [[MAX_TILE1]])
+    // CHECK-SAME:      : tensor<1x4x4x6xf32>, tensor<1x4x4x1xf32>, tensor<1x4x4x1xf32> -> tensor<1x4x4x6xsi8>, tensor<1x4x4x1xf32>, tensor<1x4x4x1xsi8>
+
+    // CHECK:       [[OUT:%.+]] = VPU.Concat([[OUT0]], [[OUT1]])
+    // CHECK-SAME:          [0, 0, 0, 0], [0, 0, 4, 0]
+    // CHECK-SAME:      : tensor<1x4x4x6xsi8>, tensor<1x4x4x6xsi8> -> tensor<1x4x8x6xsi8>
+    // CHECK:       [[SCALE:%.+]] = VPU.Concat([[SCALE0]], [[SCALE1]])
+    // CHECK-SAME:          [0, 0, 0, 0], [0, 0, 4, 0]
+    // CHECK-SAME:      : tensor<1x4x4x1xf32>, tensor<1x4x4x1xf32> -> tensor<1x4x8x1xf32>
+    // CHECK:       [[ZP:%.+]] = VPU.Concat([[ZP0]], [[ZP1]])
+    // CHECK-SAME:          [0, 0, 0, 0], [0, 0, 4, 0]
+    // CHECK-SAME:      : tensor<1x4x4x1xsi8>, tensor<1x4x4x1xsi8> -> tensor<1x4x8x1xsi8>
+
+    // CHECK:       return [[OUT]], [[SCALE]], [[ZP]] : tensor<1x4x8x6xsi8>, tensor<1x4x8x1xf32>, tensor<1x4x8x1xsi8>
+}

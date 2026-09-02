@@ -20,7 +20,8 @@ def VPU_EqualOp :
                 VPU_TilingBuilderOpInterface,
                 Commutative,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
                 VPU_EltwiseOp
             ]
         > {
@@ -62,7 +63,8 @@ def VPU_GreaterOp :
             [
                 VPU_TilingBuilderOpInterface,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
                 VPU_EltwiseOp
             ]
         > {
@@ -105,7 +107,8 @@ def VPU_GreaterEqualOp :
                 VPU_TilingBuilderOpInterface,
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
             ]
         > {
     let summary = "GreaterEqual VPU layer";
@@ -146,7 +149,8 @@ def VPU_LessOp :
             [
                 VPU_TilingBuilderOpInterface,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
                 VPU_EltwiseOp
             ]
         > {
@@ -189,7 +193,8 @@ def VPU_LessEqualOp :
                 VPU_TilingBuilderOpInterface,
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>
             ]
         > {
     let summary = "LessEqual VPU layer";
@@ -232,7 +237,8 @@ def VPU_NotEqualOp :
                 Commutative,
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
             ]
         > {
     let summary = "NotEqual VPU layer";

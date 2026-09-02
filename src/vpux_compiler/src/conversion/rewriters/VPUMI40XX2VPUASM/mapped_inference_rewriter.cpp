@@ -175,7 +175,7 @@ void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedI
     // If more than two shaves per tile, additional operation needed to handle extra stack frames
     const size_t defaultStacksNum = 2;
     auto shvPerTile = static_cast<size_t>(tileOp.getSubExecutor(config::ExecutorKind::SHAVE_ACT).getCount());
-    if (shvPerTile > defaultStacksNum) {
+    if (shvPerTile > defaultStacksNum && isActKernelInvocations) {
         auto stackFramesSymName = mlir::StringAttr::get(ctx, (llvm::Twine(symName.getValue()) + "_stackFrames").str());
         // If shave stack frames are in CMX, get hardcoded addresses, else if shave stack frames are in DDR
         // allocate empty array of proper size, actual addresses are patched by per-entry relocations.
@@ -282,17 +282,24 @@ void MappedInferenceRewriter::symbolizeManagedMappedInference(VPUMI40XX::MappedI
     auto workloadManagementBarrierProgrammingMode = op.getWorkloadManagementBarrierProgrammingMode().value_or(
             VPURegMapped::WorkloadManagementBarrierProgrammingMode::LEGACY);
 
+    auto dpuPvpSymName = mlir::StringAttr::get(ctx, (llvm::Twine(symName.getValue()) + "_dpuPvp").str());
+    auto dpuPvpSymRef = mlir::FlatSymbolRefAttr::get(dpuPvpSymName);
+    auto dpuPvpOp = rewriter.create<VPUASM::DpuPVPOp>(op.getLoc(), dpuPvpSymName);
+    auto dpuPvpSectionRef = moveOpToSection(dpuPvpOp.getOperation(), *_sectionMap, rewriter);
+    assert(dpuPvpSectionRef != nullptr);
+
     mlir::StringAttr managedMPISymName = getManagedMappedInferenceSymbolName(ctx, symName);
     auto managedMPI = rewriter.create<VPUASM::ManagedMappedInferenceOp>(
             op.getLoc(), managedMPISymName, managedDmasAttr, workItems, barrierTasksAttr, bootstrapBarriers,
             nnRtConfigSymRef, barrierConfigurationDescs, barriersReprogrammings, op.getDmaCountAttr(), workItemCount,
             op.getBarrierCount(), finalBarrierId, bootstrapBarriersCount, bootstrapWorkItemTasksCount,
             barrierConfigurationCount, barrierReprogrammingCount, barrierConfigurationStride, actshv_used, dpu_used,
-            media_used, dma_from_ddr_used, dma_from_cmx_used, mappedInferenceVersion,
+            media_used, dma_from_ddr_used, dma_from_cmx_used, mappedInferenceVersion, dpuPvpSymRef,
             workloadManagementBarrierProgrammingMode, _disableDmaSwFifo);
     moveOpToSection(managedMPI.getOperation(), *_sectionMap, rewriter);
 
     managedMPI.setNnrtConfigAttr(ELF::cloneSectionSymbol(fullNNRtConfigSectionName, managedMPI.getNnrtConfigAttr()));
+    managedMPI.setDpuPvpTaskAttr(ELF::cloneSectionSymbol(dpuPvpSectionRef, dpuPvpSymRef));
 }
 
 }  // namespace vpumi40xx2vpuasm

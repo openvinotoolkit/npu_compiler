@@ -19,7 +19,6 @@ struct VPULayerStrategy;
 
 namespace vpux::VPU {
 
-enum class SpillingType { SPILL_WRITE, SPILL_READ };
 struct HwLayerTilingStrategyCosts {
     double costWithoutPrefetching = 0;
     double costWithPrefetching = 0;
@@ -93,7 +92,9 @@ public:
                                        VPU::MultiClusterStrategy parentStrategy,
                                        VPU::MultiClusterStrategy userStrategy) const;
 
-    double getSpillingReadCost(vpux::NDTypeInterface srcTensorType, const TensorDistributionMap& distributions) const;
+    /* DMA spills cost */
+    double getSpillingDMACost(vpux::NDTypeInterface srcTensorType) const;
+    double getSpillingDMACost(vpux::NDTypeInterface srcTensorType, const TensorDistributionMap& distributions) const;
 
     /* Helper functions for subgraph optimization of MC strategy*/
     bool hasMultiClusterStrategy(mlir::Operation* op) const;
@@ -132,11 +133,6 @@ private:
     double getDPUandDMATimeCost(VPU::NCEOpInterface nceOp, VPU::MultiClusterStrategy strategy);
     double getEfficiencyCost(VPU::NCEOpInterface nceOp, VPU::MultiClusterStrategy strategy) const;
 
-    /* DMA cost calculation and helpers */
-    double getSpillingReadCost(vpux::NDTypeInterface srcTensorType) const;
-    double getSpillingWriteCost(vpux::NDTypeInterface srcTensorType) const;
-    double getSpillingWriteCost(vpux::NDTypeInterface srcTensorType, const TensorDistributionMap& distributions) const;
-
     SpillingCost getSpillingCost(vpux::NDTypeInterface srcTensorType, const TensorDistributionMap& srcDistribution,
                                  vpux::NDTypeInterface dstTensorType, const TensorDistributionMap& dstDistribution,
                                  VPU::ClusteredOpInterface parentOp, VPU::ClusteredOpInterface userOp) const;
@@ -153,12 +149,9 @@ private:
     getDistributionsWithStrategy(VPU::ClusteredOpInterface parentOp, VPU::MultiClusterStrategy parentStrategy,
                                  VPU::ClusteredOpInterface userOp, VPU::MultiClusterStrategy userStrategy) const;
 
-    double getDMACostOfType(vpux::NDTypeInterface srcTensorType, SpillingType spillingType) const;
-    double getSpillingDMACost(vpux::NDTypeInterface srcTensorType, SpillingType spillingType) const;
-    double getDMACostOfType(vpux::NDTypeInterface srcType, const DistributionInfo& distribution,
-                            SpillingType spillingType) const;
-    double getSpillingDMACost(vpux::NDTypeInterface srcTensorType, const TensorDistributionMap& distributions,
-                              SpillingType spillingType) const;
+    /* DMA cost calculation helpers */
+    double getDMACostOfType(vpux::NDTypeInterface srcTensorType) const;
+    double getDMACostOfType(vpux::NDTypeInterface srcType, const DistributionInfo& distribution) const;
 
     /* Greedy strategy helpers */
     bool preferChannelSplitting(VPU::ClusteredOpInterface clusteredOp);

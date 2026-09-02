@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -103,8 +103,10 @@ void FuseReduceMinMaxToDpuPass::safeRunOnFunc() {
     // Collect all ReduceMaxOp and ReduceMinOp operations in the function and try to fuse them into DPU operations
     func.walk([&](VPU::NCEOpInterface nceOp) {
         // Early return if the producer is not one of the supported DPU operations
-        if (!mlir::isa<VPU::NCEConvolutionOp, VPU::NCEMatMulOp, VPU::NCEMaxPoolOp>(nceOp.getOperation())) {
-            _log.trace("Producer of Reduce is not NCEConvolutionOp, NCEMatMulOp or NCEMaxPoolOp, skipping");
+        if (!mlir::isa<VPU::NCEConvolutionOp, VPU::NCEMatMulOp, VPU::NCEMaxPoolOp, VPU::NCEEltwiseOp,
+                       VPU::NCEDepthConvolutionOp>(nceOp.getOperation())) {
+            _log.trace("Producer of Reduce is not a supported DPU op (NCEConvolutionOp, NCEMatMulOp, "
+                       "NCEMaxPoolOp, NCEEltwiseOp, NCEDepthConvolutionOp), skipping");
             return;
         }
         VPU::ReduceMaxOp reduceMaxOp = nullptr;
@@ -183,10 +185,11 @@ void FuseReduceMinMaxToDpuPass::safeRunOnFunc() {
             reduceXyMinType = reduceMinOp.getOutput().getType();
             origReduceOutputs.push_back(reduceMinOp.getOutput());
         }
-        mlir::Type reduceTensorMinMax = nullptr;
+        mlir::Type reduceTensorMinMaxType = nullptr;
         if (isPerTensorReduction) {
             // TODO(E#207252): Unreachable code until we support per-tensor reduction in DPU
-            reduceTensorMinMax = hasReduceMax ? reduceMaxOp.getOutput().getType() : reduceMinOp.getOutput().getType();
+            reduceTensorMinMaxType =
+                    hasReduceMax ? reduceMaxOp.getOutput().getType() : reduceMinOp.getOutput().getType();
             reduceXyMaxType = nullptr;
             reduceXyMinType = nullptr;
         }
@@ -233,13 +236,12 @@ void FuseReduceMinMaxToDpuPass::safeRunOnFunc() {
             _log.trace("Fusing Reduce{0} with NCEConvolutionOp", fusedReduceKind);
 
             auto newConvOp = builder.create<VPU::NCEConvolutionOp>(
-                    convOp.getLoc(), convOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType, reduceTensorMinMax,
-                    convOp.getInput(), convOp.getFilter(), convOp.getWeightsTable(), convOp.getWeightTableDataPtr(),
-                    convOp.getWeightTableSpPtr(), convOp.getWeightTableScale(), convOp.getWeightTableBias(),
-                    convOp.getWeightZeroPoints(), convOp.getStridesAttr(), convOp.getPadAttr(), convOp.getPpeAttr(),
-                    convOp.getMpeEngineAttr(), convOp.getRawFilterShape(), convOp.getStaticRawFilterShape(),
-                    convOp.getMultiClusterStrategyAttr(), convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr(),
-                    axesValue);
+                    convOp.getLoc(), convOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
+                    reduceTensorMinMaxType, convOp.getInput(), convOp.getFilter(), convOp.getWeightsTable(),
+                    convOp.getWeightTableScale(), convOp.getWeightTableBias(), convOp.getWeightZeroPoints(),
+                    convOp.getStridesAttr(), convOp.getPadAttr(), convOp.getPpeAttr(), convOp.getMpeEngineAttr(),
+                    convOp.getRawFilterShape(), convOp.getStaticRawFilterShape(), convOp.getMultiClusterStrategyAttr(),
+                    convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr(), axesValue);
 
             auto reduceNceOutput = selectReduceResult(newConvOp.getReduceTensorMinMax(), newConvOp.getReduceXyMax(),
                                                       newConvOp.getReduceXyMin());
@@ -253,11 +255,10 @@ void FuseReduceMinMaxToDpuPass::safeRunOnFunc() {
 
             auto newMatMulOp = builder.create<VPU::NCEMatMulOp>(
                     matMulOp.getLoc(), matMulOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
-                    reduceTensorMinMax, matMulOp.getInput(), matMulOp.getWeights(), matMulOp.getWeightsTable(),
-                    matMulOp.getWeightTableDataPtr(), matMulOp.getWeightTableSpPtr(), matMulOp.getWeightTableScale(),
-                    matMulOp.getWeightTableBias(), matMulOp.getWeightZeroPoints(), matMulOp.getStridesAttr(),
-                    matMulOp.getPadAttr(), matMulOp.getPpeAttr(), matMulOp.getMpeEngineAttr(),
-                    matMulOp.getRawFilterShape(), matMulOp.getStaticRawFilterShape(),
+                    reduceTensorMinMaxType, matMulOp.getInput(), matMulOp.getWeights(), matMulOp.getWeightsTable(),
+                    matMulOp.getWeightTableScale(), matMulOp.getWeightTableBias(), matMulOp.getWeightZeroPoints(),
+                    matMulOp.getStridesAttr(), matMulOp.getPadAttr(), matMulOp.getPpeAttr(),
+                    matMulOp.getMpeEngineAttr(), matMulOp.getRawFilterShape(), matMulOp.getStaticRawFilterShape(),
                     matMulOp.getMultiClusterStrategyAttr(), axesValue);
 
             auto replacementValue = selectReduceResult(newMatMulOp.getReduceTensorMinMax(),
@@ -273,7 +274,7 @@ void FuseReduceMinMaxToDpuPass::safeRunOnFunc() {
             // Create new NCEMaxPoolOp with reduce output
             auto newMaxPoolOp = builder.create<VPU::NCEMaxPoolOp>(
                     maxPoolOp->getLoc(), maxPoolOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
-                    reduceTensorMinMax, maxPoolOp.getInput(), maxPoolOp.getWeightsTable(),
+                    reduceTensorMinMaxType, maxPoolOp.getInput(), maxPoolOp.getWeightsTable(),
                     maxPoolOp.getWeightTableScale(), maxPoolOp.getWeightTableBias(), maxPoolOp.getKernelSizeAttr(),
                     maxPoolOp.getStridesAttr(), maxPoolOp.getPadAttr(), maxPoolOp.getPpeAttr(),
                     maxPoolOp.getMpeEngineAttr(), maxPoolOp.getMultiClusterStrategyAttr(),
@@ -285,6 +286,43 @@ void FuseReduceMinMaxToDpuPass::safeRunOnFunc() {
             replaceOpUses(maxPoolOp.getOutput(), newMaxPoolOp.getOutput(), replacementValue);
 
             _log.trace("Successfully fused Reduce{0} into NCEMaxPoolOp", fusedReduceKind);
+            return;
+        }
+        if (auto eltwiseOp = mlir::dyn_cast<VPU::NCEEltwiseOp>(parentOp)) {
+            _log.trace("Fusing Reduce{0} with NCEEltwiseOp", fusedReduceKind);
+
+            auto newEltwiseOp = builder.create<VPU::NCEEltwiseOp>(
+                    eltwiseOp->getLoc(), eltwiseOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
+                    reduceTensorMinMaxType, eltwiseOp.getInput1(), eltwiseOp.getInput2(),
+                    eltwiseOp.getWeightTableScale(), eltwiseOp.getWeightTableBias(), eltwiseOp.getOpTypeAttr(),
+                    eltwiseOp.getPpeAttr(), eltwiseOp.getMpeEngineAttr(), eltwiseOp.getMultiClusterStrategyAttr(),
+                    eltwiseOp.getIsInplaceAttr(), eltwiseOp.getOutputPaddingAttr(), eltwiseOp.getInputPaddingAttr(),
+                    axesValue);
+
+            auto replacementValue = selectReduceResult(newEltwiseOp.getReduceTensorMinMax(),
+                                                       newEltwiseOp.getReduceXyMax(), newEltwiseOp.getReduceXyMin());
+            replaceOpUses(eltwiseOp.getOutput(), newEltwiseOp.getOutput(), replacementValue);
+
+            _log.trace("Successfully fused Reduce{0} into NCEEltwiseOp", fusedReduceKind);
+            return;
+        }
+        if (auto dwConvOp = mlir::dyn_cast<VPU::NCEDepthConvolutionOp>(parentOp)) {
+            _log.trace("Fusing Reduce{0} with NCEDepthConvolutionOp", fusedReduceKind);
+
+            auto newDwConvOp = builder.create<VPU::NCEDepthConvolutionOp>(
+                    dwConvOp.getLoc(), dwConvOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
+                    reduceTensorMinMaxType, dwConvOp.getInput(), dwConvOp.getFilter(), dwConvOp.getWeightsTable(),
+                    dwConvOp.getWeightTableDataPtr(), dwConvOp.getWeightTableScale(), dwConvOp.getWeightTableBias(),
+                    dwConvOp.getStridesAttr(), dwConvOp.getPadAttr(), dwConvOp.getPpeAttr(),
+                    dwConvOp.getMpeEngineAttr(), dwConvOp.getRawFilterShape(), dwConvOp.getStaticRawFilterShape(),
+                    dwConvOp.getMultiClusterStrategyAttr(), dwConvOp.getOutputPaddingAttr(),
+                    dwConvOp.getInputPaddingAttr(), axesValue);
+
+            auto replacementValue = selectReduceResult(newDwConvOp.getReduceTensorMinMax(),
+                                                       newDwConvOp.getReduceXyMax(), newDwConvOp.getReduceXyMin());
+            replaceOpUses(dwConvOp.getOutput(), newDwConvOp.getOutput(), replacementValue);
+
+            _log.trace("Successfully fused Reduce{0} into NCEDepthConvolutionOp", fusedReduceKind);
             return;
         }
     });

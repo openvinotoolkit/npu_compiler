@@ -34,7 +34,7 @@ func.func @SplitNCEConvWithEltwiseAddOverOC(%input1: tensor<1x128x256x4xf16, {or
          strides = [1, 1]
     } : tensor<1x128x256x4xf16, {order = #NHWC}>, tensor<18944x128x1x1x!qElemType, {order = #NHWC}>, tensor<18944x1x1x4xsi32> -> tensor<1x18944x256x4xf16, {order = #NHWC}>
 
-    %add = VPU.NCE.Eltwise(%conv0, %conv1) {
+    %add = VPU.NCE.Eltwise(%conv0, %conv1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
         lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,

@@ -1,15 +1,14 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auxiliary_buffers.hpp"
-#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -47,63 +46,8 @@ void vpux::VPU::AtanDmaOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::Operatio
     build(odsBuilder, odsState, input.getType(), input, auxBuffer, nullptr);
 }
 
-//
-// SWOpInterface
-//
-
-bool vpux::VPU::AtanDmaOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> /*buffers*/, Byte /*reservedMem*/) {
-    return false;
-}
-
-bool vpux::VPU::AtanDmaOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> /*buffers*/) {
-    return false;
-}
-
-bool vpux::VPU::AtanDmaOp::supportCycleCostCalculation() {
-    return false;
-}
-
-//
-// AuxiliaryBufferOpInterface
-//
-
-SmallVector<mlir::OpOperand*> VPU::AtanDmaOp::getAuxiliaryBuffers() {
-    return {&getAuxBufferMutable()};
-}
-
-//
-// ClusteredOpInterface
-//
-
-bool vpux::VPU::AtanDmaOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t) {
-    return strategy == VPU::MultiClusterStrategy::Clustering;
-}
-
-vpux::VPU::DistributionInfo vpux::VPU::AtanDmaOp::getExplicitDistributionInfoAttr(
-        vpux::ShapeRef shape, vpux::VPU::DistributionMode distributionMode, ArrayRef<int64_t> numTiles,
-        const int64_t numClusters, ArrayRef<int64_t> alignment, const bool uniformDistributedSegments,
-        const vpux::VPU::OverlapDistributionParams& overlapParams,
-        const std::optional<ArrayRef<int64_t>> /* memoryNumTiles */) {
-    return VPU::getSWExplicitDistributionInfo(mlir::cast<VPU::SWOpInterface>(getOperation()), shape, distributionMode,
-                                              numTiles, numClusters, alignment, uniformDistributedSegments,
-                                              overlapParams);
-}
-
-vpux::NDTypeInterface vpux::VPU::AtanDmaOp::getDistributedTypeForOpOperand(mlir::OpOperand& operand,
-                                                                           bool hasExplicitDistributedAttr,
-                                                                           SiblingOpsAnalysis& siblingsAnalysis) {
-    auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(getOperation());
-    auto origOp = mlir::cast<AtanDmaOp>(getOperation());
-    if (operand.get() == origOp.getAuxBuffer()) {
-        return getDistributedTypeFromInput(clusteredOp, operand.get(), VPU::DistributionMode::DUPLICATED, {}, {},
-                                           VPU::MultiClusterStrategy::Clustering, hasExplicitDistributedAttr,
-                                           siblingsAnalysis);
-    }
-    return mlir::dyn_cast<NDTypeInterface>(operand.get().getType());
-}
-
-vpux::NDTypeInterface vpux::VPU::AtanDmaOp::getDistributedTypeForOpResult(
-        mlir::Value result, [[maybe_unused]] VPU::MultiClusterStrategy strategy,
-        [[maybe_unused]] SiblingOpsAnalysis& siblingsAnalysis, [[maybe_unused]] bool hasExplicitDistributedAttr) {
-    return mlir::dyn_cast<NDTypeInterface>(result.getType());
+mlir::LogicalResult vpux::VPU::AtanDmaOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                            mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
 }

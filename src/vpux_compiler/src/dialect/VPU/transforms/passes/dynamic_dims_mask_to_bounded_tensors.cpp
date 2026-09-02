@@ -5,13 +5,12 @@
 
 #include "vpux/compiler/dialect/IE/utils/convert_op_types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dynamic_shape_propagation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
-#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
-#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Affine/IR/AffineOps.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
@@ -78,34 +77,8 @@ void DynamicDimsMaskToBoundedTensors::safeRunOnModule() {
         auto outType = ndType.changeTypeComponents(typeComponents);
         return outType;
     });
-
-    const auto convert = [](mlir::OpBuilder& builder, mlir::RankedTensorType type, mlir::ValueRange inputs,
-                            mlir::Location loc) -> mlir::Value {
-        VPUX_THROW_UNLESS(inputs.size() == 1, "Got wrong number of inputs : {0}", inputs.size());
-        auto newLocation = appendLoc(loc, "casted");
-
-        auto castOp = builder.create<mlir::UnrealizedConversionCastOp>(newLocation, type, inputs[0]);
-        return castOp->getResult(0);
-    };
-
-    typeConverter.addSourceMaterialization(convert);
-    typeConverter.addTargetMaterialization(convert);
-
-    const auto isLegalOp = [&](mlir::Operation* op) {
-        return typeConverter.isLegal(op);
-    };
-
     mlir::ConversionTarget target(ctx);
-    // Mark dialects used by ShaveCodeGen as legal.
-    target.addLegalDialect<mlir::arith::ArithDialect, mlir::math::MathDialect, mlir::linalg::LinalgDialect>();
-
-    target.markUnknownOpDynamicallyLegal(isLegalOp);
-    target.addDynamicallyLegalOp<mlir::func::ReturnOp>(isLegalOp);
-    target.addDynamicallyLegalOp<mlir::func::CallOp>(isLegalOp);
-    target.addDynamicallyLegalOp<mlir::func::FuncOp>([&](mlir::func::FuncOp funcOp) {
-        return typeConverter.isSignatureLegal(funcOp.getFunctionType());
-    });
-    target.addLegalOp<mlir::ModuleOp>();
+    VPU::configureDynamismConversionPassEnvironment(_log, module, typeConverter, target);
 
     if (mlir::failed(vpux::IE::runConvertOpTypes(module, typeConverter, target, _log))) {
         signalPassFailure();

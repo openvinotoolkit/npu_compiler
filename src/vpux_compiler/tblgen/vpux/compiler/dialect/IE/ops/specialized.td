@@ -539,6 +539,7 @@ def IE_PermuteQuantizeOp :
         IE_LayerOp<
             "PermuteQuantize",
             [
+                DeclareOpInterfaceMethods<IE_ShapeInfoOpInterface>,
                 DeclareOpInterfaceMethods<StaticShapeOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
@@ -742,7 +743,8 @@ def IE_SDPAOp :
         IE_LayerOp<
             "SDPA",
             [
-                AttrSizedOperandSegments
+                AttrSizedOperandSegments,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine SDPA layer";
@@ -769,7 +771,8 @@ def IE_AttentionOp :
         IE_LayerOp<
             "Attention",
             [
-                AttrSizedOperandSegments
+                AttrSizedOperandSegments,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine custom SDPA layer";
@@ -790,6 +793,33 @@ def IE_AttentionOp :
     );
 }
 
+def IE_AttentionDMAOp :
+        IE_LayerOp<
+            "AttentionDMA",
+            [
+                AttrSizedOperandSegments,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
+            ]
+        > {
+    let summary = "InferenceEngine custom AttentionDMA layer";
+
+    let arguments = (ins
+        RankedTensorOf<[F16, F32]>:$inputQ,
+        RankedTensorOf<[F16, F32]>:$inputK,
+        RankedTensorOf<[F16, F32]>:$inputV,
+        Optional<RankedTensorOf<[F16, F32, Bool8]>>:$inputMask,
+        Optional<RankedTensorOf<[F16, F32]>>:$inputScale,
+        Optional<RankedTensorOf<[F16, F32]>>:$inputSink,
+        Optional<RankedTensorOf<[F16, F32]>>:$inputBias,
+        Optional<RankedTensorOf<[SI32]>>:$seqLenK,
+
+        OptionalAttr<IntAttr>:$padSizeS
+     );
+   let results = (outs
+        RankedTensorOf<[F16, F32, F64]>:$output
+    );
+}
+
 def IE_SelectOp :
         IE_LayerOp<
             "Select",
@@ -802,14 +832,16 @@ def IE_SelectOp :
 
     let arguments = (ins
         AnyRankedTensor:$input1,
-        RankedTensorOf<[SI16, SI32, SI64, F16, F32, F64]>:$input2,
-        RankedTensorOf<[SI16, SI32, SI64, F16, F32, F64]>:$input3,
+        RankedTensorOf<[I8, SI16, SI32, SI64, F16, F32, F64]>:$input2,
+        RankedTensorOf<[I8, SI16, SI32, SI64, F16, F32, F64]>:$input3,
         IE_AutoBroadcastTypeAttr:$auto_broadcast
     );
 
     let results = (outs
         AnyRankedTensor:$output
     );
+
+    let hasVerifier = 1;
 }
 
 def IE_StubOp :

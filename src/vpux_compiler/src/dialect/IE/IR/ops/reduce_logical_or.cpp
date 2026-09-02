@@ -1,11 +1,11 @@
 //
-// Copyright (C) 2022-2025 Intel Corporation
+// Copyright (C) 2022-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
-#include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 using namespace vpux;
 
@@ -19,17 +19,10 @@ mlir::LogicalResult vpux::IE::ReduceLogicalOrOp::inferReturnTypeComponents(
     if (mlir::failed(reduceLogicalOr.verify(loc))) {
         return mlir::failure();
     }
-    if (reduceLogicalOr.getAxes() != nullptr && reduceLogicalOr.getAxesValue().has_value()) {
-        return errorAt(loc, "Ambiguous axes representation");
-    } else if (reduceLogicalOr.getAxes() == nullptr && !reduceLogicalOr.getAxesValue().has_value()) {
-        return errorAt(loc, "Axes was not provided properly");
-    }
 
     const auto input = reduceLogicalOr.getInput();
     const auto keepDims = reduceLogicalOr.getKeepDims();
-
-    auto axesValue = IE::extractAxes(loc, reduceLogicalOr);
-
+    auto axesValue = parseIntArrayAttr<int64_t>(reduceLogicalOr.getAxesValue());
     return IE::inferReduceReturnTypeComponents(loc, input, keepDims, axesValue, inferredReturnShapes);
 }
 
@@ -43,9 +36,4 @@ mlir::OpFoldResult vpux::IE::ReduceLogicalOrOp::fold(FoldAdaptor) {
     }
 
     return nullptr;
-}
-
-void vpux::IE::ReduceLogicalOrOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns,
-                                                              mlir::MLIRContext* context) {
-    patterns.add<ConvertConstToAttr<vpux::IE::ReduceLogicalOrOp>>(context);
 }

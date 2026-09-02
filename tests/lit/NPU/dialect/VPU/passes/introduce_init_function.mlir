@@ -1452,3 +1452,32 @@ module @Skip6DConstant {
     // CHECK-MAIN      [[CST:%.+]] = const.Declare tensor<1x16x1x4xf16> = dense_resource<vpux_ow_0> : tensor<1x3x1x1x2x2xf16>, [#const.CastElemType<f16>, #const.Reshape<[1, 3, 1, 4]>, #const.PadWithZero<[0, 0, 0, 0], [0, 13, 0, 0]>]
     // CHECK-MAIN      return [[ARG0]] : tensor<2x2xf16>
 }
+
+// -----
+
+{-#
+    dialect_resources: {
+        builtin: {
+            vpux_ow_1: "0x0000000400aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbcc00aabbdd"
+        }
+    }
+#-}
+
+module @ShapeVerificationFlagRemoval attributes {IE.shape_verification_enabled} {
+    net.NetworkInfo entryPoint : @main inputsInfo : {
+        DataInfo "input1" : tensor<4x16xf16>
+    } outputsInfo : {
+        DataInfo "output1" : tensor<2x2xf32>
+        DataInfo "output2" : tensor<4x16xf32>
+    }
+
+    func.func @main(%input: tensor<4x16xf16>) -> (tensor<2x2xf32>, tensor<4x16xf32>) {
+        %cst = const.Declare tensor<2x2xf32> = dense_resource<vpux_ow_1> : tensor<4x4xf32>,
+            [#const.Add<1.0 : f32>, #const.SubView<[2, 2], [2, 2]>]
+        %out = IE.Convert(%input) {dstElemType = f32} : tensor<4x16xf16> -> tensor<4x16xf32>
+        return %cst, %out : tensor<2x2xf32>, tensor<4x16xf32>
+    }
+}
+
+// CHECK-INIT-LABEL:    @ShapeVerificationFlagRemoval
+// CHECK-INIT-NOT:    IE.shape_verification_enabled

@@ -20,7 +20,7 @@ module @Add attributes {HostExec.numSubgraphs = 3 : i64, config.compilationMode 
   }
 }
 
-// CHECK: llvm.func internal @_mlir_ciface_get_network_metadata
+// CHECK: llvm.func @_mlir_ciface_get_network_metadata
 // CHECK: llvm.call @npu_level_zero_get_network_metadata
 // CHECK-NOT: config.PipelineOptions
 // CHECK-NOT: IE.Resource
@@ -43,7 +43,7 @@ module @MaxPool attributes {HostExec.numSubgraphs = 1 : i64, config.platform = #
   }
 }
 
-// CHECK: llvm.func internal @_mlir_ciface_get_network_metadata
+// CHECK: llvm.func @_mlir_ciface_get_network_metadata
 // CHECK: llvm.call @npu_level_zero_get_network_metadata
 // CHECK-NOT: config.PipelineOptions
 // CHECK-NOT: IE.Resource

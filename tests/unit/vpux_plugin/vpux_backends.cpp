@@ -5,7 +5,6 @@
 
 #include <gtest/gtest.h>
 
-#include "intel_npu/config/options.hpp"
 #include "vpux_backends.hpp"
 
 #include "test_utils/npu_backends_test.hpp"
@@ -19,30 +18,19 @@ TEST_F(VPUXBackendsUnitTests, notStopSearchingIfBackendThrow) {
     test_backends = std::make_shared<vpux::NPUBackendsTest>(dummyBackendRegistry);
     std::shared_ptr<vpux::VPUXBackends> backends = std::reinterpret_pointer_cast<vpux::VPUXBackends>(test_backends);
 
-    auto options = std::make_shared<vpux::OptionsDesc>();
-    options->add<intel_npu::PERFORMANCE_HINT>();
-    options->add<intel_npu::PERFORMANCE_HINT_NUM_REQUESTS>();
-    options->add<intel_npu::INFERENCE_PRECISION_HINT>();
-    options->add<intel_npu::PERF_COUNT>();
-    options->add<intel_npu::LOG_LEVEL>();
-    options->add<intel_npu::PLATFORM>();
-    options->add<intel_npu::DEVICE_ID>();
-    options->add<intel_npu::CACHE_DIR>();
-    options->add<intel_npu::LOADED_FROM_CACHE>();
-    options->add<intel_npu::BATCH_MODE>();
-    options->add<intel_npu::PROFILING_TYPE>();
-    options->add<intel_npu::MODEL_PRIORITY>();
-    options->add<intel_npu::CREATE_EXECUTOR>();
-    options->add<intel_npu::DEFER_WEIGHTS_LOAD>();
-    options->add<intel_npu::NUM_STREAMS>();
-    options->add<intel_npu::ENABLE_CPU_PINNING>();
-    options->add<intel_npu::WORKLOAD_TYPE>();
-    options->add<intel_npu::TURBO>();
-    options->add<intel_npu::WEIGHTS_PATH>();
-    options->add<intel_npu::BYPASS_UMD_CACHING>();
-    options->add<intel_npu::RUN_INFERENCES_SEQUENTIALLY>();
+    auto options = std::make_shared<vpux::OV::OptionsDesc>();
+    options->add<vpux::OV::PERFORMANCE_HINT>();
+    options->add<vpux::OV::PERFORMANCE_HINT_NUM_REQUESTS>();
+    options->add<vpux::OV::INFERENCE_PRECISION_HINT>();
+    options->add<vpux::OV::PERF_COUNT>();
+    options->add<vpux::OV::LOG_LEVEL>();
+    options->add<vpux::OV::PLATFORM>();
+    options->add<vpux::OV::DEVICE_ID>();
+    options->add<vpux::OV::BATCH_MODE>();
+    options->add<vpux::OV::MODEL_PRIORITY>();
+    options->add<vpux::OV::TURBO>();
 
-    vpux::Config config(options);
+    vpux::OV::Config config(options);
     config.update({{"LOG_LEVEL", "LOG_DEBUG"}});
 
     backends->setup(config);
@@ -59,30 +47,19 @@ TEST_F(VPUXBackendsUnitTests, notStopSearchingIfBackendNotExists) {
     test_backends = std::make_shared<vpux::NPUBackendsTest>(dummyBackendRegistry);
     std::shared_ptr<vpux::VPUXBackends> backends = std::reinterpret_pointer_cast<vpux::VPUXBackends>(test_backends);
 
-    auto options = std::make_shared<vpux::OptionsDesc>();
-    options->add<intel_npu::PERFORMANCE_HINT>();
-    options->add<intel_npu::PERFORMANCE_HINT_NUM_REQUESTS>();
-    options->add<intel_npu::INFERENCE_PRECISION_HINT>();
-    options->add<intel_npu::PERF_COUNT>();
-    options->add<intel_npu::LOG_LEVEL>();
-    options->add<intel_npu::PLATFORM>();
-    options->add<intel_npu::DEVICE_ID>();
-    options->add<intel_npu::CACHE_DIR>();
-    options->add<intel_npu::LOADED_FROM_CACHE>();
-    options->add<intel_npu::BATCH_MODE>();
-    options->add<intel_npu::PROFILING_TYPE>();
-    options->add<intel_npu::MODEL_PRIORITY>();
-    options->add<intel_npu::CREATE_EXECUTOR>();
-    options->add<intel_npu::DEFER_WEIGHTS_LOAD>();
-    options->add<intel_npu::NUM_STREAMS>();
-    options->add<intel_npu::ENABLE_CPU_PINNING>();
-    options->add<intel_npu::WORKLOAD_TYPE>();
-    options->add<intel_npu::TURBO>();
-    options->add<intel_npu::WEIGHTS_PATH>();
-    options->add<intel_npu::BYPASS_UMD_CACHING>();
-    options->add<intel_npu::RUN_INFERENCES_SEQUENTIALLY>();
+    auto options = std::make_shared<vpux::OV::OptionsDesc>();
+    options->add<vpux::OV::PERFORMANCE_HINT>();
+    options->add<vpux::OV::PERFORMANCE_HINT_NUM_REQUESTS>();
+    options->add<vpux::OV::INFERENCE_PRECISION_HINT>();
+    options->add<vpux::OV::PERF_COUNT>();
+    options->add<vpux::OV::LOG_LEVEL>();
+    options->add<vpux::OV::PLATFORM>();
+    options->add<vpux::OV::DEVICE_ID>();
+    options->add<vpux::OV::BATCH_MODE>();
+    options->add<vpux::OV::MODEL_PRIORITY>();
+    options->add<vpux::OV::TURBO>();
 
-    vpux::Config config(options);
+    vpux::OV::Config config(options);
     config.update({{"LOG_LEVEL", "LOG_DEBUG"}});
 
     backends->setup(config);

@@ -130,6 +130,7 @@ func.func @SplitExactDimensionLimitICNoConcatPattern(%arg0: tensor<1x8192x256x4x
   // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.NCE.Convolution([[INPUT_TILE1]], [[WEIGHTS_TILE1]]) rawFilterShape [4096, 4096, 1, 1]
   // CHECK-SAME:          -> tensor<1x4096x256x4xf16, {order = #NHWC}>
   // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Eltwise([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
+  // CHECK-NOT:   mpe_engine
   // CHECK-SAME:          -> tensor<1x4096x256x4xf16, {order = #NHWC}>
   // CHECK:       return [[OUTPUT]] : tensor<1x4096x256x4xf16, {order = #NHWC}>
 }
@@ -179,9 +180,11 @@ func.func @SplitPaddedNCEConv(%arg0: tensor<1x16416x1x1xf16, {order = #NHWC}>) -
     // CHECK-SAME:    output_padding = [0, 2, 0, 0]
     // CHECK-SAME:    -> tensor<1x1472x1x1xf16, {order = #NHWC}>
     // CHECK:       [[ADD1:%.+]] = VPU.NCE.Eltwise([[TILE1]], [[TILE2]]) {
+    // CHECK-NOT:  mpe_engine
     // CHECK-SAME:    input_padding = [0, 2, 0, 0]
     // CHECK-SAME:    output_padding = [0, 2, 0, 0]
     // CHECK:       [[ADD2:%.+]] = VPU.NCE.Eltwise([[ADD1]], [[TILE3]]) {
+    // CHECK-NOT:  mpe_engine
     // CHECK-SAME:    input_padding = [0, 2, 0, 0]
     // CHECK-SAME:    output_padding = [0, 2, 0, 0]
     // CHECK:       return [[ADD2]]
@@ -256,8 +259,10 @@ func.func @SplitMemPermuteAndDynamicDequantizeLargeIC(%arg0: tensor<1x14336x256x
   // CHECK:       [[OUTPUT_TILE2:%.+]] = VPU.NCE.Convolution([[INPUT_TILE2]], [[PERM_TILE2]]) rawFilterShape [4096, 4608, 1, 1]
   // CHECK-SAME:          -> tensor<1x4096x256x4xf16, {order = #NHWC}>
   // CHECK:       [[ADD0:%.+]] = VPU.NCE.Eltwise([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
+  // CHECK-NOT:   mpe_engine
   // CHECK-SAME:          -> tensor<1x4096x256x4xf16, {order = #NHWC}>
   // CHECK:       [[ADD1:%.+]] = VPU.NCE.Eltwise([[ADD0]], [[OUTPUT_TILE2]])
+  // CHECK-NOT:   mpe_engine
   // CHECK-SAME:          -> tensor<1x4096x256x4xf16, {order = #NHWC}>
   // CHECK:       VPU.AffineReshape([[ADD1]])
   // CHECK-SAME:          shape_value = [1, 4096, 1024, 1]
@@ -340,12 +345,16 @@ func.func @SplitDynamicDequantizeLargeIC(%arg0: tensor<1x24576x256x4xf16, {order
   // CHECK:       [[OUTPUT_TILE4:%.+]] = VPU.NCE.Convolution([[INPUT_TILE4]], [[PERM_TILE4]]) rawFilterShape [4096, 4608, 1, 1]
   // CHECK-SAME:          -> tensor<1x4096x256x4xf16, {order = #NHWC}>
   // CHECK:       [[ADD0:%.+]] = VPU.NCE.Eltwise([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
+  // CHECK-NOT:   mpe_engine
   // CHECK-SAME:          -> tensor<1x4096x256x4xf16, {order = #NHWC}>
   // CHECK:       [[ADD1:%.+]] = VPU.NCE.Eltwise([[ADD0]], [[OUTPUT_TILE2]])
+  // CHECK-NOT:   mpe_engine
   // CHECK-SAME:          -> tensor<1x4096x256x4xf16, {order = #NHWC}>
   // CHECK:       [[ADD2:%.+]] = VPU.NCE.Eltwise([[ADD1]], [[OUTPUT_TILE3]])
+  // CHECK-NOT:   mpe_engine
   // CHECK-SAME:          -> tensor<1x4096x256x4xf16, {order = #NHWC}>
   // CHECK:       [[ADD3:%.+]] = VPU.NCE.Eltwise([[ADD2]], [[OUTPUT_TILE4]])
+  // CHECK-NOT:   mpe_engine
   // CHECK-SAME:          -> tensor<1x4096x256x4xf16, {order = #NHWC}>
   // CHECK:       VPU.AffineReshape([[ADD3]])
   // CHECK-SAME:          shape_value = [1, 4096, 1024, 1]
@@ -431,8 +440,87 @@ func.func @SplitDynamicDequantizeMergedICAlignedToW(%arg0: tensor<1x8320x128x8xf
   // CHECK-SAME:          -> tensor<1x3072x128x8xf16, {order = #NHWC}>
 
   // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Eltwise([[OUTPUT_TILE0]], [[OUTPUT_TILE1]]) {op_type = #VPU.eltwise_type<ADD>
+  // CHECK-NOT:   mpe_engine
   // CHECK-SAME:          -> tensor<1x3072x128x8xf16, {order = #NHWC}>
   // CHECK:       [[FINAL_OUTPUT:%.+]] = VPU.NCE.Eltwise([[OUTPUT]], [[OUTPUT_TILE2]]) {op_type = #VPU.eltwise_type<ADD>
+  // CHECK-NOT:   mpe_engine
   // CHECK-SAME:          -> tensor<1x3072x128x8xf16, {order = #NHWC}>
   // CHECK:       return [[FINAL_OUTPUT]] : tensor<1x3072x128x8xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+config.Resources 3 of @NCE at 2.100000e+03 MHz {
+  config.MemoryResource 100000 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+}
+
+// CHECK-LABEL:   @DoNotApplyPipelinableICSplitToSparseConv
+// CHECK-SAME:          [[INPUT:%arg[0-9]]]: tensor<1x256x8x8xf16, {order = #NHWC}>
+func.func @DoNotApplyPipelinableICSplitToSparseConv(%arg0: tensor<1x256x8x8xf16, {order = #NHWC}>) -> tensor<1x64x8x8xf16, {order = #NHWC}> {
+  %sparsity_map = const.Declare tensor<1x256x8x8xi1, {order = #NHWC}> = dense<true> : tensor<1x256x8x8xi1>, [#const.Reorder<#NHWC>]
+  %se_table = VPU.StorageElementTable { dataElemType = f16, dataShape = [1, 256, 8, 8], seDepth = 1 : i64, seSize = [256] } -> tensor<1x1x8x8xi32, {order = #NHWC}>
+  %sparse_input = VPU.GroupSparseTensor(%arg0, %sparsity_map, %se_table) -> !VPU.SparseTensor<data=tensor<1x256x8x8xf16, {order = #NHWC}>, sparsity_map=tensor<1x256x8x8xi1, {order = #NHWC}>, storage_element_table=tensor<1x1x8x8xi32, {order = #NHWC}>>
+  %weights = const.Declare tensor<64x256x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x256x1x1xf16>, [#const.Reorder<#NHWC>]
+  %weights_table = const.Declare tensor<64x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<64x1x1x4xsi32>
+  %output = VPU.NCE.Convolution(%sparse_input, %weights, %weights_table) rawFilterShape [64, 256, 1, 1] {
+    mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
+    resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+    strides = [1, 1]
+  } : !VPU.SparseTensor<data=tensor<1x256x8x8xf16, {order = #NHWC}>, sparsity_map=tensor<1x256x8x8xi1, {order = #NHWC}>, storage_element_table=tensor<1x1x8x8xi32, {order = #NHWC}>>, tensor<64x256x1x1xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32, {order = #NCHW}> -> tensor<1x64x8x8xf16, {order = #NHWC}>
+
+  return %output : tensor<1x64x8x8xf16, {order = #NHWC}>
+
+  // CHECK:       [[SE_TABLE:%.+]] = VPU.StorageElementTable
+  // CHECK-SAME:          dataShape = [1, 256, 8, 8]
+  // CHECK:       [[SPARSE_INPUT:%.+]] = VPU.GroupSparseTensor([[INPUT]], {{%.+}}, [[SE_TABLE]])
+  // CHECK-SAME:          -> !VPU.SparseTensor<data=tensor<1x256x8x8xf16, {order = #NHWC}>, sparsity_map=tensor<1x256x8x8xi1, {order = #NHWC}>, storage_element_table=tensor<1x1x8x8xi32, {order = #NHWC}>>
+  // CHECK-NOT:   VPU.Slice [[SPARSE_INPUT]]
+  // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[SPARSE_INPUT]], {{%.+}}, {{%.+}}) rawFilterShape [64, 256, 1, 1]
+  // CHECK-SAME:          : !VPU.SparseTensor<data=tensor<1x256x8x8xf16, {order = #NHWC}>, sparsity_map=tensor<1x256x8x8xi1, {order = #NHWC}>, storage_element_table=tensor<1x1x8x8xi32, {order = #NHWC}>>, tensor<64x256x1x1xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32, {order = #NCHW}> -> tensor<1x64x8x8xf16, {order = #NHWC}>
+  // CHECK:       return [[OUTPUT]] : tensor<1x64x8x8xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+config.Resources 3 of @NCE at 2.100000e+03 MHz {
+  config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+}
+
+// CHECK-LABEL:   @SplitWithPerTensorStaticScale
+// CHECK-SAME:          [[INPUT:%arg[0-9]]]: tensor<1x7680x1920x4xf16, {order = #NHWC}>
+func.func @SplitWithPerTensorStaticScale(%arg0: tensor<1x7680x1920x4xf16, {order = #NHWC}>) -> tensor<1x48x1920x4xf16, {order = #NHWC}> {
+  %weights = const.Declare tensor<48x7680x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<48x7680x1x1xf16, {order = #NHWC}>
+
+  %weights_table = const.Declare tensor<48x1x1x4xsi32> = dense<1065353216> : tensor<48x1x1x4xsi32>
+
+  %output = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [48, 7680, 1, 1] {
+    input_padding = [0, 0, 0, 0], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, 
+    output_padding = [0, 8, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, 
+    ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 0.01141088661469096 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>, 
+    resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1]
+  } : tensor<1x7680x1920x4xf16, {order = #NHWC}>, tensor<48x7680x1x1xf16, {order = #NHWC}>, tensor<48x1x1x4xsi32> -> tensor<1x48x1920x4xf16, {order = #NHWC}>
+
+  return %output : tensor<1x48x1920x4xf16, {order = #NHWC}>
+
+  // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<48x3840x1x1xf16, {order = #NHWC}>
+  // CHECK-DAG: [[CST_1:%.+]] = const.Declare tensor<48x3840x1x1xf16, {order = #NHWC}>
+  // CHECK-DAG: [[CST_2:%.+]] = const.Declare tensor<48x1x1x4xsi32>
+  // CHECK-DAG: [[CST_3:%.+]] = const.Declare tensor<48x1x1x4xsi32>
+  // CHECK: [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 3840, 1920, 4] : tensor<1x7680x1920x4xf16, {order = #NHWC}> to tensor<1x3840x1920x4xf16, {order = #NHWC}>
+  // CHECK: [[CONV_0:%.+]] = VPU.NCE.Convolution([[SLICE0]], [[CST_1]], [[CST_3]])
+  // CHECK-SAME: scale = 1.000000e+00 : f64
+  // CHECK: [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 3840, 0, 0] [1, 3840, 1920, 4] : tensor<1x7680x1920x4xf16, {order = #NHWC}> to tensor<1x3840x1920x4xf16, {order = #NHWC}>
+  // CHECK: [[CONV_1:%.+]] = VPU.NCE.Convolution([[SLICE1]], [[CST_0]], [[CST_2]])
+  // CHECK-SAME: scale = 1.000000e+00 : f64
+  // CHECK: [[ELTWISE:%.+]] = VPU.NCE.Eltwise([[CONV_0]], [[CONV_1]])
+  // CHECK-NOT: mpe_engine
+  // CHECK-SAME: scale = 0.01141088661469096 : f64
+  // CHECK: return [[ELTWISE]] : tensor<1x48x1920x4xf16, {order = #NHWC}>
 }

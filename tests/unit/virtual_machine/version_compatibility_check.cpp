@@ -31,8 +31,8 @@ std::vector<uint8_t> buildBytecodeWithVersion(Version version) {
 
 // Checks if bytecode with given version is compatible with the specified VM range
 bool isCompatible(Version version, Version vmMin, Version vmMax) {
-    const auto bytecode = buildBytecodeWithVersion(version);
-    const auto bytecodeView = Span<uint8_t>{const_cast<uint8_t*>(bytecode.data()), bytecode.size()};
+    auto bytecode = buildBytecodeWithVersion(version);
+    const auto bytecodeView = Span<uint8_t>{bytecode.data(), bytecode.size()};
     return BytecodeReader::isVersionSupported(bytecodeView, vmMin, vmMax);
 }
 

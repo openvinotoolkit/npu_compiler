@@ -295,22 +295,18 @@ mlir::LogicalResult AdjustForTile::matchAndRewrite(IE::TileOp origOp, mlir::Patt
     }
 
     auto repeatsValues = origOp.getRepeatsValues();
-    if (!repeatsValues.has_value()) {
-        return matchFailed(rewriter, origOp, "No repeats values found, please run canonicalizer before this pass");
-    }
-
     auto dstOrder = DimsOrder::fromAffineMap(outputPermuteOp.getDstOrder());
     auto newPermuteOutType = inferNewTypeWithMemPerm(tileInType, memPerm, dstOrder);
     auto newPermuteOp = rewriter.create<IE::PermuteCastOp>(outputPermuteOp->getLoc(), newPermuteOutType,
                                                            origOp.getInput(), dstOrder.toAffineMap(ctx), memPerm);
 
     auto origOrder = tileInType.getDimsOrder();
-    auto repeatsOnOrigShape = Shape(parseIntArrayAttr<int64_t>(repeatsValues.value()));
+    auto repeatsOnOrigShape = Shape(parseIntArrayAttr<int64_t>(repeatsValues));
     auto repeatsOnOrigMemShape = origOrder.toMemoryOrder(repeatsOnOrigShape);
     auto repeatsOnNewMemShape = applyPerm(repeatsOnOrigMemShape, memPerm);
     auto repeatsOnNewShape = dstOrder.toLogicalOrder(repeatsOnNewMemShape);
     auto newTileOutType = outputPermuteOp.getOutput().getType();
-    auto newTileOp = rewriter.create<IE::TileOp>(origOp->getLoc(), newTileOutType, newPermuteOp.getOutput(), nullptr,
+    auto newTileOp = rewriter.create<IE::TileOp>(origOp->getLoc(), newTileOutType, newPermuteOp.getOutput(),
                                                  getIntArrayAttr(ctx, repeatsOnNewShape));
 
     outputPermuteOp.replaceAllUsesWith(newTileOp.getOutput());

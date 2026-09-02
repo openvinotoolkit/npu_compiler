@@ -1,3 +1,4 @@
+//
 // Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -6,7 +7,9 @@
 #include "vpu_ov2_layer_test.hpp"
 #include "vpux/utils/core/error.hpp"
 
+#include "openvino/op/add.hpp"
 #include "openvino/op/convolution.hpp"
+#include "openvino/op/group_conv.hpp"
 #include "openvino/op/matmul.hpp"
 #include "openvino/op/max_pool.hpp"
 #include "openvino/op/reduce_max.hpp"
@@ -254,6 +257,54 @@ class ConvWithReduceMinAndMaxTest : public ConvWithReduceTestBase {
     }
 };
 
+// Shared depthwise-convolution builder for DepthConv+Reduce subgraphs.
+// Implements a 1x1 GroupConvolution with groups = C (true depthwise), identity weights.
+class DepthConvWithReduceTestBase : public DPUWithReduceTestBase {
+protected:
+    ov::Output<ov::Node> buildDepthwiseConv(const ov::Output<ov::Node>& input, const ov::Shape& inputShape) {
+        const size_t channels = inputShape.at(1);
+        // [groups, OC_per_group, IC_per_group, kH, kW] — true depthwise: groups = C, OC = IC = 1
+        const auto weightsShape = ov::Shape{channels, 1, 1, 1, 1};
+        const std::vector<float> weightsData(channels, 1.0f);  // identity: each channel scaled by 1
+        const auto weights = ov::op::v0::Constant::create(inType, weightsShape, weightsData)->get_default_output();
+        return std::make_shared<ov::op::v1::GroupConvolution>(input, weights,
+                                                              /*strides=*/ov::Strides{1, 1},
+                                                              /*pads_begin=*/ov::CoordinateDiff{0, 0},
+                                                              /*pads_end=*/ov::CoordinateDiff{0, 0},
+                                                              /*dilations=*/ov::Strides{1, 1})
+                ->get_default_output();
+    }
+};
+
+class DepthConvWithReduceMaxTest : public DepthConvWithReduceTestBase {
+    void SetUp() override {
+        const auto testParams = GetParam();
+        const auto inputShape = testParams.inputShape0;
+        const auto axes = testParams.axes;
+        inType = outType = testParams.inputType0;
+
+        const ov::Shape nhwcShape = {inputShape[0], inputShape[2], inputShape[3], inputShape[1]};
+        init_input_shapes(ov::test::static_shapes_to_test_representation({nhwcShape}));
+        const auto input = std::make_shared<ov::op::v0::Parameter>(inType, ov::PartialShape(inputShape));
+
+        auto dwConv = buildDepthwiseConv(input, inputShape);
+        auto reduceMax = buildReduceMax(dwConv, axes);
+
+        const ov::ResultVector results{std::make_shared<ov::op::v0::Result>(dwConv),
+                                       std::make_shared<ov::op::v0::Result>(reduceMax)};
+        function = std::make_shared<ov::Model>(results, ov::ParameterVector{input}, "DepthConvWithReduceMaxTest");
+
+        auto preProc = ov::preprocess::PrePostProcessor(function);
+        preProc.input().tensor().set_layout(ov::Layout("NHWC"));
+        preProc.input().model().set_layout(ov::Layout("NCHW"));
+        preProc.output(0).tensor().set_layout(ov::Layout("NHWC"));
+        preProc.output(0).model().set_layout(ov::Layout("NCHW"));
+        preProc.output(1).tensor().set_layout(ov::Layout("NHWC"));
+        preProc.output(1).model().set_layout(ov::Layout("NCHW"));
+        function = preProc.build();
+    }
+};
+
 // Exercises the DecomposeSoftmaxInSdpa path by building
 //   Conv1 (expand channels) -> SoftMax (axis=1) -> Conv2 (compress channels)
 // Channel dimensions mirror the SDPA pattern from the LIT test (C_in=48, C_expanded=4096).
@@ -314,6 +365,67 @@ class ConvWithSoftmaxTest : public DPUWithReduceTestBase {
     }
 };
 
+// Eltwise Add with an active reduce_xy_max output, exercising the inplace detection path.
+// One eltwise input is the single-use output of a Conv so the DetectInPlaceEltwise pass can
+// reuse that buffer. The three activation buffers (in1 + in2 + out) exceed the per-tile CMX
+// budget (~1951 KB), so the pass marks the op inplace. After the fix to
+// fitIntoCMX, the reduce output buffer is included in the two-input CMX check, making the
+// estimate accurate. The two-buffer (inplace) footprint fits in CMX, allowing compilation.
+class EltwiseWithReduceMaxInplaceTest : public ConvWithReduceTestBase {
+    void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
+        VpuOv2LayerTest::inputs.clear();
+        const auto& funcInputs = VpuOv2LayerTest::function->inputs();
+
+        ov::test::utils::InputGenerateData in_data;
+        in_data.start_from = 0.0;
+        in_data.range = 1.0;
+        in_data.resolution = 32768;
+
+        for (size_t i = 0; i < funcInputs.size(); ++i) {
+            ov::Tensor tensorData = ov::test::utils::create_and_fill_tensor(funcInputs[i].get_element_type(),
+                                                                            targetInputStaticShapes[i], in_data);
+            VpuOv2LayerTest::inputs.insert({funcInputs[i].get_node_shared_ptr(), tensorData});
+        }
+    }
+
+    void SetUp() override {
+        const auto testParams = GetParam();
+        const auto inputShape = testParams.inputShape0;
+        const auto axes = testParams.axes;
+        inType = outType = testParams.inputType0;
+
+        // Register NHWC-permuted shapes for both parameters so the test framework
+        // generates tensors of the correct external (NHWC) size.
+        const ov::Shape nhwcShape = {inputShape[0], inputShape[2], inputShape[3], inputShape[1]};
+        init_input_shapes(ov::test::static_shapes_to_test_representation({nhwcShape, nhwcShape}));
+
+        const auto param1 = std::make_shared<ov::op::v0::Parameter>(inType, ov::PartialShape(inputShape));
+        const auto param2 = std::make_shared<ov::op::v0::Parameter>(inType, ov::PartialShape(inputShape));
+
+        // The Conv output has exactly one use (the Add), satisfying the single-use
+        // precondition for inplace buffer reuse in DetectInPlaceEltwisePass.
+        auto conv = buildConv(param1, inputShape);
+        auto add = std::make_shared<ov::op::v1::Add>(conv, param2)->get_default_output();
+        auto reduceMax = buildReduceMax(add, axes);
+
+        const ov::ResultVector results{std::make_shared<ov::op::v0::Result>(add),
+                                       std::make_shared<ov::op::v0::Result>(reduceMax)};
+        function = std::make_shared<ov::Model>(results, ov::ParameterVector{param1, param2},
+                                               "EltwiseWithReduceMaxInplaceTest");
+
+        auto preProc = ov::preprocess::PrePostProcessor(function);
+        preProc.input(0).tensor().set_layout(ov::Layout("NHWC"));
+        preProc.input(0).model().set_layout(ov::Layout("NCHW"));
+        preProc.input(1).tensor().set_layout(ov::Layout("NHWC"));
+        preProc.input(1).model().set_layout(ov::Layout("NCHW"));
+        preProc.output(0).tensor().set_layout(ov::Layout("NHWC"));
+        preProc.output(0).model().set_layout(ov::Layout("NCHW"));
+        preProc.output(1).tensor().set_layout(ov::Layout("NHWC"));
+        preProc.output(1).model().set_layout(ov::Layout("NCHW"));
+        function = preProc.build();
+    }
+};
+
 INSTANTIATE_TEST_SUITE_P(smoke_FuseReduceMaxInMaxPool, MaxPoolWithReduceMaxTest,
                          ::testing::ValuesIn({
                                  DpuReduceParams{{1, 16, 2, 16}, ov::element::f16, {1}, "channel axis reduction"},
@@ -344,6 +456,12 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_FuseReduceMaxFromSoftmaxInConv, ConvWith
                                  // W=4 prevents ShapeCast insertion around SoftMax.
                                  // axes = {softmax_axis=1, expanded_channels=4096}.
                                  DpuReduceParams{{1, 48, 1024, 4}, ov::element::f16, {1, 4096}, "channel axis softmax"},
+                         }),
+                         DPUWithReduceTestBase::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_FuseReduceMaxInDepthConv, DepthConvWithReduceMaxTest,
+                         ::testing::ValuesIn({
+                                 DpuReduceParams{{1, 16, 2, 16}, ov::element::f16, {1}, "channel axis reduction"},
                          }),
                          DPUWithReduceTestBase::getTestCaseName);
 

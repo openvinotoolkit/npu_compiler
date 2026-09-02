@@ -348,7 +348,7 @@ func.func @ConvertTransposedConv2DWithNonConstFilterToConv2D(%input0: tensor<1x5
 module @ConvertTransposedConvToConvLargeKernelSize {
 
 config.PipelineOptions @Options {
-    config.Option @config.EnableSEPtrsOperations : true 
+    config.Option @config.EnableSEPtrsOperations : true
 }
 
 // CHECK: func.func @main
@@ -365,4 +365,64 @@ func.func @main(%input: tensor<1x32x23x30xf16>) -> tensor<1x16x60x74xf16> {
     // CHECK:  [[OUT:%.+]] = IE.Convolution([[UPSAMPLING]], [[WEIGHTS]])
     // CHECK:  return [[OUT]]
 }
+}
+
+// -----
+
+// CHECK-LABEL: @ConvertDilatedTransposedConvToConv
+// CHECK-NOT:   IE.TransposedConvolution
+// Verify that TransposedConvolution with dilation > 1 is correctly converted.
+// Input [1,1,3,3], filter [1,1,2,2], dilation=[2,2], stride=[1,1], pads=[0,0]
+// Expected: Upsampling pads = (K-1)*dilation = 2 each side, output [1,1,5,5]
+func.func @ConvertDilatedTransposedConvToConv(%input: tensor<1x1x3x3xf16>) -> tensor<1x1x5x5xf16> {
+    %weights = const.Declare tensor<1x1x2x2xf16> = dense<1.000000e+00> : tensor<1x1x2x2xf16>
+    %output = IE.TransposedConvolution(%input, %weights) {
+            strides = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], dilations = [2, 2],
+            operandSegmentSizes = array<i32: 1, 1, 0, 0>, spatial_output_padding = [0, 0]
+        } : tensor<1x1x3x3xf16>, tensor<1x1x2x2xf16> -> tensor<1x1x5x5xf16>
+    return %output : tensor<1x1x5x5xf16>
+
+    // CHECK-DAG:   [[WEIGHTS:%.+]] = const.Declare tensor<1x1x2x2xf16> = dense<1.000000e+00> : tensor<1x1x2x2xf16>
+    // CHECK:       [[UPS:%.+]] = IE.Upsampling
+    // CHECK-SAME:      #IE.UpsamplingPad<pads_channel = [0, 0], pads_height = [2, 2], pads_width = [2, 2]>
+    // CHECK-SAME:      upsampling_factor = [1, 1, 1]
+    // CHECK-SAME:      tensor<1x1x3x3xf16> -> tensor<1x1x7x7xf16>
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[UPS]], [[WEIGHTS]])
+    // CHECK-SAME:      dilations = [2, 2]
+    // CHECK-SAME:      pads_begin = [0, 0]
+    // CHECK-SAME:      pads_end = [0, 0]
+    // CHECK-SAME:      strides = [1, 1]
+    // CHECK-SAME:      tensor<1x1x7x7xf16>, tensor<1x1x2x2xf16> -> tensor<1x1x5x5xf16>
+    // CHECK:       return [[CONV]]
+}
+
+// -----
+
+// CHECK-LABEL: @ConvertDilatedTransposedConvWithStride
+// CHECK-NOT:   IE.TransposedConvolution
+// TransposedConv with both dilation > 1 and stride > 1.
+// Input [1,1,3,3], filter [1,1,2,2], dilation=[2,2], stride=[2,2], pads=[0,0]
+// Upsampling pads = (K-1)*dilation = 2 each side, factor = [2, 2, 1]
+// Upsampled shape: H = 3 + 1*(3-1) + 2 + 2 = 9, W = 9
+// Conv output with dilation=2, kernel=2: (9 - 3)/1 + 1 = 7
+func.func @ConvertDilatedTransposedConvWithStride(%input: tensor<1x1x3x3xf16>) -> tensor<1x1x7x7xf16> {
+    %weights = const.Declare tensor<1x1x2x2xf16> = dense<1.000000e+00> : tensor<1x1x2x2xf16>
+    %output = IE.TransposedConvolution(%input, %weights) {
+            strides = [2, 2], pads_begin = [0, 0], pads_end = [0, 0], dilations = [2, 2],
+            operandSegmentSizes = array<i32: 1, 1, 0, 0>, spatial_output_padding = [0, 0]
+        } : tensor<1x1x3x3xf16>, tensor<1x1x2x2xf16> -> tensor<1x1x7x7xf16>
+    return %output : tensor<1x1x7x7xf16>
+
+    // CHECK-DAG:   [[WEIGHTS:%.+]] = const.Declare tensor<1x1x2x2xf16> = dense<1.000000e+00> : tensor<1x1x2x2xf16>
+    // CHECK:       [[UPS:%.+]] = IE.Upsampling
+    // CHECK-SAME:      #IE.UpsamplingPad<pads_channel = [0, 0], pads_height = [2, 2], pads_width = [2, 2]>
+    // CHECK-SAME:      upsampling_factor = [2, 2, 1]
+    // CHECK-SAME:      tensor<1x1x3x3xf16> -> tensor<1x1x9x9xf16>
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[UPS]], [[WEIGHTS]])
+    // CHECK-SAME:      dilations = [2, 2]
+    // CHECK-SAME:      pads_begin = [0, 0]
+    // CHECK-SAME:      pads_end = [0, 0]
+    // CHECK-SAME:      strides = [1, 1]
+    // CHECK-SAME:      tensor<1x1x9x9xf16>, tensor<1x1x2x2xf16> -> tensor<1x1x7x7xf16>
+    // CHECK:       return [[CONV]]
 }

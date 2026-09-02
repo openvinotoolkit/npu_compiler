@@ -263,7 +263,7 @@ AddressType vpux::getAlignment(mlir::Value val, AddressType defaultAlignment) {
 //
 
 mlir::MemRefType vpux::getMemRefType(ShapeRef shape, mlir::Type elemType, const DimsOrder& order,
-                                     IndexedSymbolAttr memSpace, StridesRef strides,
+                                     IndexedSymbolAttr memSpace, StridesRef strides, BoundsRef bounds,
                                      VPUIP::SwizzlingSchemeAttr swizzlingSchemeAttr,
                                      VPUIP::SparsityCompressionAttr sparsityCompressionAttr,
                                      mlir::IntegerAttr allocSizeAttr, VPUIP::CompressionStateAttr compressionState) {
@@ -279,6 +279,8 @@ mlir::MemRefType vpux::getMemRefType(ShapeRef shape, mlir::Type elemType, const 
                       effectiveOrder);
     VPUX_THROW_UNLESS(strides.empty() || shape.size() == strides.size(), "Strides '{0}' doesn't match shape '{1}'",
                       strides, shape);
+    VPUX_THROW_UNLESS(bounds.empty() || bounds.size() == shape.size(), "Bounds '{0}' doesn't match shape '{1}'", bounds,
+                      shape);
 
     auto* ctx = elemType.getContext();
     const auto orderAttr = mlir::AffineMapAttr::get(effectiveOrder.toAffineMap(ctx));
@@ -286,7 +288,12 @@ mlir::MemRefType vpux::getMemRefType(ShapeRef shape, mlir::Type elemType, const 
     mlir::ArrayAttr stridesAttr = nullptr;
     if (!strides.empty()) {
         const Bit elemSize = getElemTypeSize(elemType);
-        const auto memShape = effectiveOrder.toMemoryOrder(shape);
+        auto memShape = effectiveOrder.toMemoryOrder(shape);
+        if (shape.isDynamic()) {
+            VPUX_THROW_UNLESS(!bounds.empty(), "Dynamic shape '{0}' with explicit strides requires non-empty bounds",
+                              shape);
+            memShape = effectiveOrder.toMemoryOrder(ShapeRef(bounds.raw()));
+        }
         const auto memStrides = effectiveOrder.toMemoryOrder(strides);
         const auto compactReqs = StrideReqs::compact(shape.size());
         if (!compactReqs.checkStrides(memStrides, elemSize, memShape)) {
@@ -307,13 +314,13 @@ mlir::MemRefType vpux::getMemRefType(ShapeRef shape, mlir::Type elemType, const 
     // This matches mlir::bufferization::getMemRefTypeWithStaticIdentityLayout
     // and prevents spurious memref.cast ops at function boundaries.
     if (orderAttr.getValue().isIdentity() && !stridesAttr && !swizzlingSchemeAttr && !sparsityCompressionAttr &&
-        !allocSizeAttr && !compressionState) {
+        !allocSizeAttr && !compressionState && bounds.empty()) {
         // No layout extras → bare memref (Builder already has null layout by default).
         return builder;
     }
 
     const auto layoutAttr =
-            vpux::MemRefAttr::get(orderAttr, stridesAttr, allocSizeAttr,
+            vpux::MemRefAttr::get(orderAttr, stridesAttr, allocSizeAttr, bounds,
                                   {swizzlingSchemeAttr, sparsityCompressionAttr, compressionState}, ctx);
     builder.setLayout(mlir::cast<mlir::MemRefLayoutAttrInterface>(layoutAttr));
     return builder;

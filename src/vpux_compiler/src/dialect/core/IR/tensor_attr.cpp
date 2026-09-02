@@ -216,19 +216,3 @@ IndexedSymbolAttr vpux::getMemorySpace(mlir::RankedTensorType type) {
 
     return nullptr;
 }
-
-BoundsRef vpux::getBounds(mlir::Type type) {
-    if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(type)) {
-        return boundedType.getBounds();
-    }
-
-    return {};
-};
-
-DynamicDimsMaskRef vpux::getDynamicDimsMask(mlir::Type type) {
-    if (auto dynamicDimsMaskType = mlir::dyn_cast<Core::DynamicDimsMaskTensorType>(type)) {
-        return dynamicDimsMaskType.getDynamicDimsMask();
-    }
-
-    return {};
-}

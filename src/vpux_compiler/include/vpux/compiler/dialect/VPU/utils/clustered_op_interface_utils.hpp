@@ -62,5 +62,17 @@ bool checkMCRestrictions(mlir::Operation*);
 bool doesLayerFitIntoCMX(mlir::Operation* op, VPU::MultiClusterStrategy strategy, SiblingOpsAnalysis& siblingsAnalysis,
                          Byte reservedMem);
 
+// Simplified SOH compatibility check for SW eltwise ops.
+// Performs a direct numTiles/numClusters check without full NCE tiling back-inference.
+bool isEltwiseSWOpSplitOverHeightCompatible(mlir::Operation* op, vpux::ShapeRef outputShape, int64_t alignment = 1);
+
+// Simplified SOW compatibility check for SW eltwise ops.
+// Enforces a minimum output width threshold for ops without cycle cost support.
+bool isEltwiseSWOpSplitOverWidthCompatible(mlir::Operation* op, vpux::ShapeRef outputShape, int64_t alignment = 1);
+
+// Simplified SOK compatibility check for SW eltwise ops.
+// Performs a direct numTiles/numClusters check without full NCE tiling back-inference.
+bool isEltwiseSWOpSplitOverKernelCompatible(mlir::Operation* op, vpux::ShapeRef outputShape, int64_t alignment = 1);
+
 }  // namespace VPU
 }  // namespace vpux

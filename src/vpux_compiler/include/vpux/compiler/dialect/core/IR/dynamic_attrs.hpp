@@ -43,6 +43,9 @@ using BoundsRef = details::DimValuesRef<Dim, int64_t, details::BoundsTag>;
 using DynamicDimsMask = details::DimValues<Dim, int64_t, details::DimsMaskTag>;
 using DynamicDimsMaskRef = details::DimValuesRef<Dim, int64_t, details::DimsMaskTag>;
 
+BoundsRef getBounds(mlir::Type type);
+DynamicDimsMaskRef getDynamicDimsMask(mlir::Type type);
+
 //
 // Element Size-Representation Pairs
 //

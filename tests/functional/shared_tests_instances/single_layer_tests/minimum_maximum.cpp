@@ -44,7 +44,7 @@ class MaxMinLayerTestDynamic : public MaxMinLayerTest, virtual public VpuOv2Laye
         const auto& partialShape = dataShape[0].first;
         std::vector<size_t> constantShape;
 
-        for (size_t i = 0; i < partialShape.rank().get_length(); ++i) {
+        for (int64_t i = 0; i < partialShape.rank().get_length(); ++i) {
             if (partialShape[i].is_static()) {
                 constantShape.push_back(partialShape[i].get_length());
             } else {
@@ -103,6 +103,7 @@ TEST_P(ShaveCodeGenMaxMinLayerTestCommon, NPU5010) {
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
+
 TEST_P(MaxMinLayerTestCommon, NPU5020_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);

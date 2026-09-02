@@ -608,7 +608,7 @@ func.func @InterpolateDynamicAllAxes(
 // CHECK-LABEL: @InterpolateLargeScaleAsParamInputCapsReturnTypeBound
 // CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x3x1081x1920xf16>, [[ARG_1:%[^:]+]]: tensor<2xf16>)
 func.func @InterpolateLargeScaleAsParamInputCapsReturnTypeBound(%arg0: tensor<1x3x1081x1920xf16>, %arg1: tensor<2xf16>)
-        -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 4324, 7680]> : tensor<4xsi64>, order = #NCHW}> {
+        -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3838]> : tensor<4xsi64>, order = #NCHW}> {
     %0 = IE.Interpolate(%arg0, %arg1) {
         attr = #IE.Interpolate<mode = <LINEAR>,
                                shape_calc_mode = <SCALES>,
@@ -622,12 +622,12 @@ func.func @InterpolateLargeScaleAsParamInputCapsReturnTypeBound(%arg0: tensor<1x
         operandSegmentSizes = array<i32: 1, 0, 1, 0>,
         sizes_attr = []}
         : tensor<1x3x1081x1920xf16>, tensor<2xf16>
-            -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 4324, 7680]> : tensor<4xsi64>, order = #NCHW}>
-    return %0 : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 4324, 7680]> : tensor<4xsi64>, order = #NCHW}>
+            -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3838]> : tensor<4xsi64>, order = #NCHW}>
+    return %0 : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3838]> : tensor<4xsi64>, order = #NCHW}>
 
     // CHECK:       [[INTERP:%.+]] = IE.Interpolate([[ARG_0]], [[ARG_1]])
     // CHECK-SAME:      axes_attr = [2, 3]
     // CHECK-SAME:      operandSegmentSizes = array<i32: 1, 0, 1, 0>
-    // CHECK-SAME:      -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 4324, 7680]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-SAME:      -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3838]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:       return [[INTERP]]
 }

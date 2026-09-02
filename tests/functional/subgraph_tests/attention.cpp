@@ -107,16 +107,17 @@ public:
         return std::find(options.begin(), options.end(), option) != options.end();
     }
 
-    // Helper function to check if a shape is broadcastable to a target shape
+    // Helper function to check if a shape is broadcastable to a target shape.
     static bool isBroadcastableTo(const ov::Shape& shape, const ov::Shape& targetShape) {
         if (shape.empty()) {
             return true;  // Empty shape is considered valid
         }
-        if (shape.size() != targetShape.size()) {
+        if (shape.size() > targetShape.size()) {
             return false;
         }
+        const size_t rankDiff = targetShape.size() - shape.size();
         for (size_t i = 0; i < shape.size(); ++i) {
-            if (shape[i] != 1 && shape[i] != targetShape[i]) {
+            if (shape[i] != 1 && shape[i] != targetShape[rankDiff + i]) {
                 return false;
             }
         }
@@ -401,10 +402,8 @@ public:
         const AttentionParams testParams(shapeConfig, attentionType);
         const OptionFlags setupOpts(testParams.options);
 
-        // Use FP32 for FULL_LINE_MASK: reference runs Add in FP32 where float_lowest + score = float_lowest.
-        // NPU compiler internally converts to FP16, exercising the mask-aware kernel path.
-        inType = outType = setupOpts.fullLineMask ? ov::element::f32 : ov::element::f16;
-
+        // Run the test model in FP32 to avoid compounding FP16 error from both reference and NPU paths.
+        inType = outType = ov::element::f32;
         // Validate parameters
         validateAttentionParams(testParams);
 
@@ -898,4 +897,21 @@ INSTANTIATE_TEST_SUITE_P(
                 }),
                 ::testing::Values(AttentionType::PATTERN)),
         AttentionTestCommon::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(
+        smoke_AttentionDMA, AttentionTestDecompose,
+        ::testing::Combine(
+                ::testing::ValuesIn(std::vector<AttentionShapeConfig>{AttentionShapeConfig{
+                        {1, 12, 3600, 16}, {1, 12, 3600, 16}, {1, 12, 3600, 16}, {1, 1, 1, 3600}, {1}, {}, {}}}),
+                ::testing::Values(AttentionType::SDPA)),
+        AttentionTestDecompose::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(
+        smoke_AttentionDMA, AttentionTestDecomposeNPU4,
+        ::testing::Combine(
+                ::testing::ValuesIn(std::vector<AttentionShapeConfig>{AttentionShapeConfig{
+                        {1, 12, 3600, 16}, {1, 12, 3600, 16}, {1, 12, 3600, 16}, {1, 1, 1, 3600}, {1}, {}, {}}}),
+                ::testing::Values(AttentionType::SDPA)),
+        AttentionTestDecomposeNPU4::getTestCaseName);
+
 }  // namespace ov::test

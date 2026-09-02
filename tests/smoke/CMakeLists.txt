@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2022-2025 Intel Corporation
+# Copyright (C) 2022-2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -14,6 +14,8 @@ ov_add_test_target(
     LABELS
         VPU
 )
+
+enable_warnings_as_errors(${TARGET_NAME})
 
 install(TARGETS ${TARGET_NAME}
         RUNTIME DESTINATION tests

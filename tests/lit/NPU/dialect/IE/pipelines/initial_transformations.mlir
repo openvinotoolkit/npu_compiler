@@ -76,6 +76,72 @@ func.func @UnrollMatMulAndPropagate(%arg0: tensor<1x8x4096x40xf32>, %arg1: tenso
 
 // -----
 
+// CHECK-LABEL: @UnrollSDPAGQATokenLen8
+// CHECK-SAME:      [[Q:%.+]]: tensor<1x32x8x128xf32>
+// CHECK-SAME:      [[K_IN:%.+]]: tensor<1x8x1x8704x128xf32>
+// CHECK-SAME:      [[MASK:%.+]]: tensor<1x1x8x8704xf32>
+// CHECK-SAME:      [[V_IN:%.+]]: tensor<1x8x128x8704xf32>
+// CHECK-SAME:      [[SCALE:%.+]]: tensor<1x1x1x1xf32>
+func.func @UnrollSDPAGQATokenLen8(%q: tensor<1x32x8x128xf32>, %k_broadcast_in: tensor<1x8x1x8704x128xf32>,
+                                                %mask: tensor<1x1x8x8704xf32>, %v_pre_broadcast: tensor<1x8x128x8704xf32>,
+                                                %scale: tensor<1x1x1x1xf32>) -> tensor<1x32x8x128xf32> {
+    %cst_14 = const.Declare tensor<5xsi32> = dense<[1, 8, 4, 8704, 128]> : tensor<5xsi64>, [#const.CastElemType<si32>]
+    %114 = IE.Broadcast(%k_broadcast_in, %cst_14) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x8x1x8704x128xf32>, tensor<5xsi32> -> tensor<1x8x4x8704x128xf32>
+    %115 = IE.AffineReshape(%114) {dim_mapping = [[0], [1], [1], [2], [3]], shape_value = [1, 32, 8704, 128]} : tensor<1x8x4x8704x128xf32> -> tensor<1x32x8704x128xf32>
+
+    %cst_15 = const.Declare tensor<5xsi32> = dense<[1, 8, 4, 128, 8704]> : tensor<5xsi64>, [#const.CastElemType<si32>]
+    %116 = IE.Multiply(%q, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x8x128xf32>, tensor<1x1x1x1xf32> -> tensor<1x32x8x128xf32>
+    %117 = IE.MatMul(%116, %115) {transpose_b} : tensor<1x32x8x128xf32>, tensor<1x32x8704x128xf32> -> tensor<1x32x8x8704xf32>
+    %118 = IE.Add(%117, %mask) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x8x8704xf32>, tensor<1x1x8x8704xf32> -> tensor<1x32x8x8704xf32>
+    %119 = IE.SoftMax(%118) {axisInd = 3 : i64} : tensor<1x32x8x8704xf32> -> tensor<1x32x8x8704xf32>
+
+    %120 = IE.AffineReshape(%v_pre_broadcast) {dim_mapping = [[0], [1, 2], [3], [4]], shape_value = [1, 8, 1, 128, 8704]} : tensor<1x8x128x8704xf32> -> tensor<1x8x1x128x8704xf32>
+    %121 = IE.Broadcast(%120, %cst_15) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x8x1x128x8704xf32>, tensor<5xsi32> -> tensor<1x8x4x128x8704xf32>
+    %122 = IE.AffineReshape(%121) {dim_mapping = [[0], [1], [1], [2], [3]], shape_value = [1, 32, 128, 8704]} : tensor<1x8x4x128x8704xf32> -> tensor<1x32x128x8704xf32>
+
+    %123 = IE.MatMul(%119, %122) {transpose_b} : tensor<1x32x8x8704xf32>, tensor<1x32x128x8704xf32> -> tensor<1x32x8x128xf32>
+    %124 = IE.Reshape(%123) {shape_value = [1, 32, 8, 128]} : tensor<1x32x8x128xf32> -> tensor<1x32x8x128xf32>
+
+    return %124 : tensor<1x32x8x128xf32>
+
+    // Q head: Multiply by scale then Reshape from [1,32,8,128] to [1,8,32,128] (heads laid out on dim 1)
+    // CHECK:       [[Q_SCALED:%.+]] = IE.Multiply([[Q]], [[SCALE]]) {{.*}} : tensor<1x32x8x128xf32>, tensor<1x1x1x1xf32> -> tensor<1x32x8x128xf32>
+    // CHECK:       [[Q_RESHAPE:%.+]] = IE.Reshape([[Q_SCALED]]) {shape_value = [1, 8, 32, 128]} : tensor<1x32x8x128xf32> -> tensor<1x8x32x128xf32>
+
+    // K head: the 5D BIDIRECTIONAL broadcast is folded into a single AffineReshape (no IE.Broadcast should remain)
+    // CHECK:       [[K_RESHAPE:%.+]] = IE.AffineReshape([[K_IN]]) {{.*}} : tensor<1x8x1x8704x128xf32> -> tensor<1x8x8704x128xf32>
+    // CHECK-NOT:   IE.Broadcast
+
+    // 8 unrolled Q @ K^T FullyConnected branches
+    // CHECK-COUNT-8: IE.FullyConnected({{%.+}}, {{%.+}}) : tensor<32x128xf32>, tensor<8704x128xf32> -> tensor<32x8704xf32>
+
+    // Mask is tiled once across the 4-way GQA broadcast (1x1x8x8704 -> 1x1x32x8704)
+    // CHECK:       [[TILED_MASK:%.+]] = IE.Tile({{%.+}}) {repeats_values = [1, 1, 4, 1]} : tensor<1x1x8x8704xf32> -> tensor<1x1x32x8704xf32>
+
+    // Each of the 8 branches must add the tiled mask (proves no branch uses the raw mask)
+    // CHECK-COUNT-8: IE.Add({{%.+}}, [[TILED_MASK]]) {{.*}} : tensor<1x1x32x8704xf32>, tensor<1x1x32x8704xf32> -> tensor<1x1x32x8704xf32>
+    // At least one per-branch SoftMax with the expected axis/shape must follow the last Add
+    // CHECK:       IE.SoftMax({{%.+}}) {axisInd = 3 : i64} : tensor<1x1x32x8704xf32> -> tensor<1x1x32x8704xf32>
+
+    // Concat 8 per-branch attention scores -> tensor<1x8x32x8704xf32>
+    // CHECK:       [[CONCAT_ATTN:%.+]] = IE.Concat
+    // CHECK-SAME:      -> tensor<1x8x32x8704xf32>
+
+    // 8 unrolled attn @ V FullyConnected branches
+    // CHECK-COUNT-8: IE.FullyConnected({{%.+}}, {{%.+}}) : tensor<32x8704xf32>, tensor<128x8704xf32> -> tensor<32x128xf32>
+
+    // Concat 8 per-branch outputs -> tensor<1x8x32x128xf32>, then Reshape back to Q layout
+    // CHECK:       [[CONCAT_OUT:%.+]] = IE.Concat
+    // CHECK-SAME:      -> tensor<1x8x32x128xf32>
+    // CHECK:       [[FINAL:%.+]] = IE.Reshape([[CONCAT_OUT]]) {shape_value = [1, 32, 8, 128]} : tensor<1x8x32x128xf32> -> tensor<1x32x8x128xf32>
+
+    // Guard: no non-unrolled 32-head SoftMax against the raw broadcast mask should survive
+    // CHECK-NOT:   : tensor<1x32x8x8704xf32>, tensor<1x1x8x8704xf32> -> tensor<1x32x8x8704xf32>
+    // CHECK:       return [[FINAL]] : tensor<1x32x8x128xf32>
+}
+
+// -----
+
 // CHECK-LABEL: @MergeParallelLayers
 // CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x1x2x256xf32>,
 // CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x1537x256xf32>,

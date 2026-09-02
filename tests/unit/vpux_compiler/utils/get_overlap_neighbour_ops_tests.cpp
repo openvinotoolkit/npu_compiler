@@ -274,14 +274,14 @@ llvm::StringLiteral twoConvConsumers = R"(
             %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) rawFilterShape [144, 144, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                    
+
                     strides = [1, 1]}
                         : tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<144x144x3x3xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x28x27xf16, {order = #NHWC}>
 
             %2 = VPU.NCE.Convolution(%0, %w1, %weightsTable) rawFilterShape [144, 144, 5, 5] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 2 : i64, right = 2 : i64, top = 2 : i64, bottom = 2 : i64>,
-                    
+
                     strides = [1, 1]}
                         : tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<144x144x5x5xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x28x27xf16, {order = #NHWC}>
 
@@ -329,7 +329,7 @@ llvm::StringLiteral nceInterpAndConvConsumers = R"(
             %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) rawFilterShape [144, 144, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                    
+
                     strides = [1, 1]}
                         : tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<144x144x3x3xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x28x27xf16, {order = #NHWC}>
 
@@ -346,7 +346,7 @@ llvm::StringLiteral nceInterpAndConvConsumers = R"(
 
             %2 = VPU.NCE.Interpolate(%interpIn, %w3, %weightsTable) rawFilterShape [144, 144, 2, 2] {
                 ppe = #VPU.PPEStub<>,
-                
+
                 strides = [1, 1],
                 mode = #VPU.nce_interpolate_mode<BILINEAR>,
                 scales_attr = [2, 2]}
@@ -386,14 +386,14 @@ llvm::StringLiteral threeClusteredConsumers = R"(
             %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) rawFilterShape [144, 144, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                    
+
                     strides = [1, 1]}
                         : tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<144x144x3x3xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x28x27xf16, {order = #NHWC}>
 
             %2 = VPU.NCE.Convolution(%0, %w1, %weightsTable) rawFilterShape [144, 144, 5, 5] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 2 : i64, right = 2 : i64, top = 2 : i64, bottom = 2 : i64>,
-                    
+
                     strides = [1, 1]}
                         : tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<144x144x5x5xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x28x27xf16, {order = #NHWC}>
 
@@ -432,7 +432,7 @@ llvm::StringLiteral oneConsumerNotClustered = R"(
             %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) rawFilterShape [144, 144, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                    
+
                     strides = [1, 1]}
                         : tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<144x144x3x3xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32> -> tensor<1x144x28x27xf16, {order = #NHWC}>
 
@@ -532,7 +532,7 @@ llvm::StringLiteral quantizeCastDirectConsumer = R"(
             %2 = VPU.NCE.Convolution(%1, %weights0, %weightsTable) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    
+
                     strides = [2, 2]}
                         : tensor<1x32x28x27x!qElemType2, {order = #NHWC}>, tensor<32x32x1x1x!qElemType1, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x14x14x!qElemType2, {order = #NHWC}>
 
@@ -542,7 +542,7 @@ llvm::StringLiteral quantizeCastDirectConsumer = R"(
             %4 = VPU.NCE.Convolution(%3, %weights1, %weightsTable) rawFilterShape [32, 32, 5, 5] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 2 : i64, right = 2 : i64, top = 2 : i64, bottom = 2 : i64>,
-                    
+
                     strides = [1, 1]}
                         : tensor<1x32x28x27x!qElemType3, {order = #NHWC}>, tensor<32x32x5x5x!qElemType1, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x28x27x!qElemType3, {order = #NHWC}>
 
@@ -587,21 +587,21 @@ llvm::StringLiteral multipleConsumersOfQuantizeCast = R"(
             %2 = VPU.NCE.Convolution(%1, %weights0, %weightsTable) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    
+
                     strides = [2, 2]}
                         : tensor<1x32x28x27x!qElemType2, {order = #NHWC}>, tensor<32x32x1x1x!qElemType1, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x14x14x!qElemType2, {order = #NHWC}>
 
             %4 = VPU.NCE.Convolution(%1, %weights1, %weightsTable) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                    
+
                     strides = [1, 1]}
                         : tensor<1x32x28x27x!qElemType2, {order = #NHWC}>, tensor<32x32x3x3x!qElemType1, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x28x27x!qElemType3, {order = #NHWC}>
 
             %5 = VPU.NCE.Convolution(%0, %weights0, %weightsTable) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    
+
                     strides = [1, 1]}
                         : tensor<1x32x28x27x!qElemType, {order = #NHWC}>, tensor<32x32x1x1x!qElemType1, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x28x27x!qElemType3, {order = #NHWC}>
 
@@ -688,20 +688,21 @@ llvm::StringLiteral eltwiseResidualBlock = R"(
             %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) rawFilterShape [16, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                    
+
                     strides = [1, 1]}
                         : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
             %2 = VPU.NCE.Convolution(%0, %w1, %weightsTable) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    
+
                     strides = [2, 2]}
                         : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x4x4xf16, {order = #NHWC}>
 
             %3 = VPU.NCE.Eltwise(%0, %1) {
                     op_type = #VPU.eltwise_type<ADD>,
-                    ppe = #VPU.PPEStub<>}
+                    ppe = #VPU.PPEStub<>,
+                    resultSegmentSizes = array<i32: 1, 0, 0, 0>}
                         -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
             return %2, %3 : tensor<1x16x4x4xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>
@@ -740,7 +741,7 @@ llvm::StringLiteral eltwiseWithParentsInDiffSubgraphs = R"(
             %1 = VPU.NCE.Convolution(%0, %w0, %weightsTable) rawFilterShape [16, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
@@ -754,13 +755,14 @@ llvm::StringLiteral eltwiseWithParentsInDiffSubgraphs = R"(
             %3 = VPU.NCE.Convolution(%2, %w1, %weightsTable) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     ppe = #VPU.PPEStub<>,
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                    
+
                     strides = [1, 1]}
                         : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>,  tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
             %4 = VPU.NCE.Eltwise(%0, %2) {
                     op_type = #VPU.eltwise_type<ADD>,
-                    ppe = #VPU.PPEStub<>}
+                    ppe = #VPU.PPEStub<>,
+                    resultSegmentSizes = array<i32: 1, 0, 0, 0>}
                         -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
             return %1, %3, %4 : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>
@@ -833,7 +835,7 @@ llvm::StringLiteral eltwiseInPlaceSubgraph = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
@@ -841,21 +843,22 @@ llvm::StringLiteral eltwiseInPlaceSubgraph = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                
+
                 strides = [2, 2]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x4x4xf16, {order = #NHWC}>
 
             %3 = VPU.NCE.Eltwise(%0, %1) {
                 is_inplace = true,
                 op_type = #VPU.eltwise_type<ADD>,
-                ppe = #VPU.PPEStub<>}
+                ppe = #VPU.PPEStub<>,
+                resultSegmentSizes = array<i32: 1, 0, 0, 0>}
                     -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
             %4 = VPU.NCE.Convolution(%3, %w2, %weightsTable) rawFilterShape [16, 16, 5, 5] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 2 : i64, right = 2 : i64, top = 2 : i64, bottom = 2 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x5x5xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
@@ -899,7 +902,7 @@ llvm::StringLiteral eltwiseInPlaceWithParentsInDiffSubgraphs = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
@@ -915,21 +918,22 @@ llvm::StringLiteral eltwiseInPlaceWithParentsInDiffSubgraphs = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
             %4 = VPU.NCE.Eltwise(%0, %2) {
                 is_inplace = true,
                 op_type = #VPU.eltwise_type<ADD>,
-                ppe = #VPU.PPEStub<>}
+                ppe = #VPU.PPEStub<>,
+                resultSegmentSizes = array<i32: 1, 0, 0, 0>}
                     -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
             %5 = VPU.NCE.Convolution(%4, %w2, %weightsTable) rawFilterShape [16, 16, 5, 5] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 2 : i64, right = 2 : i64, top = 2 : i64, bottom = 2 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x5x5xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
@@ -1011,7 +1015,7 @@ llvm::StringLiteral concatSubgraph = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
@@ -1019,7 +1023,7 @@ llvm::StringLiteral concatSubgraph = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                
+
                 strides = [2, 2]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x4x4xf16, {order = #NHWC}>
 
@@ -1031,7 +1035,7 @@ llvm::StringLiteral concatSubgraph = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 2 : i64, right = 2 : i64, top = 2 : i64, bottom = 2 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x32x8x8xf16, {order = #NHWC}>, tensor<16x32x5x5xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
@@ -1081,7 +1085,7 @@ llvm::StringLiteral notSOHCompatibleConcatSubgraph = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
@@ -1089,7 +1093,7 @@ llvm::StringLiteral notSOHCompatibleConcatSubgraph = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                
+
                 strides = [2, 2]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x4x4xf16, {order = #NHWC}>
 
@@ -1147,7 +1151,7 @@ llvm::StringLiteral concatWithParentsInDiffSubgraphs = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
@@ -1163,7 +1167,7 @@ llvm::StringLiteral concatWithParentsInDiffSubgraphs = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
@@ -1175,7 +1179,7 @@ llvm::StringLiteral concatWithParentsInDiffSubgraphs = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 2 : i64, right = 2 : i64, top = 2 : i64, bottom = 2 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x32x8x8xf16, {order = #NHWC}>, tensor<16x32x5x5xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
@@ -1276,7 +1280,7 @@ llvm::StringLiteral mixedSubgraph0 = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
@@ -1296,14 +1300,15 @@ llvm::StringLiteral mixedSubgraph0 = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 2 : i64, right = 2 : i64, top = 2 : i64, bottom = 2 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x32x8x8xf16, {order = #NHWC}>, tensor<16x32x5x5xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
             %6 = VPU.NCE.Eltwise(%3, %4) {
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 op_type = #VPU.eltwise_type<ADD>,
-                ppe = #VPU.PPEStub<>}
+                ppe = #VPU.PPEStub<>,
+                resultSegmentSizes = array<i32: 1, 0, 0, 0>}
                     -> tensor<1x32x8x8xf16, {order = #NHWC}>
 
             return %2, %5, %6 : tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x32x8x8xf16, {order = #NHWC}>
@@ -1363,7 +1368,7 @@ llvm::StringLiteral mixedSubgraph1 = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x16x8x8x!qElemType, {order = #NHWC}>, tensor<16x16x3x3x!qElemType1, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8x!qElemType2, {order = #NHWC}>
 
@@ -1374,14 +1379,15 @@ llvm::StringLiteral mixedSubgraph1 = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x16x8x8x!qElemType2, {order = #NHWC}>, tensor<16x16x3x3x!qElemType1, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8x!qElemType3, {order = #NHWC}>
 
             %5 = VPU.NCE.Eltwise(%1, %3) {
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 op_type = #VPU.eltwise_type<ADD>,
-                ppe = #VPU.PPEStub<>}
+                ppe = #VPU.PPEStub<>,
+                resultSegmentSizes = array<i32: 1, 0, 0, 0>}
                     -> tensor<1x16x8x8x!qElemType2, {order = #NHWC}>
 
             %6 = VPU.Concat(%1, %2) {static_offsets = [[0, 0, 0, 0], [0, 16, 0, 0]]}:
@@ -1392,7 +1398,7 @@ llvm::StringLiteral mixedSubgraph1 = R"(
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 2 : i64, right = 2 : i64, top = 2 : i64, bottom = 2 : i64>,
-                
+
                 strides = [1, 1]}
                     : tensor<1x32x8x8x!qElemType2, {order = #NHWC}>, tensor<16x32x5x5x!qElemType1, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x8x8x!qElemType3, {order = #NHWC}>
 

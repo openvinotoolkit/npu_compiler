@@ -233,6 +233,10 @@ mlir::FailureOr<SymbolizationResult> NNDMARewriter::symbolize(VPUMI40XX::NNDMAOp
     auto skipDmaAttr = op.getSkipDmaAttr();
     auto fetchDmaAttr = op.getFetchDmaAttr();
 
+    auto taskDynIdAttr = op.getTaskDynIdAttr();
+    mlir::SymbolRefAttr dynamicSequenceLenBuffAttr =
+            op.getDynamicSequenceLengthBuff() ? findSym(op.getDynamicSequenceLengthBuff()) : nullptr;
+
     auto descriptor = op.getDmaDescriptorAttr();
 
     // Prioritize the newer DMATransactionAttr
@@ -245,7 +249,8 @@ mlir::FailureOr<SymbolizationResult> NNDMARewriter::symbolize(VPUMI40XX::NNDMAOp
             op.getLoc(), symName, taskIdx, taskLocation, nextLink, input, outputs, waitAttr, updateAttr, startAfter,
             cleanAfter, accelerationMode, op.getDmaEncodingAlgoAttr(), op.getIsOutOfOrder(), op.getIsCritical(),
             op.getEnableMsc(), actCompressionSizeEntryAttr, sparsityMapAttr, transaction, descriptor, dmaHwpIdAttr,
-            cmxTiles, indicesAttr, addressingModeAttr, skipDmaAttr, fetchDmaAttr);
+            cmxTiles, indicesAttr, addressingModeAttr, skipDmaAttr, fetchDmaAttr, taskDynIdAttr,
+            dynamicSequenceLenBuffAttr);
 
     if (auto strided = op->getAttr(vpux::stridedInputAttrName)) {
         newOp->setAttr(vpux::stridedInputAttrName, strided);

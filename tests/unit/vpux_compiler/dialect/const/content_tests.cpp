@@ -8,7 +8,6 @@
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/dialect/const/utils/constant_folding_in_background.hpp"
 #include "vpux/compiler/utils/sparsity.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
 #include "vpux/compiler/utils/types.hpp"
@@ -1592,6 +1591,58 @@ TEST_F(MLIR_ConstContentAttrTest, PadPerAxisQuantileI4) {
     }
 }
 
+TEST_F(MLIR_ConstContentAttrTest, PadWithZero_PerAxisQuantileUI4_ZeroAtLastLUTIndex) {
+    ctx.loadDialect<mlir::quant::QuantDialect>();
+
+    const std::vector<double> quantileLUT = {1.5,  1.0,  2.0,  3.0,  4.0,  5.0,  6.0,  7.0,
+                                             -8.0, -7.0, -6.0, -5.0, -4.0, -3.0, -2.0, 0.0};
+    const std::vector<double> scales = {4.343750e+00,  3.625000e+00,  -5.031250e+00, -1.375000e+00,
+                                        -3.484375,     4.156250e+00,  -2.687500e+00, 3.656250e+00,
+                                        2.765625,      -3.062500e+00, -1.640625,     -6.281250e+00,
+                                        -9.625000e+00, -1.7265625,    7.937500e+00,  5.906250e+00};
+    const std::vector<int64_t> zeroPoints(scales.size(), 0);
+    const int64_t storageTypeMin = -8;
+    const int64_t storageTypeMax = 7;
+
+    const auto quantileStorageType =
+            vpux::type::QuantileType::get(&ctx, getSInt8Type(&ctx), getUInt4Type(&ctx), quantileLUT);
+    const auto quantType = mlir::quant::UniformQuantizedPerAxisType::get(
+            mlir::quant::QuantizationFlags::Signed, quantileStorageType, mlir::Float16Type::get(&ctx), scales,
+            zeroPoints, 0, storageTypeMin, storageTypeMax);
+    ASSERT_NE(quantType, nullptr);
+
+    const int64_t OC = 16;
+    const int64_t IC = 1;
+    const int64_t IH = 1;
+    const int64_t IW = 2;
+    const auto baseType = mlir::RankedTensorType::get({OC, IC, IH, IW}, getSInt8Type(&ctx));
+    std::vector<int8_t> vals(baseType.getNumElements());
+    for (size_t i = 0; i < vals.size(); ++i) {
+        vals[i] = checked_cast<int8_t>((i % 4) + 1);
+    }
+    auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.castElemType(quantType);
+    const int64_t POC = 0;
+    const int64_t PIC = 0;
+    const int64_t PH = 1;
+    const int64_t PW = 0;
+    contentAttrSetup = contentAttrSetup.padWithZero({POC, PIC, PH, PW}, {POC, PIC, PH, PW});
+
+    auto contentAttr = Const::ContentAttr::get(baseAttr, contentAttrSetup);
+    auto content = contentAttr.fold();
+    ASSERT_EQ(content.getType(), contentAttr.getType());
+
+    const auto channelSize = IC * IW * IH;
+    std::vector<float> expVals(vals.begin(), vals.end());
+    constexpr float expectedPadVal = 15.0f;
+    for (int64_t oc = 0; oc < OC + 2 * POC; ++oc) {
+        checkPaddedBuffer<float>(content, expVals, {IC, IH, IW}, {PIC, PH, PW}, expectedPadVal,
+                                 oc * (IC + 2 * PIC) * (IW + 2 * PW) * (IH + 2 * PH), oc * channelSize);
+    }
+}
+
 TEST_F(MLIR_ConstContentAttrTest, SubView) {
     const int64_t IC = 1;
     const int64_t IH = 2;
@@ -2143,34 +2194,6 @@ TEST_F(MLIR_ConstContentAttrTest, ChangeShapeAndElemTypeFloat) {
         EXPECT_EQ(contentVals[i], vals[i]);
     }
 }
-
-#ifdef BACKGROUND_FOLDING_ENABLED
-
-TEST_F(MLIR_ConstContentAttrTest, GetTransformationsRange) {
-    const auto baseType = mlir::RankedTensorType::get({10}, mlir::Float32Type::get(&ctx));
-    Const::ContentSetup contentAttrSetup(nullptr, baseType);
-
-    contentAttrSetup = contentAttrSetup.reshape({2, 5}).subview({0, 0}, {1, 5}).add(1.0);
-
-    auto transformations = contentAttrSetup.getTransformations();
-    ASSERT_EQ(transformations.size(), 3);
-
-    auto subviewTransformation = transformations[1];
-    ASSERT_NE(subviewTransformation, nullptr);
-
-    auto headTransformations = vpux::Const::BackgroundConstantFolding::stripTransformationsFrom(
-            contentAttrSetup.getTransformations(), subviewTransformation);
-    ASSERT_EQ(headTransformations.size(), 1);
-    EXPECT_EQ(headTransformations[0].getTransformationName(), "Reshape");
-
-    auto tailTransformations = vpux::Const::BackgroundConstantFolding::getLastTransformationsFrom(
-            contentAttrSetup.getTransformations(), subviewTransformation);
-    ASSERT_EQ(tailTransformations.size(), 2);
-    EXPECT_EQ(tailTransformations[0].getTransformationName(), "SubView");
-    EXPECT_EQ(tailTransformations[1].getTransformationName(), "Add");
-}
-
-#endif
 
 TEST_F(MLIR_ConstContentAttrTest, SwizzleConstant_SubBytes_I1) {
     const int64_t IN = 1;

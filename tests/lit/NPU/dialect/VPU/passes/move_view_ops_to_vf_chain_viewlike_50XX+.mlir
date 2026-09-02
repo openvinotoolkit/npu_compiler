@@ -19,7 +19,7 @@ func.func @MoveChainQuantizeCastAffineReshape(%arg0: tensor<1x128x256x1x!qElemTy
                              %arg0 as %arg2: tensor<1x128x256x1x!qElemType, {order = #NHWC}>)
         attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x128x256x1x!qElemType, {order = #NHWC}> {
       %inner = VPU.NCE.Eltwise(%arg1, %arg2)
-          {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+          {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
           -> tensor<1x128x256x1x!qElemType, {order = #NHWC}>
       VPU.Yield %inner
     }
@@ -35,7 +35,7 @@ func.func @MoveChainQuantizeCastAffineReshape(%arg0: tensor<1x128x256x1x!qElemTy
     %3 = VPU.VerticalFusion (%2 as %arg1: tensor<1x128x64x4x!qElemType1, {order = #NHWC}>)
         attributes {tilingStrategy = [1, 2, 1, 1]} -> tensor<1x128x64x4xf16, {order = #NHWC}> {
       %inner = VPU.NCE.Eltwise(%arg1, %arg1)
-          {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+          {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
           -> tensor<1x128x64x4xf16, {order = #NHWC}>
       VPU.Yield %inner
     }
@@ -69,7 +69,7 @@ func.func @MoveChainQuantizeCastShapeCast(%arg0: tensor<1x64x60x1x!qElemType, {o
                              %arg0 as %arg2: tensor<1x64x60x1x!qElemType, {order = #NHWC}>)
         attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x64x60x1x!qElemType, {order = #NHWC}> {
       %inner = VPU.NCE.Eltwise(%arg1, %arg2)
-          {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+          {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
           -> tensor<1x64x60x1x!qElemType, {order = #NHWC}>
       VPU.Yield %inner
     }
@@ -86,7 +86,7 @@ func.func @MoveChainQuantizeCastShapeCast(%arg0: tensor<1x64x60x1x!qElemType, {o
     %3 = VPU.VerticalFusion (%2 as %arg1: tensor<1x64x20x3x!qElemType1, {order = #NHWC}>)
         attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x64x20x3xf16, {order = #NHWC}> {
       %inner = VPU.NCE.Eltwise(%arg1, %arg1)
-          {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+          {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
           -> tensor<1x64x20x3xf16, {order = #NHWC}>
       VPU.Yield %inner
     }
@@ -129,7 +129,7 @@ func.func @NotMoveQuantizeCastNoParentVFOp(%arg0: tensor<1x32x48x48x!qElemType, 
                              %1 as %arg2: tensor<1x32x48x48x!qElemType1, {order = #NHWC}>)
         attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x32x48x48xf16, {order = #NHWC}> {
       %3 = VPU.NCE.Eltwise(%arg1, %arg2)
-        {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x32x48x48xf16, {order = #NHWC}>
+        {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x32x48x48xf16, {order = #NHWC}>
       VPU.Yield %3
     }
     return %2 : tensor<1x32x48x48xf16, {order = #NHWC}>

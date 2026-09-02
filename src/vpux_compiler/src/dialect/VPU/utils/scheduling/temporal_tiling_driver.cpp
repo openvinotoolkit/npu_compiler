@@ -94,7 +94,7 @@ static std::unordered_map<llvm::StringRef, SmallVector<int64_t>> findTileOptions
                 break;
             }
             if (isLastScenario) {
-                auto tiles = fillDividedTiles(op, left, outShape);
+                auto tiles = fillDividedTiles(op, left, outShape, /*efficientWorkloadAlign=*/true);
                 if (mlir::succeeded(tiles) && tiles.value().size() >= 2) {
                     const auto peakMemory = scenario->calculatePeakMemory(op, tiles.value(), costModel);
                     if (config.lastScenarioSearchStopPredicate(peakMemory, cmxSize, config)) {
@@ -186,7 +186,7 @@ std::unordered_map<llvm::StringRef, SmallVector<Shape>> TemporalTilingDriver::ge
             }
 
             // Reject strategies where any tile dimension exceeds VPU_DIMENSION_LIMIT
-            auto tilingResult = fillDividedTiles(op, tiles, outputShape);
+            auto tilingResult = fillDividedTiles(op, tiles, outputShape, /*efficientWorkloadAlign=*/true);
             if (mlir::failed(tilingResult) || tilingResult.value().empty()) {
                 return;
             }
@@ -367,7 +367,8 @@ std::optional<TemporalTilingInfo> TemporalTilingDriver::getBestTilingStrategy(
         log.nest(2).trace("Scenario: {0}, validStrategies: {1}", scenarioName, options.size());
         const auto scenario = scenarioMap[scenarioName];
         for (const auto& nTilesOnDim : options) {
-            auto tilingResult = fillDividedTiles(op.getOperation(), nTilesOnDim, outputShape);
+            auto tilingResult = fillDividedTiles(op.getOperation(), nTilesOnDim, outputShape,
+                                                 /*efficientWorkloadAlign=*/true);
 
             if (mlir::failed(tilingResult) || tilingResult.value().empty()) {
                 continue;

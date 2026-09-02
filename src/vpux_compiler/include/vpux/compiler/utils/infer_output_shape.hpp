@@ -351,4 +351,33 @@ ShapeInfo inferEltwiseOutputShapeInfo(const ShapeInfo& in1ShapeInfo, const Shape
  */
 mlir::LogicalResult reifyYuvToRgbTensors(mlir::Operation* op, mlir::OpBuilder& builder,
                                          mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes);
+
+/**
+ * @brief Infer attention-like output shape with bounded type support.
+ *
+ * Common logic for IE::SDPAOp, IE::AttentionOp, and IE::AttentionDMAOp.
+ * Output shape = Q dims [0..rank-2] + V embedding dim.
+ * Detects V transposition via bounded shapes of K and V.
+ * Propagates BoundedTensorType bounds when output has dynamic dimensions.
+ *
+ * @param ctx             MLIR context
+ * @param inputQ          Q input value (provides output shape dims 0..rank-2)
+ * @param inputK          K input value (used for transposition detection)
+ * @param inputV          V input value (provides the embedding dim)
+ * @param outShape        [out] output shape (may contain kDynamic entries)
+ * @param outEncoding     [out] tensor encoding with bounds, or nullptr if static
+ * @param outElementType  [out] element type of the output
+ */
+void inferAttentionOutputShapeComponents(mlir::MLIRContext* ctx, mlir::Value inputQ, mlir::Value inputK,
+                                         mlir::Value inputV, SmallVector<int64_t>& outShape,
+                                         mlir::Attribute& outEncoding, mlir::Type& outElementType);
+
+/**
+ * @brief Reify attention-like output shape from Q and V inputs.
+ *
+ * Output shape = Q dims [0..rank-2] + V last dim.
+ */
+mlir::LogicalResult reifyAttentionResultShape(mlir::OpBuilder& builder, mlir::Value inputQ, mlir::Value inputV,
+                                              mlir::Location loc,
+                                              mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes);
 }  // namespace vpux

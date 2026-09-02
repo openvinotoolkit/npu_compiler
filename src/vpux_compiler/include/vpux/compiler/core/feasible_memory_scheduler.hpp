@@ -371,6 +371,7 @@ public:
 
 private:
     bool init();
+    void doInitSetup();
     void clearLists();
     void schedulingLoop();
     void initializeReadyLists();

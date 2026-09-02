@@ -205,3 +205,20 @@ func.func @DoNotPropagateMemPermuteThroughSoftmaxWithMultiUses(%arg0: tensor<1x1
 
     // CHECK:               return [[CONVERT]], [[CONV]] : tensor<1x16x4x4620xf32, {order = #NHWC}>, tensor<1x16x4x4620xf16, {order = #NHWC}>
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @PropagateMemPermuteThroughSoftmaxWithPadSize
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x16x4620x4xf16>) -> tensor<1x4620x4x16xf16>
+func.func @PropagateMemPermuteThroughSoftmaxWithPadSize(%arg0: tensor<1x16x4620x4xf16>) -> tensor<1x4620x4x16xf16> {
+    %0 = IE.SoftMax(%arg0) {axisInd = 1 : i64, padSize = 4 : i64} : tensor<1x16x4620x4xf16> -> tensor<1x16x4620x4xf16>
+    %1 = IE.MemPermute(%0) {dst_order = #NCHW, mem_perm = #NHWC} : tensor<1x16x4620x4xf16> -> tensor<1x4620x4x16xf16>
+    return %1 : tensor<1x4620x4x16xf16>
+
+    // CHECK: [[MEMPERMUTE:%.+]] = IE.MemPermute([[ARG_0]]) {dst_order = #NCHW, mem_perm = #NHWC} : tensor<1x16x4620x4xf16> -> tensor<1x4620x4x16xf16>
+    // CHECK: [[SOFTMAX:%.+]] = IE.SoftMax([[MEMPERMUTE]]) {axisInd = 3 : i64, padSize = 4 : i64} : tensor<1x4620x4x16xf16> -> tensor<1x4620x4x16xf16>
+    // CHECK: return [[SOFTMAX]] : tensor<1x4620x4x16xf16>
+}

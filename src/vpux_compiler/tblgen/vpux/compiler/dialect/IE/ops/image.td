@@ -84,6 +84,7 @@ def IE_InterpolateOp :
             "Interpolate",
             [
                 AttrSizedOperandSegments,
+                DeclareOpInterfaceMethods<IE_ShapeInfoOpInterface, ["verifyShapeInfo"]>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {

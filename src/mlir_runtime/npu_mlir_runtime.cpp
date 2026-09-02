@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "intel_npu/npu_mlir_runtime.hpp"
 #include <variant>
 #include "intel_npu/utils/zero/zero_utils.hpp"
 #include "level_zero_wrapper/level_zero_wrapper.h"
@@ -35,9 +34,9 @@
 using namespace intel_npu;
 
 #if defined(_WIN32)
-#define MLIR_ZERO_WRAPPER_FILE_NAME "level_zero_wrapper.dll"
+#define MLIR_ZERO_WRAPPER_FILE_NAME "openvino_intel_npu_level_zero_wrapper.dll"
 #else
-#define MLIR_ZERO_WRAPPER_FILE_NAME "liblevel_zero_wrapper.so"
+#define MLIR_ZERO_WRAPPER_FILE_NAME "libopenvino_intel_npu_level_zero_wrapper.so"
 #endif
 
 class DebugTrace {
@@ -177,30 +176,31 @@ struct MemRefHandle {
     }
 };
 
+// Internal implementation helpers use the shared VM runtime interface types.
 class NPUMLIRRuntime {
 public:
-    NPUMLIRRuntime(const npu_mlir_runtime_blob_desc_t* desc, npu_mlir_runtime_properties_t* pProperties);
+    NPUMLIRRuntime(const npu_vm_runtime_blob_desc_t* desc, npu_vm_runtime_properties_t* pProperties);
     ~NPUMLIRRuntime();
 
     NPUMLIRRuntime(const NPUMLIRRuntime&) = delete;
     NPUMLIRRuntime& operator=(const NPUMLIRRuntime&) = delete;
 
-    void createExecutionEngine(const npu_mlir_runtime_blob_desc_t* blob);
+    void createExecutionEngine(const npu_vm_runtime_blob_desc_t* blob);
 
     void parseMetadata();
 
     void getArgumentProperties(uint32_t argIndex, ze_graph_argument_properties_3_t* pGraphArgumentProperties,
                                ze_graph_argument_metadata_t* pGraphArgumentMetadata);
 
-    void execute(npu_mlir_runtime_execute_params_t* pParams);
+    void execute(npu_vm_runtime_execute_params_t* pParams);
 
-    void predictOutputShape(npu_mlir_runtime_predict_output_shape_params_t* pParams);
+    void predictOutputShape(npu_vm_runtime_predict_output_shape_params_t* pParams);
 
-    void createExecutionContext(npu_mlir_runtime_execution_context_handle_t* phExecutionContextHandle);
-    void destroyExecutionContext(npu_mlir_runtime_execution_context_handle_t hExecutionContextHandle);
-    void updateMutableCommandList(npu_mlir_runtime_execute_params_t* pParams, uint64_t* argIndexArray,
+    void createExecutionContext(npu_vm_runtime_execution_context_handle_t* phExecutionContextHandle);
+    void destroyExecutionContext(npu_vm_runtime_execution_context_handle_t hExecutionContextHandle);
+    void updateMutableCommandList(npu_vm_runtime_execute_params_t* pParams, uint64_t* argIndexArray,
                                   uint64_t argIndexArraySize);
-    void executeMutableCommandList(npu_mlir_runtime_execute_params_t* pParams, uint64_t* argIndexArray,
+    void executeMutableCommandList(npu_vm_runtime_execute_params_t* pParams, uint64_t* argIndexArray,
                                    uint64_t argIndexArraySize);
 
 private:
@@ -227,7 +227,7 @@ public:
     }
 };
 
-void NPUMLIRRuntime::createExecutionEngine(const npu_mlir_runtime_blob_desc_t* desc) {
+void NPUMLIRRuntime::createExecutionEngine(const npu_vm_runtime_blob_desc_t* desc) {
     DebugTrace dt("createExecutionEngine", _logger);
     _logger.debug("Creating execution engine from blob at {0} of size {1}", desc->pInput, desc->inputSize);
     const std::string adapterPrefix = std::string("_mlir_ciface_");
@@ -317,7 +317,7 @@ void NPUMLIRRuntime::parseMetadata() {
     }
 }
 
-NPUMLIRRuntime::NPUMLIRRuntime(const npu_mlir_runtime_blob_desc_t* desc, npu_mlir_runtime_properties_t* pProperties) {
+NPUMLIRRuntime::NPUMLIRRuntime(const npu_vm_runtime_blob_desc_t* desc, npu_vm_runtime_properties_t* pProperties) {
     DebugTrace dt("Constructor", _logger);
     // Initialize MLIR context and register necessary dialects
     llvm::InitializeNativeTarget();
@@ -406,12 +406,12 @@ void NPUMLIRRuntime::getArgumentProperties(uint32_t argIndex,
     }
 }
 
-void NPUMLIRRuntime::execute(npu_mlir_runtime_execute_params_t* pParams) {
-    DebugTrace dt("execute", _logger);
-    _logger.debug("Executing with {0} inputs and {1} outputs", pParams->numOfInputs, pParams->numOfOutputs);
+void NPUMLIRRuntime::execute(npu_vm_runtime_execute_params_t* pParams) {
     if (pParams == nullptr) {
         OPENVINO_THROW("Invalid execute parameters");
     }
+    DebugTrace dt("execute", _logger);
+    _logger.debug("Executing with {0} inputs and {1} outputs", pParams->numOfInputs, pParams->numOfOutputs);
 
     // reset execution context if provided
     if (pParams->executionContext != nullptr) {
@@ -465,7 +465,7 @@ void NPUMLIRRuntime::execute(npu_mlir_runtime_execute_params_t* pParams) {
     }
 }
 
-void NPUMLIRRuntime::predictOutputShape(npu_mlir_runtime_predict_output_shape_params_t* params) {
+void NPUMLIRRuntime::predictOutputShape(npu_vm_runtime_predict_output_shape_params_t* params) {
     DebugTrace dt("predictOutputShape", _logger);
 
     for (uint32_t i = 0; i < params->numOfInputs; i++) {
@@ -545,7 +545,7 @@ void NPUMLIRRuntime::predictOutputShape(npu_mlir_runtime_predict_output_shape_pa
     }
 }
 
-void NPUMLIRRuntime::createExecutionContext(npu_mlir_runtime_execution_context_handle_t* phExecutionContextHandle) {
+void NPUMLIRRuntime::createExecutionContext(npu_vm_runtime_execution_context_handle_t* phExecutionContextHandle) {
     if (!phExecutionContextHandle) {
         OPENVINO_THROW("phExecutionContextHandle is null");
     }
@@ -553,11 +553,10 @@ void NPUMLIRRuntime::createExecutionContext(npu_mlir_runtime_execution_context_h
         OPENVINO_THROW("MLIR ExecutionEngine is not initialized");
     }
 
-    ExecutionContext* pContext = new ExecutionContext(this);
+    auto pContext = std::make_unique<ExecutionContext>(this);
     const std::string funcName = "_mlir_ciface_create_execution_context";
     auto expectedFPtr = _engine->lookupPacked(funcName);
     if (!expectedFPtr) {
-        delete pContext;
         OPENVINO_THROW("Function " + funcName + " not found in MLIR module");
     }
 
@@ -570,14 +569,13 @@ void NPUMLIRRuntime::createExecutionContext(npu_mlir_runtime_execution_context_h
     mlir::ExecutionEngine::Argument<void*>::pack(packedArgs, executionContextHandlePtr);
     auto error = _engine->invokePacked(funcName, packedArgs);
     if (error) {
-        delete pContext;
         OPENVINO_THROW("Error invoking main: " + llvm::toString(std::move(error)));
     }
 
-    *phExecutionContextHandle = reinterpret_cast<npu_mlir_runtime_execution_context_handle_t>(pContext);
+    *phExecutionContextHandle = reinterpret_cast<npu_vm_runtime_execution_context_handle_t>(pContext.release());
 }
 
-void NPUMLIRRuntime::destroyExecutionContext(npu_mlir_runtime_execution_context_handle_t hExecutionContextHandle) {
+void NPUMLIRRuntime::destroyExecutionContext(npu_vm_runtime_execution_context_handle_t hExecutionContextHandle) {
     ExecutionContext* pContext = reinterpret_cast<ExecutionContext*>(hExecutionContextHandle);
 
     const std::string funcName = "_mlir_ciface_destroy_execution_context";
@@ -595,7 +593,7 @@ void NPUMLIRRuntime::destroyExecutionContext(npu_mlir_runtime_execution_context_
     pContext->_executionContextHandle = nullptr;
 }
 
-void NPUMLIRRuntime::updateMutableCommandList(npu_mlir_runtime_execute_params_t* pParams, uint64_t* argIndexArray,
+void NPUMLIRRuntime::updateMutableCommandList(npu_vm_runtime_execute_params_t* pParams, uint64_t* argIndexArray,
                                               uint64_t argIndexArraySize) {
     ExecutionContext* execCtx = reinterpret_cast<ExecutionContext*>(pParams->executionContext);
     if (execCtx == nullptr || execCtx->_executionContextHandle == nullptr) {
@@ -635,7 +633,7 @@ void NPUMLIRRuntime::updateMutableCommandList(npu_mlir_runtime_execute_params_t*
     }
 }
 
-void NPUMLIRRuntime::executeMutableCommandList(npu_mlir_runtime_execute_params_t* pParams, uint64_t* argIndexArray,
+void NPUMLIRRuntime::executeMutableCommandList(npu_vm_runtime_execute_params_t* pParams, uint64_t* argIndexArray,
                                                uint64_t argIndexArraySize) {
     ExecutionContext* execCtx = reinterpret_cast<ExecutionContext*>(pParams->executionContext);
     if (execCtx == nullptr || execCtx->_executionContextHandle == nullptr) {
@@ -689,278 +687,6 @@ extern "C" {
 #define DLLEXPORT __attribute__((visibility("default")))
 #endif
 
-///////////////////////////////////////////////////////////////////////////////
-/// @brief Get API version
-DLLEXPORT npu_mlir_runtime_result_t NPU_MLIR_RUNTIME_APICALL
-npuMLIRRuntimeGetAPIVersion(npu_mlir_runtime_version_t* pVersion) {
-    DebugTrace dt("npuMLIRRuntimeGetAPIVersion");
-    if (pVersion == nullptr) {
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
-    }
-    *pVersion = NPU_MLIR_RUNTIME_VERSION_CURRENT;
-    return NPU_MLIR_RUNTIME_RESULT_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-/// @brief Init MLIR runtime instance and return handle
-DLLEXPORT npu_mlir_runtime_result_t NPU_MLIR_RUNTIME_APICALL
-npuMLIRRuntimeCreate(const npu_mlir_runtime_blob_desc_t* desc, npu_mlir_runtime_handle_t* phRuntime,
-                     npu_mlir_runtime_properties_t* pProperties) {
-    DebugTrace dt("npuMLIRRuntimeCreate");
-    if (phRuntime == nullptr || desc == nullptr) {
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
-    }
-
-    try {
-        NPUMLIRRuntime* runtime = new NPUMLIRRuntime(desc, pProperties);
-        *phRuntime = reinterpret_cast<npu_mlir_runtime_handle_t>(runtime);
-    } catch (const std::exception& e) {
-        vpux::Logger::global().error("npuMLIRRuntimeCreate - Error creating MLIR runtime: {0}", e.what());
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_UNKNOWN;
-    }
-
-    return NPU_MLIR_RUNTIME_RESULT_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-/// @brief Destroy MLIR runtime instance
-DLLEXPORT npu_mlir_runtime_result_t NPU_MLIR_RUNTIME_APICALL npuMLIRRuntimeDestroy(npu_mlir_runtime_handle_t hRuntime) {
-    DebugTrace dt("npuMLIRRuntimeDestroy");
-    if (hRuntime == nullptr) {
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
-    }
-
-    try {
-        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(hRuntime);
-        delete runtime;
-    } catch (const std::exception& e) {
-        vpux::Logger::global().error("npuMLIRRuntimeDestroy - Error destroying MLIR runtime: {0}", e.what());
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_UNKNOWN;
-    }
-
-    return NPU_MLIR_RUNTIME_RESULT_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-/// @brief Get metadata from MLIR runtime instance
-DLLEXPORT npu_mlir_runtime_result_t NPU_MLIR_RUNTIME_APICALL
-npuMLIRRuntimeGetMetadata(npu_mlir_runtime_handle_t hRuntime, uint32_t argIndex,
-                          ze_graph_argument_properties_3_t* pGraphArgumentProperties,
-                          ze_graph_argument_metadata_t* pGraphArgumentMetadata, int64_t* upperBound) {
-    DebugTrace dt("npuMLIRRuntimeGetMetadata");
-    if (hRuntime == nullptr || pGraphArgumentProperties == nullptr || pGraphArgumentMetadata == nullptr) {
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
-    }
-
-    try {
-        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(hRuntime);
-        runtime->getArgumentProperties(argIndex, pGraphArgumentProperties, pGraphArgumentMetadata);
-    } catch (const std::exception& e) {
-        vpux::Logger::global().error("Error getting argument properties: {0}", e.what());
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_UNKNOWN;
-    }
-
-    return NPU_MLIR_RUNTIME_RESULT_SUCCESS;
-}
-
-DLLEXPORT npu_mlir_runtime_result_t NPU_MLIR_RUNTIME_APICALL
-npuMLIRRuntimeExecute(npu_mlir_runtime_handle_t hRuntime, npu_mlir_runtime_execute_params_t* pParams) {
-    DebugTrace dt("npuMLIRRuntimeExecute");
-    if (hRuntime == nullptr || pParams == nullptr) {
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
-    }
-
-    try {
-        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(hRuntime);
-        runtime->execute(pParams);
-    } catch (const std::exception& e) {
-        vpux::Logger::global().error("npuMLIRRuntimeExecute - Error executing MLIR runtime: {0}", e.what());
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_UNKNOWN;
-    }
-
-    return NPU_MLIR_RUNTIME_RESULT_SUCCESS;
-}
-
-DLLEXPORT npu_mlir_runtime_result_t NPU_MLIR_RUNTIME_APICALL npuMLIRRuntimePredictOutputShape(
-        npu_mlir_runtime_handle_t hRuntime, npu_mlir_runtime_predict_output_shape_params_t* pParams) {
-    DebugTrace dt("npuMLIRRuntimePredictOutputShape");
-    if (hRuntime == nullptr || pParams == nullptr || pParams->pInputs == nullptr || pParams->pOutputs == nullptr) {
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
-    }
-
-    try {
-        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(hRuntime);
-        runtime->predictOutputShape(pParams);
-    } catch (const std::exception& e) {
-        vpux::Logger::global().error("npuMLIRRuntimePredictOutputShape - Error executing MLIR runtime: {0}", e.what());
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_UNKNOWN;
-    }
-
-    return NPU_MLIR_RUNTIME_RESULT_SUCCESS;
-}
-
-DLLEXPORT npu_mlir_runtime_result_t NPU_MLIR_RUNTIME_APICALL
-npuMLIRRuntimeCreateMemRef(int64_t dimsCount, npu_mlir_runtime_mem_ref_handle_t* phMemRef) {
-    DebugTrace dt("npuMLIRRuntimeCreateMemRef");
-    if (phMemRef == nullptr || dimsCount == 0) {
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
-    }
-
-    try {
-        // Now just support up to 5 since ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE is 5
-        MemRefHandle* memRef = new MemRefHandle(dimsCount);
-        *phMemRef = reinterpret_cast<npu_mlir_runtime_mem_ref_handle_t>(memRef);
-    } catch (const std::exception& e) {
-        vpux::Logger::global().error("npuMLIRRuntimeCreateMemRef - Error creating MemRef: {0}", e.what());
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_UNKNOWN;
-    }
-
-    return NPU_MLIR_RUNTIME_RESULT_SUCCESS;
-}
-
-DLLEXPORT npu_mlir_runtime_result_t NPU_MLIR_RUNTIME_APICALL
-npuMLIRRuntimeDestroyMemRef(npu_mlir_runtime_mem_ref_handle_t hMemRef) {
-    DebugTrace dt("npuMLIRRuntimeDestroyMemRef");
-    if (hMemRef == nullptr) {
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
-    }
-    try {
-        MemRefHandle* memRef = reinterpret_cast<MemRefHandle*>(hMemRef);
-        delete memRef;
-    } catch (const std::exception& e) {
-        vpux::Logger::global().error("npuMLIRRuntimeDestroyMemRef - Error destroying MemRef: {0}", e.what());
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_UNKNOWN;
-    }
-
-    return NPU_MLIR_RUNTIME_RESULT_SUCCESS;
-}
-
-DLLEXPORT npu_mlir_runtime_result_t NPU_MLIR_RUNTIME_APICALL
-npuMLIRRuntimeSetMemRef(npu_mlir_runtime_mem_ref_handle_t hMemRef, const void* basePtr, const void* data,
-                        int64_t offset, int64_t* pSizes, int64_t* pStrides, int64_t dimsCount) {
-    DebugTrace dt("npuMLIRRuntimeSetMemRef");
-    if (hMemRef == nullptr || pSizes == nullptr || pStrides == nullptr) {
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
-    }
-    try {
-        MemRefHandle* memRef = reinterpret_cast<MemRefHandle*>(hMemRef);
-        MemRefNDRef ref(memRef->memRefBufferPtr, dimsCount);
-        ref.setAllocated(basePtr);
-        ref.setAligned(data);
-        ref.setOffset(offset);
-        ref.setSizes(pSizes, dimsCount);
-        ref.setStrides(pStrides, dimsCount);
-    } catch (const std::exception& e) {
-        vpux::Logger::global().error("npuMLIRRuntimeSetMemRef - Error setting MemRef: {0}", e.what());
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_UNKNOWN;
-    }
-
-    return NPU_MLIR_RUNTIME_RESULT_SUCCESS;
-}
-
-DLLEXPORT npu_mlir_runtime_result_t NPU_MLIR_RUNTIME_APICALL
-npuMLIRRuntimeParseMemRef(npu_mlir_runtime_mem_ref_handle_t hMemRef, const void** pBasePtr, const void** pData,
-                          int64_t* pOffset, int64_t* pSizes, int64_t* pStrides, int64_t* pDimsCount) {
-    DebugTrace dt("npuMLIRRuntimeParseMemRef");
-    if (hMemRef == nullptr || pBasePtr == nullptr || pData == nullptr || pOffset == nullptr || pSizes == nullptr ||
-        pStrides == nullptr || pDimsCount == nullptr) {
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
-    }
-    try {
-        MemRefHandle* memRef = reinterpret_cast<MemRefHandle*>(hMemRef);
-        memRef->parseMemRef(pBasePtr, pData, pOffset, pSizes, pStrides, pDimsCount);
-    } catch (const std::exception& e) {
-        vpux::Logger::global().error("npuMLIRRuntimeParseMemRef - Error parsing MemRef: {0}", e.what());
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_UNKNOWN;
-    }
-
-    return NPU_MLIR_RUNTIME_RESULT_SUCCESS;
-}
-
-DLLEXPORT npu_mlir_runtime_result_t NPU_MLIR_RUNTIME_APICALL npuMLIRRuntimeCreateExecutionContext(
-        npu_mlir_runtime_handle_t hRuntime,  ///< [in] handle of mlir runtime object
-        npu_mlir_runtime_execution_context_handle_t*
-                phExecutionHandle  ///< [out] pointer to handle of mlir runtime execution context created
-) {
-    DebugTrace dt("npuMLIRRuntimeCreateExecutionContext");
-    if (hRuntime == nullptr || phExecutionHandle == nullptr) {
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
-    }
-
-    try {
-        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(hRuntime);
-        runtime->createExecutionContext(phExecutionHandle);
-    } catch (const std::exception& e) {
-        vpux::Logger::global().error("Error creating an execution context: {0}", e.what());
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_UNKNOWN;
-    }
-
-    return NPU_MLIR_RUNTIME_RESULT_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-/// @brief Destroy MLIR runtime instance
-DLLEXPORT npu_mlir_runtime_result_t NPU_MLIR_RUNTIME_APICALL npuMLIRRuntimeDestroyExecutionContext(
-        npu_mlir_runtime_execution_context_handle_t
-                phExecutionHandle  ///< [in][release] handle of execution context object to destroy
-) {
-    DebugTrace dt("npuMLIRRuntimeDestroyExecutionContext");
-    if (phExecutionHandle == nullptr) {
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
-    }
-
-    ExecutionContext* pContext = reinterpret_cast<ExecutionContext*>(phExecutionHandle);
-    try {
-        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(pContext->_runtime);
-        if (runtime) {
-            runtime->destroyExecutionContext(phExecutionHandle);
-        }
-    } catch (const std::exception& e) {
-        delete pContext;
-        vpux::Logger::global().error("Error destroying an execution context: {0}", e.what());
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_UNKNOWN;
-    }
-
-    delete pContext;
-    return NPU_MLIR_RUNTIME_RESULT_SUCCESS;
-}
-
-///////////////////////////////////////////////////////////////////////////////
-/// @brief Update mutable command list used in execution and execute
-DLLEXPORT npu_mlir_runtime_result_t NPU_MLIR_RUNTIME_APICALL npuMLIRRuntimeUpdateMutableCommandList(
-        npu_mlir_runtime_handle_t hRuntime,          ///< [in] handle of mlir runtime object
-        npu_mlir_runtime_execute_params_t* pParams,  ///< [in] pointer to execution parameters
-        uint64_t* argIndexArray,                     ///< [in] pointer to argument index list
-        uint64_t argIndexArraySize)                  ///< [in] size of argument index list
-{
-    DebugTrace dt("npuMLIRRuntimeUpdateMutableCommandList");
-    if (hRuntime == nullptr || pParams == nullptr || argIndexArray == nullptr) {
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
-    }
-
-    try {
-        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(hRuntime);
-        runtime->executeMutableCommandList(pParams, argIndexArray, argIndexArraySize);
-    } catch (const std::exception& e) {
-        vpux::Logger::global().error("Error updating mutable commandlist: {0}", e.what());
-        return NPU_MLIR_RUNTIME_RESULT_ERROR_UNKNOWN;
-    }
-
-    return NPU_MLIR_RUNTIME_RESULT_SUCCESS;
-}
-
-#ifdef __cplusplus
-}
-#endif
-
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/// @brief NPU VM Runtime API — delegates to the npuMLIRRuntime* implementation above.
-///        npu_vm_runtime.hpp is the successor API; npu_mlir_runtime.hpp is being deprecated.
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeGetAPIVersion(npu_vm_runtime_version_t* pVersion) {
     DebugTrace dt("npuVMRuntimeGetAPIVersion");
     if (pVersion == nullptr) {
@@ -974,79 +700,130 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeCreate(cons
                                                                             npu_vm_runtime_handle_t* phRuntime,
                                                                             npu_vm_runtime_properties_t* pProperties) {
     DebugTrace dt("npuVMRuntimeCreate");
-    return static_cast<npu_vm_runtime_result_t>(
-            npuMLIRRuntimeCreate(reinterpret_cast<const npu_mlir_runtime_blob_desc_t*>(desc),
-                                 reinterpret_cast<npu_mlir_runtime_handle_t*>(phRuntime),
-                                 reinterpret_cast<npu_mlir_runtime_properties_t*>(pProperties)));
+    if (phRuntime == nullptr || desc == nullptr || pProperties == nullptr) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
+    }
+
+    try {
+        NPUMLIRRuntime* runtime = new NPUMLIRRuntime(desc, pProperties);
+        *phRuntime = reinterpret_cast<npu_vm_runtime_handle_t>(runtime);
+    } catch (const std::exception& e) {
+        vpux::Logger::global().error("npuVMRuntimeCreate - Error creating MLIR runtime: {0}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeDestroy(npu_vm_runtime_handle_t hRuntime) {
     DebugTrace dt("npuVMRuntimeDestroy");
-    return static_cast<npu_vm_runtime_result_t>(
-            npuMLIRRuntimeDestroy(reinterpret_cast<npu_mlir_runtime_handle_t>(hRuntime)));
+    if (hRuntime == nullptr) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
+    }
+
+    try {
+        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(hRuntime);
+        delete runtime;
+    } catch (const std::exception& e) {
+        vpux::Logger::global().error("npuVMRuntimeDestroy - Error destroying MLIR runtime: {0}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeGetMetadata(
         npu_vm_runtime_handle_t hRuntime, uint32_t argIndex, ze_graph_argument_properties_3_t* pGraphArgumentProperties,
-        ze_graph_argument_metadata_t* pGraphArgumentMetadata, int64_t* upperBound) {
+        ze_graph_argument_metadata_t* pGraphArgumentMetadata, [[maybe_unused]] int64_t* upperBound) {
     DebugTrace dt("npuVMRuntimeGetMetadata");
-    return static_cast<npu_vm_runtime_result_t>(
-            npuMLIRRuntimeGetMetadata(reinterpret_cast<npu_mlir_runtime_handle_t>(hRuntime), argIndex,
-                                      pGraphArgumentProperties, pGraphArgumentMetadata, upperBound));
+    if (hRuntime == nullptr || pGraphArgumentProperties == nullptr || pGraphArgumentMetadata == nullptr) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
+    }
+
+    try {
+        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(hRuntime);
+        runtime->getArgumentProperties(argIndex, pGraphArgumentProperties, pGraphArgumentMetadata);
+    } catch (const std::exception& e) {
+        vpux::Logger::global().error("Error getting argument properties: {0}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeExecute(npu_vm_runtime_handle_t hRuntime,
                                                                              npu_vm_runtime_execute_params_t* pParams) {
     DebugTrace dt("npuVMRuntimeExecute");
-    if (pParams == nullptr) {
+    if (hRuntime == nullptr || pParams == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-    npu_mlir_runtime_execute_params_t mlirParams{};
-    mlirParams.pInputs = reinterpret_cast<npu_mlir_runtime_mem_ref_handle_t*>(pParams->pInputs);
-    mlirParams.numOfInputs = pParams->numOfInputs;
-    mlirParams.pOutputs = reinterpret_cast<npu_mlir_runtime_mem_ref_handle_t*>(pParams->pOutputs);
-    mlirParams.numOfOutputs = pParams->numOfOutputs;
-    mlirParams.ctx = pParams->ctx;
-    mlirParams.device = pParams->device;
-    mlirParams.graphDdiTableExt = pParams->graphDdiTableExt;
-    mlirParams.commandLists = pParams->commandLists;
-    mlirParams.numCommandLists = pParams->numCommandLists;
-    mlirParams.commandQueue = pParams->commandQueue;
-    mlirParams.inferenceFence = pParams->inferenceFence;
-    mlirParams.event = pParams->event;
-    mlirParams.executionContext =
-            reinterpret_cast<npu_mlir_runtime_execution_context_handle_t>(pParams->executionContext);
-    return static_cast<npu_vm_runtime_result_t>(
-            npuMLIRRuntimeExecute(reinterpret_cast<npu_mlir_runtime_handle_t>(hRuntime), &mlirParams));
+
+    try {
+        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(hRuntime);
+        runtime->execute(pParams);
+    } catch (const std::exception& e) {
+        vpux::Logger::global().error("npuVMRuntimeExecute - Error executing MLIR runtime: {0}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimePredictOutputShape(
         npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_predict_output_shape_params_t* pParams) {
     DebugTrace dt("npuVMRuntimePredictOutputShape");
-    if (pParams == nullptr) {
+    if (hRuntime == nullptr || pParams == nullptr || pParams->pInputs == nullptr || pParams->pOutputs == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-    npu_mlir_runtime_predict_output_shape_params_t mlirParams{};
-    mlirParams.pInputs = reinterpret_cast<npu_mlir_runtime_mem_ref_handle_t*>(pParams->pInputs);
-    mlirParams.numOfInputs = pParams->numOfInputs;
-    mlirParams.pOutputs = reinterpret_cast<npu_mlir_runtime_mem_ref_handle_t*>(pParams->pOutputs);
-    mlirParams.numOfOutputs = pParams->numOfOutputs;
-    return static_cast<npu_vm_runtime_result_t>(
-            npuMLIRRuntimePredictOutputShape(reinterpret_cast<npu_mlir_runtime_handle_t>(hRuntime), &mlirParams));
+
+    try {
+        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(hRuntime);
+        runtime->predictOutputShape(pParams);
+    } catch (const std::exception& e) {
+        vpux::Logger::global().error("npuVMRuntimePredictOutputShape - Error executing MLIR runtime: {0}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL
 npuVMRuntimeCreateMemRef(int64_t dimsCount, npu_vm_runtime_mem_ref_handle_t* phMemRef) {
     DebugTrace dt("npuVMRuntimeCreateMemRef");
-    return static_cast<npu_vm_runtime_result_t>(
-            npuMLIRRuntimeCreateMemRef(dimsCount, reinterpret_cast<npu_mlir_runtime_mem_ref_handle_t*>(phMemRef)));
+    if (phMemRef == nullptr) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
+    }
+
+    if (dimsCount <= 0 || dimsCount > ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNSUPPORTED_DIM_COUNT;
+    }
+
+    try {
+        MemRefHandle* memRef = new MemRefHandle(dimsCount);
+        *phMemRef = reinterpret_cast<npu_vm_runtime_mem_ref_handle_t>(memRef);
+    } catch (const std::exception& e) {
+        vpux::Logger::global().error("npuVMRuntimeCreateMemRef - Error creating MemRef: {0}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL
 npuVMRuntimeDestroyMemRef(npu_vm_runtime_mem_ref_handle_t hMemRef) {
     DebugTrace dt("npuVMRuntimeDestroyMemRef");
-    return static_cast<npu_vm_runtime_result_t>(
-            npuMLIRRuntimeDestroyMemRef(reinterpret_cast<npu_mlir_runtime_mem_ref_handle_t>(hMemRef)));
+    if (hMemRef == nullptr) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
+    }
+    try {
+        MemRefHandle* memRef = reinterpret_cast<MemRefHandle*>(hMemRef);
+        delete memRef;
+    } catch (const std::exception& e) {
+        vpux::Logger::global().error("npuVMRuntimeDestroyMemRef - Error destroying MemRef: {0}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeSetMemRef(npu_vm_runtime_mem_ref_handle_t hMemRef,
@@ -1054,74 +831,129 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeSetMemRef(n
                                                                                int64_t offset, int64_t* pSizes,
                                                                                int64_t* pStrides, int64_t dimsCount) {
     DebugTrace dt("npuVMRuntimeSetMemRef");
-    return static_cast<npu_vm_runtime_result_t>(
-            npuMLIRRuntimeSetMemRef(reinterpret_cast<npu_mlir_runtime_mem_ref_handle_t>(hMemRef), basePtr, data, offset,
-                                    pSizes, pStrides, dimsCount));
+    if (hMemRef == nullptr || pSizes == nullptr || pStrides == nullptr) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
+    }
+    try {
+        MemRefHandle* memRef = reinterpret_cast<MemRefHandle*>(hMemRef);
+        if (dimsCount <= 0 || dimsCount != memRef->dimCount || dimsCount > ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE) {
+            return NPU_VM_RUNTIME_RESULT_ERROR_UNSUPPORTED_DIM_COUNT;
+        }
+        MemRefNDRef ref(memRef->memRefBufferPtr, memRef->dimCount);
+        ref.setAllocated(basePtr);
+        ref.setAligned(data);
+        ref.setOffset(offset);
+        ref.setSizes(pSizes, memRef->dimCount);
+        ref.setStrides(pStrides, memRef->dimCount);
+    } catch (const std::exception& e) {
+        vpux::Logger::global().error("npuVMRuntimeSetMemRef - Error setting MemRef: {0}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL
 npuVMRuntimeParseMemRef(npu_vm_runtime_mem_ref_handle_t hMemRef, const void** pBasePtr, const void** pData,
                         int64_t* pOffset, int64_t* pSizes, int64_t* pStrides, int64_t* pDimsCount) {
     DebugTrace dt("npuVMRuntimeParseMemRef");
-    return static_cast<npu_vm_runtime_result_t>(
-            npuMLIRRuntimeParseMemRef(reinterpret_cast<npu_mlir_runtime_mem_ref_handle_t>(hMemRef), pBasePtr, pData,
-                                      pOffset, pSizes, pStrides, pDimsCount));
+    if (hMemRef == nullptr || pBasePtr == nullptr || pData == nullptr || pOffset == nullptr || pSizes == nullptr ||
+        pStrides == nullptr || pDimsCount == nullptr) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
+    }
+    try {
+        MemRefHandle* memRef = reinterpret_cast<MemRefHandle*>(hMemRef);
+        memRef->parseMemRef(pBasePtr, pData, pOffset, pSizes, pStrides, pDimsCount);
+    } catch (const std::exception& e) {
+        vpux::Logger::global().error("npuVMRuntimeParseMemRef - Error parsing MemRef: {0}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeCreateExecutionContext(
         npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_execution_context_handle_t* phExecutionHandle) {
     DebugTrace dt("npuVMRuntimeCreateExecutionContext");
-    return static_cast<npu_vm_runtime_result_t>(npuMLIRRuntimeCreateExecutionContext(
-            reinterpret_cast<npu_mlir_runtime_handle_t>(hRuntime),
-            reinterpret_cast<npu_mlir_runtime_execution_context_handle_t*>(phExecutionHandle)));
+    if (hRuntime == nullptr || phExecutionHandle == nullptr) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
+    }
+
+    try {
+        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(hRuntime);
+        runtime->createExecutionContext(phExecutionHandle);
+    } catch (const std::exception& e) {
+        vpux::Logger::global().error("Error creating an execution context: {0}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL
 npuVMRuntimeDestroyExecutionContext(npu_vm_runtime_execution_context_handle_t phExecutionHandle) {
     DebugTrace dt("npuVMRuntimeDestroyExecutionContext");
-    return static_cast<npu_vm_runtime_result_t>(npuMLIRRuntimeDestroyExecutionContext(
-            reinterpret_cast<npu_mlir_runtime_execution_context_handle_t>(phExecutionHandle)));
+    if (phExecutionHandle == nullptr) {
+        return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
+    }
+
+    ExecutionContext* pContext = reinterpret_cast<ExecutionContext*>(phExecutionHandle);
+    try {
+        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(pContext->_runtime);
+        if (runtime) {
+            runtime->destroyExecutionContext(phExecutionHandle);
+        }
+    } catch (const std::exception& e) {
+        delete pContext;
+        vpux::Logger::global().error("Error destroying an execution context: {0}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    delete pContext;
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL
 npuVMRuntimeUpdateMutableCommandList(npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_execute_params_t* pParams,
                                      uint64_t* argIndexArray, uint64_t argIndexArraySize) {
     DebugTrace dt("npuVMRuntimeUpdateMutableCommandList");
-    if (pParams == nullptr) {
+    if (hRuntime == nullptr || pParams == nullptr || argIndexArray == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-    npu_mlir_runtime_execute_params_t mlirParams{};
-    mlirParams.pInputs = reinterpret_cast<npu_mlir_runtime_mem_ref_handle_t*>(pParams->pInputs);
-    mlirParams.numOfInputs = pParams->numOfInputs;
-    mlirParams.pOutputs = reinterpret_cast<npu_mlir_runtime_mem_ref_handle_t*>(pParams->pOutputs);
-    mlirParams.numOfOutputs = pParams->numOfOutputs;
-    mlirParams.ctx = pParams->ctx;
-    mlirParams.device = pParams->device;
-    mlirParams.graphDdiTableExt = pParams->graphDdiTableExt;
-    mlirParams.commandLists = pParams->commandLists;
-    mlirParams.numCommandLists = pParams->numCommandLists;
-    mlirParams.commandQueue = pParams->commandQueue;
-    mlirParams.inferenceFence = pParams->inferenceFence;
-    mlirParams.event = pParams->event;
-    mlirParams.executionContext =
-            reinterpret_cast<npu_mlir_runtime_execution_context_handle_t>(pParams->executionContext);
-    return static_cast<npu_vm_runtime_result_t>(npuMLIRRuntimeUpdateMutableCommandList(
-            reinterpret_cast<npu_mlir_runtime_handle_t>(hRuntime), &mlirParams, argIndexArray, argIndexArraySize));
+
+    try {
+        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(hRuntime);
+        runtime->executeMutableCommandList(pParams, argIndexArray, argIndexArraySize);
+    } catch (const std::exception& e) {
+        vpux::Logger::global().error("Error updating mutable command list: {0}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimePredictOutputShape2(
         npu_vm_runtime_handle_t hRuntime, npu_vm_runtime_predict_output_shape_params_t2* pParams) {
     DebugTrace dt("npuVMRuntimePredictOutputShape2");
-    if (pParams == nullptr) {
+    if (hRuntime == nullptr || pParams == nullptr || pParams->pInputs == nullptr || pParams->pOutputs == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
-    npu_mlir_runtime_predict_output_shape_params_t mlirParams{};
-    mlirParams.pInputs = reinterpret_cast<npu_mlir_runtime_mem_ref_handle_t*>(pParams->pInputs);
-    mlirParams.numOfInputs = pParams->numOfInputs;
-    mlirParams.pOutputs = reinterpret_cast<npu_mlir_runtime_mem_ref_handle_t*>(pParams->pOutputs);
-    mlirParams.numOfOutputs = pParams->numOfOutputs;
-    return static_cast<npu_vm_runtime_result_t>(
-            npuMLIRRuntimePredictOutputShape(reinterpret_cast<npu_mlir_runtime_handle_t>(hRuntime), &mlirParams));
+
+    try {
+        npu_vm_runtime_predict_output_shape_params_t params{};
+        params.pInputs = pParams->pInputs;
+        params.numOfInputs = pParams->numOfInputs;
+        params.pOutputs = pParams->pOutputs;
+        params.numOfOutputs = pParams->numOfOutputs;
+
+        NPUMLIRRuntime* runtime = reinterpret_cast<NPUMLIRRuntime*>(hRuntime);
+        runtime->predictOutputShape(&params);
+    } catch (const std::exception& e) {
+        vpux::Logger::global().error("npuVMRuntimePredictOutputShape2 - Error executing MLIR runtime: {0}", e.what());
+        return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
+    }
+
+    return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
 #ifdef __cplusplus

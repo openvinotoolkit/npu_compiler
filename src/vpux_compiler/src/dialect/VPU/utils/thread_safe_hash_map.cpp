@@ -11,6 +11,7 @@
 #endif
 
 #include <llvm/ADT/Hashing.h>
+#include <mlir/IR/Operation.h>
 #include <mutex>
 #include <optional>
 
@@ -158,6 +159,9 @@ template class ThreadSafeHashMap<llvm::hash_code, PerClusterShapeCacheItem>;
 template class ThreadSafeHashMap<llvm::hash_code, SmallVector<DimArr>>;
 template class ThreadSafeHashMap<llvm::hash_code, DimArr>;
 template class ThreadSafeHashMap<llvm::hash_code, SmallVector<vpux::NDTypeInterface>>;
+template class ThreadSafeHashMap<llvm::hash_code, std::shared_ptr<SmallVector<vpux::NDTypeInterface>>>;
+template class ThreadSafeHashMap<llvm::hash_code, Byte>;
 template class ThreadSafeHashMap<llvm::hash_code, size_t>;
 template class ThreadSafeHashMap<llvm::hash_code, std::optional<VPU::TemporalTilingInfo>>;
+template class ThreadSafeHashMap<mlir::Operation*, llvm::hash_code>;
 }  // namespace vpux

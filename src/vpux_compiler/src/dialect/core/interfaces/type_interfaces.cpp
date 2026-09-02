@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
@@ -34,6 +35,7 @@
 #include <cstdint>
 #include <functional>
 #include <numeric>
+#include <vpux/utils/core/mem_size.hpp>
 
 using namespace vpux;
 
@@ -180,8 +182,8 @@ vpux::VPU::MemoryKind TensorNDTypeInterface::getMemoryKind(mlir::Type type) cons
 vpux::Strides TensorNDTypeInterface::getStrides(mlir::Type type) const {
     VPUX_THROW_UNLESS(mlir::isa<mlir::RankedTensorType>(type),
                       "Only RankedTensorType is supported for 'getStrides'. Got '{0}'", type);
-    const auto memStrides = getMemStrides(type);
     const auto order = getDimsOrder(type);
+    const auto memStrides = getMemStrides(type);
     return order.toLogicalOrder(memStrides);
 }
 
@@ -337,12 +339,12 @@ vpux::NDTypeInterface TensorNDTypeInterface::changeStrides(mlir::Type /*type*/, 
 
 vpux::NDTypeInterface TensorNDTypeInterface::changeTypeComponents(mlir::Type type,
                                                                   const vpux::TypeComponents& typeComponents) const {
-    const auto shape = typeComponents.shape.value_or(Shape(getShape(type).toValues()));
-    const auto elementType = typeComponents.elementType.value_or(getElementType(type));
-    const auto dimsOrder = typeComponents.dimsOrder.value_or(getDimsOrder(type));
-    const auto memSpace = typeComponents.memSpace.value_or(getMemSpace(type));
-    // Note: *Ref is OK since both branches return non-Refs with longer
-    // lifetime.
+    // Note: *Ref is OK since both branches return non-Refs with longer lifetime.
+    const ShapeRef shape = typeComponents.shape.has_value() ? ShapeRef(*typeComponents.shape) : getShape(type);
+    const auto elementType =
+            typeComponents.elementType.has_value() ? *typeComponents.elementType : getElementType(type);
+    const auto dimsOrder = typeComponents.dimsOrder.has_value() ? *typeComponents.dimsOrder : getDimsOrder(type);
+    const auto memSpace = typeComponents.memSpace.has_value() ? *typeComponents.memSpace : getMemSpace(type);
     const BoundsRef bounds =
             typeComponents.bounds.has_value() ? BoundsRef(typeComponents.bounds.value()) : getBounds(type);
     const DynamicDimsMaskRef dynamicDimsMask = typeComponents.dynamicDimsMask.has_value()
@@ -572,6 +574,7 @@ vpux::Byte MemRefNDTypeInterface::getTotalAllocSize(mlir::Type type) const {
     VPUX_THROW_UNLESS(mlir::isa<mlir::MemRefType>(type),
                       "Only MemRefType is supported for 'getTotalAllocSize'. Got '{0}'", type);
 
+    const auto shape = getShape(type);
     const auto layout = mlir::cast<mlir::MemRefType>(type).getLayout();
     const auto memRefAttr = mlir::dyn_cast<vpux::MemRefAttr>(layout);
     if (memRefAttr) {
@@ -584,8 +587,26 @@ vpux::Byte MemRefNDTypeInterface::getTotalAllocSize(mlir::Type type) const {
         return alignMemSize(getElemTypeSize(type), Byte(1));
     }
 
-    const auto memShape = getMemShape(type);
-    const auto memStrides = getMemStrides(type);
+    auto memShape = getMemShape(type);
+    if (shape.isDynamic()) {
+        BoundsRef bounds = {};
+        if (memRefAttr != nullptr) {
+            bounds = memRefAttr.bounds();
+        }
+
+        VPUX_THROW_WHEN(bounds.empty(), "Can't compute total allocation size for dynamic shape '{0}' without bounds",
+                        shape);
+        VPUX_THROW_UNLESS(bounds.size() == shape.size(), "Bounds '{0}' don't match shape '{1}'", bounds, shape);
+        memShape = getDimsOrder(type).toMemoryOrder(ShapeRef(bounds.raw()));
+    }
+
+    MemStrides memStrides;
+    if (shape.isDynamic() && memRefAttr != nullptr && memRefAttr.strides() == nullptr) {
+        const auto order = getDimsOrder(type);
+        memStrides = StrideReqs::compact(order.numDims()).calcStrides(getElemTypeSize(type), memShape);
+    } else {
+        memStrides = getMemStrides(type);
+    }
 
     VPUX_THROW_UNLESS(memShape.size() == memStrides.size(), "Shape and strides mismatch : {0} vs {1}", memShape,
                       memStrides);
@@ -614,7 +635,10 @@ vpux::Byte MemRefNDTypeInterface::getTotalAllocSize(mlir::Type type) const {
         const auto sparsityCompression = memRefAttr.hwSpecificField<VPUIP::SparsityCompressionAttr>();
         if (sparsityCompression != nullptr) {
             const auto order = getDimsOrder(type);
-            const auto compactMemStrides = StrideReqs::compact(order.numDims()).calcStrides(order, type);
+            const auto compactMemStrides =
+                    shape.isDynamic()
+                            ? StrideReqs::compact(order.numDims()).calcStrides(getElemTypeSize(type), memShape)
+                            : StrideReqs::compact(order.numDims()).calcStrides(order, type);
             VPUX_THROW_UNLESS(memStrides == compactMemStrides, "Non-compact type is not supported with compression");
             allocSizeByte = sparsityCompression.getAllocSize(getElementType(type));
         }
@@ -641,16 +665,36 @@ vpux::Byte MemRefNDTypeInterface::getCompactAllocSize(mlir::Type type) const {
     VPUX_THROW_UNLESS(mlir::isa<mlir::MemRefType>(type),
                       "Only MemRefType is supported for 'getCompactAllocSize'. Got '{0}'", type);
     const Bit typeSize = getElemTypeSize(type);
+    const auto shape = getShape(type);
+
     if (getRank(type) == 0) {
         return alignMemSize(typeSize, Byte(1));
     }
 
     auto sparsityCompression = VPUIP::getSparsityCompressionAttr(type);
+    VPUX_THROW_WHEN(sparsityCompression != nullptr && shape.isDynamic(),
+                    "Sparsity and dynamic shapes type: {0} cannot be combined at the moment", type);
     if (sparsityCompression != nullptr) {
         return sparsityCompression.getAllocSize(getElementType(type));
     }
 
-    const auto shape = getShape(type);
+    BoundsRef bounds = {};
+    if (auto memRefAttr = mlir::dyn_cast<vpux::MemRefAttr>(mlir::cast<mlir::MemRefType>(type).getLayout())) {
+        bounds = memRefAttr.bounds();
+    }
+
+    if (shape.isDynamic()) {
+        VPUX_THROW_WHEN(bounds.empty(), "Can't compute compact allocation size for dynamic shape '{0}' without bounds",
+                        shape);
+        VPUX_THROW_UNLESS(bounds.size() == shape.size(), "Bounds '{0}' don't match shape '{1}'", bounds, shape);
+    }
+
+    if (!bounds.empty()) {
+        const int64_t totalSize = details::calcTotalShapeSize(bounds.raw());
+        VPUX_THROW_WHEN(totalSize <= 0, "Only shapes > 0 are supported for 'getCompactAllocSize'.");
+        return alignMemSize(totalSize * typeSize, Byte(1));
+    }
+
     return alignMemSize(typeSize * shape.totalSize(), Byte(1));
 }
 
@@ -677,8 +721,11 @@ vpux::NDTypeInterface MemRefNDTypeInterface::changeShape(mlir::Type type, vpux::
         allocSizeAttr = descAttr.allocSize();
         compressionStateAttr = descAttr.hwSpecificField<VPUIP::CompressionStateAttr>();
     }
+    // E#224862: it is not clear whether bounds should be preserved / changed
+    // anyhow when shape is changed; as of now, follow strides semantics, that
+    // is, bounds are dropped (since shape changes).
     auto newType =
-            vpux::getMemRefType(shape, getElementType(type), newOrder, getMemSpace(type), StridesRef(),
+            vpux::getMemRefType(shape, getElementType(type), newOrder, getMemSpace(type), StridesRef(), BoundsRef(),
                                 swizzlingSchemeAttr, sparsityCompressionAttr, allocSizeAttr, compressionStateAttr);
 
     const auto loc = mlir::UnknownLoc::get(type.getContext());
@@ -688,19 +735,20 @@ vpux::NDTypeInterface MemRefNDTypeInterface::changeShape(mlir::Type type, vpux::
 }
 
 vpux::NDTypeInterface MemRefNDTypeInterface::changeElemType(mlir::Type type, mlir::Type elemType) const {
-    auto newType = llvm::TypeSwitch<mlir::Type, mlir::ShapedType>(type)
-                           .Case<mlir::MemRefType>([&](mlir::MemRefType) {
-                               return vpux::getMemRefType(
-                                       getShape(type), elemType, getDimsOrder(type), getMemSpace(type), StridesRef(),
-                                       VPUIP::getSwizzlingSchemeAttr(type), VPUIP::getSparsityCompressionAttr(type),
-                                       VPUIP::getAllocSizeAttr(type), VPUIP::getCompressionStateAttr(type));
-                           })
-                           .Case<mlir::UnrankedMemRefType>([&](mlir::UnrankedMemRefType) {
-                               return mlir::UnrankedMemRefType::get(elemType, getMemSpace(type));
-                           })
-                           .Default([](mlir::Type type) -> mlir::ShapedType {
-                               VPUX_THROW("Unsupported type '{0}'", type);
-                           });
+    auto newType =
+            llvm::TypeSwitch<mlir::Type, mlir::ShapedType>(type)
+                    .Case<mlir::MemRefType>([&](mlir::MemRefType) {
+                        return vpux::getMemRefType(getShape(type), elemType, getDimsOrder(type), getMemSpace(type),
+                                                   StridesRef(), getBounds(type), VPUIP::getSwizzlingSchemeAttr(type),
+                                                   VPUIP::getSparsityCompressionAttr(type),
+                                                   VPUIP::getAllocSizeAttr(type), VPUIP::getCompressionStateAttr(type));
+                    })
+                    .Case<mlir::UnrankedMemRefType>([&](mlir::UnrankedMemRefType) {
+                        return mlir::UnrankedMemRefType::get(elemType, getMemSpace(type));
+                    })
+                    .Default([](mlir::Type type) -> mlir::ShapedType {
+                        VPUX_THROW("Unsupported type '{0}'", type);
+                    });
 
     const auto loc = mlir::UnknownLoc::get(type.getContext());
     VPUX_THROW_UNLESS(vpux::validateQuantElemType(loc, newType).succeeded(), "Got invalid ShapedType '{0}'", newType);
@@ -718,8 +766,10 @@ vpux::NDTypeInterface MemRefNDTypeInterface::changeShapeElemType(mlir::Type type
     VPUX_THROW_UNLESS(newOrder.numDims() == shape.size(), "Order '{0}' is incompatible with the new shape '{1}'",
                       newOrder, shape);
 
+    // E#224862: similarly to changeShape(), bounds are dropped since shape
+    // changes; there is no better semantics at the moment.
     const auto newType =
-            vpux::getMemRefType(shape, elemType, newOrder, getMemSpace(type), StridesRef(),
+            vpux::getMemRefType(shape, elemType, newOrder, getMemSpace(type), StridesRef(), BoundsRef(),
                                 VPUIP::getSwizzlingSchemeAttr(type), VPUIP::getSparsityCompressionAttr(type),
                                 VPUIP::getAllocSizeAttr(type), VPUIP::getCompressionStateAttr(type));
 
@@ -733,8 +783,9 @@ vpux::NDTypeInterface MemRefNDTypeInterface::changeDimsOrder(mlir::Type type, co
     VPUX_THROW_UNLESS(mlir::isa<mlir::MemRefType>(type),
                       "Only MemRefType is supported for 'changeDimsOrder'. Got '{0}'", type);
     return vpux::getMemRefType(getShape(type), getElementType(type), order, getMemSpace(type), StridesRef(),
-                               VPUIP::getSwizzlingSchemeAttr(type), VPUIP::getSparsityCompressionAttr(type),
-                               VPUIP::getAllocSizeAttr(type), VPUIP::getCompressionStateAttr(type));
+                               getBounds(type), VPUIP::getSwizzlingSchemeAttr(type),
+                               VPUIP::getSparsityCompressionAttr(type), VPUIP::getAllocSizeAttr(type),
+                               VPUIP::getCompressionStateAttr(type));
 }
 
 vpux::NDTypeInterface MemRefNDTypeInterface::changeMemSpace(mlir::Type type, vpux::IndexedSymbolAttr memSpace) const {
@@ -747,8 +798,9 @@ vpux::NDTypeInterface MemRefNDTypeInterface::changeMemSpace(mlir::Type type, vpu
                 }
                 const auto strides = getStrides(type);
                 return vpux::getMemRefType(getShape(type), getElementType(type), getDimsOrder(type), memSpace, strides,
-                                           VPUIP::getSwizzlingSchemeAttr(type), VPUIP::getSparsityCompressionAttr(type),
-                                           VPUIP::getAllocSizeAttr(type), VPUIP::getCompressionStateAttr(type));
+                                           getBounds(type), VPUIP::getSwizzlingSchemeAttr(type),
+                                           VPUIP::getSparsityCompressionAttr(type), VPUIP::getAllocSizeAttr(type),
+                                           VPUIP::getCompressionStateAttr(type));
             })
             .Case<mlir::UnrankedMemRefType>([&](mlir::UnrankedMemRefType) {
                 return mlir::UnrankedMemRefType::get(getElementType(type), memSpace);
@@ -762,20 +814,24 @@ vpux::NDTypeInterface MemRefNDTypeInterface::changeStrides(mlir::Type type, vpux
     VPUX_THROW_UNLESS(mlir::isa<mlir::MemRefType>(type), "Only MemRefType is supported for 'changeStrides'. Got '{0}'",
                       type);
     return vpux::getMemRefType(getShape(type), getElementType(type), getDimsOrder(type), getMemSpace(type), strides,
-                               VPUIP::getSwizzlingSchemeAttr(type), VPUIP::getSparsityCompressionAttr(type),
-                               VPUIP::getAllocSizeAttr(type), VPUIP::getCompressionStateAttr(type));
+                               getBounds(type), VPUIP::getSwizzlingSchemeAttr(type),
+                               VPUIP::getSparsityCompressionAttr(type), VPUIP::getAllocSizeAttr(type),
+                               VPUIP::getCompressionStateAttr(type));
 }
 
 vpux::NDTypeInterface MemRefNDTypeInterface::changeTypeComponents(mlir::Type type,
                                                                   const vpux::TypeComponents& typeComponents) const {
-    const auto shape = typeComponents.shape.value_or(Shape(getShape(type).toValues()));
-    const auto elementType = typeComponents.elementType.value_or(getElementType(type));
-    const auto dimsOrder = typeComponents.dimsOrder.value_or(getDimsOrder(type));
-    const auto strides = typeComponents.strides.value_or(getStrides(type));
-    const auto memSpace = typeComponents.memSpace.value_or(getMemSpace(type));
-    return vpux::getMemRefType(shape, elementType, dimsOrder, memSpace, strides, VPUIP::getSwizzlingSchemeAttr(type),
-                               VPUIP::getSparsityCompressionAttr(type), VPUIP::getAllocSizeAttr(type),
-                               VPUIP::getCompressionStateAttr(type));
+    // Note: *Ref is OK since both branches return non-Refs with longer lifetime.
+    const ShapeRef shape = typeComponents.shape.has_value() ? ShapeRef(*typeComponents.shape) : getShape(type);
+    const auto elementType =
+            typeComponents.elementType.has_value() ? *typeComponents.elementType : getElementType(type);
+    const auto dimsOrder = typeComponents.dimsOrder.has_value() ? *typeComponents.dimsOrder : getDimsOrder(type);
+    const auto memSpace = typeComponents.memSpace.has_value() ? *typeComponents.memSpace : getMemSpace(type);
+    const auto strides = typeComponents.strides.has_value() ? *typeComponents.strides : getStrides(type);
+    const BoundsRef bounds = typeComponents.bounds.has_value() ? *typeComponents.bounds : getBounds(type);
+    return vpux::getMemRefType(shape, elementType, dimsOrder, memSpace, strides, bounds,
+                               VPUIP::getSwizzlingSchemeAttr(type), VPUIP::getSparsityCompressionAttr(type),
+                               VPUIP::getAllocSizeAttr(type), VPUIP::getCompressionStateAttr(type));
 }
 
 vpux::NDTypeInterface MemRefNDTypeInterface::extractDenseTile(mlir::Type type, vpux::ShapeRef tileOffsets,
@@ -809,10 +865,28 @@ vpux::NDTypeInterface MemRefNDTypeInterface::extractViewTile(mlir::Type type, vp
         }
     }
 
+    auto originalShape = getShape(type);
+    auto tileBounds = Bounds(getBounds(type));
+    if (!tileBounds.empty()) {
+        VPUX_THROW_UNLESS(tileBounds.size() == tileShape.size(), "Tile bounds '{0}' is not aligned with rank '{1}'",
+                          tileBounds, tileShape.size());
+        VPUX_THROW_UNLESS(tileBounds.size() == originalShape.size(),
+                          "Tile bounds '{0}' is not aligned with original rank '{1}'", tileBounds,
+                          originalShape.size());
+
+        for (auto ind : irange(tileBounds.size())) {
+            const auto d = Dim(ind);
+            if (bool isTiledAtThisDim = (tileShape[d] != originalShape[d]); isTiledAtThisDim) {
+                assert(tileShape[d] != mlir::ShapedType::kDynamic && "Tiled dimension should not be dynamic");
+                tileBounds[d] = tileShape[d];
+            }
+        }
+    }
+
     auto sparsityCompression = VPUIP::getSparsityCompressionAttr(type);
     sparsityCompression = VPUIP::tileSparsityCompression(sparsityCompression, tileOffsets, tileShape);
 
-    const auto tileType = vpux::getMemRefType(tileShape, tileElemType, order, memSpace, tileStrides,
+    const auto tileType = vpux::getMemRefType(tileShape, tileElemType, order, memSpace, tileStrides, tileBounds,
                                               VPUIP::getSwizzlingSchemeAttr(type), sparsityCompression,
                                               VPUIP::getAllocSizeAttr(type), VPUIP::getCompressionStateAttr(type));
 
@@ -829,9 +903,11 @@ vpux::NDTypeInterface MemRefNDTypeInterface::eraseTiledInfo(mlir::Type type) con
     const auto elemType = getElementType(type);
     const auto order = getDimsOrder(type);
     const auto memSpace = getMemSpace(type);
-    return vpux::getMemRefType(shape, elemType, order, memSpace, StridesRef(), VPUIP::getSwizzlingSchemeAttr(type),
-                               VPUIP::getSparsityCompressionAttr(type), VPUIP::getAllocSizeAttr(type),
-                               VPUIP::getCompressionStateAttr(type));
+    // E#224862: it is not yet clear how tile info erasure affects bounds, so
+    // follow strides semantics and drop any present bounds.
+    return vpux::getMemRefType(shape, elemType, order, memSpace, StridesRef(), BoundsRef(),
+                               VPUIP::getSwizzlingSchemeAttr(type), VPUIP::getSparsityCompressionAttr(type),
+                               VPUIP::getAllocSizeAttr(type), VPUIP::getCompressionStateAttr(type));
 }
 
 vpux::NDTypeInterface MemRefNDTypeInterface::pad(mlir::Type type, vpux::ShapeRef padBefore,
@@ -855,8 +931,10 @@ vpux::NDTypeInterface MemRefNDTypeInterface::pad(mlir::Type type, vpux::ShapeRef
         newElemType = expandScalesAndZP(perAxisQType, padBefore, padAfter);
     }
 
+    // E#224862: padding likely affects bounds, however, there's no proper
+    // design yet, so follow strides - drop any present bounds.
     const auto newType =
-            vpux::getMemRefType(newShape, newElemType, order, memSpace, /*strides=*/StridesRef(),
+            vpux::getMemRefType(newShape, newElemType, order, memSpace, /*strides=*/StridesRef(), BoundsRef(),
                                 VPUIP::getSwizzlingSchemeAttr(type), VPUIP::getSparsityCompressionAttr(type),
                                 VPUIP::getAllocSizeAttr(type), VPUIP::getCompressionStateAttr(type));
 

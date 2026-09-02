@@ -83,92 +83,157 @@ mlir::LogicalResult verifyCompressedBufferAllocSize(mlir::Location loc, mlir::Va
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
                                  mlir::Value output_buff) {
-    build(builder, state, input, output_buff, /*port=*/nullptr, /*is_out_of_order=*/false,
+    build(builder, state, input,
+          /*dynamic_sequence_length_buff=*/nullptr, output_buff, /*port=*/nullptr, /*is_out_of_order=*/false,
           /*is_critical=*/false,
-          /*spillId=*/nullptr, /*compress_candidate=*/false, /*dma_hwp_id=*/nullptr,
+          /*spillId=*/nullptr, /*compress_candidate=*/false,
+          /*dma_hwp_id=*/nullptr,
           /* profilingMetadata= */ nullptr,
-          /*split_candidate=*/nullptr, /*profiling_buffer_mgmt=*/false, /*fusionId=*/nullptr);
+          /*split_candidate=*/nullptr, /*profiling_buffer_mgmt=*/false, /*fusionId=*/nullptr,
+          /*task_dyn_id=*/nullptr);
 }
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
                                  mlir::Value output_buff, int64_t port) {
-    build(builder, state, input, output_buff, /*port=*/vpux::getIntAttr(builder, port),
+    build(builder, state, input,
+          /*dynamic_sequence_length_buff=*/nullptr, output_buff, /*port=*/vpux::getIntAttr(builder, port),
           /*is_out_of_order=*/false,
           /*is_critical=*/false,
-          /*spillId=*/nullptr, /*compress_candidate=*/false, /*dma_hwp_id=*/nullptr,
+          /*spillId=*/nullptr, /*compress_candidate=*/false,
+          /*dma_hwp_id=*/nullptr,
           /* profilingMetadata= */ nullptr,
-          /*split_candidate=*/nullptr, /*profiling_buffer_mgmt=*/false, /*fusionId=*/nullptr);
+          /*split_candidate=*/nullptr, /*profiling_buffer_mgmt=*/false, /*fusionId=*/nullptr,
+          /*task_dyn_id=*/nullptr);
 }
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
                                  mlir::Value output_buff, int64_t port, int32_t dma_hwp_id) {
-    build(builder, state, input, output_buff, /*port=*/vpux::getIntAttr(builder, port),
+    build(builder, state, input,
+          /*dynamic_sequence_length_buff=*/nullptr, output_buff, /*port=*/vpux::getIntAttr(builder, port),
           /*is_out_of_order=*/false,
           /*is_critical=*/false,
           /*spillId=*/nullptr, /*compress_candidate=*/false, vpux::getIntAttr(builder, dma_hwp_id),
           /* profilingMetadata= */ nullptr, /*split_candidate=*/nullptr, /*profiling_buffer_mgmt=*/false,
-          /*fusionId=*/nullptr);
+          /*fusionId=*/nullptr, /*task_dyn_id=*/nullptr);
 }
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
                                  mlir::Value output_buff, mlir::IntegerAttr port, bool is_out_of_order,
                                  bool is_critical, mlir::IntegerAttr spillId) {
-    build(builder, state, input, output_buff, /*port=*/port,
+    build(builder, state, input,
+          /*dynamic_sequence_length_buff=*/nullptr, output_buff, /*port=*/port,
           /*is_out_of_order=*/is_out_of_order,
-          /*is_critical=*/is_critical, /*spillId=*/spillId, /*compress_candidate=*/false, /*dma_hwp_id=*/nullptr,
+          /*is_critical=*/is_critical, /*spillId=*/spillId, /*compress_candidate=*/false,
+          /*dma_hwp_id=*/nullptr,
           /* profilingMetadata= */ nullptr, /*split_candidate=*/nullptr, /*profiling_buffer_mgmt=*/false,
-          /*fusionId=*/nullptr);
+          /*fusionId=*/nullptr, /*task_dyn_id=*/nullptr);
 }
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
                                  mlir::Value output_buff, int64_t port, bool is_out_of_order, bool is_critical,
                                  mlir::IntegerAttr spillId, bool compress_candidate) {
-    build(builder, state, input, output_buff, /*port=*/vpux::getIntAttr(builder, port),
+    build(builder, state, input,
+          /*dynamic_sequence_length_buff=*/nullptr, output_buff, /*port=*/vpux::getIntAttr(builder, port),
           /*is_out_of_order=*/is_out_of_order,
           /*is_critical=*/is_critical, /*spillId=*/spillId, /*compress_candidate=*/compress_candidate,
           /*dma_hwp_id=*/nullptr,
           /* profilingMetadata= */ nullptr, /*split_candidate=*/nullptr, /*profiling_buffer_mgmt=*/false,
-          /*fusionId=*/nullptr);
+          /*fusionId=*/nullptr, /*task_dyn_id=*/nullptr);
 }
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
                                  mlir::Value output_buff, int64_t port, bool is_out_of_order, bool is_critical,
                                  mlir::IntegerAttr spillId) {
-    build(builder, state, input, output_buff, /*port=*/vpux::getIntAttr(builder, port),
+    build(builder, state, input,
+          /*dynamic_sequence_length_buff=*/nullptr, output_buff, /*port=*/vpux::getIntAttr(builder, port),
           /*is_out_of_order=*/is_out_of_order,
-          /*is_critical=*/is_critical, /*spillId=*/spillId, /*compress_candidate=*/false, /*dma_hwp_id=*/nullptr,
+          /*is_critical=*/is_critical, /*spillId=*/spillId, /*compress_candidate=*/false,
+          /*dma_hwp_id=*/nullptr,
           /* profilingMetadata=*/nullptr, /*split_candidate=*/nullptr, /*profiling_buffer_mgmt=*/false,
-          /*fusionId=*/nullptr);
+          /*fusionId=*/nullptr, /*task_dyn_id=*/nullptr);
 }
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
                                  mlir::Value output_buff, int64_t port, bool is_out_of_order, bool is_critical,
                                  mlir::IntegerAttr spillId, bool compress_candidate, mlir::BoolAttr split_candidate,
                                  mlir::IntegerAttr fusionId) {
-    build(builder, state, input, output_buff, /*port=*/vpux::getIntAttr(builder, port),
+    build(builder, state, input,
+          /*dynamic_sequence_length_buff=*/nullptr, output_buff, /*port=*/vpux::getIntAttr(builder, port),
           /*is_out_of_order=*/is_out_of_order,
           /*is_critical=*/is_critical, /*spillId=*/spillId, /*compress_candidate=*/compress_candidate,
           /*dma_hwp_id=*/nullptr,
-          /* profilingMetadata=*/nullptr, split_candidate, /*profiling_buffer_mgmt=*/false, fusionId);
+          /* profilingMetadata=*/nullptr, split_candidate, /*profiling_buffer_mgmt=*/false, fusionId,
+          /*task_dyn_id=*/nullptr);
 }
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
                                  mlir::Value output_buff, int64_t port, bool is_out_of_order, bool is_critical,
                                  mlir::IntegerAttr spillId, bool compress_candidate, bool split_candidate,
                                  mlir::IntegerAttr fusionId) {
-    build(builder, state, input, output_buff, /*port=*/vpux::getIntAttr(builder, port),
+    build(builder, state, input,
+          /*dynamic_sequence_length_buff=*/nullptr, output_buff, /*port=*/vpux::getIntAttr(builder, port),
           /*is_out_of_order=*/is_out_of_order,
           /*is_critical=*/is_critical, /*spillId=*/spillId, /*compress_candidate=*/compress_candidate,
           /*dma_hwp_id=*/nullptr,
           /* profilingMetadata=*/nullptr, builder.getBoolAttr(split_candidate), /*profiling_buffer_mgmt=*/false,
-          fusionId);
+          fusionId, /*task_dyn_id=*/nullptr);
+}
+
+void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
+                                 mlir::Value dynamic_sequence_length_buff, mlir::Value output_buff, int64_t port,
+                                 uint16_t task_dyn_id) {
+    build(builder, state, input, dynamic_sequence_length_buff, output_buff, /*port=*/vpux::getIntAttr(builder, port),
+          /*is_out_of_order=*/false, /*is_critical=*/false,
+          /*spillId=*/nullptr, /*compress_candidate=*/false,
+          /*dma_hwp_id=*/nullptr,
+          /*profilingMetadata=*/nullptr,
+          /*split_candidate=*/nullptr, /*profiling_buffer_mgmt=*/false, /*fusionId=*/nullptr,
+          /*task_dyn_id=*/mlir::IntegerAttr::get(vpux::getUInt16Type(builder.getContext()), task_dyn_id));
+}
+
+void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
+                                 mlir::Value dynamic_sequence_length_buff, mlir::Value output_buff, int64_t port,
+                                 bool is_out_of_order, bool is_critical, uint16_t task_dyn_id) {
+    build(builder, state, input, dynamic_sequence_length_buff, output_buff, /*port=*/vpux::getIntAttr(builder, port),
+          /*is_out_of_order=*/is_out_of_order, /*is_critical=*/is_critical,
+          /*spillId=*/nullptr, /*compress_candidate=*/false,
+          /*dma_hwp_id=*/nullptr,
+          /*profilingMetadata=*/nullptr,
+          /*split_candidate=*/nullptr, /*profiling_buffer_mgmt=*/false, /*fusionId=*/nullptr,
+          /*task_dyn_id=*/mlir::IntegerAttr::get(vpux::getUInt16Type(builder.getContext()), task_dyn_id));
+}
+
+void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
+                                 mlir::Value dynamic_sequence_length_buff, mlir::Value output_buff,
+                                 mlir::IntegerAttr port, bool is_out_of_order, bool is_critical, uint16_t task_dyn_id) {
+    build(builder, state, input, dynamic_sequence_length_buff, output_buff, /*port=*/port,
+          /*is_out_of_order=*/is_out_of_order, /*is_critical=*/is_critical,
+          /*spillId=*/nullptr, /*compress_candidate=*/false,
+          /*dma_hwp_id=*/nullptr,
+          /*profilingMetadata=*/nullptr,
+          /*split_candidate=*/nullptr, /*profiling_buffer_mgmt=*/false, /*fusionId=*/nullptr,
+          /*task_dyn_id=*/mlir::IntegerAttr::get(vpux::getUInt16Type(builder.getContext()), task_dyn_id));
 }
 
 mlir::LogicalResult vpux::VPUIP::NNDMAOp::verify() {
     auto loc = getLoc();
+    auto inType = mlir::cast<vpux::NDTypeInterface>(getInput().getType());
+    auto outBuffType = mlir::cast<vpux::NDTypeInterface>(getOutputBuff().getType());
+
+    if (inType.getShape() != outBuffType.getShape()) {
+        return errorAt(loc, "Operation's input/output shapes mismatch: {0} != {1}", inType.getShape(),
+                       outBuffType.getShape());
+    }
+
+    if (verifyInOutElementType(loc, getInput(), getOutputBuff()).failed()) {
+        return mlir::failure();
+    }
+
+    if ((getTaskDynIdAttr() != nullptr) != (getDynamicSequenceLengthBuff() != nullptr)) {
+        return errorAt(loc, "task_dyn_id and dynamic_sequence_length_buff must be both present or both absent");
+    }
 
     if (getCompressCandidate()) {
-        auto inType = mlir::cast<vpux::NDTypeInterface>(getInput().getType());
         auto outType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
         if (inType.getMemoryKind() == VPU::MemoryKind::CMX_NN && outType.getMemoryKind() == VPU::MemoryKind::DDR) {
             auto compressionState = VPUIP::getCompressionState(getOutput().getType());
@@ -351,7 +416,7 @@ void vpux::VPUIP::ConvertDMAOp::build(mlir::OpBuilder& builder, mlir::OperationS
                                       mlir::Value output_buff) {
     build(builder, state, input, output_buff, /*port=*/nullptr, /*is_out_of_order=*/false,
           /*is_critical=*/false,
-          /* dma_hwp_id=*/nullptr, /* profilingMetadata */ nullptr);
+          /* dma_hwp_id=*/nullptr, /* profilingMetadata */ nullptr, /*split_candidate=*/nullptr);
 }
 
 void vpux::VPUIP::ConvertDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
@@ -359,7 +424,7 @@ void vpux::VPUIP::ConvertDMAOp::build(mlir::OpBuilder& builder, mlir::OperationS
     build(builder, state, input, output_buff, /*port=*/vpux::getIntAttr(builder, port),
           /*is_out_of_order=*/false,
           /*is_critical=*/false,
-          /* dma_hwp_id=*/nullptr, /* profilingMetadata */ nullptr);
+          /* dma_hwp_id=*/nullptr, /* profilingMetadata */ nullptr, /*split_candidate=*/nullptr);
 }
 
 mlir::LogicalResult vpux::VPUIP::ConvertDMAOp::verify() {
@@ -859,7 +924,8 @@ size_t vpux::VPUIP::BarProgDMAOp::getOperationCycleCost(std::shared_ptr<VPUNN::V
 
     // TODO: E#97004 Expose API to get arch from cost model
     const auto vpuDevice = vpux::VPU::getVPUDeviceType(module);
-    return checked_cast<size_t>(getDMACost(getInput(), getOutput(), config::getArch(module), vpuDevice, costModel));
+    return checked_cast<size_t>(
+            getDMACost(getInput(), getOutput(), config::getArch(module), vpuDevice, costModel, /*numDMAPorts=*/1));
 }
 
 //
@@ -900,7 +966,8 @@ size_t vpux::VPUIP::EnqueueDMAOp::getOperationCycleCost(std::shared_ptr<VPUNN::V
 
     // TODO: E#97004 Expose API to get arch from cost model
     const auto vpuDevice = vpux::VPU::getVPUDeviceType(module);
-    return checked_cast<size_t>(getDMACost(getInput(), getOutput(), config::getArch(module), vpuDevice, costModel));
+    return checked_cast<size_t>(
+            getDMACost(getInput(), getOutput(), config::getArch(module), vpuDevice, costModel, /*numDMAPorts=*/1));
 }
 
 //
@@ -926,7 +993,8 @@ size_t vpux::VPUIP::FetchDMAOp::getOperationCycleCost(std::shared_ptr<VPUNN::VPU
 
     // TODO: Expose API to get arch from cost model
     const auto vpuDevice = vpux::VPU::getVPUDeviceType(module);
-    return checked_cast<size_t>(getDMACost(getInput(), getOutput(), config::getArch(module), vpuDevice, costModel));
+    return checked_cast<size_t>(
+            getDMACost(getInput(), getOutput(), config::getArch(module), vpuDevice, costModel, /*numDMAPorts=*/1));
 }
 
 //

@@ -50,8 +50,9 @@ vpux::NDTypeInterface setAllocSizeAttr(vpux::NDTypeInterface type, int64_t alloc
     mlir::IntegerAttr allocSizeAttr = getIntAttr(ctx, allocSize);
 
     if (mlir::isa<mlir::MemRefType>(type)) {
-        return vpux::getMemRefType(shape, elemType, order, memSpace, strides, VPUIP::getSwizzlingSchemeAttr(type),
-                                   VPUIP::getSparsityCompressionAttr(type), allocSizeAttr);
+        return vpux::getMemRefType(shape, elemType, order, memSpace, strides, getBounds(type),
+                                   VPUIP::getSwizzlingSchemeAttr(type), VPUIP::getSparsityCompressionAttr(type),
+                                   allocSizeAttr);
     } else if (mlir::isa<vpux::VPUIP::DistributedBufferType>(type) || mlir::isa<vpux::VPUIP::ITIBufferType>(type)) {
         vpux::MemRefAttr memRefAttr;
         const auto orderAttr = mlir::AffineMapAttr::get(order.toAffineMap(ctx));
@@ -71,7 +72,8 @@ vpux::NDTypeInterface setAllocSizeAttr(vpux::NDTypeInterface type, int64_t alloc
             hwSpecificFields = memRefAttr.hwSpecificFields();
         }
 
-        const auto layoutAttr = vpux::MemRefAttr::get(orderAttr, stridesAttr, allocSizeAttr, hwSpecificFields, ctx);
+        const auto layoutAttr = vpux::MemRefAttr::get(orderAttr, stridesAttr, allocSizeAttr, /*optionalBounds=*/{},
+                                                      hwSpecificFields, ctx);
 
         if (itiBufferType) {
             return VPUIP::ITIBufferType::get(ctx, shape.raw(), elemType, layoutAttr, memSpace,

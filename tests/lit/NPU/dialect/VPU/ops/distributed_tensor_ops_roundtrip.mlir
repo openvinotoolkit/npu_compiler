@@ -36,7 +36,7 @@
 
 func.func @CheckDepthConv(%input: !InputDistributed, %weights: !WeightsDistributed) -> !OutputDistributed {
 
-    %depthConvOut= VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [32, 1, 3, 3] { pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+    %depthConvOut= VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [32, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,  pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                                                                  ppe = #VPU.PPEStub<>,
                                                                   strides = [1, 1]} -> !OutputDistributed
     return %depthConvOut : !OutputDistributed
@@ -44,7 +44,7 @@ func.func @CheckDepthConv(%input: !InputDistributed, %weights: !WeightsDistribut
 
 //CHECK:        [[DCONV:%.+]] = VPU.NCE.DepthConvolution([[INPUT]], [[WEIGHTS]]) rawFilterShape [32, 1, 3, 3] {
     // CHECK-SAME:                           pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-// CHECK-SAME:                          strides = [1, 1]}
+// CHECK-SAME:                          resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1]}
 //CHECK-SAME:   -> !VPU.DistributedTensor<1x32x14x14xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>
 
 //CHECK:        return [[DCONV]] : !VPU.DistributedTensor<1x32x14x14xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>
@@ -216,11 +216,11 @@ func.func @CheckMaxPool(%input: !InputDistributed) -> !OutputDistributed {
 
 func.func @CheckEltwise(%input0: !InputDistributed0, %input1: !InputDistributed1) -> !OutputDistributed {
 
-    %eltwiseOut= VPU.NCE.Eltwise(%input0, %input1) {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> !OutputDistributed
+    %eltwiseOut= VPU.NCE.Eltwise(%input0, %input1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> !OutputDistributed
     return %eltwiseOut : !OutputDistributed
 }
 
-//CHECK:        [[ELTWISE:%.+]] = VPU.NCE.Eltwise([[INPUT0]], [[INPUT1]]) {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
+//CHECK:        [[ELTWISE:%.+]] = VPU.NCE.Eltwise([[INPUT0]], [[INPUT1]]) {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>, resultSegmentSizes = array<i32: 1, 0, 0, 0>}
 //CHECK-SAME:   -> !VPU.DistributedTensor<1x32x112x112xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED",  num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
 //CHECK:        return [[ELTWISE]] : !VPU.DistributedTensor<1x32x112x112xf16, #NHWC, @CMX_NN,

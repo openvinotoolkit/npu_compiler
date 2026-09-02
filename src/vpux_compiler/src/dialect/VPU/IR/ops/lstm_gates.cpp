@@ -107,6 +107,12 @@ OutputTiling vpux::VPU::LSTMGatesOp::getOutputTiling(const vpux::TileInfo& outpu
     return OutputTiling{outputTile, outputTile};
 }
 
+vpux::TileInfo vpux::VPU::LSTMGatesOp::getMainOutputTile(mlir::OpResult /*secondaryOutput*/,
+                                                         const vpux::TileInfo& secondaryOutputTile,
+                                                         vpux::Logger /*log*/) {
+    return secondaryOutputTile;
+}
+
 void vpux::VPU::LSTMGatesOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const TileInfo& /*outputTile*/) {
     // Do nothing
 }

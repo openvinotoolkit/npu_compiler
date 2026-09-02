@@ -67,8 +67,8 @@ mlir::Value reduceWeightsConstant(VPUIP::NCEClusterTaskOp nceOp, VPUIP::CopyOp w
                                 }));
         const auto stridesAttr = getIntArrayAttr(oldDistrType.getContext(), elemStrides);
         const auto layout = vpux::MemRefAttr::get(orderAttr, stridesAttr,
-                                                  /*allocSize=*/nullptr, {oldDistrType.getSparsityCompression()},
-                                                  oldDistrType.getContext());
+                                                  /*allocSize=*/nullptr, /*optionalBounds=*/{},
+                                                  {oldDistrType.getSparsityCompression()}, oldDistrType.getContext());
 
         auto distributedAttr = oldDistrType.getDistribution();
         if (VPU::isDistributedAttrWithExplicitShapesAndOffsets(distributedAttr)) {
@@ -77,15 +77,14 @@ mlir::Value reduceWeightsConstant(VPUIP::NCEClusterTaskOp nceOp, VPUIP::CopyOp w
             // multiple parsing for same values
             auto distribution = vpux::VPU::DistributionInfo::getClassFromAttr(distributedAttr);
 
-            auto perClusterMemoryShapes = VPU::getPerClusterMemoryShapes(weightsCopyOutputType.getShape(), distribution,
-                                                                         weightsCopyOutputType.getElementType())
-                                                  .value();
-            auto perClusterMemoryOffsets = VPU::getPerClusterMemoryShapeOffsets(
-                    weightsCopyOutputType.getShape(), distribution, weightsCopyOutputType.getElementType());
-            auto perClusterComputeShapes = VPU::getPerClusterComputeShapes(
-                    weightsCopyOutputType.getShape(), distribution, weightsCopyOutputType.getElementType());
-            auto perClusterComputeOffsets = VPU::getPerClusterComputeShapeOffsets(
-                    weightsCopyOutputType.getShape(), distribution, weightsCopyOutputType.getElementType());
+            auto perClusterMemoryShapes =
+                    VPU::getPerClusterMemoryShapes(weightsCopyOutputType.getShape(), distribution).value();
+            auto perClusterMemoryOffsets =
+                    VPU::getPerClusterMemoryShapeOffsets(weightsCopyOutputType.getShape(), distribution);
+            auto perClusterComputeShapes =
+                    VPU::getPerClusterComputeShapes(weightsCopyOutputType.getShape(), distribution);
+            auto perClusterComputeOffsets =
+                    VPU::getPerClusterComputeShapeOffsets(weightsCopyOutputType.getShape(), distribution);
 
             distribution.setMemoryShapes(VPU::arrayOfArrayFromShape(perClusterMemoryShapes));
             distribution.setMemoryOffsets(VPU::arrayOfArrayFromShape(perClusterMemoryOffsets));
@@ -213,8 +212,7 @@ void compressConvWeights(Logger& log, VPUIP::NCEClusterTaskOp origOp) {
             // proper shape & DistributedAttr
             auto newDistribution = VPU::getNonOverlappedDistributedAttr(
                     origShape, mode, distribution.getNumTiles(), distribution.getNumClusters(),
-                    distribution.getAlignment(), distribution.getUniformDistributedSegments(),
-                    distributedBufferType.getElementType(), origOp.getContext());
+                    distribution.getAlignment(), distribution.getUniformDistributedSegments(), origOp.getContext());
             weightsType = VPUIP::DistributedBufferType::get(
                     distributedBufferType.getContext(), origShape.raw(), distributedBufferType.getElementType(),
                     distributedBufferType.getLayout(), distributedBufferType.getMemSpace(), newDistribution);

@@ -322,7 +322,7 @@ mlir::Value createAvgPoolForInterQuantizedConvert(mlir::OpBuilder& builder, mlir
     // and Add could be done via AvgPool.
     auto avgType = mlir::cast<NDTypeInterface>(value.getType()).changeElemType(avgOutElemType);
     auto avgPool = builder.create<IE::AvgPoolOp>(
-            loc, avgType, value, getIntArrayAttr(ctx, poolKernels), getIntArrayAttr(ctx, poolStrides),
+            loc, avgType, value, nullptr, getIntArrayAttr(ctx, poolKernels), getIntArrayAttr(ctx, poolStrides),
             getIntArrayAttr(ctx, pads), getIntArrayAttr(ctx, pads),
             vpux::IE::RoundingTypeAttr::get(ctx, vpux::IE::RoundingType::FLOOR),
             mlir::UnitAttr::get(builder.getContext()), nullptr, nullptr, nullptr, nullptr, nullptr);

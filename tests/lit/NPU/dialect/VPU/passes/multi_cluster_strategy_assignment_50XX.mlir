@@ -35,7 +35,7 @@ func.func @InterpolateNearestAssignedSOH(%arg0: tensor<1x128x10x10xf16, {order =
                                               scale = [1.0, 1.0, 2.0, 2.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 128, 20, 20]>>
 
     %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) rawFilterShape [128, 128, 1, 1] {
-        
+
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<NEAREST>,
         scales_attr = [2, 2],
@@ -51,7 +51,7 @@ func.func @InterpolateNearestAssignedSOH(%arg0: tensor<1x128x10x10xf16, {order =
     // CHECK:       [[INPUT_SE:%.+]] = VPU.StorageElementTable
     // CHECK:       [[INPUT_SPARSE:%.+]] = VPU.GroupSparseTensor([[ARG]], [[INPUT_SM]], [[INPUT_SE]])
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Interpolate([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [128, 128, 1, 1] 
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Interpolate([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [128, 128, 1, 1]
     // CHECK-SAME:      mode = #VPU.nce_interpolate_mode<NEAREST>,
     // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
     // CHECK-SAME:      scales_attr = [2, 2],
@@ -90,7 +90,7 @@ func.func @InterpolateBilinearAssignedSOH(%arg0: tensor<1x96x20x20xf16, {order =
                                               scale = [1.0, 1.0, 2.0, 2.0], offsets = [0, 0, 0, 0], sizes = [1, 96, 41, 41]>>
 
     %interpolate = VPU.NCE.Interpolate(%input, %weights, %weights_table) rawFilterShape [96, 96, 2, 2] {
-        
+
         strides = [1, 1],
         mode = #VPU.nce_interpolate_mode<BILINEAR>,
         scales_attr = [2, 2],
@@ -197,7 +197,7 @@ func.func @ConvAssignedSOHCorrectVPUNNCost(%arg0: tensor<1x512x375x4xf16, {order
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x7168x1x1xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x7168x1x1xf16, {order = #NHWC}>)
 // CHECK-SAME:  -> tensor<1x7168x1x1xf16, {order = #NHWC}>
 func.func @NceEltwiseAssignedSEGSOK(%arg0:  tensor<1x7168x1x1xf16, {order = #NHWC}>, %arg1: tensor<1x7168x1x1xf16, {order = #NHWC}>) -> tensor<1x7168x1x1xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<MULTIPLY>,
         ppe = #VPU.PPEFp<mode = <NOOP>,
         clamp_low = -3.4028234663852886E+38 : f64,
@@ -326,4 +326,85 @@ func.func @FlashSDPA_TargetSeqLen1024_SoH(%query: tensor<1x32x1024x128xf16>, %ke
 
     // CHECK:       VPU.FlashSDPA
     // CHECK-SAME:      SplitOverHeight
+}
+
+// -----
+
+// CHECK-LABEL: @GatedDeltaNetTileOverHead
+func.func @GatedDeltaNetTileOverHead(%q: tensor<1x512x4x128xf16>, %k: tensor<1x512x4x128xf16>, %v: tensor<1x512x4x128xf16>,
+                                     %s: tensor<1x4x128x128xf32>, %g: tensor<1x512x4xf16>, %b: tensor<1x512x4xf16>,
+                                     %scratch: tensor<1x1x1x932352xui8>)
+        -> (tensor<1x512x4x128xf16>, tensor<1x4x128x128xf32>) {
+    %out, %state = VPU.GatedDeltaNet(%q, %k, %v, %s, %g, %b, %scratch) {
+        q_l2_norm_eps = 1.000000e-03 : f64, k_l2_norm_eps = 2.000000e-03 : f64
+    } : tensor<1x512x4x128xf16>, tensor<1x512x4x128xf16>, tensor<1x512x4x128xf16>, tensor<1x4x128x128xf32>,
+        tensor<1x512x4xf16>, tensor<1x512x4xf16>, tensor<1x1x1x932352xui8> -> tensor<1x512x4x128xf16>, tensor<1x4x128x128xf32>
+    return %out, %state : tensor<1x512x4x128xf16>, tensor<1x4x128x128xf32>
+
+    // CHECK:       VPU.GatedDeltaNet
+    // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+}
+
+// -----
+
+// CHECK-LABEL: @GatedDeltaNetGQAAlignedTileOverHead
+func.func @GatedDeltaNetGQAAlignedTileOverHead(%q: tensor<1x512x6x128xf16>, %k: tensor<1x512x6x128xf16>, %v: tensor<1x512x12x128xf16>,
+                                               %s: tensor<1x12x128x128xf32>, %g: tensor<1x512x12xf16>, %b: tensor<1x512x12xf16>,
+                                               %scratch: tensor<1x1x1x932352xui8>)
+        -> (tensor<1x512x12x128xf16>, tensor<1x12x128x128xf32>) {
+    %out, %state = VPU.GatedDeltaNet(%q, %k, %v, %s, %g, %b, %scratch) {
+        q_l2_norm_eps = 1.000000e-03 : f64, k_l2_norm_eps = 2.000000e-03 : f64
+    } : tensor<1x512x6x128xf16>, tensor<1x512x6x128xf16>, tensor<1x512x12x128xf16>, tensor<1x12x128x128xf32>,
+        tensor<1x512x12xf16>, tensor<1x512x12xf16>, tensor<1x1x1x932352xui8> -> tensor<1x512x12x128xf16>, tensor<1x12x128x128xf32>
+    return %out, %state : tensor<1x512x12x128xf16>, tensor<1x12x128x128xf32>
+
+    // CHECK:       VPU.GatedDeltaNet
+    // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+}
+
+// -----
+
+// CHECK-LABEL: @GatedDeltaNetGQAUnevenTileOverHead
+func.func @GatedDeltaNetGQAUnevenTileOverHead(%q: tensor<1x512x4x128xf16>, %k: tensor<1x512x4x128xf16>, %v: tensor<1x512x8x128xf16>,
+                                              %s: tensor<1x8x128x128xf32>, %g: tensor<1x512x8xf16>, %b: tensor<1x512x8xf16>,
+                                              %scratch: tensor<1x1x1x932352xui8>)
+        -> (tensor<1x512x8x128xf16>, tensor<1x8x128x128xf32>) {
+    %out, %state = VPU.GatedDeltaNet(%q, %k, %v, %s, %g, %b, %scratch) {
+        q_l2_norm_eps = 1.000000e-03 : f64, k_l2_norm_eps = 2.000000e-03 : f64
+    } : tensor<1x512x4x128xf16>, tensor<1x512x4x128xf16>, tensor<1x512x8x128xf16>, tensor<1x8x128x128xf32>,
+        tensor<1x512x8xf16>, tensor<1x512x8xf16>, tensor<1x1x1x932352xui8> -> tensor<1x512x8x128xf16>, tensor<1x8x128x128xf32>
+    return %out, %state : tensor<1x512x8x128xf16>, tensor<1x8x128x128xf32>
+
+    // CHECK:       VPU.GatedDeltaNet
+    // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+}
+
+// -----
+
+// CHECK-LABEL: @GatedDeltaNetFewerQueryHeadsThanTilesSingleCluster
+// CHECK-NOT:   multiClusterStrategy
+func.func @GatedDeltaNetFewerQueryHeadsThanTilesSingleCluster(%q: tensor<1x512x2x128xf16>, %k: tensor<1x512x2x128xf16>, %v: tensor<1x512x4x128xf16>,
+                                                              %s: tensor<1x4x128x128xf32>, %g: tensor<1x512x4xf16>, %b: tensor<1x512x4xf16>,
+                                                              %scratch: tensor<1x1x1x932352xui8>)
+        -> (tensor<1x512x4x128xf16>, tensor<1x4x128x128xf32>) {
+    %out, %state = VPU.GatedDeltaNet(%q, %k, %v, %s, %g, %b, %scratch) {
+        q_l2_norm_eps = 1.000000e-03 : f64, k_l2_norm_eps = 2.000000e-03 : f64
+    } : tensor<1x512x2x128xf16>, tensor<1x512x2x128xf16>, tensor<1x512x4x128xf16>, tensor<1x4x128x128xf32>,
+        tensor<1x512x4xf16>, tensor<1x512x4xf16>, tensor<1x1x1x932352xui8> -> tensor<1x512x4x128xf16>, tensor<1x4x128x128xf32>
+    return %out, %state : tensor<1x512x4x128xf16>, tensor<1x4x128x128xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @GatedDeltaNetFitsCMX
+// CHECK-NOT:   multiClusterStrategy
+func.func @GatedDeltaNetFitsCMX(%q: tensor<1x4x2x8xf16>, %k: tensor<1x4x2x8xf16>, %v: tensor<1x4x2x8xf16>,
+                                %s: tensor<1x2x8x8xf32>, %g: tensor<1x4x2xf16>, %b: tensor<1x4x2xf16>,
+                                %scratch: tensor<1x1x1x192000xui8>)
+        -> (tensor<1x4x2x8xf16>, tensor<1x2x8x8xf32>) {
+    %out, %state = VPU.GatedDeltaNet(%q, %k, %v, %s, %g, %b, %scratch) {
+        q_l2_norm_eps = 1.000000e-03 : f64, k_l2_norm_eps = 2.000000e-03 : f64
+    } : tensor<1x4x2x8xf16>, tensor<1x4x2x8xf16>, tensor<1x4x2x8xf16>, tensor<1x2x8x8xf32>,
+        tensor<1x4x2xf16>, tensor<1x4x2xf16>, tensor<1x1x1x192000xui8> -> tensor<1x4x2x8xf16>, tensor<1x2x8x8xf32>
+    return %out, %state : tensor<1x4x2x8xf16>, tensor<1x2x8x8xf32>
 }

@@ -526,7 +526,7 @@ void FuseDynamicQuantizePass::safeRunOnFunc() {
             continue;
         }
 
-        auto reduceMinAxesValue = IE::extractAxes(reduceMinOp.getLoc(), reduceMinOp);
+        auto reduceMinAxesValue = parseIntArrayAttr<int64_t>(reduceMinOp.getAxesValue());
 
         IE::ReduceMaxOp reduceMaxOp = nullptr;
         for (const auto userOp : dynamicQuantizeInput.getUsers()) {
@@ -544,7 +544,7 @@ void FuseDynamicQuantizePass::safeRunOnFunc() {
             continue;
         }
 
-        auto reduceMaxAxesValue = IE::extractAxes(reduceMaxOp.getLoc(), reduceMaxOp);
+        auto reduceMaxAxesValue = parseIntArrayAttr<int64_t>(reduceMaxOp.getAxesValue());
         if (!hasSameAxes(reduceMinAxesValue, reduceMaxAxesValue) ||
             reduceMinOp.getKeepDims() != reduceMaxOp.getKeepDims()) {
             nestLog.trace("ReduceMin and ReduceMax use different reduction parameters");

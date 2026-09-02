@@ -69,4 +69,8 @@ bool isDmaCMX2DDR(mlir::async::ExecuteOp execOp) {
 bool isDmaDDR2DDR(mlir::async::ExecuteOp execOp) {
     return isDmaDataOp(execOp, VPU::MemoryKind::DDR, VPU::MemoryKind::DDR);
 }
+
+bool isDmaCMX2CMX(mlir::async::ExecuteOp execOp) {
+    return isDmaDataOp(execOp, VPU::MemoryKind::CMX_NN, VPU::MemoryKind::CMX_NN);
+}
 }  // namespace vpux::VPUIP

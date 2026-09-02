@@ -23,7 +23,7 @@ func.func @InterpolateNearestLargeChannels(%input: tensor<1x144x3x3xf16, {order 
             axes_attr = [2, 3],
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x144x3x3xf16, {order = #NHWC}> -> tensor<1x144x6x6xf16, {order = #NHWC}>
 
     return %output : tensor<1x144x6x6xf16, {order = #NHWC}>
@@ -77,7 +77,7 @@ func.func @InterpolateBilinearAsymmetricLargeChannels(%input: tensor<1x144x3x3xf
             axes_attr = [2, 3],
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x144x3x3xf16, {order = #NHWC}> -> tensor<1x144x6x6xf16, {order = #NHWC}>
 
     return %output : tensor<1x144x6x6xf16, {order = #NHWC}>
@@ -130,7 +130,7 @@ func.func @InterpolateBilinearHalfPixelLargeChannels(%input: tensor<1x144x3x3xf1
             axes_attr = [2, 3],
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x144x3x3xf16, {order = #NHWC}> -> tensor<1x144x6x6xf16, {order = #NHWC}>
 
     return %output : tensor<1x144x6x6xf16, {order = #NHWC}>
@@ -183,7 +183,7 @@ func.func @InterpolateBilinearPytorchHalfPixelLargeChannels(%input: tensor<1x144
             axes_attr = [2, 3],
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x144x3x3xf16, {order = #NHWC}> -> tensor<1x144x6x6xf16, {order = #NHWC}>
 
     return %output : tensor<1x144x6x6xf16, {order = #NHWC}>
@@ -236,7 +236,7 @@ func.func @InterpolateBilinearAlignCornersWithLargeChannels(%input: tensor<1x144
             axes_attr = [2, 3],
             scales_attr = [1.000000e+00, 1.000000e+00],
             sizes_attr = [7, 7],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x144x3x3xf16, {order = #NHWC}> -> tensor<1x144x7x7xf16, {order = #NHWC}>
 
     return %output : tensor<1x144x7x7xf16, {order = #NHWC}>

@@ -57,6 +57,12 @@ private:
 };
 
 bool isOptimizableDynamicDequantizeOp(IE::DynamicDequantizeOp origOp) {
+    // Only handle DynamicDequantize with runtime (non-constant) scale.
+    // Const-scale cases are handled by the downstream pipeline natively via DynamicDequantize.
+    if (origOp.getScale().getDefiningOp<Const::DeclareOp>() != nullptr) {
+        return false;
+    }
+
     if (origOp.getZp() != nullptr) {
         return false;
     }
@@ -327,6 +333,7 @@ mlir::LogicalResult ConvertDynamicDequantizeToDequantize::matchAndRewrite(IE::Dy
     if (!isValidPattern.has_value()) {
         return matchFailed(rewriter, origOp, "not a valid FC pattern");
     }
+
     auto fcOp = isValidPattern.value();
     auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
     auto uniformType = mlir::cast<mlir::quant::UniformQuantizedType>(inputType.getElementType());

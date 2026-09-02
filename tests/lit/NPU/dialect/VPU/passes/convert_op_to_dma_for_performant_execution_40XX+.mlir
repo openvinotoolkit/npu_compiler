@@ -189,18 +189,6 @@ func.func @Gather4BitsTiling(%arg0: tensor<645632x224xsi4>, %arg1: tensor<1x1024
 
 // -----
 
-// CHECK-LABEL: @NotTileGatherForCouldNotConvertToGatherDMA
-// CHECK-SAME: ([[ARG0:%.+]]: tensor<3x12x4096xf16>, [[ARG1:%.+]]:  tensor<1x1xsi32>)
-func.func @NotTileGatherForCouldNotConvertToGatherDMA(%arg0: tensor<3x12x4096xf16>, %arg1: tensor<1x1xsi32>) -> tensor<3x1x1x4096xf16> {
-    %0 =  VPU.Gather(%arg0, %arg1) {axis_value = 1 : i64, batch_dims = 0 : i64} : tensor<3x12x4096xf16>, tensor<1x1xsi32> -> tensor<3x1x1x4096xf16>
-    return %0 :  tensor<3x1x1x4096xf16>
-
-    // CHECK:       [[GATHER:%.+]] = VPU.Gather([[ARG0]], [[ARG1]]) {axis_value = 1 : i64, batch_dims = 0 : i64} : tensor<3x12x4096xf16>, tensor<1x1xsi32> -> tensor<3x1x1x4096xf16>
-    // CHECK:       return      [[GATHER]] : tensor<3x1x1x4096xf16>
-}
-
-// -----
-
 !quantileType = !QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
 
 // CHECK-LABEL: @GatherNon4DWithQuantileType

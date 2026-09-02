@@ -176,13 +176,6 @@ void ConvertVPUMI40XX2VPUASMPass::safeRunOnModule() {
         opRanges.erase();
     }
 
-    mlir::OpBuilder builderFunc(&(netFunc.getBody().front().back()));
-
-    // E-141668:
-    // insertion of PerformanceMetricsOp in IR should be done in a dedicated pass
-    auto perfMetricsOp = builderFunc.create<ELF::PerformanceMetricsOp>(builderFunc.getUnknownLoc());
-    ELF::moveOpToSection(perfMetricsOp.getOperation(), sectionMap, builderFunc);
-
     ELF::insertELFMain(netFunc);
 
     // Populate all symbol name mappings in a single pass over the IR

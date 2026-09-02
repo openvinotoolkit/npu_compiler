@@ -13,7 +13,7 @@
 func.func @NoSubgraphOptimization(%arg0: tensor<1x256x24x16xf16, {order = #NHWC}>, %arg1: tensor<1x256x24x16xf16, {order = #NHWC}>) -> tensor<1x256x24x16x!qElemType, {order = #NHWC}>  {
     %weights = const.Declare tensor<256x256x3x3x!qElemType, {order = #NHWC}> = dense<1.000000e+00> : tensor<256x256x3x3xf16>, [#const.CastElemType<si8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
 
-    %add1 = VPU.NCE.Eltwise(%arg0, %arg1) {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = 0 : i64, clamp_high = 255 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_mult = [20688], quant_shift = [29], quant_post_shift = 0 : i64, in1_quant_mult = [45604], in2_quant_mult = [26278], fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x256x24x16x!qElemType, {order = #NHWC}>
+    %add1 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = 0 : i64, clamp_high = 255 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_mult = [20688], quant_shift = [29], quant_post_shift = 0 : i64, in1_quant_mult = [45604], in2_quant_mult = [26278], fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x256x24x16x!qElemType, {order = #NHWC}>
     %conv1 = VPU.NCE.Convolution(%add1, %weights) rawFilterShape [256, 256, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
@@ -26,7 +26,7 @@ func.func @NoSubgraphOptimization(%arg0: tensor<1x256x24x16xf16, {order = #NHWC}
          strides = [1, 1]
         } : tensor<1x256x24x16x!qElemType, {order = #NHWC}>, tensor<256x256x3x3x!qElemType, {order = #NHWC}> -> tensor<1x256x24x16x!qElemType, {order = #NHWC}>
     %conv2 = VPU.NCE.Convolution(%conv1, %weights) rawFilterShape [256, 256, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = 0 : i64, clamp_high = 255 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1]} : tensor<1x256x24x16x!qElemType, {order = #NHWC}>, tensor<256x256x3x3x!qElemType, {order = #NHWC}> -> tensor<1x256x24x16x!qElemType, {order = #NHWC}>
-    %add2 = VPU.NCE.Eltwise(%conv2, %add1) {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = 0 : i64, clamp_high = 255 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_mult = [17510], quant_shift = [29], quant_post_shift = 0 : i64, in1_quant_mult = [59378], in2_quant_mult = [25950], fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x256x24x16x!qElemType, {order = #NHWC}>
+    %add2 = VPU.NCE.Eltwise(%conv2, %add1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = 0 : i64, clamp_high = 255 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_mult = [17510], quant_shift = [29], quant_post_shift = 0 : i64, in1_quant_mult = [59378], in2_quant_mult = [25950], fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x256x24x16x!qElemType, {order = #NHWC}>
     return %add2 : tensor<1x256x24x16x!qElemType, {order = #NHWC}>
 
     // CHECK: [[ADD1:%.+]] = VPU.NCE.Eltwise

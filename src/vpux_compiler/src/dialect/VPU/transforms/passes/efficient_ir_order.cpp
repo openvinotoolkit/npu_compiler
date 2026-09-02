@@ -8,6 +8,8 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/reorder_ir_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
@@ -17,6 +19,8 @@
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+#include <utility>
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_EFFICIENTIRORDER
@@ -120,6 +124,130 @@ void reorderOperationsInVFBlock(VPU::VerticalFusionOp vfOp) {
         }
         if (firstUser != nullptr) {
             origOp->moveBefore(firstUser);
+        }
+    }
+}
+
+/**
+ * Collect SDPA-related consumer vf ops to move after their common producer VF to reduce interference with SDPA
+ * pattern scheduling. For example, op1 through op6 need to be executed before all SDPA branches are executed.
+ *             producerOp
+ *       /  |  \   ...  /  | \
+ *     op1 op2 op3    op4 op5 op6
+ *       \  |    \      \  |  \
+ *      MatMul    \   MatMul   \
+ *         |       |     |      |
+ *      SoftMax    |  SoftMax   |
+ *           \     |      \     |
+ *            MatMul       MatMul
+ */
+using VFOpMoveAfter = std::pair<mlir::Operation*, VPU::VerticalFusionOp>;
+
+void collectVfOpsToMoveBeforeSDPA(SmallVector<VFOpMoveAfter>& sdpaMoveOps, VPU::VerticalFusionOp vfOp) {
+    if (vfOp->hasOneUse()) {
+        return;
+    }
+
+    // Detect SDPA pattern which is aligned with PatternBasedVF
+    auto detectSDPAPattern = [](VPU::VerticalFusionOp vfOp) {
+        auto isSupportedOp = [](mlir::Operation* op) {
+            if (auto concatOp = mlir::dyn_cast_if_present<VPU::ConcatOp>(op)) {
+                auto concatInputs = concatOp.getInputs();
+                if (concatInputs.size() != 2) {
+                    return false;
+                }
+
+                return mlir::isa_and_present<Const::DeclareOp>(concatInputs[1].getDefiningOp());
+            }
+
+            return mlir::isa_and_present<VPU::ViewLikeOpInterface, VPU::ExpandOp>(op);
+        };
+
+        // `canBeMoved` confirms that vfOp only has one use
+        auto* userOp = *vfOp->getUsers().begin();
+        // Walk through supported ops before the SDPA VF block.
+        while (isSupportedOp(userOp) && userOp->hasOneUse()) {
+            userOp = *userOp->getUsers().begin();
+        }
+        auto userVfOp = mlir::dyn_cast_if_present<VPU::VerticalFusionOp>(userOp);
+        if (userVfOp == nullptr || !userVfOp->hasOneUse()) {
+            return false;
+        }
+
+        auto* body = userVfOp.getBody();
+        if (body == nullptr) {
+            return false;
+        }
+
+        SmallVector<mlir::Operation*> innerOps;
+        for (auto& op : body->without_terminator()) {
+            innerOps.push_back(&op);
+        }
+
+        // Currently, SDPA supports the following patterns:
+        // 1. Conv -> SoftMax -> Conv
+        // 2. Conv -> SoftMax -> Eltwise -> Conv
+        // 3. Conv -> SoftMax -> Reduce -> Conv -> Eltwise (SoftMax decomposition)
+        // So the number of operations in the VF block should be at least 3
+        if (innerOps.size() < 3) {
+            return false;
+        }
+
+        bool hasQKMatMul = false;
+        bool hasSoftMax = false;
+        bool hasVMatMul = false;
+        for (auto* op : innerOps) {
+            if (mlir::isa<VPU::NCEConvolutionOp>(op) && hasQKMatMul == false) {
+                hasQKMatMul = true;
+            } else if (mlir::isa<VPU::SoftMaxOp>(op)) {
+                hasSoftMax = true;
+            } else if (mlir::isa<VPU::NCEConvolutionOp>(op) && hasQKMatMul == true) {
+                hasVMatMul = true;
+            }
+        }
+
+        return hasQKMatMul && hasSoftMax && hasVMatMul;
+    };
+
+    auto canBeMoved = [](VPU::VerticalFusionOp vfOp, VPU::VerticalFusionOp rootVfOp) {
+        if (!vfOp->hasOneUse()) {
+            return false;
+        }
+
+        if (vfOp->getBlock() != rootVfOp->getBlock()) {
+            return false;
+        }
+
+        // Make sure all operands are defined by either blockArg, rootVfOp, or an op before rootVfOp,
+        // otherwise moving vfOp after rootVfOp may cause SSA dominance issues.
+        for (auto operand : vfOp.getOperands()) {
+            auto parentOp = operand.getDefiningOp();
+            if (parentOp == nullptr || parentOp == rootVfOp) {
+                continue;
+            }
+
+            if (parentOp->getBlock() != rootVfOp->getBlock() || !parentOp->isBeforeInBlock(rootVfOp)) {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    SmallVector<mlir::Operation*> consumers = to_small_vector(vfOp->getUsers());
+    if (llvm::all_of(consumers, [&](mlir::Operation* op) {
+            auto vfBlock = mlir::dyn_cast_if_present<VPU::VerticalFusionOp>(op);
+            if (vfBlock == nullptr || !canBeMoved(vfBlock, vfOp)) {
+                return false;
+            }
+            return detectSDPAPattern(vfBlock);
+        })) {
+        llvm::sort(consumers, [](mlir::Operation* lhs, mlir::Operation* rhs) {
+            return lhs->isBeforeInBlock(rhs);
+        });
+        // Record consumers in reverse move order.
+        for (auto consumer : consumers | reversed) {
+            sdpaMoveOps.push_back({consumer, vfOp});
         }
     }
 }
@@ -318,10 +446,19 @@ void EfficientIROrderPass::safeRunOnFunc() {
     auto func = getOperation();
 
     if (hasVFBlock(func)) {
+        SmallVector<VFOpMoveAfter> sdpaMoveOps;
+
         // Reorder operations in every VF block for efficient execution
         func->walk([&](VPU::VerticalFusionOp vfOp) {
             reorderOperationsInVFBlock(vfOp);
+            collectVfOpsToMoveBeforeSDPA(sdpaMoveOps, vfOp);
         });
+
+        // Reorder operations before SDPA pattern for better scheduling
+        for (auto& [consumer, vfOp] : sdpaMoveOps) {
+            consumer->moveAfter(vfOp);
+        }
+
         return;
     }
 

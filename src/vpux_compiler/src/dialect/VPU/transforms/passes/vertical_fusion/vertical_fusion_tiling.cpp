@@ -116,8 +116,9 @@ void VfTilingPass::safeRunOnFunc() {
             _log.trace("Vertical Fusion Schedule Tracing is enabled.");
             VPU::VF::v2::printVFSchedulingTrace(func, costFunction, _log);
         }
+        auto& vfCache = getAnalysis<VPU::VF::v2::VFCacheAnalysis>();
         patterns.add<VPU::VF::v2::VerticalFusionTilingRewriter>(&ctx, _enableVerticalFusionPipelining, costFunction,
-                                                                _log);
+                                                                _log, vfCache);
     }
 
     if (mlir::failed(mlir::applyPartialConversion(func, target, std::move(patterns)))) {

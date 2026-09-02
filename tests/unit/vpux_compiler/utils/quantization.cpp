@@ -8,6 +8,8 @@
 #include "vpux/compiler/utils/quantization.hpp"
 #include "common/utils.hpp"
 #include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+#include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/core/type/float16.hpp"
@@ -201,4 +203,53 @@ TEST_F(MLIR_QuantizationUtilsTest, TileScalesAndZp) {
         auto multiTilingTypeOnQuantAxisType = tileScalesAndZP(quantType, offsets, sizes);
         checkScalesAndZps(multiTilingTypeOnQuantAxisType, expectedScales, expectedZPs);
     }
+}
+
+// A per-axis quantized constant weight with a zeroed-out channel (out_low == out_high == 0) gets scale = 1.0 from
+// getQuantizedType (the guard used for the quantize direction to avoid division by zero). When the type is used to
+// dequantize the constant, IE::keepZeroScaleForConstDequant must restore the true zero scale for that channel so it
+// dequantizes to 0 (R = (Q - zp) * 0) instead of leaking the raw integer code that scale = 1.0 would produce.
+TEST_F(MLIR_QuantizationUtilsTest, KeepZeroScaleForConstDequant) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<mlir::quant::QuantDialect>();
+    ctx.loadDialect<Const::ConstDialect>();
+
+    const auto f16Type = mlir::Float16Type::get(&ctx);
+    const auto f32Type = mlir::Float32Type::get(&ctx);
+    const auto i8Type = mlir::IntegerType::get(&ctx, 8, mlir::IntegerType::Signed);
+
+    // Middle channel got the scale = 1.0 substitution because its output range is degenerate [0, 0].
+    const SmallVector<double> scales = {5.000000e-01, 1.0, 2.500000e-01};
+    const SmallVector<int64_t> zeroPoints = {0, 0, 0};
+    const auto perAxisType = mlir::quant::UniformQuantizedPerAxisType::get(
+            mlir::quant::QuantizationFlags::Signed, i8Type, f16Type, scales, zeroPoints, /*quantizedDimension=*/0,
+            /*storageTypeMin=*/-128, /*storageTypeMax=*/127);
+
+    // Per-channel output ranges; only the middle channel is degenerate [0, 0].
+    const auto rangeType = mlir::RankedTensorType::get({3, 1}, f32Type);
+    const SmallVector<float> lowData = {-1.000000e-01f, 0.000000e+00f, -8.000000e-02f};
+    const SmallVector<float> highData = {1.000000e-01f, 0.000000e+00f, 8.000000e-02f};
+    const auto outLow = Const::ContentAttr::get(Const::createConstContent(rangeType, ArrayRef<float>(lowData)));
+    const auto outHigh = Const::ContentAttr::get(Const::createConstContent(rangeType, ArrayRef<float>(highData)));
+
+    const auto corrected = IE::keepZeroScaleForConstDequant(perAxisType, outLow, outHigh, IE::AutoBroadcastType::NUMPY);
+
+    auto correctedPerAxis = mlir::dyn_cast_if_present<mlir::quant::UniformQuantizedPerAxisType>(corrected);
+    ASSERT_TRUE(correctedPerAxis);
+
+    // Only the zeroed-out channel is rewritten to 0.0; the other channels are untouched.
+    const SmallVector<double> expectedScales = {5.000000e-01, 0.0, 2.500000e-01};
+    EXPECT_EQ(correctedPerAxis.getScales(), ArrayRef<double>(expectedScales));
+    EXPECT_EQ(correctedPerAxis.getZeroPoints(), ArrayRef<int64_t>(zeroPoints));
+
+    // Show the accuracy impact directly by dequantizing an arbitrary stored code in the zeroed-out channel.
+    const double storedCode = 127.0;
+
+    // Before correction (bug reproduced): the substituted scale 1.0 leaks the raw integer code as a weight.
+    EXPECT_EQ(perAxisType.getScales()[1], 1.0);
+    EXPECT_EQ((storedCode - perAxisType.getZeroPoints()[1]) * perAxisType.getScales()[1], storedCode);
+
+    // After correction: the true zero scale makes the channel dequantize to 0.
+    EXPECT_EQ(correctedPerAxis.getScales()[1], 0.0);
+    EXPECT_EQ((storedCode - correctedPerAxis.getZeroPoints()[1]) * correctedPerAxis.getScales()[1], 0.0);
 }

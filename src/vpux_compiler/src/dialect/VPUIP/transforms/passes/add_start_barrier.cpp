@@ -300,7 +300,8 @@ void AddStartBarrierPass::safeRunOnFunc() {
             VPUX_THROW_WHEN(taskOps.empty(), "Can not find TaskOp");
             auto firstTaskOp = *taskOps.begin();
             _log.trace("Add Sync DMA that will consume start barrier");
-            builder.setInsertionPoint(firstTaskOp);
+            auto insertionPoint = firstDmaOp != nullptr ? firstDmaOp : firstTaskOp;
+            builder.setInsertionPoint(insertionPoint);
             firstDmaOp = VPUIP::createSyncDMA(builder, inBuffer, outBuffer, 0, {}, {});
         }
 

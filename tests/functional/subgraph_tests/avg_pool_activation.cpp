@@ -37,7 +37,7 @@ class AvgPoolWithActivationTest :
 
         // Testing the whole fp16 range
         constexpr uint16_t fp16Exponent = 0x7C00;
-        for (size_t i = 0; i < totalSize; i++) {
+        for (int64_t i = 0; i < totalSize; i++) {
             auto ui = static_cast<uint16_t>(i);
             if ((ui & fp16Exponent) == fp16Exponent) {  // Skip infinity/nans
                 inputData[i] = 0.f;

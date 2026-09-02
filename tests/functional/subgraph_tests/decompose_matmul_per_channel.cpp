@@ -25,7 +25,7 @@ class MatMulWithAsymZeroPointPerChannel :
         public VpuOv2LayerTest,
         public testing::WithParamInterface<MatMulPerChannelParams> {
 public:
-    static std::string getTestCaseName(testing::TestParamInfo<MatMulPerChannelParams> obj) {
+    static std::string getTestCaseName(const testing::TestParamInfo<MatMulPerChannelParams>& obj) {
         const std::string sep = "_";
         std::ostringstream result;
         result << "TestKind" << ov::test::utils::testKind(__FILE__) << sep;
@@ -48,7 +48,7 @@ public:
                 std::accumulate(inputStaticShape.begin(), inputStaticShape.end(), 1, std::multiplies<size_t>());
         auto inputTensor = ov::Tensor{ov::element::f16, inputStaticShape};
         auto inputData = inputTensor.data<ov::element_type_traits<ov::element::f16>::value_type>();
-        for (size_t i = 0; i < totalSize; i++) {
+        for (int64_t i = 0; i < totalSize; i++) {
             inputData[i] = std::floor(10.f * std::sin(i));
         }
         inputs = {
@@ -61,8 +61,8 @@ public:
         ASSERT_EQ(actualTensors.size(), 1);
         ASSERT_EQ(expectedTensors.size(), 1);
 
-        const auto expected = expectedTensors[0];
-        const auto actual = actualTensors[0];
+        const auto& expected = expectedTensors[0];
+        const auto& actual = actualTensors[0];
         ASSERT_EQ(expected.get_size(), actual.get_size());
 
         const float absThreshold = 0.01f;  // Default
@@ -72,11 +72,10 @@ public:
     }
 
     void SetUp() override {
-        const auto testParams = GetParam();
+        const auto& testParams = GetParam();
         const std::vector<ov::Shape> inferenceShapes = {
                 {testParams.batchSize, testParams.numRowsA, testParams.numColumnsA}};
-        const ov::test::InputShape dataShape = {{testParams.batchSize, testParams.numRowsA, testParams.numColumnsA},
-                                                inferenceShapes};
+        const ov::test::InputShape dataShape = {ov::PartialShape(inferenceShapes[0]), inferenceShapes};
         init_input_shapes({dataShape});
         const auto param = std::make_shared<ov::opset1::Parameter>(ov::element::f16, inputDynamicShapes.at(0));
         const auto weightShape = ov::Shape{testParams.numRowsB, testParams.numColsB};
@@ -89,7 +88,6 @@ public:
         const auto weights = ov::opset1::Constant::create(ov::element::u8, weightShape, weightsData);
         const auto convert = std::make_shared<ov::opset1::Convert>(weights->output(0), ov::element::f16);
 
-        using scaleShiftValueType = ov::element_type_traits<ov::element::f16>::value_type;
         const auto zeroPointShape =
                 testParams.transposeB ? ov::Shape{testParams.numRowsB, 1} : ov::Shape{1, testParams.numColsB};
         const auto zeroPoints = ov::opset1::Constant::create(ov::element::f16, zeroPointShape, testParams.zeroPoints);

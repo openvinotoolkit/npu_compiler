@@ -1174,3 +1174,124 @@ func.func @UnrollMatMulU2AlwaysBeneficial(%arg0: tensor<1x1x64xf16>) -> tensor<1
   // CHECK:   IE.FullyConnected
   // CHECK:   IE.ReduceSum
 }
+
+// -----
+
+#map = affine_map<(d0, d1, d2) -> (d2, d0, d1)>
+
+// CHECK-LABEL: @UnrollMatMulConstInt4Decode2Tokens8Groups
+// CHECK-SAME:   [[LHS:%arg[0-9]+]]: tensor<2x1024xf16>,
+func.func @UnrollMatMulConstInt4Decode2Tokens8Groups(%LHS: tensor<2x1024xf16>,
+                        %IN_PARAM: tensor<1x1x1xf16>,
+                        %OUT_PARAM: tensor<1x1x4096xf16>) -> tensor<2x4096xf16> {
+    %WEIGHTS = const.Declare tensor<1x128x4096xf16> = dense<1.000000e+00> : tensor<1x128x4096xf16>
+    %RHS_1 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_2 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_3 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_4 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_5 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_6 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_7 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+    %RHS_8 = IE.FakeQuantize(%WEIGHTS, %IN_PARAM, %IN_PARAM, %OUT_PARAM, %OUT_PARAM) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<1x128x4096xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<1x1x4096xf16>, tensor<1x1x4096xf16> -> tensor<1x128x4096xf16>
+
+    %CONCAT_RHS = IE.Concat(%RHS_1, %RHS_2, %RHS_3, %RHS_4, %RHS_5, %RHS_6, %RHS_7, %RHS_8) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16>, tensor<1x128x4096xf16> -> tensor<8x128x4096xf16>
+    %TRANSPOSE_RHS = IE.Transpose(%CONCAT_RHS) {order_value = #map} : tensor<8x128x4096xf16> -> tensor<4096x8x128xf16>
+    %RESHAPE_RHS = IE.AffineReshape(%TRANSPOSE_RHS) {dim_mapping = [[0], [1], [1]], shape_value = [4096, 1024]} : tensor<4096x8x128xf16> -> tensor<4096x1024xf16>
+    %GEMM = IE.FullyConnected(%LHS, %RESHAPE_RHS) : tensor<2x1024xf16>, tensor<4096x1024xf16> -> tensor<2x4096xf16>
+    return %GEMM : tensor<2x4096xf16>
+
+    // CHECK-COUNT-8:   IE.FakeQuantize
+    // CHECK-COUNT-8:   IE.Reshape({{%.+}}) {shape_value = [128, 4096]} : tensor<1x128x4096xf16> -> tensor<128x4096xf16>
+    // CHECK-COUNT-8:   IE.Slice [[LHS]] {{.+}} [2, 128] : tensor<2x1024xf16> to tensor<2x128xf16>
+    // CHECK-COUNT-8:   IE.FullyConnected({{%.+}}, {{%.+}}) : tensor<2x128xf16>, tensor<4096x128xf16> -> tensor<2x4096xf16>
+    // CHECK-COUNT-7:   IE.Add
+    // CHECK-NOT:   IE.Concat
+    // CHECK:   return
+}
+
+// -----
+
+#CN = affine_map<(d0, d1) -> (d1, d0)>
+
+// Non-synthetic DynamicDequantize with raw si4 weights and spatial=1 (KV cache decode pattern).
+// Even though the cost model would reject this shape (IC=96, 3 groups), the non-synthetic DynDeq
+// early-return forces unrolling
+
+// CHECK-LABEL: @UnrollNonSyntheticDynDeqKVDecode
+// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<1x32x64xsi4>
+// CHECK-SAME:   [[SCALE_1:%arg[0-9]+]]: tensor<1x1x64xf16>
+// CHECK-SAME:   [[SCALE_2:%arg[0-9]+]]: tensor<1x1x64xf16>
+// CHECK-SAME:   [[SCALE_3:%arg[0-9]+]]: tensor<1x1x64xf16>
+// CHECK-SAME:   [[LHS:%arg[0-9]+]]: tensor<1x96xf16>
+func.func @UnrollNonSyntheticDynDeqKVDecode(
+        %WEIGHTS: tensor<1x32x64xsi4>,
+        %SCALE_1: tensor<1x1x64xf16>, %SCALE_2: tensor<1x1x64xf16>, %SCALE_3: tensor<1x1x64xf16>,
+        %LHS: tensor<1x96xf16>) -> tensor<1x64xf16> {
+    %RHS_1 = IE.DynamicDequantize(%WEIGHTS, %SCALE_1) {dstElemType = f16} : tensor<1x32x64xsi4>, tensor<1x1x64xf16> -> tensor<1x32x64xf16>
+    %RHS_2 = IE.DynamicDequantize(%WEIGHTS, %SCALE_2) {dstElemType = f16} : tensor<1x32x64xsi4>, tensor<1x1x64xf16> -> tensor<1x32x64xf16>
+    %RHS_3 = IE.DynamicDequantize(%WEIGHTS, %SCALE_3) {dstElemType = f16} : tensor<1x32x64xsi4>, tensor<1x1x64xf16> -> tensor<1x32x64xf16>
+
+    %CONCAT = IE.Concat(%RHS_1, %RHS_2, %RHS_3) {per_axis = #IE.Concat<axis = 0 : i64>}
+        : tensor<1x32x64xf16>, tensor<1x32x64xf16>, tensor<1x32x64xf16> -> tensor<3x32x64xf16>
+    %RESHAPE = IE.AffineReshape(%CONCAT) {dim_mapping = [[0], [0], [1]], shape_value = [96, 64]}
+        : tensor<3x32x64xf16> -> tensor<96x64xf16>
+    %TRANSPOSE = IE.Transpose(%RESHAPE) {order_value = #CN} : tensor<96x64xf16> -> tensor<64x96xf16>
+    %GEMM = IE.FullyConnected(%LHS, %TRANSPOSE) : tensor<1x96xf16>, tensor<64x96xf16> -> tensor<1x64xf16>
+    return %GEMM : tensor<1x64xf16>
+
+    // Unrolled: 3 separate FCs with sliced LHS
+    // CHECK:   [[DDQ_1:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE_1]])
+    // CHECK:   [[DDQ_2:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE_2]])
+    // CHECK:   [[DDQ_3:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE_3]])
+    // CHECK:   [[RESHAPE_1:%.+]] = IE.Reshape([[DDQ_1]]) {shape_value = [32, 64]}
+    // CHECK:   [[RESHAPE_2:%.+]] = IE.Reshape([[DDQ_2]]) {shape_value = [32, 64]}
+    // CHECK:   [[RESHAPE_3:%.+]] = IE.Reshape([[DDQ_3]]) {shape_value = [32, 64]}
+    // CHECK:   [[LHS_SLICE_1:%.+]] = IE.Slice [[LHS]] [0, 0] [1, 32]
+    // CHECK:   [[LHS_SLICE_2:%.+]] = IE.Slice [[LHS]] [0, 32] [1, 32]
+    // CHECK:   [[LHS_SLICE_3:%.+]] = IE.Slice [[LHS]] [0, 64] [1, 32]
+    // CHECK:   [[TRANSPOSE_1:%.+]] = IE.Transpose([[RESHAPE_1]])
+    // CHECK:   [[GEMM_1:%.+]] = IE.FullyConnected([[LHS_SLICE_1]], [[TRANSPOSE_1]])
+    // CHECK:   [[TRANSPOSE_2:%.+]] = IE.Transpose([[RESHAPE_2]])
+    // CHECK:   [[GEMM_2:%.+]] = IE.FullyConnected([[LHS_SLICE_2]], [[TRANSPOSE_2]])
+    // CHECK:   [[TRANSPOSE_3:%.+]] = IE.Transpose([[RESHAPE_3]])
+    // CHECK:   [[GEMM_3:%.+]] = IE.FullyConnected([[LHS_SLICE_3]], [[TRANSPOSE_3]])
+    // CHECK:   IE.ReduceSum
+}
+
+// -----
+
+#CN = affine_map<(d0, d1) -> (d1, d0)>
+
+// Synthetic DynamicDequantize with the same shape as the non-synthetic test.
+// The synthetic attr prevents the early-return bypass, so the cost model decides and for these
+// small shapes (IC=96, 3 groups, OC=64) the cost model says do NOT unroll.
+
+// CHECK-LABEL: @DontUnrollSyntheticDynDeq
+// CHECK-SAME:   [[WEIGHTS:%arg[0-9]+]]: tensor<1x32x64xsi4>
+// CHECK-SAME:   [[SCALE_1:%arg[0-9]+]]: tensor<1x1x64xf16>
+// CHECK-SAME:   [[SCALE_2:%arg[0-9]+]]: tensor<1x1x64xf16>
+// CHECK-SAME:   [[SCALE_3:%arg[0-9]+]]: tensor<1x1x64xf16>
+// CHECK-SAME:   [[LHS:%arg[0-9]+]]: tensor<1x96xf16>
+func.func @DontUnrollSyntheticDynDeq(
+        %WEIGHTS: tensor<1x32x64xsi4>,
+        %SCALE_1: tensor<1x1x64xf16>, %SCALE_2: tensor<1x1x64xf16>, %SCALE_3: tensor<1x1x64xf16>,
+        %LHS: tensor<1x96xf16>) -> tensor<1x64xf16> {
+    %RHS_1 = IE.DynamicDequantize(%WEIGHTS, %SCALE_1) {dstElemType = f16, vpux.synthetic_dyn_dequant} : tensor<1x32x64xsi4>, tensor<1x1x64xf16> -> tensor<1x32x64xf16>
+    %RHS_2 = IE.DynamicDequantize(%WEIGHTS, %SCALE_2) {dstElemType = f16, vpux.synthetic_dyn_dequant} : tensor<1x32x64xsi4>, tensor<1x1x64xf16> -> tensor<1x32x64xf16>
+    %RHS_3 = IE.DynamicDequantize(%WEIGHTS, %SCALE_3) {dstElemType = f16, vpux.synthetic_dyn_dequant} : tensor<1x32x64xsi4>, tensor<1x1x64xf16> -> tensor<1x32x64xf16>
+
+    %CONCAT = IE.Concat(%RHS_1, %RHS_2, %RHS_3) {per_axis = #IE.Concat<axis = 0 : i64>}
+        : tensor<1x32x64xf16>, tensor<1x32x64xf16>, tensor<1x32x64xf16> -> tensor<3x32x64xf16>
+    %RESHAPE = IE.AffineReshape(%CONCAT) {dim_mapping = [[0], [0], [1]], shape_value = [96, 64]}
+        : tensor<3x32x64xf16> -> tensor<96x64xf16>
+    %TRANSPOSE = IE.Transpose(%RESHAPE) {order_value = #CN} : tensor<96x64xf16> -> tensor<64x96xf16>
+    %GEMM = IE.FullyConnected(%LHS, %TRANSPOSE) : tensor<1x96xf16>, tensor<64x96xf16> -> tensor<1x64xf16>
+    return %GEMM : tensor<1x64xf16>
+
+    // NOT unrolled: cost model rejects these small shapes. The synthetic attr prevents the KV decode bypass.
+    // CHECK:   [[CONCAT:%.+]] = IE.Concat
+    // CHECK:   [[RESHAPE:%.+]] = IE.AffineReshape([[CONCAT]])
+    // CHECK:   [[TRANSPOSE:%.+]] = IE.Transpose([[RESHAPE]])
+    // CHECK:   [[GEMM:%.+]] = IE.FullyConnected([[LHS]], [[TRANSPOSE]])
+    // CHECK:   return [[GEMM]]
+}

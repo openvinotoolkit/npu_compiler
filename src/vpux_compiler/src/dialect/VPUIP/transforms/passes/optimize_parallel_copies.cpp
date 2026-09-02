@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/sub_byte.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include <llvm/ADT/SetVector.h>
 #include <mlir/Interfaces/ViewLikeInterface.h>
@@ -282,6 +283,7 @@ bool hasSiblingCopyFusable(VPUIP::SubViewOp subViewOp, VPUIP::CopyOp copyOp, mli
         }
 
         // Check 3: current op's consumers are copied to DDR immediately after execution
+        bool hasSiblingCopyFusable = true;
         for (const auto childOfSiblingOp : siblingOp->getResult(0).getUsers()) {
             log.trace("Processing childOfSiblingOp {0}", childOfSiblingOp->getLoc());
             if (childOfSiblingOp->use_empty()) {
@@ -304,9 +306,17 @@ bool hasSiblingCopyFusable(VPUIP::SubViewOp subViewOp, VPUIP::CopyOp copyOp, mli
                 if (input.getMemoryKind() != VPU::MemoryKind::CMX_NN ||
                     output.getMemoryKind() != VPU::MemoryKind::DDR) {
                     log.trace("Is not fusable because childCopyOfSiblingOp is not CMX->DDR copy");
-                    return false;
+                    hasSiblingCopyFusable = false;
+                    break;
                 }
             }
+            if (!hasSiblingCopyFusable) {
+                break;
+            }
+        }
+
+        if (!hasSiblingCopyFusable) {
+            continue;
         }
 
         if (siblingOp != copyOp) {
@@ -577,6 +587,97 @@ mlir::LogicalResult ParallelCopiesRewriter::matchAndRewrite(VPUIP::CopyOp origin
     };
 
     auto checkSiblingCopies = [&](mlir::Operation* targetOp) -> bool {
+        /**
+         * Copy sharing in two-axis tiling entails strict distance requirements, for preventing buffers from
+         * remaining in the CMX for extended periods and breaking pipelining.
+         * The two-axis tiling case requires that both activation and weights undergo tiling. In the
+         * DynamicDequantConvVF pattern, the root weights buffer is only reachable after passing through
+         * DynamicDequantize and PermuteDMA, so a dedicated matcher is used to identify the pattern and ensure that the
+         * weights are tiled.
+         * Match DynamicDequantConvVFPattern:
+         * Root buffer -> SubView [Copy] PermuteDMA -> DynamicDequantize -> Conv
+         *             -> SubView [Copy] PermuteDMA -> DynamicDequantize -> Conv
+         * If the weights path goes through DynamicDequantize and PermuteDMA and reaches a root buffer sliced into
+         * multiple parts, it means the weights are tiled.
+         *            RootOp
+         *          /        \
+         *     SubView  ...  SubView
+         *       |              |
+         *     Copy           Copy
+         *       |              |
+         *   PermuteDMA     PermuteDMA
+         *       |              |
+         *  DynamicDequant DynamicDequant
+         *       |              |
+         *     NCEOp          NCEOp
+         */
+        auto checkDynamicDequantConvVFPatternWeightsTiling = [&](mlir::Operation* op) -> bool {
+            if (op->getNumResults() == 0) {
+                return false;
+            }
+
+            auto output = op->getResult(0);
+            if (output.use_empty() || !mlir::isa_and_present<VPUIP::NCEClusterTaskOp>(*output.getUsers().begin())) {
+                return false;
+            }
+
+            // Walk through view-like ops
+            auto currentOp = op;
+            while (mlir::isa_and_present<VPUIP::GenericReshapeOp, VPUIP::PermuteCastOp, VPUIP::ConcatViewOp>(
+                    currentOp)) {
+                currentOp = currentOp->getOperand(0).getDefiningOp();
+            }
+
+            // Find DynamicDequantize op
+            auto swKernelOp = mlir::dyn_cast_if_present<VPUIP::SwKernelOp>(currentOp);
+            if (swKernelOp == nullptr || getSwKernelEntryName(swKernelOp) != "dynamic_dequantize") {
+                return false;
+            }
+
+            if (swKernelOp.getInputs().empty()) {
+                return false;
+            }
+
+            auto maybePermuteDMA = swKernelOp.getInputs().front().getDefiningOp();
+            if (maybePermuteDMA == nullptr) {
+                return false;
+            }
+
+            // The SubView is coming from shave tiling
+            if (auto subViewOp = mlir::dyn_cast<VPUIP::SubViewOp>(maybePermuteDMA)) {
+                maybePermuteDMA = subViewOp.getSource().getDefiningOp();
+            }
+
+            // Find PermuteDMA
+            auto permuteDMA = mlir::dyn_cast_if_present<VPUIP::PermuteDMAOp>(maybePermuteDMA);
+            if (permuteDMA == nullptr) {
+                return false;
+            }
+
+            auto parentOp = permuteDMA.getInput().getDefiningOp();
+            if (auto copyOp = mlir::dyn_cast_or_null<VPUIP::CopyOp>(parentOp)) {
+                parentOp = copyOp.getInput().getDefiningOp();
+            }
+            if (auto subViewOp = mlir::dyn_cast<VPUIP::SubViewOp>(parentOp)) {
+                if (auto subViewParentOp = subViewOp.getSource().getDefiningOp()) {
+                    auto parentOpUsers = to_small_vector(subViewParentOp->getResult(0).getUsers());
+                    // Check if the weights buffer is sliced into multiple parts
+                    for (auto* siblingOp : llvm::make_early_inc_range(parentOpUsers | reversed)) {
+                        auto siblingSubViewOp = mlir::dyn_cast<VPUIP::SubViewOp>(siblingOp);
+                        if (siblingSubViewOp != nullptr && subViewOp != siblingSubViewOp &&
+                            !isSubViewSameFunc(subViewOp, siblingSubViewOp)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        };
+        if (checkDynamicDequantConvVFPatternWeightsTiling(targetOp)) {
+            return true;
+        }
+
         auto rootCopyOp = mlir::dyn_cast<VPUIP::CopyOp>(targetOp);
         if (rootCopyOp == nullptr) {
             return false;
@@ -951,30 +1052,60 @@ std::set<uint32_t> OptimizeParallelCopiesPass::getTiledSiblingOps(
             continue;
         }
 
-        auto input = copyOp.getInput();
+        // Walk through view-like ops
+        auto origInput = copyOp.getInput();
+        auto input = origInput;
+        while (input != nullptr &&
+               mlir::isa_and_present<VPUIP::GenericReshapeOp, VPUIP::PermuteCastOp>(input.getDefiningOp())) {
+            input = input.getDefiningOp()->getOperand(0);
+        }
         if (auto subViewOp = mlir::dyn_cast_or_null<VPUIP::SubViewOp>(input.getDefiningOp())) {
             /* check tiled op from pattern:
                                    Source
                               /               \
                           Subview           SubView
                              |                 |
-                            Copy              Copy
-                             |                 |
-                            Op              SiblingOp
+                        ViewLikeOps        ViewLikeOps
+                        |        |         |        |
+                      Copy      Copy      Copy     Copy
+                        |        |         |        |
+                       Op    SiblingOp  SiblingOp SiblingOp
             */
+            SmallVector<VPUIP::CopyOp> siblingCopyOps;
             auto siblingOps = subViewOp.getSource().getUsers();
             for (auto* siblingOp : siblingOps) {
-                if (siblingOp == subViewOp || !mlir::isa<VPUIP::SubViewOp>(siblingOp) || siblingOp->use_empty() ||
+                if (!mlir::isa<VPUIP::SubViewOp>(siblingOp) || siblingOp->use_empty() ||
                     VPU::hasMultiBranches(siblingOp)) {
                     continue;
                 }
-                auto siblingCopy = mlir::dyn_cast_or_null<VPUIP::CopyOp>(*(siblingOp->user_begin()));
-                if (siblingCopy == nullptr || siblingCopy->use_empty() || VPU::hasMultiBranches(siblingCopy)) {
+
+                // Walk through view-like ops and find the copy users
+                auto currentOp = *siblingOp->getResult(0).getUsers().begin();
+                while (mlir::isa_and_present<VPUIP::GenericReshapeOp, VPUIP::PermuteCastOp>(currentOp) &&
+                       currentOp->hasOneUse()) {
+                    currentOp = *currentOp->getResult(0).getUsers().begin();
+                }
+                if (auto siblingCopyOp = mlir::dyn_cast_or_null<VPUIP::CopyOp>(currentOp)) {
+                    siblingCopyOps.push_back(siblingCopyOp);
                     continue;
                 }
+
+                for (auto user : currentOp->getUsers()) {
+                    if (auto siblingCopyOp = mlir::dyn_cast_or_null<VPUIP::CopyOp>(user)) {
+                        siblingCopyOps.push_back(siblingCopyOp);
+                    }
+                }
+            }
+
+            for (auto siblingCopy : siblingCopyOps) {
+                if (siblingCopy->use_empty() || VPU::hasMultiBranches(siblingCopy)) {
+                    continue;
+                }
+
                 auto use = siblingCopy->use_begin();
                 auto siblingComputeOp = use->getOwner();
-                if (use->getOperandNumber() != operandIdx || !isSameTaskType(siblingComputeOp, op)) {
+                if (use->getOperandNumber() != operandIdx || !isSameTaskType(siblingComputeOp, op) ||
+                    siblingComputeOp == op) {
                     continue;
                 }
                 auto isExpectedComputeOp = computeOpPosition.find(siblingComputeOp) != computeOpPosition.end();
@@ -990,8 +1121,7 @@ std::set<uint32_t> OptimizeParallelCopiesPass::getTiledSiblingOps(
                                |                 |
                               Op              SiblingOp
             */
-
-            auto parentOpusers = input.getUsers();
+            auto parentOpusers = origInput.getUsers();
             for (auto* siblingOp : parentOpusers) {
                 if (siblingOp == copyOp || !mlir::isa<VPUIP::CopyOp>(siblingOp) || siblingOp->use_empty() ||
                     VPU::hasMultiBranches(siblingOp)) {
@@ -1061,6 +1191,247 @@ DenseMap<uint32_t, std::optional<uint32_t>> OptimizeParallelCopiesPass::getNeare
     return nearestDistanceForTiledOp;
 }
 
+class ParallelToDDRCopiesRewriter final : public mlir::OpRewritePattern<VPUIP::CopyOp> {
+public:
+    ParallelToDDRCopiesRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<VPUIP::CopyOp>(ctx), _log(log) {
+        setDebugName("ParallelToDDRCopiesRewriter");
+    }
+
+    mlir::LogicalResult matchAndRewrite(VPUIP::CopyOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult ParallelToDDRCopiesRewriter::matchAndRewrite(VPUIP::CopyOp origOp,
+                                                                 mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
+
+    const auto dstMemory = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType()).getMemoryKind();
+    if (dstMemory != VPU::MemoryKind::DDR) {
+        return mlir::failure();
+    }
+
+    auto nestedLogger = _log.nest();
+
+    // Skip if the output buffer is a SubView (strided/partial target) or a function
+    // argument
+    if (origOp.getOutputBuff().getDefiningOp<VPUIP::SubViewOp>() != nullptr ||
+        mlir::isa<mlir::BlockArgument>(origOp.getOutputBuff())) {
+        nestedLogger.trace("Root copy is not eligible as fusion root, skip");
+        return mlir::failure();
+    }
+
+    auto sharedInput = origOp.getInput();
+    bool hasReplaced = false;
+
+    for (auto* siblingOp : llvm::make_early_inc_range(sharedInput.getUsers())) {
+        if (siblingOp == origOp.getOperation()) {
+            continue;
+        }
+
+        auto siblingCopy = mlir::dyn_cast<VPUIP::CopyOp>(siblingOp);
+        if (siblingCopy == nullptr) {
+            continue;
+        }
+
+        if (origOp.getResult().getType() != siblingCopy.getResult().getType()) {
+            nestedLogger.trace("Sibling Copy {0} has different result type, skip", siblingCopy->getLoc());
+            continue;
+        }
+
+        // Skip if the sibling's output buffer is a SubView (partial view) or a
+        // function argument — fusing would leave the caller's output buffer unfilled.
+        if (siblingCopy.getOutputBuff().getDefiningOp<VPUIP::SubViewOp>() != nullptr ||
+            mlir::isa<mlir::BlockArgument>(siblingCopy.getOutputBuff())) {
+            nestedLogger.trace("Sibling Copy {0} has ineligible output buff, skip", siblingCopy->getLoc());
+            continue;
+        }
+
+        nestedLogger.trace("Fuse parallel copies to DDR Copy {0} into {1}", siblingCopy->getLoc(), origOp->getLoc());
+
+        rewriter.replaceAllUsesWith(siblingCopy.getOutputBuff(), origOp.getOutputBuff());
+        rewriter.replaceAllUsesWith(siblingCopy->getResult(0), origOp->getResult(0));
+        rewriter.eraseOp(siblingCopy);
+
+        for (auto* user : origOp->getResult(0).getUsers()) {
+            if (user->isBeforeInBlock(origOp)) {
+                origOp->moveBefore(user);
+            }
+        }
+        auto copyOpOutputBuff = origOp.getOutputBuff();
+        for (auto* user : copyOpOutputBuff.getUsers()) {
+            if (user->isBeforeInBlock(copyOpOutputBuff.getDefiningOp())) {
+                copyOpOutputBuff.getDefiningOp()->moveBefore(user);
+            }
+        }
+
+        hasReplaced = true;
+    }
+    return mlir::success(hasReplaced);
+}
+
+// The weight_table_scale and weight_table_bias for NCE tasks are often splat constants.
+// When tiling over K, each tile gets a separate const.Declare and CopyOp, which cannot
+// be optimized by ParallelToDDRCopiesRewriter because the copies have no common parent.
+// This rewriter identifies sibling NCE tasks that share a common weight DDR buffer
+// (via SubView offsets) and merges their scale/bias copies into a single copy.
+class SplatConstRewriter final : public mlir::OpRewritePattern<VPUIP::NCEClusterTaskOp> {
+public:
+    SplatConstRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<VPUIP::NCEClusterTaskOp>(ctx), _log(log) {
+    }
+
+    mlir::LogicalResult matchAndRewrite(VPUIP::NCEClusterTaskOp nceOp, mlir::PatternRewriter& rewriter) const override;
+
+private:
+    Logger _log;
+};
+
+// Returns true when both DeclareOps produce the same splat value of the same NDType.
+static bool areSplatConstsEquivalent(Const::DeclareOp lhs, Const::DeclareOp rhs) {
+    if (lhs == rhs) {
+        return true;
+    }
+    if (lhs.getType() != rhs.getType()) {
+        return false;
+    }
+    auto lhsContent = lhs.getContent();
+    auto rhsContent = rhs.getContent();
+    if (!lhsContent.isSplat() || !rhsContent.isSplat()) {
+        return false;
+    }
+    auto elemType = mlir::cast<vpux::NDTypeInterface>(lhs.getType()).getElementType();
+    if (mlir::isa<mlir::FloatType>(elemType)) {
+        return isDoubleEqual(lhsContent.getSplatValue<double>(), rhsContent.getSplatValue<double>());
+    }
+    if (mlir::isa<mlir::IntegerType>(elemType)) {
+        return lhsContent.getSplatValue<int64_t>() == rhsContent.getSplatValue<int64_t>();
+    }
+    return false;
+}
+
+// Merges copies with the same splat const value into a single copy.
+static bool mergeSplatCopies(SmallVectorImpl<VPUIP::CopyOp>& copies, mlir::PatternRewriter& rewriter, Logger log) {
+    if (copies.size() < 2) {
+        return false;
+    }
+
+    auto refCopy = copies[0];
+    auto refConst = refCopy.getInput().getDefiningOp<Const::DeclareOp>();
+    bool changed = false;
+    SmallVector<VPUIP::CopyOp> remainder;
+
+    for (size_t i = 1; i < copies.size(); ++i) {
+        auto copy = copies[i];
+        if (copy == refCopy) {
+            continue;
+        }
+        if (copy.getOutput().getType() != refCopy.getOutput().getType()) {
+            remainder.push_back(copy);
+            continue;
+        }
+        auto copyConst = copy.getInput().getDefiningOp<Const::DeclareOp>();
+        if (!refConst || !copyConst || !areSplatConstsEquivalent(refConst, copyConst)) {
+            remainder.push_back(copy);
+            continue;
+        }
+
+        if (copy->getBlock() == refCopy->getBlock() && copy->isBeforeInBlock(refCopy)) {
+            refCopy->moveBefore(copy);
+            if (auto* refCopyAlloc = refCopy.getOutputBuff().getDefiningOp()) {
+                if (refCopy->isBeforeInBlock(refCopyAlloc)) {
+                    refCopyAlloc->moveBefore(refCopy);
+                }
+            }
+        }
+        log.trace("[SplatWeightTableAux] Fusing '{0}' into '{1}'", copy->getLoc(), refCopy->getLoc());
+        rewriter.replaceAllUsesWith(copy.getOutput(), refCopy.getOutput());
+        auto buff = copy.getOutputBuff();
+        rewriter.eraseOp(copy);
+        if (buff.use_empty()) {
+            if (auto* alloc = buff.getDefiningOp()) {
+                rewriter.eraseOp(alloc);
+            }
+        }
+        changed = true;
+    }
+
+    if (remainder.size() > 1) {
+        changed |= mergeSplatCopies(remainder, rewriter, log);
+    }
+    return changed;
+}
+
+mlir::LogicalResult SplatConstRewriter::matchAndRewrite(VPUIP::NCEClusterTaskOp nceOp,
+                                                        mlir::PatternRewriter& rewriter) const {
+    // Weights must follow: SubView(source) -> Copy -> NCEOp.weights
+    auto weights = nceOp.getWeights();
+    if (!weights) {
+        return mlir::failure();
+    }
+
+    auto weightsCopy = weights.getDefiningOp<VPUIP::CopyOp>();
+    if (!weightsCopy) {
+        return mlir::failure();
+    }
+
+    auto weightsSubView = weightsCopy.getInput().getDefiningOp<VPUIP::SubViewOp>();
+    if (!weightsSubView) {
+        return mlir::failure();
+    }
+
+    auto weightSource = weightsSubView.getSource();
+
+    auto weightsType = mlir::cast<vpux::NDTypeInterface>(weightsCopy.getOutput().getType());
+    if (!vpux::Const::isSubByte(vpux::getElemTypeSize(weightsType.getElementType()).count())) {
+        return mlir::failure();
+    }
+
+    // Collect all NCE tasks whose weights come from a SubView of the same source.
+    SmallVector<VPUIP::NCEClusterTaskOp> siblingNCEOps;
+    for (auto* sourceUser : weightSource.getUsers()) {
+        auto subView = mlir::dyn_cast<VPUIP::SubViewOp>(sourceUser);
+        if (!subView) {
+            continue;
+        }
+        for (auto* subViewUser : subView.getResult().getUsers()) {
+            auto subViewCopy = mlir::dyn_cast<VPUIP::CopyOp>(subViewUser);
+            if (!subViewCopy) {
+                continue;
+            }
+            for (auto* copyUser : subViewCopy.getOutput().getUsers()) {
+                auto siblingNCE = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(copyUser);
+                if (!siblingNCE || siblingNCE.getWeights() != subViewCopy.getOutput()) {
+                    continue;
+                }
+                if (llvm::find(siblingNCEOps, siblingNCE) == siblingNCEOps.end()) {
+                    siblingNCEOps.push_back(siblingNCE);
+                }
+            }
+        }
+    }
+
+    if (siblingNCEOps.size() < 2) {
+        return mlir::failure();
+    }
+
+    SmallVector<VPUIP::CopyOp> biasCopies;
+    for (auto nce : siblingNCEOps) {
+        if (auto bias = nce.getWeightTableBias()) {
+            if (auto biasCopy = bias.getDefiningOp<VPUIP::CopyOp>()) {
+                if (llvm::find(biasCopies, biasCopy) == biasCopies.end()) {
+                    biasCopies.push_back(biasCopy);
+                }
+            }
+        }
+    }
+
+    bool changed = mergeSplatCopies(biasCopies, rewriter, _log);
+    return mlir::success(changed);
+}
+
 void OptimizeParallelCopiesPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
@@ -1071,6 +1442,8 @@ void OptimizeParallelCopiesPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<ParallelCopiesRewriter>(&ctx, _log, _enableOptimizeConstCopy, computeOpPosition,
                                          tiledOpNearestDistances);
+    patterns.add<ParallelToDDRCopiesRewriter>(&ctx, _log);
+    patterns.add<SplatConstRewriter>(&ctx, _log);
 
     if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();

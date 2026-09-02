@@ -7,7 +7,6 @@
 
 #include "common/utils.hpp"
 #include "shared_test_classes/base/ov_behavior_test_utils.hpp"
-#include "vpux/utils/ov/private_properties.hpp"
 
 #include <gtest/gtest.h>
 #include <openvino/runtime/device_id_parser.hpp>
@@ -79,45 +78,3 @@ using ov::test::utils::getTestsPlatformCompilerInPlugin;
 using ov::test::utils::getTestsPlatformFromEnvironmentOr;
 using ov::test::utils::VpuTestEnvConfig;
 }  // namespace LayerTestsUtils
-
-namespace InferRequestParamsAnyMapTestName {
-static std::string getTestCaseName(testing::TestParamInfo<ov::test::behavior::InferRequestParams> obj) {
-    std::string targetDevice;
-    ov::AnyMap configuration;
-    std::tie(targetDevice, configuration) = obj.param;
-    std::replace(targetDevice.begin(), targetDevice.end(), ':', '.');
-    targetDevice = LayerTestsUtils::getTestsPlatformFromEnvironmentOr(targetDevice);
-    std::ostringstream result;
-    result << "targetDevice=" << targetDevice << "_";
-    if (!configuration.empty()) {
-        for (auto& configItem : configuration) {
-            result << "configItem=" << configItem.first << "_";
-            configItem.second.print(result);
-            result << "_";
-        }
-    }
-    return result.str();
-}
-}  // namespace InferRequestParamsAnyMapTestName
-
-namespace InferRequestParamsMapTestName {
-typedef std::tuple<std::string,                        // Device name
-                   std::map<std::string, std::string>  // Config
-                   >
-        InferRequestParams;
-static std::string getTestCaseName(testing::TestParamInfo<InferRequestParams> obj) {
-    std::string targetDevice;
-    std::map<std::string, std::string> configuration;
-    std::tie(targetDevice, configuration) = obj.param;
-    std::replace(targetDevice.begin(), targetDevice.end(), ':', '.');
-    targetDevice = LayerTestsUtils::getTestsPlatformFromEnvironmentOr(targetDevice);
-    std::ostringstream result;
-    result << "targetDevice=" << targetDevice << "_";
-    if (!configuration.empty()) {
-        for (auto& configItem : configuration) {
-            result << "configItem=" << configItem.first << "_" << configItem.second << "_";
-        }
-    }
-    return result.str();
-}
-}  // namespace InferRequestParamsMapTestName

@@ -18,6 +18,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/logical.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
@@ -26,7 +27,9 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/layout_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_reduce_output_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_tiling_interface_utils.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
@@ -52,6 +55,40 @@ mlir::LogicalResult vpux::VPU::verifyLayer(mlir::Operation* op) {
 
     if (mlir::failed(IE::verifyLayer(op))) {
         return errorAt(op->getLoc(), "IE::verifyLayer() failed for {0}", op->getName());
+    }
+
+    return mlir::success();
+}
+
+//
+// ShapeInfoOpInterface
+//
+
+mlir::LogicalResult vpux::VPU::verifyInputIs4D(mlir::Value input, bool allowNull) {
+    VPUX_THROW_WHEN(input == nullptr && !allowNull, "Input value shouldn't be null.");
+    if (input == nullptr) {
+        return mlir::success();
+    }
+
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+    if (inputType.getRank() != 4) {
+        return errorAt(input.getLoc(), "Expected 4D input, got rank {0}", inputType.getRank());
+    }
+
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::VPU::verifyShapeInfo(mlir::Operation* op) {
+    auto shapeInfoOp = mlir::cast<VPU::ShapeInfoOpInterface>(op);
+    if (mlir::failed(shapeInfoOp.verifyShapeInfo())) {
+        return mlir::failure();
+    }
+
+    for (const auto result : op->getResults()) {
+        const auto resultType = mlir::cast<vpux::NDTypeInterface>(result.getType());
+        if (resultType.getRank() != 4) {
+            return errorAt(op, "ShapeInfoOpInterface requires NDTypeInterface results with rank 4");
+        }
     }
 
     return mlir::success();
@@ -99,7 +136,7 @@ bool vpux::VPU::supportsSparseData(mlir::Operation* op) {
 
 mlir::LogicalResult vpux::VPU::details::validateWorkloadsRegion(mlir::Location loc, mlir::Region& workloads) {
     for (auto& workloadOp : workloads.getOps()) {
-        if (!mlir::isa<DPUWorkloadOp>(workloadOp)) {
+        if (!mlir::isa<DPUWorkloadOp, mlir::scf::ForOp, mlir::scf::IfOp>(workloadOp)) {
             return errorAt(loc, "Got unsupported Operation '{0}' in 'workloads' region", workloadOp.getName());
         }
     }
@@ -202,7 +239,9 @@ mlir::LogicalResult vpux::VPU::verifyEltwiseOp(mlir::Operation* op) {
         return errorAt(op, "EltwiseOp trait is applied to non layer operation");
     }
 
-    if (op->getNumResults() != 1) {
+    // Reduce outputs are extra optional results beyond the primary output; exclude them from the count.
+    const auto numReduceOutputs = static_cast<int64_t>(VPU::getReduceOutputKinds(op).size()) - 1;
+    if (static_cast<int64_t>(op->getNumResults()) - numReduceOutputs != 1) {
         return errorAt(op, "Operation with multiple results can't be EltwiseOp");
     }
 
@@ -251,6 +290,25 @@ mlir::LogicalResult vpux::VPU::verifyNCEOp(mlir::Operation* op) {
     if (vpux::VPU::details::verifyInputQuantization(op).failed()) {
         return errorAt(op, "Invalid quantization type");
     }
+
+    // SplitOverKernel tiles over C. Reduce outputs have C=1, so SOK cannot be used when reduce outputs are active.
+    if (auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(op)) {
+        const auto strategy = clusteredOp.getMultiClusterStrategy();
+        if (strategy.has_value() && strategy.value() == VPU::MultiClusterStrategy::SplitOverKernel &&
+            VPU::hasReduceOutputs(op)) {
+            return errorAt(op, "SplitOverKernel is incompatible with active reduce outputs");
+        }
+        // C-axis tiling is forbidden when reduce outputs are active (reduce output shapes have C=1).
+        if (op->hasAttr("tilingStrategy") && VPU::hasReduceOutputs(op)) {
+            const auto tilingShape =
+                    Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(op->getAttr("tilingStrategy"))));
+            const auto dimC = requiresDimsGroups5D(op) ? DimsGroups5D::Act::C : Dims4D::Act::C;
+            if (tilingShape[dimC] > 1) {
+                return errorAt(op, "C-axis tiling is incompatible with active reduce outputs");
+            }
+        }
+    }
+
     return iface.verifyChannels();
 }
 
@@ -381,6 +439,7 @@ void vpux::VPU::registerSWTilingInfoOpInterfaceCommon(mlir::DialectRegistry& reg
         VPU::RoundOp::attachInterface<SwLayerTilingInfoOpModel<VPU::RoundOp>>(*ctx);
         VPU::SelectOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SelectOp>>(*ctx);
         VPU::ErfOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ErfOp>>(*ctx);
+        VPU::ErfInvOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ErfInvOp>>(*ctx);
         VPU::DetectionOutputDecodeBoxesOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DetectionOutputDecodeBoxesOp>>(
                 *ctx);
         VPU::DetectionOutputNmsCaffeOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DetectionOutputNmsCaffeOp>>(*ctx);
@@ -455,7 +514,9 @@ void vpux::VPU::registerSWTilingInfoOpInterfaceCommon(mlir::DialectRegistry& reg
         VPU::CumSumOp::attachInterface<SwLayerTilingInfoOpModel<VPU::CumSumOp>>(*ctx);
         VPU::MultiplyOp::attachInterface<SwLayerTilingInfoOpModel<VPU::MultiplyOp>>(*ctx);
         VPU::FlashSDPAOp::attachInterface<SwLayerTilingInfoOpModel<VPU::FlashSDPAOp>>(*ctx);
+        VPU::GatedDeltaNetOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GatedDeltaNetOp>>(*ctx);
         VPU::ScatterElementsUpdateOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ScatterElementsUpdateOp>>(*ctx);
+        VPU::GenericSwLayerOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GenericSwLayerOp>>(*ctx);
     });
 }
 

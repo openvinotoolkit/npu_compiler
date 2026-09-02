@@ -190,9 +190,15 @@ void vpux::Logger::addEntryPackedActive(LogLevel msgLevel, const formatv_object_
 
     char timeStr[] = "undefined_time";
     time_t now = time(nullptr);
-    struct tm* loctime = localtime(&now);
-    if (loctime != nullptr) {
-        strftime(timeStr, sizeof(timeStr), "%H:%M:%S", loctime);
+    {
+        // localtime returns a pointer to a shared static struct tm and may allocate/free the TZ
+        // string buffer internally, so both the call and the read of its result must be serialized.
+        static std::mutex localtimeMtx;
+        std::lock_guard<std::mutex> localtimeMtxLock(localtimeMtx);
+        struct tm* loctime = localtime(&now);
+        if (loctime != nullptr) {
+            strftime(timeStr, sizeof(timeStr), "%H:%M:%S", loctime);
+        }
     }
 
     using namespace std::chrono;

@@ -787,10 +787,12 @@ mlir::LogicalResult SliceOpWithReshapeConverter::matchAndRewrite(IE::SliceOp ori
 
     // Step 3: Reshape [1,C,H,slicedW] -> original output shape via ReshapeOp.
     const auto origOutShapeAttr = getIntArrayAttr(ctx, outShape);
-    rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, slice4D.getResult(), origOutShapeAttr);
+    const auto origOpLoc = origOp->getLoc();
 
     _log.trace("[{0}] Reshaped rank-{1} Slice at '{2}' to 4D for downstream conversion", getDebugName(), rank,
-               origOp->getLoc());
+               origOpLoc);
+
+    rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, slice4D.getResult(), origOutShapeAttr);
     return mlir::success();
 }
 

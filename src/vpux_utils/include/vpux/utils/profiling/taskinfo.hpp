@@ -58,6 +58,7 @@ struct TaskInfo {
     std::optional<unsigned short> port_id;       // DMA task only
     std::optional<DMAChannelType> channel_type;  // DMA task only
     std::optional<unsigned> variant_id;          // DPU task only
+    std::optional<uint8_t> fifo_id;              // ActShave only
     CustomArgsVector customArgs;
 };
 

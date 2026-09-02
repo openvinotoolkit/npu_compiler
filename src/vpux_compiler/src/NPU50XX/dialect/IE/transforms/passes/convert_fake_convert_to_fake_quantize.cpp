@@ -118,6 +118,9 @@ mlir::LogicalResult ConvertFakeConvertToFakeQuantize::FakeConvertRewriter::match
         IE::FakeConvertOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("Got {0} at `{1}`.", origOp->getName(), origOp->getLoc());
 
+    // Note: weights-path FakeConverts are handled first by ConvertFakeConvertToDynamicDequantize. It only converts
+    // the cases it can represent exactly (e.g. an f8-representable shift) and leaves the rest as FakeConvert, which
+    // this pass then converts to FakeQuantize.
     if (!isFakeConvertToFakeQuantizeBeneficial(origOp)) {
         return mlir::failure();
     }

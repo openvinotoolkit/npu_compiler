@@ -14,7 +14,7 @@ using namespace vpux;
 
 void VPUASM::ConstBufferOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
     auto cnt = getProperties().getContent().fold();
-    auto ptr = binDataSection.getCurrentWriteAddr() + getMemoryOffset();
+    auto ptr = binDataSection.getCurrentWriteAddr() + getMemoryOffset().value_or(0);
     const auto size = getBinarySize(config::ArchKind::UNKNOWN);
     MutableArrayRef<char> inBlobView(reinterpret_cast<char*>(ptr), reinterpret_cast<char*>(ptr) + size);
     cnt.copyTo(inBlobView);

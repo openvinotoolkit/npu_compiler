@@ -9,9 +9,9 @@
 !qElemType = !quant.uniform<u8<0:254>:f32:0, {0.0078740157480314959:127,0.0086614175105658095:127,0.0094488192731001247:127,0.010236220096978615:127}>
 !qElemType1 = !quant.uniform<u8:f32, 1.000000e+00>
 
-// CHECK-LABEL: @QuantizedConv
+// CHECK-LABEL: @QuantizedConvImplicitReLUx
 // CHECK-SAME:      ([[INPUT:%.+]]: tensor<1x3x62x62xui8>) -> tensor<1x4x60x60xf32>
-func.func @QuantizedConv(%input: tensor<1x3x62x62xui8>) -> tensor<1x4x60x60xf32> {
+func.func @QuantizedConvImplicitReLUx(%input: tensor<1x3x62x62xui8>) -> tensor<1x4x60x60xf32> {
     %0 = IE.Convert(%input) {dstElemType = f32} : tensor<1x3x62x62xui8> -> tensor<1x3x62x62xf32>
 
     %input_low = const.Declare tensor<f32> = dense<0.0> : tensor<f32>
@@ -52,14 +52,16 @@ func.func @QuantizedConv(%input: tensor<1x3x62x62xui8>) -> tensor<1x4x60x60xf32>
     // CHECK-SAME:    dense<128> : tensor<4x3x3x3xui8>,
     // CHECK-SAME:    [#const.CastElemType<f32>, #const.CastElemType<!qElemType>]
 
-    // CHECK:     [[INPUT_QUANT:%.+]] = IE.QuantizeCast([[INPUT]]) {dstElemType = !qElemType1} :
+    // CHECK:      [[INPUT_QUANT:%.+]] = IE.QuantizeCast([[INPUT]]) {dstElemType = !qElemType1} :
     // CHECK-SAME:     tensor<1x3x62x62xui8> -> tensor<1x3x62x62x!qElemType1>
 
-    // CHECK:     [[CONV:%.+]] = IE.Convolution([[INPUT_QUANT]], [[WEIGHTS]])
+    // CHECK:      [[CONV:%.+]] = IE.Convolution([[INPUT_QUANT]], [[WEIGHTS]]) {
+    // CHECK-SAME:    dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
+    // CHECK-SAME: } : tensor<1x3x62x62x!qElemType1>, tensor<4x3x3x3x!qElemType> -> tensor<1x4x60x60xf32>
 
-    // CHECK:     [[RELU:%.+]] = IE.ReLU([[CONV]])
+    // CHECK:      [[CLAMP:%.+]] = IE.Clamp([[CONV]]) {max = 2.550000e+02 : f64, min = 0.000000e+00 : f64} : tensor<1x4x60x60xf32> -> tensor<1x4x60x60xf32>
 
-    // CHECK:     return [[RELU]]
+    // CHECK:      return [[CLAMP]]
 }
 
 // -----

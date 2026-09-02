@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --tiling-strategy-assignment="enable-vpunn-cost-for-tiling=true" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --tiling-strategy-assignment="enable-vpunn-cost-for-tiling=true" %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -19,7 +19,7 @@ module @executors {
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
-            
+
             strides = [1, 1]
         } : tensor<1x3840x256x4xf16, {order = #NHWC}>, tensor<1536x3840x1x1xf16, {order = #NHWC}>, tensor<1536x1x1x4xsi32> -> tensor<1x1536x256x4xf16, {order = #NHWC}>
 
@@ -98,7 +98,15 @@ module @executors {
 
 module @executors {
     config.Resources 4 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        builtin.module @ReservedMemory {
+          module @CMXMetadataReservedMemory {
+            config.MemoryResource 82944 bytes of @CMX_NN offset 15360
+          }
+          module @CMXStackFramesReservedMemory {
+            config.MemoryResource 15360 bytes of @CMX_NN offset 0
+          }
+        }
+        config.MemoryResource 1571840 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 // CHECK-LABEL: @NCEMatMulSOGAndMultiDimPipelined
   func.func @NCEMatMulSOGAndMultiDimPipelined(%arg0: tensor<32x1x128x1024x1xf16, {order = #GNHWC}>) ->  tensor<32x1x1408x1024x1xf16, {order = #GNHWC}>{

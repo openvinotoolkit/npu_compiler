@@ -5,6 +5,8 @@
 
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -76,6 +78,18 @@ bool isOpenVINOConstant(Const::DeclareOp declareOp) {
     return !getOvKey(declareOp).empty();
 }
 
+bool isConstValue(mlir::Value value) {
+    if (value == nullptr) {
+        return false;
+    }
+
+    if (auto fq = value.getDefiningOp<IE::FakeQuantizeOp>()) {
+        return fq.getInput().getDefiningOp<Const::DeclareOp>() != nullptr && IE::hasStaticLowAndHighValues(fq);
+    }
+
+    return value.getDefiningOp<Const::DeclareOp>() != nullptr;
+}
+
 mlir::Value createZerosConst(mlir::OpBuilder& builder, mlir::Location loc, mlir::RankedTensorType type) {
     return createZerosConstImpl(builder, loc, type);
 }
@@ -137,13 +151,11 @@ bool hasAllZeroValues(const Const::Content& content) {
     });
 }
 
-mlir::Value buildWeightsConst(mlir::OpBuilder& builder, mlir::Location loc, mlir::RankedTensorType type,
-                              ArrayRef<float> values) {
-    const auto ctx = builder.getContext();
-    const auto origElemType = type.getElementType();
-
+mlir::Type getWeightsConstFilterElemType(mlir::Type activationElemType) {
+    VPUX_THROW_UNLESS(activationElemType, "activationElemType must not be null");
+    auto* ctx = activationElemType.getContext();
     mlir::Type filterElemType = mlir::Float16Type::get(ctx);
-    if (const auto qInputElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(origElemType)) {
+    if (const auto qInputElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(activationElemType)) {
         const auto scale = 1.0f;
         const auto zeroPoint = 0;
         auto storageType = qInputElemType.getStorageType();
@@ -172,6 +184,15 @@ mlir::Value buildWeightsConst(mlir::OpBuilder& builder, mlir::Location loc, mlir
             VPUX_THROW("Unsupported quantized storage type: {0}", qInputElemType.getStorageType());
         }
     }
+    return filterElemType;
+}
+
+mlir::Value buildWeightsConst(mlir::OpBuilder& builder, mlir::Location loc, mlir::RankedTensorType type,
+                              ArrayRef<float> values) {
+    const auto ctx = builder.getContext();
+    const auto origElemType = type.getElementType();
+
+    const mlir::Type filterElemType = getWeightsConstFilterElemType(origElemType);
 
     const auto dataType = mlir::RankedTensorType::get(type.getShape(), mlir::Float32Type::get(ctx));
     const auto dataAttr = createConstContent(dataType, values);

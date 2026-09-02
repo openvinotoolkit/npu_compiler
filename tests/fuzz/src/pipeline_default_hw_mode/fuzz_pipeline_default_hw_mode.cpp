@@ -24,7 +24,7 @@ using namespace vpux;
 static mlir::MLIRContext ctx;
 static mlir::DialectRegistry registry;
 
-extern "C" int LLVMFuzzerInitialize(int* argc, char*** argv) {
+extern "C" int LLVMFuzzerInitialize(int* /*argc*/, char*** /*argv*/) {
     registry = createDialectRegistry();
     ctx.appendDialectRegistry(registry);
 
@@ -67,7 +67,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
         const DefaultHWOptions37XX options;
         buildDefaultHWModePipeline(pm, options, log.nest());
 
-        pm.run(*moduleOp);
+        auto result = pm.run(*moduleOp);
+        if (mlir::failed(result)) {
+            return -1;
+        }
     } catch (const ov::Exception&) {
         // Ignore OpenVINO exceptions (e.g. from OpenVINO shape infer functions used in return type infer of IE ops)
         return -1;

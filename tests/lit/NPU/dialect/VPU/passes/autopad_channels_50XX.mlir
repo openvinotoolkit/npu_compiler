@@ -23,7 +23,7 @@ module @NCEConvToSliceNoODUAutopadEnabled {
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x10x10xf16, {order = #NHWC}>, tensor<16x32x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -75,7 +75,7 @@ module @NCEConvToSlice {
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x10x10xf16, {order = #NHWC}>, tensor<16x32x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -118,7 +118,7 @@ module @NCEConvToSliceNoPaddingAttr {
             // Note: missing output_padding attribute
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x10x10xf16, {order = #NHWC}>, tensor<16x32x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -153,7 +153,7 @@ module @NCEConvToIncompatibleSlice {
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x10x10xf16, {order = #NHWC}>, tensor<16x32x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -189,7 +189,7 @@ module @NCEConvToSliceMultipleUsers {
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x10x10xf16, {order = #NHWC}>, tensor<16x32x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -230,7 +230,7 @@ module @NCEConvToSliceIntermediateViewOps {
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x1x1xf16, {order = #NHWC}>, tensor<16x32x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x1x1x!qElemType1, {order = #NHWC}>
@@ -280,7 +280,7 @@ module @NCEConvToSliceIntermediateViewOpThatChangesShape {
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x10x10xf16, {order = #NHWC}>, tensor<16x32x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -326,7 +326,7 @@ module @NCEConvToSliceSparseWeights {
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x10x10xf16, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<16x32x1x1xf16, {order = #NHWC}>, sparsity_map=tensor<16x1x1x512xi1>, is_weights>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -374,7 +374,7 @@ module @NCEConvToSliceDroppableSparseWeights {
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x10x10xf16, {order = #NHWC}>,
             !VPU.SparseTensor<data=tensor<16x32x1x1xf16, {order = #NHWC}>, sparsity_map=tensor<16x1x1x512xi1>, is_weights,
@@ -443,7 +443,7 @@ module @NCEConvToSliceDroppableSparseWeightsIntermediateOps {
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x16x10x10xf16, {order = #NHWC}>,
             !VPU.SparseTensor<data=tensor<16x16x1x1xf16, {order = #NHWC}>, sparsity_map=tensor<16x1x1x256xi1>, is_weights,
@@ -484,11 +484,11 @@ module @NCEDepthConvToSlice {
         %weights = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
         %weights_table = const.Declare tensor<16x1x1x4xsi32> = dense<10> : tensor<16x1x1x4xsi32>
 
-        %nce = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) rawFilterShape [16, 1, 1, 1] {
+        %nce = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) rawFilterShape [16, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } -> tensor<1x16x10x10xf16, {order = #NHWC}>
 
@@ -517,12 +517,12 @@ module @NCEDepthConvToSlice {
         %weights = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
         %weights_table = const.Declare tensor<16x1x1x4xsi32> = dense<10> : tensor<16x1x1x4xsi32>
 
-        %nce = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) rawFilterShape [16, 1, 1, 1] {
+        %nce = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) rawFilterShape [16, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             input_padding = [0, 13, 0, 0],
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } -> tensor<1x16x10x10xf16, {order = #NHWC}>
 
@@ -548,7 +548,7 @@ module @NCEEltwiseToSlice {
 
     // CHECK:  [[INPUT:%.+]]: tensor<1x16x10x10xf16, {order = #NHWC}>
     func.func @main(%input: tensor<1x16x10x10xf16, {order = #NHWC}>) -> tensor<1x3x10x10xf16, {order = #NHWC}> {
-        %nce = VPU.NCE.Eltwise(%input, %input) {
+        %nce = VPU.NCE.Eltwise(%input, %input) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             input_padding = [0, 13, 0, 0],
             output_padding = [0, 13, 0, 0],
             op_type = #VPU.eltwise_type<ADD>,
@@ -705,7 +705,7 @@ module @MultipleNCEConvSharedConstantsToSlice {
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x10x10xf16, {order = #NHWC}>, tensor<16x32x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -714,7 +714,7 @@ module @MultipleNCEConvSharedConstantsToSlice {
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x10x10xf16, {order = #NHWC}>, tensor<16x32x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -792,7 +792,7 @@ module @SkipNCECompressedConvToSlice {
             cm_sp_pattern = 15 : i64,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } -> tensor<1x16x10x10xf16, {order = #NHWC}>
 
@@ -830,7 +830,7 @@ module @ExpandToNCEConv {
             input_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x16x10x10xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -874,7 +874,7 @@ module @ExpandToNCEConvPartialExpansion {
             input_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x16x10x10xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -916,7 +916,7 @@ module @ExpandToNCEConvIncompatibleChannelSize {
             input_padding = [0, 6, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x16x10x10xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -957,7 +957,7 @@ module @ExpandToNCEConvWithParentNCEPermuteQuantizedData {
             input_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x16x224x224x!qElemType, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x224x224x!qElemType, {order = #NHWC}>
@@ -1006,7 +1006,7 @@ module @ExpandToNCEConvWithParentNCEPermuteFloatData {
             input_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x16x224x224xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x224x224xf16, {order = #NHWC}>
@@ -1074,7 +1074,7 @@ module @ExpandToNCEConvSparseWeights {
             input_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x16x10x10xf16, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<16x16x1x1xf16, {order = #NHWC}>, sparsity_map=tensor<16x1x1x128xi1>, is_weights>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -1146,7 +1146,7 @@ module @ExpandToNCEConvSparseWeightsToSlice {
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x16x10x10xf16, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<16x16x1x1xf16, {order = #NHWC}>, sparsity_map=tensor<16x1x1x128xi1>, is_weights>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -1215,7 +1215,7 @@ module @NCEConvToNCEConv {
             output_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x16x10x10xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -1224,7 +1224,7 @@ module @NCEConvToNCEConv {
             input_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x16x10x10xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -1288,7 +1288,7 @@ module @NCEToCompatibleUsers {
             input_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x16x10x10xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -1342,7 +1342,7 @@ module @NCEToMixedUsers {
             input_padding = [0, 13, 0, 0],
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x16x10x10xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
         -> tensor<1x16x10x10xf16, {order = #NHWC}>
@@ -1386,7 +1386,7 @@ module @SkipExpandToNCEConvWithFlattenedWeights {
             input_padding = [0, 13, 0, 0], output_padding = [0, 0, 0, 0],
             pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [2, 2]
         } : tensor<1x16x224x224xf16, {order = #NHWC}>, tensor<64x1x1x800x!qElemType, {order = #NHWC}>, tensor<64x1x1x4xsi32> -> tensor<1x64x112x112xf16, {order = #NHWC}>
 
@@ -1395,7 +1395,7 @@ module @SkipExpandToNCEConvWithFlattenedWeights {
         // CHECK: [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<64x1x1x4xsi32> = dense<0> : tensor<64x1x1x4xsi32>
         // CHECK: [[WEIGHTS:%.+]] = const.Declare tensor<64x1x1x800x!qElemType, {order = #NHWC}> = dense<1> : tensor<64x3x7x7xsi4>, [#const.ConvertElemType<si8>, #const.CastElemType<f16>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 13, 0, 0]>, #const.Reshape<[64, 1, 1, 784]>, #const.PadWithZero<[0, 0, 0, 0], [0, 0, 0, 16]>]
         // CHECK: [[EXPAND:%.+]] = VPU.Expand([[INPUT]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x224x224xf16, {order = #NHWC}> -> tensor<1x16x224x224xf16, {order = #NHWC}>
-        // CHECK: [[CONV:%.+]] = VPU.NCE.Convolution([[EXPAND]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [64, 16, 7, 7] {input_padding = [0, 13, 0, 0], output_padding = [0, 0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, ppe = #VPU.PPEStub<>, 
+        // CHECK: [[CONV:%.+]] = VPU.NCE.Convolution([[EXPAND]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [64, 16, 7, 7] {input_padding = [0, 13, 0, 0], output_padding = [0, 0, 0, 0], pad = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, ppe = #VPU.PPEStub<>,
         // CHECK-SAME:          strides = [2, 2]} : tensor<1x16x224x224xf16, {order = #NHWC}>, tensor<64x1x1x800x!qElemType, {order = #NHWC}>, tensor<64x1x1x4xsi32> -> tensor<1x64x112x112xf16, {order = #NHWC}>
 
         // CHECK: return  [[CONV]]

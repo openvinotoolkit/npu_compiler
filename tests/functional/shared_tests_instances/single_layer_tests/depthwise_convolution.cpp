@@ -46,6 +46,7 @@ TEST_P(DepthwiseConvolutionSCFTilingLayerTest_HW, NPU5010) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(DepthwiseConvolutionLayerTest_HW, NPU5020) {
     rel_threshold = 0.01;
     setDefaultHardwareMode();

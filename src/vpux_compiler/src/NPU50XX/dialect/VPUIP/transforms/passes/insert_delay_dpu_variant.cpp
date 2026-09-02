@@ -71,7 +71,6 @@ void InsertDelayDPUVariant::safeRunOnFunc() {
         auto builder = atTheStart ? mlir::OpBuilder::atBlockBegin(&variantsBlock)
                                   : mlir::OpBuilder::atBlockEnd(&variantsBlock);
         auto newVariant = mlir::cast<VPUIP::DPUTaskOp>(builder.clone(variantsBlock.front()));
-        newVariant->setLoc(appendLoc(newVariant->getLoc(), "dummy"));
 
         const auto kernelSize = nceClusterTask.getKernelSizeAttr() != nullptr
                                         ? parseIntArrayAttr<int64_t>(nceClusterTask.getKernelSizeAttr())
@@ -99,6 +98,9 @@ void InsertDelayDPUVariant::safeRunOnFunc() {
             // region has enough time to write. This variant should not have halo regions of its own
             newVariant.setHaloRegionsAttr(nullptr);
         }
+
+        newVariant->setLoc(appendLoc(newVariant->getLoc(), "dummy"));
+        newVariant.setIsDummy(true);
     };
 
     auto func = getOperation();

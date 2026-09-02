@@ -239,4 +239,3 @@ func.func @AddFakeQuantizeFusion(%arg0: tensor<1x12x32x32xf32>) -> tensor<1x12x3
     // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[INPUT]], [[CST_0]], [[CST_1]], [[CST_2]], [[CST_3]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x12x32x32xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x12x32x32xf32>
     // CHECK:       return [[FQ]] : tensor<1x12x32x32xf32>
 }
-

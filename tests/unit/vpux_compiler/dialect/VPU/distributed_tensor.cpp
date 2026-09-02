@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
@@ -2256,4 +2257,182 @@ TEST_F(MLIR_NDTypeInterface, SubByteSegmentedDistributedTensorType) {
     EXPECT_EQ(ndType.eraseTiledInfo(), ndType);
     const SmallVector<int64_t> pads({0, 0, 2, 2});
     EXPECT_ANY_THROW(ndType.pad(vpux::ShapeRef(pads), vpux::ShapeRef(pads)));
+}
+
+TEST_F(MLIR_NDTypeInterface, SubByteVerifyByteAligned) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+
+    const auto loc = mlir::UnknownLoc::get(&ctx);
+    const auto elemType = mlir::quant::UniformQuantizedType::getChecked(
+            mlir::UnknownLoc::get(&ctx), mlir::quant::QuantizationFlags::Signed, vpux::getSInt4Type(&ctx),
+            mlir::Float16Type::get(&ctx), 1.0, 0, -7, 7);
+    const auto dimsOrder = mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(&ctx));
+    const auto dimsSpace = vpux::IndexedSymbolAttr::get(&ctx, CMX_NAME);
+    const auto numClusters = getIntAttr(&ctx, 2);
+
+    {
+        // Verify that DistributedTensorType::verify succeeds for a subbyte (si4) SEGMENTED type
+        // when all per-cluster memory offsets are byte-aligned.
+        //
+        // Shape [1, 4, 1, 1] in NHWC, si4 (4 bits). SEGMENTED over C with 2 tiles.
+        // Cluster 1 offset = [0, 2, 0, 0]: bit offset = 2 * 4 = 8 bits. 8 % 8 == 0, byte-aligned.
+        const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
+        const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 2, 1, 1}));
+        const auto distributedAttr =
+                VPU::DistributionInfoAttr::get(&ctx, distributionMode, numTiles, nullptr, nullptr, nullptr, numClusters,
+                                               nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const auto shape = SmallVector<int64_t>({1, 4, 1, 1});
+        const auto result = VPU::DistributedTensorType::verify(
+                [loc]() -> mlir::InFlightDiagnostic {
+                    return mlir::emitError(loc);
+                },
+                shape, elemType, dimsOrder, dimsSpace, distributedAttr, nullptr);
+        EXPECT_TRUE(mlir::succeeded(result));
+    }
+
+    // Verify that DistributedTensorType::verify fails for a subbyte (si4) SEGMENTED type
+    // when a per-cluster memory offset is not byte-aligned.
+    //
+    // Shape [2, 6, 1, 1] in NHWC, si4 (4 bits). SEGMENTED over C with 2 tiles.
+    // Cluster 1 offset = [0, 3, 0, 0]: bit offset = 3 * 4 = 12 bits. 12 % 8 == 4, not byte-aligned.
+    {
+        const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
+        const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 2, 1, 1}));
+        const auto distributedAttr =
+                VPU::DistributionInfoAttr::get(&ctx, distributionMode, numTiles, nullptr, nullptr, nullptr, numClusters,
+                                               nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const auto shape = SmallVector<int64_t>({2, 6, 1, 1});
+
+        // Suppress diagnostic output emitted by verify on failure.
+        mlir::ScopedDiagnosticHandler diagHandler(&ctx, [](mlir::Diagnostic&) {
+            return mlir::success();
+        });
+
+        const auto result = VPU::DistributedTensorType::verify(
+                [loc]() -> mlir::InFlightDiagnostic {
+                    return mlir::emitError(loc);
+                },
+                shape, elemType, dimsOrder, dimsSpace, distributedAttr, nullptr);
+        EXPECT_TRUE(mlir::failed(result));
+    }
+
+    {
+        // Verify that DistributedTensorType::verify succeeds for a subbyte (si4) SEGMENTED type
+        // when all per-cluster memory offsets are byte-aligned.
+        //
+        // Shape [1, 2, 6, 1] in NHWC, si4 (4 bits). SEGMENTED over C with 2 tiles.
+        // Cluster 1 offset = [0, 0, 3, 0]: bit offset = 3 * 2 * 4bits = 24 bits. 24 % 8 == 0, byte-aligned.
+        const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
+        const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));
+        const auto distributedAttr =
+                VPU::DistributionInfoAttr::get(&ctx, distributionMode, numTiles, nullptr, nullptr, nullptr, numClusters,
+                                               nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const auto shape = SmallVector<int64_t>({1, 2, 6, 1});
+        const auto result = VPU::DistributedTensorType::verify(
+                [loc]() -> mlir::InFlightDiagnostic {
+                    return mlir::emitError(loc);
+                },
+                shape, elemType, dimsOrder, dimsSpace, distributedAttr, nullptr);
+        EXPECT_TRUE(mlir::succeeded(result));
+    }
+
+    {
+        // Verify that DistributedTensorType::verify succeeds for a subbyte (si4) SEGMENTED type
+        // when all per-cluster memory offsets are byte-aligned.
+        //
+        // Shape [1, 1, 5, 1] in NHWC, si4 (4 bits). SEGMENTED over C with 2 tiles, with alignment [1, 1, 2, 1]
+        // Cluster 1 offset = [0, 0, 4, 0]: bit offset = 4 * 4bits = 16 bits. 16 % 8 == 0, byte-aligned.
+        const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
+        const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));
+        const auto alignment = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));
+        const auto distributedAttr = VPU::DistributionInfoAttr::get(&ctx, distributionMode, numTiles, nullptr, nullptr,
+                                                                    nullptr, numClusters, alignment, nullptr, nullptr,
+                                                                    nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const auto shape = SmallVector<int64_t>({1, 1, 5, 1});
+        const auto result = VPU::DistributedTensorType::verify(
+                [loc]() -> mlir::InFlightDiagnostic {
+                    return mlir::emitError(loc);
+                },
+                shape, elemType, dimsOrder, dimsSpace, distributedAttr, nullptr);
+        EXPECT_TRUE(mlir::succeeded(result));
+    }
+
+    {
+        // Verify that DistributedTensorType::verify succeeds for a subbyte (si4) SEGMENTED type
+        // when all per-cluster memory offsets are byte-aligned.
+        //
+        // Shape [1, 1, 7, 1] in NHWC, si4 (4 bits). SEGMENTED over C with 2 tiles
+        // Cluster 1 offset = [0, 0, 4, 0]: bit offset = 4 * 4bits = 16 bits. 16 % 8 == 0, byte-aligned.
+        const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::SEGMENTED);
+        const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));
+        const auto distributedAttr =
+                VPU::DistributionInfoAttr::get(&ctx, distributionMode, numTiles, nullptr, nullptr, nullptr, numClusters,
+                                               nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
+
+        const auto shape = SmallVector<int64_t>({1, 1, 7, 1});
+        const auto result = VPU::DistributedTensorType::verify(
+                [loc]() -> mlir::InFlightDiagnostic {
+                    return mlir::emitError(loc);
+                },
+                shape, elemType, dimsOrder, dimsSpace, distributedAttr, nullptr);
+        EXPECT_TRUE(mlir::succeeded(result));
+    }
+}
+
+// Verify that DistributedTensorType::verify passes for an i1 (sparsity map) type
+// with OVERLAPPED distribution even when per-cluster memory offsets are not byte-aligned.
+//
+// Shape [1, 3, 4, 1] in NHWC, i1 (1 bit). SEGMENTED|OVERLAPPED over H with 2 clusters.
+// Memory offset for cluster 1 = [0, 0, 1, 0].
+// Bit offset = 1 * 3 * 1 = 3 bits. 3 % 8 != 0, not byte-aligned.
+// verify must still succeed because the 1-bit element type is exempted from the check.
+TEST_F(MLIR_NDTypeInterface, I1OverlappedVerifySkipsAlignmentCheck) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<VPU::VPUDialect>();
+
+    const auto distributionMode = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::OVERLAPPED);
+    const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 2, 1}));
+    const auto numClusters = getIntAttr(&ctx, 2);
+
+    // Explicit per-cluster shapes and offsets with 1-row overlap.
+    const auto computeShapes = getIntArrayOfArray(&ctx, SmallVector<SmallVector<int64_t>>{
+                                                                {1, 3, 2, 1},
+                                                                {1, 3, 2, 1},
+                                                        });
+    const auto computeOffsets = getIntArrayOfArray(&ctx, SmallVector<SmallVector<int64_t>>{
+                                                                 {0, 0, 0, 0},
+                                                                 {0, 0, 2, 0},
+                                                         });
+    // Cluster 1 memory starts at H=1: the bit offset over H=1 with C=3 and W=1 at 1 bit/elem
+    // is 1 * 3 * 1 * 1 bit = 3 bits, which is not byte-aligned.
+    const auto memoryShapes = getIntArrayOfArray(&ctx, SmallVector<SmallVector<int64_t>>{
+                                                               {1, 3, 3, 1},
+                                                               {1, 3, 3, 1},
+                                                       });
+    const auto memoryOffsets = getIntArrayOfArray(&ctx, SmallVector<SmallVector<int64_t>>{
+                                                                {0, 0, 0, 0},
+                                                                {0, 0, 1, 0},
+                                                        });
+
+    const auto distributedAttr = VPU::DistributionInfoAttr::get(
+            &ctx, distributionMode, numTiles, nullptr, nullptr, nullptr, numClusters, nullptr, nullptr, computeShapes,
+            computeOffsets, memoryShapes, memoryOffsets, nullptr, nullptr);
+
+    const auto shape = SmallVector<int64_t>({1, 3, 4, 1});
+    const auto elemType = mlir::IntegerType::get(&ctx, 1);
+    const auto dimsOrder = mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(&ctx));
+    const auto dimsSpace = vpux::IndexedSymbolAttr::get(&ctx, CMX_NAME);
+
+    const auto loc = mlir::UnknownLoc::get(&ctx);
+    const auto result = VPU::DistributedTensorType::verify(
+            [loc]() -> mlir::InFlightDiagnostic {
+                return mlir::emitError(loc);
+            },
+            shape, elemType, dimsOrder, dimsSpace, distributedAttr, nullptr);
+    EXPECT_TRUE(mlir::succeeded(result));
 }

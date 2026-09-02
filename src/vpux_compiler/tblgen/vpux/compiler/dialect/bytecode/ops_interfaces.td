@@ -55,6 +55,14 @@ def Bytecode_InstructionOpInterface : OpInterface<"InstructionOpInterface"> {
                 return static_cast<uint16_t>(0x00);  // Default addressing mode (i.e. register mode)
             }]
         >,
+        InterfaceMethod<
+            "Return true if the given operand is a register that this instruction "
+            "writes to. Ops with no write destination (branches, assert, "
+            "buffer.store, cmd_list.close/exec) use the default which returns false.",
+            "bool", "isDstOperand",
+            (ins "::mlir::OpOperand&":$operand), [{}],
+            [{ return false; }]
+        >,
     ];
 }
 

@@ -1529,8 +1529,8 @@ TEST_F(MLIR_BarrierInfoTests, optimizeBarriersWithFIFOdependenciesNPU40XX) {
     VPUX_THROW_UNLESS(funcOp != nullptr, "Cannot extract funcOp from module");
 
     BarrierInfoTest barrierInfoTest(funcOp);
-    auto testResult =
-            barrierInfoTest.optimizeBarriers(/* checkValidSlotCount  */ false, /* considerTaskFifoDependency */ true);
+    auto testResult = barrierInfoTest.optimizeBarriers(/* checkValidSlotCount  */ false,
+                                                       /* considerTaskFifoDependency */ true);
 
     checkBarrierMaps(expectedResult, testResult, /* checkUpdateAndWaitBarriers */ true,
                      /* checkProducersAndConsumers */ true);
@@ -1544,8 +1544,8 @@ TEST_F(MLIR_BarrierInfoTests, optimizeBarriersWithFIFOdependencies2NPU40XX) {
     VPUX_THROW_UNLESS(funcOp != nullptr, "Cannot extract funcOp from module");
 
     BarrierInfoTest barrierInfoTest(funcOp);
-    auto testResult =
-            barrierInfoTest.optimizeBarriers(/* checkValidSlotCount  */ false, /* considerTaskFifoDependency */ true);
+    auto testResult = barrierInfoTest.optimizeBarriers(/* checkValidSlotCount  */ false,
+                                                       /* considerTaskFifoDependency */ true);
 
     checkBarrierMaps(expectedResult, testResult, /* checkUpdateAndWaitBarriers */ true,
                      /* checkProducersAndConsumers */ false);
@@ -1560,8 +1560,8 @@ TEST_F(MLIR_BarrierInfoTests, optimizeBarriersWithFIFOdependencies3NPU40XX) {
     VPUX_THROW_UNLESS(funcOp != nullptr, "Cannot extract funcOp from module");
 
     BarrierInfoTest barrierInfoTest(funcOp);
-    auto testResult =
-            barrierInfoTest.optimizeBarriers(/* checkValidSlotCount  */ false, /* considerTaskFifoDependency */ true);
+    auto testResult = barrierInfoTest.optimizeBarriers(/* checkValidSlotCount  */ false,
+                                                       /* considerTaskFifoDependency */ true);
 
     checkBarrierMaps(expectedResult, testResult, /* checkUpdateAndWaitBarriers */ true,
                      /* checkProducersAndConsumers */ true);
@@ -1597,7 +1597,7 @@ TEST_F(MLIR_BarrierInfoTests, createAndRemoveBarrierDependenciesImpliedByFifoNPU
     BarrierInfoTest barrierInfoTest(funcOp);
     barrierInfoTest.buildTaskQueueTypeMap();
     auto createdFifoDepsCount = barrierInfoTest.createBarrierDependenciesImpliedByFIFO(0);
-    auto removedFifoDepsCount = barrierInfoTest.removeBarrierDependenciesImpliedByFIFO();
+    auto removedFifoDepsCount = barrierInfoTest.removeTemporaryBarrierDependencies();
     auto testResult = barrierInfoTest.getBarrierMaps();
 
     checkBarrierMaps(expectedResult, testResult, /* checkUpdateAndWaitBarriers */ true,
@@ -1615,8 +1615,8 @@ TEST_F(MLIR_BarrierInfoTests, optimizeBarriersWithFIFOdependencies4NPU40XX) {
     VPUX_THROW_UNLESS(funcOp != nullptr, "Cannot extract funcOp from module");
 
     BarrierInfoTest barrierInfoTest(funcOp);
-    auto testResult =
-            barrierInfoTest.optimizeBarriers(/* checkValidSlotCount  */ false, /* considerTaskFifoDependency */ true);
+    auto testResult = barrierInfoTest.optimizeBarriers(/* checkValidSlotCount  */ false,
+                                                       /* considerTaskFifoDependency */ true);
 
     checkBarrierMaps(expectedResult, testResult, /* checkUpdateAndWaitBarriers */ true,
                      /* checkProducersAndConsumers */ false);
@@ -2672,4 +2672,89 @@ TEST_F(BarrierInfoTests, CheckControlDepsTowardsTasksWithLowerIndex) {
     EXPECT_TRUE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 0, 2, false));
     EXPECT_TRUE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 0, 1, false));
     EXPECT_TRUE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 0, 4, false));
+}
+
+/**
+ * Models the implicit dependency added by EnqueueDMA operations,
+ *
+ * HW FIFO A(DMA): t0 t1 t3
+ * HW FIFO B(SHV): t2
+ *
+ *   t0(A) BarProgDMA
+ *         |
+ *   t1(A) EnqueueDMA(enqueues the task descriptor into SHAVE FIFO)
+ *         |
+ *         |(added enqueue dependency)
+ *         |
+ *   t2(B) SHV
+ *         |
+ *         b0
+ *         |
+ *   t3(A) SyncDMA
+ *
+ *  The SHV task t2 has no wait barrier, so at the barrier level there is no path from EnqueueDMA t1
+ *  (nor from BarProgDMA t0) to t2 or to the SyncDMA t3 that depends on t2.
+ *  The enqueue dependency t1 -> t2 makes this visible: t0 -----> t1 -------> t2 --------> t3.
+ *                                                         (FIFO)     (ENQUEUE)     (BARRIER)
+ */
+BarrierInfoMaps graphToCheckControlPathsWithEnqueue() {
+    BarrierInfoMaps barrierMapsConfig;
+
+    barrierMapsConfig.taskUpdateBarriers = {
+            {},   // task 0 - BarProgDMA
+            {},   // task 1 - EnqueueDMA
+            {0},  // task 2 - SHV, updates b0
+            {}    // task 3 - SyncDMA
+    };
+
+    barrierMapsConfig.taskWaitBarriers = {
+            {},  // task 0
+            {},  // task 1
+            {},  // task 2 - no wait barrier (the root of the problem)
+            {0}  // task 3 - waits on b0
+    };
+
+    fillProducersAndConsumers(barrierMapsConfig);
+
+    const VPURT::TaskQueueType dmaType{config::ExecutorKind::DMA_NN, 0};
+    const VPURT::TaskQueueType shvType{config::ExecutorKind::SHAVE_ACT, 0};
+    barrierMapsConfig.taskQueueTypeMap[dmaType] = {0, 1, 3};
+    barrierMapsConfig.taskQueueTypeMap[shvType] = {2};
+
+    //  task dependency edge: EnqueueDMA t1 enqueues SHV task t2
+    barrierMapsConfig.wlmTaskDependencies = {{1, 2}};
+
+    return barrierMapsConfig;
+}
+
+TEST_F(BarrierInfoTests, CheckControlPathThroughEnqueueDependency) {
+    auto barrierAndEnqueueConfig = graphToCheckControlPathsWithEnqueue();
+
+    BarrierInfoTest barrierInfoTest(barrierAndEnqueueConfig);
+
+    // With non-barrier dependencies considered, the EnqueueDMA -> enqueued task edge completes the full chain
+    const auto& [taskControlMapWithEnqueue, _] = barrierInfoTest.buildTaskControlMap(0, true);
+
+    // EnqueueDma(t1) enqueues SHV(t2) and transitively the SyncDma(t3) that depends on SHV(t2)
+    EXPECT_TRUE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMapWithEnqueue, 1, 2));
+    EXPECT_TRUE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMapWithEnqueue, 1, 3));
+    // BarProgDMA(t0) reaches SHV(t2) and SyncDma(t3) transitively via FIFO order to EnqueueDma(t1) then the enqueue
+    // edge.
+    EXPECT_TRUE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMapWithEnqueue, 0, 2));
+    EXPECT_TRUE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMapWithEnqueue, 0, 3));
+}
+
+TEST_F(BarrierInfoTests, CheckNoControlPathWithoutEnqueueDependency) {
+    auto barrierAndEnqueueConfig = graphToCheckControlPathsWithEnqueue();
+
+    BarrierInfoTest barrierInfoTest(barrierAndEnqueueConfig);
+
+    // build the control map without non-barrier dependencies (no FIFO, no enqueue). Since SHV(t2) has no wait
+    // barrier, there is no barrier level path reaching it, demonstrating why the enqueue edge is needed
+    const auto& [taskControlMap, _] = barrierInfoTest.buildTaskControlMap(0, false);
+
+    EXPECT_FALSE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 1, 2));
+    EXPECT_FALSE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 1, 3));
+    EXPECT_FALSE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 0, 2));
+    EXPECT_FALSE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 0, 3));
 }

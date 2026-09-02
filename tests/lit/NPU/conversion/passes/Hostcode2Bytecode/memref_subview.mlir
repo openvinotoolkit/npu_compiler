@@ -21,18 +21,12 @@ func.func @subview_static_float() -> () attributes {config.pureHostCompileFunc} 
 // CHECK-NOT:   memref.subview
 // CHECK:       [[BUF:%.+]] = bytecode.virtual_general_register
 // CHECK:       bytecode.ext.buffer.create [[BUF]], memref<4x6xf32>
-// CHECK:       [[O0:%.+]] = bytecode.virtual_general_register
-// CHECK:       bytecode.set_imm [[O0]], 1
-// CHECK:       [[O1:%.+]] = bytecode.virtual_general_register
-// CHECK:       bytecode.set_imm [[O1]], 1
-// CHECK:       [[SZ0:%.+]] = bytecode.virtual_general_register
-// CHECK:       bytecode.set_imm [[SZ0]], 2
-// CHECK:       [[SZ1:%.+]] = bytecode.virtual_general_register
-// CHECK:       bytecode.set_imm [[SZ1]], 3
-// CHECK:       [[ST0:%.+]] = bytecode.virtual_general_register
-// CHECK:       bytecode.set_imm [[ST0]], 1
-// CHECK:       [[ST1:%.+]] = bytecode.virtual_general_register
-// CHECK:       bytecode.set_imm [[ST1]], 1
+// CHECK:       [[O0:%.+]] = bytecode.imm_register 1
+// CHECK:       [[O1:%.+]] = bytecode.imm_register 1
+// CHECK:       [[SZ0:%.+]] = bytecode.imm_register 2
+// CHECK:       [[SZ1:%.+]] = bytecode.imm_register 3
+// CHECK:       [[ST0:%.+]] = bytecode.imm_register 1
+// CHECK:       [[ST1:%.+]] = bytecode.imm_register 1
 // CHECK:       [[VIEW:%.+]] = bytecode.virtual_general_register
 // CHECK:       bytecode.buffer.subview [[VIEW]], [[BUF]] offsets([[O0]], [[O1]]) sizes([[SZ0]], [[SZ1]]) strides([[ST0]], [[ST1]])
 // CHECK:       bytecode.ret
@@ -59,28 +53,17 @@ func.func @subview_dynamic_offset(%Parameter_10: memref<1x16x?x1280xf32>, %Conve
 // CHECK-NOT:    memref.subview
 // CHECK-DAG:    [[ARG0:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK-DAG:    [[ARG1:%.+]] = bytecode.virtual_parameter_register 1
-// CHECK:        [[O0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[O0]], 0
-// CHECK:        [[O1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[O1]], 0
-// CHECK:        [[O3:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[O3]], 0
-// CHECK:        [[SZ0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[SZ0]], 1
-// CHECK:        [[SZ1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[SZ1]], 16
-// CHECK:        [[SZ2:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[SZ2]], 31
-// CHECK:        [[SZ3:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[SZ3]], 1280
-// CHECK:        [[ST0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST0]], 1
-// CHECK:        [[ST1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST1]], 1
-// CHECK:        [[ST2:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST2]], 1
-// CHECK:        [[ST3:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST3]], 1
+// CHECK:        [[O0:%.+]] = bytecode.imm_register 0
+// CHECK:        [[O1:%.+]] = bytecode.imm_register 0
+// CHECK:        [[O3:%.+]] = bytecode.imm_register 0
+// CHECK:        [[SZ0:%.+]] = bytecode.imm_register 1
+// CHECK:        [[SZ1:%.+]] = bytecode.imm_register 16
+// CHECK:        [[SZ2:%.+]] = bytecode.imm_register 31
+// CHECK:        [[SZ3:%.+]] = bytecode.imm_register 1280
+// CHECK:        [[ST0:%.+]] = bytecode.imm_register 1
+// CHECK:        [[ST1:%.+]] = bytecode.imm_register 1
+// CHECK:        [[ST2:%.+]] = bytecode.imm_register 1
+// CHECK:        [[ST3:%.+]] = bytecode.imm_register 1
 // CHECK:        [[VIEW:%.+]] = bytecode.virtual_general_register
 // CHECK:        bytecode.buffer.subview [[VIEW]], [[ARG0]]
 // CHECK-SAME:     offsets([[O0]], [[O1]], [[ARG1]], [[O3]])
@@ -110,26 +93,16 @@ func.func @subview_dynamic_hw_offsets(%src: memref<1x16x?x?xf32>, %offH: index, 
 // CHECK-DAG:    [[ARG0:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK-DAG:    [[ARG1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK-DAG:    [[ARG2:%.+]] = bytecode.virtual_parameter_register 2
-// CHECK:        [[O0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[O0]], 0
-// CHECK:        [[O1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[O1]], 0
-// CHECK:        [[SZ0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[SZ0]], 1
-// CHECK:        [[SZ1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[SZ1]], 16
-// CHECK:        [[SZ2:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[SZ2]], 56
-// CHECK:        [[SZ3:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[SZ3]], 56
-// CHECK:        [[ST0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST0]], 1
-// CHECK:        [[ST1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST1]], 1
-// CHECK:        [[ST2:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST2]], 1
-// CHECK:        [[ST3:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST3]], 1
+// CHECK:        [[O0:%.+]] = bytecode.imm_register 0
+// CHECK:        [[O1:%.+]] = bytecode.imm_register 0
+// CHECK:        [[SZ0:%.+]] = bytecode.imm_register 1
+// CHECK:        [[SZ1:%.+]] = bytecode.imm_register 16
+// CHECK:        [[SZ2:%.+]] = bytecode.imm_register 56
+// CHECK:        [[SZ3:%.+]] = bytecode.imm_register 56
+// CHECK:        [[ST0:%.+]] = bytecode.imm_register 1
+// CHECK:        [[ST1:%.+]] = bytecode.imm_register 1
+// CHECK:        [[ST2:%.+]] = bytecode.imm_register 1
+// CHECK:        [[ST3:%.+]] = bytecode.imm_register 1
 // CHECK:        [[VIEW:%.+]] = bytecode.virtual_general_register
 // CHECK:        bytecode.buffer.subview [[VIEW]], [[ARG0]]
 // CHECK-SAME:     offsets([[O0]], [[O1]], [[ARG1]], [[ARG2]])
@@ -156,16 +129,11 @@ func.func @subview_dynamic_size(%arg0: memref<4x6xf32>, %arg1: index) -> () attr
 // CHECK-NOT:    memref.subview
 // CHECK-DAG:    [[ARG0:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK-DAG:    [[ARG1:%.+]] = bytecode.virtual_parameter_register 1
-// CHECK:        [[O0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[O0]], 0
-// CHECK:        [[O1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[O1]], 0
-// CHECK:        [[SZ1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[SZ1]], 3
-// CHECK:        [[ST0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST0]], 1
-// CHECK:        [[ST1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST1]], 1
+// CHECK:        [[O0:%.+]] = bytecode.imm_register 0
+// CHECK:        [[O1:%.+]] = bytecode.imm_register 0
+// CHECK:        [[SZ1:%.+]] = bytecode.imm_register 3
+// CHECK:        [[ST0:%.+]] = bytecode.imm_register 1
+// CHECK:        [[ST1:%.+]] = bytecode.imm_register 1
 // CHECK:        [[VIEW:%.+]] = bytecode.virtual_general_register
 // CHECK:        bytecode.buffer.subview [[VIEW]], [[ARG0]]
 // CHECK-SAME:     offsets([[O0]], [[O1]])
@@ -191,16 +159,11 @@ func.func @subview_dynamic_stride(%arg0: memref<8x6xf32>, %arg1: index) -> () at
 // CHECK-NOT:    memref.subview
 // CHECK-DAG:    [[ARG0:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK-DAG:    [[ARG1:%.+]] = bytecode.virtual_parameter_register 1
-// CHECK:        [[O0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[O0]], 0
-// CHECK:        [[O1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[O1]], 0
-// CHECK:        [[SZ0:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[SZ0]], 2
-// CHECK:        [[SZ1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[SZ1]], 3
-// CHECK:        [[ST1:%.+]] = bytecode.virtual_general_register
-// CHECK:        bytecode.set_imm [[ST1]], 1
+// CHECK:        [[O0:%.+]] = bytecode.imm_register 0
+// CHECK:        [[O1:%.+]] = bytecode.imm_register 0
+// CHECK:        [[SZ0:%.+]] = bytecode.imm_register 2
+// CHECK:        [[SZ1:%.+]] = bytecode.imm_register 3
+// CHECK:        [[ST1:%.+]] = bytecode.imm_register 1
 // CHECK:        [[VIEW:%.+]] = bytecode.virtual_general_register
 // CHECK:        bytecode.buffer.subview [[VIEW]], [[ARG0]]
 // CHECK-SAME:     offsets([[O0]], [[O1]])

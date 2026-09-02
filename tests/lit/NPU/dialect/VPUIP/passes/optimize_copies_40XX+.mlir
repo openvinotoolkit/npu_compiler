@@ -744,6 +744,160 @@ func.func @SkipCopySeqDistributedCMXSubViewIntoConcatView(
 
 // -----
 
+// GatherDMAWithSubview - no indices copy case.
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qElemType = !quant.uniform<i4:f16, 1.000000e+00>
+
+!IndicesDistBufferType = !VPUIP.DistributedBuffer<2880x1x1x1xi64, #NCHW, @CMX_NN, {
+      mode = "SEGMENTED",
+      num_tiles = [3, 1, 1, 1],
+      num_clusters = 3 : i64,
+      uniform_distributed_segments,
+      compute_shapes = [[960, 1, 1, 1], [960, 1, 1, 1], [960, 1, 1, 1]],
+      compute_offsets = [[0, 0, 0, 0], [960, 0, 0, 0], [1920, 0, 0, 0]],
+      memory_shapes = [[960, 1, 1, 1], [960, 1, 1, 1], [960, 1, 1, 1]],
+      memory_offsets = [[0, 0, 0, 0], [960, 0, 0, 0], [1920, 0, 0, 0]]
+    }>
+
+!GatherOutputType = !VPUIP.DistributedBuffer< 2880x2880x1x1x!qElemType, #NCHW, @CMX_NN, {
+      mode = "SEGMENTED",
+      num_tiles = [3, 1, 1, 1],
+      num_clusters = 3 : i64,
+      uniform_distributed_segments,
+      compute_shapes = [[960, 2880, 1, 1], [960, 2880, 1, 1], [960, 2880, 1, 1]],
+      compute_offsets = [[0, 0, 0, 0], [960, 0, 0, 0], [1920, 0, 0, 0]],
+      memory_shapes = [[960, 2880, 1, 1], [960, 2880, 1, 1], [960, 2880, 1, 1]],
+      memory_offsets = [[0, 0, 0, 0], [960, 0, 0, 0], [1920, 0, 0, 0]]
+    }>
+
+!PermuteOutputType = !VPUIP.DistributedBuffer< 2880x2880x1x1x!qElemType, #NHWC, @CMX_NN, {
+      mode = "SEGMENTED",
+      num_tiles = [3, 1, 1, 1],
+      num_clusters = 3 : i64,
+      uniform_distributed_segments,
+      compute_shapes = [[960, 2880, 1, 1], [960, 2880, 1, 1], [960, 2880, 1, 1]],
+      compute_offsets = [[0, 0, 0, 0], [960, 0, 0, 0], [1920, 0, 0, 0]],
+      memory_shapes = [[960, 2880, 1, 1], [960, 2880, 1, 1], [960, 2880, 1, 1]],
+      memory_offsets = [[0, 0, 0, 0], [960, 0, 0, 0], [1920, 0, 0, 0]]
+    }>
+
+!OutDistBufferType = !VPUIP.DistributedBuffer<960x2880x1x1x!qElemType, #NHWC, @CMX_NN, {
+      mode = "SEGMENTED",
+      num_tiles = [3, 1, 1, 1],
+      num_clusters = 3 : i64,
+      alignment = [16, 1, 1, 1],
+      uniform_distributed_segments,
+      compute_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]],
+      compute_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]],
+      memory_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]],
+      memory_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]]
+    }>
+
+// CHECK-LABEL: func.func @OptimizeGatherDMAWithSubviewNoIndicesCopy
+// CHECK-SAME:  ([[INPUT:%.+]]: memref<184320x2880x1x1x!qElemType, @DDR>)
+func.func @OptimizeGatherDMAWithSubviewNoIndicesCopy(
+    %arg0 : memref<184320x2880x1x1x!qElemType, @DDR>
+) -> !OutDistBufferType {
+    // Indices live in CMX directly – no DDR→CMX copy feeding GatherDMA.
+    %indices_alloc = VPURT.AllocDistributed -> !IndicesDistBufferType
+
+    %gather_dma_alloc = VPURT.AllocDistributed -> !GatherOutputType
+    %gather_dma = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+                        inputs(%arg0 : memref<184320x2880x1x1x!qElemType, @DDR>)
+                        indices(%indices_alloc : !IndicesDistBufferType)
+                        outputs(%gather_dma_alloc : !GatherOutputType)
+                        -> !GatherOutputType
+
+    %permute_cast = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC}
+                        inputs(%gather_dma : !GatherOutputType)
+                        -> !PermuteOutputType
+
+    %ddr_alloc = memref.alloc() : memref<2880x2880x1x1x!qElemType, {order = #NHWC}, @DDR>
+    %copy_to_ddr = VPUIP.Copy inputs(%permute_cast : !PermuteOutputType)
+                            outputs(%ddr_alloc : memref<2880x2880x1x1x!qElemType, {order = #NHWC}, @DDR>)
+                            -> memref<2880x2880x1x1x!qElemType, {order = #NHWC}, @DDR>
+
+    %subview = VPUIP.SubView %copy_to_ddr [0, 0, 0, 0] [960, 2880, 1, 1]
+                    : memref<2880x2880x1x1x!qElemType, {order = #NHWC}, @DDR> to memref<960x2880x1x1x!qElemType, {order = #NHWC}, @DDR>
+
+    %cmx_alloc = VPURT.AllocDistributed -> !OutDistBufferType
+    %out_copy = VPUIP.Copy inputs(%subview : memref<960x2880x1x1x!qElemType, {order = #NHWC}, @DDR>)
+                            outputs(%cmx_alloc : !OutDistBufferType)
+                            -> !OutDistBufferType
+
+    return %out_copy : !OutDistBufferType
+
+
+    // CHECK:   [[INDICES_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<2880x1x1x1xi64, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:     {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:      compute_shapes = [[960, 1, 1, 1], [960, 1, 1, 1], [960, 1, 1, 1]], compute_offsets = [[0, 0, 0, 0], [960, 0, 0, 0], [1920, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:      memory_shapes = [[960, 1, 1, 1], [960, 1, 1, 1], [960, 1, 1, 1]], memory_offsets = [[0, 0, 0, 0], [960, 0, 0, 0], [1920, 0, 0, 0]]}>
+
+    // CHECK:   [[INDICES_DDR_BUF:%.+]] = memref.alloc() : memref<2880x1x1x1xi64, @DDR>
+
+    // CHECK:   [[INDICES_TO_DDR:%.+]] = VPUIP.Copy
+    // CHECK-SAME:     inputs([[INDICES_ALLOC]] : !VPUIP.DistributedBuffer<2880x1x1x1xi64, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:         {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:          compute_shapes = [[960, 1, 1, 1], [960, 1, 1, 1], [960, 1, 1, 1]], compute_offsets = [[0, 0, 0, 0], [960, 0, 0, 0], [1920, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:          memory_shapes = [[960, 1, 1, 1], [960, 1, 1, 1], [960, 1, 1, 1]], memory_offsets = [[0, 0, 0, 0], [960, 0, 0, 0], [1920, 0, 0, 0]]}>)
+    // CHECK-SAME:     outputs([[INDICES_DDR_BUF]] : memref<2880x1x1x1xi64, @DDR>)
+
+    // CHECK:   [[ALLOC_SUB_INDICES:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<960x1x1x1xi64, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:     {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:      compute_shapes = [[320, 1, 1, 1], [320, 1, 1, 1], [320, 1, 1, 1]], compute_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:      memory_shapes = [[320, 1, 1, 1], [320, 1, 1, 1], [320, 1, 1, 1]], memory_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]]}>
+
+    // CHECK:   [[SUBVIEW_INDICES:%.+]] = VPUIP.SubView [[INDICES_TO_DDR]] [0, 0, 0, 0] [960, 1, 1, 1] : memref<2880x1x1x1xi64, @DDR> to memref<960x1x1x1xi64, @DDR>
+
+    // CHECK:   [[COPY_SUB_INDICES:%.+]] = VPUIP.Copy
+    // CHECK-SAME:     inputs([[SUBVIEW_INDICES]] : memref<960x1x1x1xi64, @DDR>)
+    // CHECK-SAME:     outputs([[ALLOC_SUB_INDICES]] : !VPUIP.DistributedBuffer<960x1x1x1xi64, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:         {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:          compute_shapes = [[320, 1, 1, 1], [320, 1, 1, 1], [320, 1, 1, 1]], compute_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:          memory_shapes = [[320, 1, 1, 1], [320, 1, 1, 1], [320, 1, 1, 1]], memory_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]]}>)
+    // CHECK-SAME:     -> !VPUIP.DistributedBuffer<960x1x1x1xi64, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:         {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:          compute_shapes = [[320, 1, 1, 1], [320, 1, 1, 1], [320, 1, 1, 1]], compute_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:          memory_shapes = [[320, 1, 1, 1], [320, 1, 1, 1], [320, 1, 1, 1]], memory_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]]}>
+
+    // CHECK:   [[ALLOC_GATHER_OUTPUT:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<960x2880x1x1x!qElemType, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:     {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:      compute_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], compute_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:      memory_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], memory_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]]}>
+
+    // CHECK:   [[GATHER_DMA:%.+]] = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    // CHECK-SAME:     inputs([[INPUT]] : memref<184320x2880x1x1x!qElemType, @DDR>)
+    // CHECK-SAME:     indices([[COPY_SUB_INDICES]] : !VPUIP.DistributedBuffer<960x1x1x1xi64, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:         {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:          compute_shapes = [[320, 1, 1, 1], [320, 1, 1, 1], [320, 1, 1, 1]], compute_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:          memory_shapes = [[320, 1, 1, 1], [320, 1, 1, 1], [320, 1, 1, 1]], memory_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]]}>)
+    // CHECK-SAME:     outputs([[ALLOC_GATHER_OUTPUT]] : !VPUIP.DistributedBuffer<960x2880x1x1x!qElemType, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:         {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:          compute_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], compute_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:          memory_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], memory_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]]}>)
+    // CHECK-SAME:     -> !VPUIP.DistributedBuffer<960x2880x1x1x!qElemType, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:         {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:          compute_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], compute_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:          memory_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], memory_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]]}>
+
+    // CHECK:   [[PERMUTE_CAST:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC}
+    // CHECK-SAME:     inputs([[GATHER_DMA]] : !VPUIP.DistributedBuffer<960x2880x1x1x!qElemType, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:         {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:          compute_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], compute_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:          memory_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], memory_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]]}>)
+    // CHECK-SAME:     -> !VPUIP.DistributedBuffer<960x2880x1x1x!qElemType, #NHWC, @CMX_NN,
+    // CHECK-SAME{LITERAL}:         {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:          compute_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], compute_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:          memory_shapes = [[320, 2880, 1, 1], [320, 2880, 1, 1], [320, 2880, 1, 1]], memory_offsets = [[0, 0, 0, 0], [320, 0, 0, 0], [640, 0, 0, 0]]}>
+
+    // CHECK:   return [[PERMUTE_CAST]]
+}
+
+// -----
+
 // GatherDMAWithSubview must propagate the output distribution alignment to the
 // reconstructed indices type.  When the downstream Copy output carries
 // alignment = [16, 1, 1, 1], the new indices DistributedBuffer must use the
@@ -889,4 +1043,268 @@ func.func @OptimizeGatherDMAWithSubviewAlignedOutput(
     // CHECK-SAME{LITERAL}:          memory_shapes = [[688, 768, 1, 1], [688, 768, 1, 1], [672, 768, 1, 1]], memory_offsets = [[0, 0, 0, 0], [688, 0, 0, 0], [1376, 0, 0, 0]]}>
 
     // CHECK:   return [[PERMUTE]]
+}
+
+// -----
+
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+}
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!SourceType = !VPUIP.DistributedBuffer<
+    4x512x8x32xf16, #NHWC, @CMX_NN, {
+    mode = "DUPLICATED|SEGMENTED",
+    num_tiles = [4, 1, 1, 1],
+    num_clusters = 4 : i64,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 512, 8, 32], [1, 512, 8, 32], [1, 512, 8, 32], [1, 512, 8, 32]],
+    compute_offsets = [[0, 0, 0, 0], [1, 0, 0, 0], [2, 0, 0, 0], [3, 0, 0, 0]],
+    memory_shapes = [[4, 512, 8, 32], [4, 512, 8, 32], [4, 512, 8, 32], [4, 512, 8, 32]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
+
+!TileType = !VPUIP.DistributedBuffer<
+    1x512x8x32xf16, #NHWC, @CMX_NN, {
+    mode = "DUPLICATED",
+    num_clusters = 4 : i64,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 512, 8, 32], [1, 512, 8, 32], [1, 512, 8, 32], [1, 512, 8, 32]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+    memory_shapes = [[1, 512, 8, 32], [1, 512, 8, 32], [1, 512, 8, 32], [1, 512, 8, 32]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
+
+// CHECK-LABEL: func.func @CopyOpSequenceWithSubviewBlockedByAggregateSiblings
+func.func @CopyOpSequenceWithSubviewBlockedByAggregateSiblings() -> (!TileType, !TileType, !TileType, !TileType) {
+    // CMX source
+    %src = VPURT.AllocDistributed -> !SourceType
+
+    // CMX to DDR spill of the full source
+    %ddr = memref.alloc() : memref<4x512x8x32xf16, {order = #NHWC}, @DDR>
+    %spill = VPUIP.Copy
+        inputs(%src : !SourceType)
+        outputs(%ddr : memref<4x512x8x32xf16, {order = #NHWC}, @DDR>)
+        -> memref<4x512x8x32xf16, {order = #NHWC}, @DDR>
+
+    %subview0 = VPUIP.SubView %spill [0, 0, 0, 0] [1, 512, 8, 32]
+        : memref<4x512x8x32xf16, {order = #NHWC}, @DDR>
+        to memref<1x512x8x32xf16, {order = #NHWC}, @DDR>
+    %dst0 = VPURT.AllocDistributed -> !TileType
+    %tile0 = VPUIP.Copy
+        inputs(%subview0 : memref<1x512x8x32xf16, {order = #NHWC}, @DDR>)
+        outputs(%dst0 : !TileType) -> !TileType
+
+    %subview1 = VPUIP.SubView %spill [1, 0, 0, 0] [1, 512, 8, 32]
+        : memref<4x512x8x32xf16, {order = #NHWC}, @DDR>
+        to memref<1x512x8x32xf16, {order = #NHWC}, @DDR>
+    %dst1 = VPURT.AllocDistributed -> !TileType
+    %tile1 = VPUIP.Copy
+        inputs(%subview1 : memref<1x512x8x32xf16, {order = #NHWC}, @DDR>)
+        outputs(%dst1 : !TileType) -> !TileType
+
+    %subview2 = VPUIP.SubView %spill [2, 0, 0, 0] [1, 512, 8, 32]
+        : memref<4x512x8x32xf16, {order = #NHWC}, @DDR>
+        to memref<1x512x8x32xf16, {order = #NHWC}, @DDR>
+    %dst2 = VPURT.AllocDistributed -> !TileType
+    %tile2 = VPUIP.Copy
+        inputs(%subview2 : memref<1x512x8x32xf16, {order = #NHWC}, @DDR>)
+        outputs(%dst2 : !TileType) -> !TileType
+
+    %subview3 = VPUIP.SubView %spill [3, 0, 0, 0] [1, 512, 8, 32]
+        : memref<4x512x8x32xf16, {order = #NHWC}, @DDR>
+        to memref<1x512x8x32xf16, {order = #NHWC}, @DDR>
+    %dst3 = VPURT.AllocDistributed -> !TileType
+    %tile3 = VPUIP.Copy
+        inputs(%subview3 : memref<1x512x8x32xf16, {order = #NHWC}, @DDR>)
+        outputs(%dst3 : !TileType) -> !TileType
+
+    return %tile0, %tile1, %tile2, %tile3 : !TileType, !TileType, !TileType, !TileType
+
+    // Aggregate CMX pressure (src=1 048 576, 4*tile=1 048 576, src + 4*tile=2 097 152) exceeds getTotalCMXSize
+    // CHECK:       [[SRC:%.+]] = VPURT.AllocDistributed
+
+    // CHECK:       [[DDR:%.+]] = memref.alloc() : memref<4x512x8x32xf16, {order = #NHWC}, @DDR>
+    // CHECK:       [[SPILL:%.+]] = VPUIP.Copy
+    // CHECK-SAME:      inputs([[SRC]] :
+    // CHECK-SAME:      outputs([[DDR]] : memref<4x512x8x32xf16, {order = #NHWC}, @DDR>)
+
+    // CHECK:       VPUIP.SubView [[SPILL]] [0, 0, 0, 0] [1, 512, 8, 32]
+    // CHECK:       VPURT.AllocDistributed
+    // CHECK:       VPUIP.Copy
+
+    // CHECK:       VPUIP.SubView [[SPILL]] [1, 0, 0, 0] [1, 512, 8, 32]
+    // CHECK:       VPURT.AllocDistributed
+    // CHECK:       VPUIP.Copy
+
+    // CHECK:       VPUIP.SubView [[SPILL]] [2, 0, 0, 0] [1, 512, 8, 32]
+    // CHECK:       VPURT.AllocDistributed
+    // CHECK:       VPUIP.Copy
+
+    // CHECK:       VPUIP.SubView [[SPILL]] [3, 0, 0, 0] [1, 512, 8, 32]
+    // CHECK:       VPURT.AllocDistributed
+    // CHECK:       VPUIP.Copy
+}
+
+// -----
+
+// GatherDMAWithSubview – combined case: the DDR copy output is consumed by
+// both a SubView+Copy (sliced output) AND a direct Copy (full output, no SubView).
+
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qElemType = !quant.uniform<i4:f16, 1.000000e+00>
+
+!IndicesDistType = !VPUIP.DistributedBuffer<704x1x1x1xi64, #NCHW, @CMX_NN, {
+      mode = "SEGMENTED",
+      num_tiles = [3, 1, 1, 1],
+      num_clusters = 3 : i64,
+      uniform_distributed_segments,
+      compute_shapes = [[235, 1, 1, 1], [235, 1, 1, 1], [234, 1, 1, 1]],
+      compute_offsets = [[0, 0, 0, 0], [235, 0, 0, 0], [470, 0, 0, 0]],
+      memory_shapes = [[235, 1, 1, 1], [235, 1, 1, 1], [234, 1, 1, 1]],
+      memory_offsets = [[0, 0, 0, 0], [235, 0, 0, 0], [470, 0, 0, 0]]
+    }>
+
+!GatherOutputType = !VPUIP.DistributedBuffer<704x2816x1x1x!qElemType, #NCHW, @CMX_NN, {
+      mode = "SEGMENTED",
+      num_tiles = [3, 1, 1, 1],
+      num_clusters = 3 : i64,
+      uniform_distributed_segments,
+      compute_shapes = [[235, 2816, 1, 1], [235, 2816, 1, 1], [234, 2816, 1, 1]],
+      compute_offsets = [[0, 0, 0, 0], [235, 0, 0, 0], [470, 0, 0, 0]],
+      memory_shapes = [[235, 2816, 1, 1], [235, 2816, 1, 1], [234, 2816, 1, 1]],
+      memory_offsets = [[0, 0, 0, 0], [235, 0, 0, 0], [470, 0, 0, 0]]
+    }>
+
+!PermuteOutputType = !VPUIP.DistributedBuffer<704x2816x1x1x!qElemType, #NHWC, @CMX_NN, {
+      mode = "SEGMENTED",
+      num_tiles = [3, 1, 1, 1],
+      num_clusters = 3 : i64,
+      uniform_distributed_segments,
+      compute_shapes = [[235, 2816, 1, 1], [235, 2816, 1, 1], [234, 2816, 1, 1]],
+      compute_offsets = [[0, 0, 0, 0], [235, 0, 0, 0], [470, 0, 0, 0]],
+      memory_shapes = [[235, 2816, 1, 1], [235, 2816, 1, 1], [234, 2816, 1, 1]],
+      memory_offsets = [[0, 0, 0, 0], [235, 0, 0, 0], [470, 0, 0, 0]]
+    }>
+
+// SubView output: first 240 rows (240/3=80, 80/16=5 exact → per-cluster [80,80,80]).
+!OutSubviewType = !VPUIP.DistributedBuffer<240x2816x1x1x!qElemType, #NHWC, @CMX_NN, {
+      mode = "SEGMENTED",
+      num_tiles = [3, 1, 1, 1],
+      num_clusters = 3 : i64,
+      alignment = [16, 1, 1, 1],
+      uniform_distributed_segments,
+      compute_shapes = [[80, 2816, 1, 1], [80, 2816, 1, 1], [80, 2816, 1, 1]],
+      compute_offsets = [[0, 0, 0, 0], [80, 0, 0, 0], [160, 0, 0, 0]],
+      memory_shapes = [[80, 2816, 1, 1], [80, 2816, 1, 1], [80, 2816, 1, 1]],
+      memory_offsets = [[0, 0, 0, 0], [80, 0, 0, 0], [160, 0, 0, 0]]
+    }>
+
+// Direct output: full 704 rows, alignment=[16,1,1,1] → per-cluster [240,240,224].
+!OutAlignedType = !VPUIP.DistributedBuffer<704x2816x1x1x!qElemType, #NHWC, @CMX_NN, {
+      mode = "SEGMENTED",
+      num_tiles = [3, 1, 1, 1],
+      num_clusters = 3 : i64,
+      alignment = [16, 1, 1, 1],
+      uniform_distributed_segments,
+      compute_shapes = [[240, 2816, 1, 1], [240, 2816, 1, 1], [224, 2816, 1, 1]],
+      compute_offsets = [[0, 0, 0, 0], [240, 0, 0, 0], [480, 0, 0, 0]],
+      memory_shapes = [[240, 2816, 1, 1], [240, 2816, 1, 1], [224, 2816, 1, 1]],
+      memory_offsets = [[0, 0, 0, 0], [240, 0, 0, 0], [480, 0, 0, 0]]
+    }>
+
+// CHECK-LABEL: func.func @OptimizeGatherDMAWithSubviewCombineCase
+// CHECK-SAME:  ([[INPUT:%.+]]: memref<90112x2816x1x1x!qElemType, @DDR>, [[INDICES:%.+]]: memref<704x1x1x1xi64, @DDR>)
+func.func @OptimizeGatherDMAWithSubviewCombineCase(
+    %arg0 : memref<90112x2816x1x1x!qElemType, @DDR>,
+    %arg1 : memref<704x1x1x1xi64, @DDR>
+) -> (!OutSubviewType, !OutAlignedType) {
+    %indices_alloc = VPURT.AllocDistributed -> !IndicesDistType
+    %indices_copy = VPUIP.Copy inputs(%arg1 : memref<704x1x1x1xi64, @DDR>)
+                            outputs(%indices_alloc : !IndicesDistType)
+                            -> !IndicesDistType
+
+    %gather_alloc = VPURT.AllocDistributed -> !GatherOutputType
+    %gather = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+                        inputs(%arg0 : memref<90112x2816x1x1x!qElemType, @DDR>)
+                        indices(%indices_copy : !IndicesDistType)
+                        outputs(%gather_alloc : !GatherOutputType)
+                        -> !GatherOutputType
+
+    %permute = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC}
+                        inputs(%gather : !GatherOutputType)
+                        -> !PermuteOutputType
+
+    %ddr_buf = memref.alloc() : memref<704x2816x1x1x!qElemType, {order = #NHWC}, @DDR>
+    %copy_ddr = VPUIP.Copy inputs(%permute : !PermuteOutputType)
+                            outputs(%ddr_buf : memref<704x2816x1x1x!qElemType, {order = #NHWC}, @DDR>)
+                            -> memref<704x2816x1x1x!qElemType, {order = #NHWC}, @DDR>
+
+    // SubView: first 240 rows – exercises the SubView path.
+    %subview = VPUIP.SubView %copy_ddr [0, 0, 0, 0] [240, 2816, 1, 1]
+                    : memref<704x2816x1x1x!qElemType, {order = #NHWC}, @DDR>
+                    to memref<240x2816x1x1x!qElemType, {order = #NHWC}, @DDR>
+    %sub_alloc = VPURT.AllocDistributed -> !OutSubviewType
+    %out_sub = VPUIP.Copy inputs(%subview : memref<240x2816x1x1x!qElemType, {order = #NHWC}, @DDR>)
+                            outputs(%sub_alloc : !OutSubviewType)
+                            -> !OutSubviewType
+
+    // Direct Copy – no SubView, exercises the null-subview path.
+    %out_alloc = VPURT.AllocDistributed -> !OutAlignedType
+    %out_direct = VPUIP.Copy inputs(%copy_ddr : memref<704x2816x1x1x!qElemType, {order = #NHWC}, @DDR>)
+                            outputs(%out_alloc : !OutAlignedType)
+                            -> !OutAlignedType
+
+    return %out_sub, %out_direct : !OutSubviewType, !OutAlignedType
+
+    // ---- SubView branch: 240 rows, per-cluster [80,80,80] ----
+    // CHECK:   [[ALLOC_SUB_IDX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<240x1x1x1xi64, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:     {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:      compute_shapes = [[80, 1, 1, 1], [80, 1, 1, 1], [80, 1, 1, 1]], compute_offsets = [[0, 0, 0, 0], [80, 0, 0, 0], [160, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:      memory_shapes = [[80, 1, 1, 1], [80, 1, 1, 1], [80, 1, 1, 1]], memory_offsets = [[0, 0, 0, 0], [80, 0, 0, 0], [160, 0, 0, 0]]}>
+    // CHECK:   [[SUBVIEW_IDX:%.+]] = VPUIP.SubView [[INDICES]] [0, 0, 0, 0] [240, 1, 1, 1] : memref<704x1x1x1xi64, @DDR> to memref<240x1x1x1xi64, @DDR>
+    // CHECK:   [[COPY_SUB_IDX:%.+]] = VPUIP.Copy
+    // CHECK-SAME:     inputs([[SUBVIEW_IDX]] : memref<240x1x1x1xi64, @DDR>)
+    // CHECK-SAME:     outputs([[ALLOC_SUB_IDX]] :
+    // CHECK:   [[ALLOC_SUB_OUT:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<240x2816x1x1x!qElemType, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:     {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:      compute_shapes = [[80, 2816, 1, 1], [80, 2816, 1, 1], [80, 2816, 1, 1]], compute_offsets = [[0, 0, 0, 0], [80, 0, 0, 0], [160, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:      memory_shapes = [[80, 2816, 1, 1], [80, 2816, 1, 1], [80, 2816, 1, 1]], memory_offsets = [[0, 0, 0, 0], [80, 0, 0, 0], [160, 0, 0, 0]]}>
+    // CHECK:   [[GATHER_SUB:%.+]] = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    // CHECK-SAME:     inputs([[INPUT]] :
+    // CHECK-SAME:     indices([[COPY_SUB_IDX]] :
+    // CHECK:   [[PERMUTE_SUB:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC}
+    // CHECK-SAME:     inputs([[GATHER_SUB]] :
+    // CHECK-SAME:     -> !VPUIP.DistributedBuffer<240x2816x1x1x!qElemType, #NHWC, @CMX_NN,
+    // CHECK-SAME{LITERAL}:         {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:          compute_shapes = [[80, 2816, 1, 1], [80, 2816, 1, 1], [80, 2816, 1, 1]], compute_offsets = [[0, 0, 0, 0], [80, 0, 0, 0], [160, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:          memory_shapes = [[80, 2816, 1, 1], [80, 2816, 1, 1], [80, 2816, 1, 1]], memory_offsets = [[0, 0, 0, 0], [80, 0, 0, 0], [160, 0, 0, 0]]}>
+
+    // ---- Direct (no-SubView) branch: full 704 rows, per-cluster [240,240,224] ----
+
+    // CHECK:   [[ALLOC_DIRECT_IDX:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<704x1x1x1xi64, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:     {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:      compute_shapes = [[240, 1, 1, 1], [240, 1, 1, 1], [224, 1, 1, 1]], compute_offsets = [[0, 0, 0, 0], [240, 0, 0, 0], [480, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:      memory_shapes = [[240, 1, 1, 1], [240, 1, 1, 1], [224, 1, 1, 1]], memory_offsets = [[0, 0, 0, 0], [240, 0, 0, 0], [480, 0, 0, 0]]}>
+    // No SubView: full DDR indices buffer is copied directly.
+    // CHECK:   [[COPY_DIRECT_IDX:%.+]] = VPUIP.Copy
+    // CHECK-SAME:     inputs([[INDICES]] : memref<704x1x1x1xi64, @DDR>)
+    // CHECK-SAME:     outputs([[ALLOC_DIRECT_IDX]] :
+    // CHECK:   [[ALLOC_DIRECT_OUT:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<704x2816x1x1x!qElemType, #NCHW, @CMX_NN,
+    // CHECK-SAME{LITERAL}:     {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:      compute_shapes = [[240, 2816, 1, 1], [240, 2816, 1, 1], [224, 2816, 1, 1]], compute_offsets = [[0, 0, 0, 0], [240, 0, 0, 0], [480, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:      memory_shapes = [[240, 2816, 1, 1], [240, 2816, 1, 1], [224, 2816, 1, 1]], memory_offsets = [[0, 0, 0, 0], [240, 0, 0, 0], [480, 0, 0, 0]]}>
+    // CHECK:   [[GATHER_DIRECT:%.+]] = VPUIP.GatherDMA <{addressingMode = 1 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}>
+    // CHECK-SAME:     inputs([[INPUT]] :
+    // CHECK-SAME:     indices([[COPY_DIRECT_IDX]] :
+    // CHECK:   [[PERMUTE_DIRECT:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC}
+    // CHECK-SAME:     inputs([[GATHER_DIRECT]] :
+    // CHECK-SAME:     -> !VPUIP.DistributedBuffer<704x2816x1x1x!qElemType, #NHWC, @CMX_NN,
+    // CHECK-SAME{LITERAL}:         {mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64, alignment = [16, 1, 1, 1], uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}:          compute_shapes = [[240, 2816, 1, 1], [240, 2816, 1, 1], [224, 2816, 1, 1]], compute_offsets = [[0, 0, 0, 0], [240, 0, 0, 0], [480, 0, 0, 0]],
+    // CHECK-SAME{LITERAL}:          memory_shapes = [[240, 2816, 1, 1], [240, 2816, 1, 1], [224, 2816, 1, 1]], memory_offsets = [[0, 0, 0, 0], [240, 0, 0, 0], [480, 0, 0, 0]]}>
+
+    // CHECK:   return [[PERMUTE_SUB]], [[PERMUTE_DIRECT]]
 }

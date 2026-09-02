@@ -20,6 +20,7 @@
 #include "vpux/compiler/dialect/bytecode/IR/ops/section.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/types.hpp"
 #include "vpux/compiler/dialect/bytecode/utils/builders.hpp"
+#include "vpux/compiler/dialect/bytecode/utils/serialization.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/core/IR/dialect.hpp"
 #include "vpux/compiler/dialect/core/IR/ops.hpp"
@@ -47,12 +48,14 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/IR/Value.h>
 #include <mlir/IR/ValueRange.h>
+#include <mlir/Interfaces/CastInterfaces.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Support/LLVM.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 
@@ -1139,11 +1142,8 @@ private:
 
 class FuncCallOpRewriter final : public mlir::OpConversionPattern<mlir::func::CallOp> {
 public:
-    FuncCallOpRewriter(mlir::TypeConverter& typeConverter, mlir::MLIRContext* ctx, const Logger& log,
-                       const std::unordered_map<std::string, int>& funcNameToIndex)
-            : mlir::OpConversionPattern<mlir::func::CallOp>(typeConverter, ctx),
-              _log(log),
-              _funcNameToIndex(funcNameToIndex) {
+    FuncCallOpRewriter(mlir::TypeConverter& typeConverter, mlir::MLIRContext* ctx, const Logger& log)
+            : mlir::OpConversionPattern<mlir::func::CallOp>(typeConverter, ctx), _log(log) {
     }
 
 public:
@@ -1151,17 +1151,10 @@ public:
                                         mlir::ConversionPatternRewriter& rewriter) const final {
         const auto calleeSymbol = origOp.getCallee();
 
-        // Use the pre-built index map: functions are erased from the module during conversion,
-        // so searching moduleOp at rewrite time would fail for callees processed earlier
-        const auto it = _funcNameToIndex.find(calleeSymbol.str());
-        if (it == _funcNameToIndex.end()) {
-            _log.error("Function {0} not found or not a host compile function", calleeSymbol);
-            return mlir::failure();
-        }
-        const int funcIndex = it->second;
-
-        // TODO(E#214401): Consider passing the callee symbol instead of the function index
-        auto functionIndexRegister = bytecode::materializeI64ImmediateRegister(rewriter, origOp.getLoc(), funcIndex);
+        auto* ctx = origOp.getContext();
+        auto calleeRef = mlir::SymbolRefAttr::get(ctx, bytecode::FUNCTION_SECTION_NAME,
+                                                  {mlir::FlatSymbolRefAttr::get(ctx, calleeSymbol)});
+        auto funcIndexRegister = bytecode::materializeSymbolIndexRegister(rewriter, origOp.getLoc(), calleeRef);
 
         // Calling convention: `call rs, N, rN..., M, rM...`.
         // `N` destination registers are written by the callee's `retv` in source order
@@ -1174,7 +1167,7 @@ public:
 
         // `M` arguments are emitted in source order and mapped by the VM to callee parameter
         // registers `G + i`, where `G = num_general_registers - M` for the callee frame
-        rewriter.create<bytecode::CallOp>(origOp.getLoc(), functionIndexRegister, mlir::ValueRange(destRegs),
+        rewriter.create<bytecode::CallOp>(origOp.getLoc(), funcIndexRegister, mlir::ValueRange(destRegs),
                                           adaptor.getOperands());
 
         rewriter.replaceOp(origOp, destRegs);
@@ -1184,7 +1177,6 @@ public:
 
 private:
     Logger _log;
-    const std::unordered_map<std::string, int>& _funcNameToIndex;
 };
 
 class ReturnRewriter final : public mlir::OpConversionPattern<mlir::func::ReturnOp> {
@@ -1501,6 +1493,26 @@ private:
     Logger _log;
 };
 
+class MemRefLoadRewriter final : public mlir::OpConversionPattern<mlir::memref::LoadOp> {
+public:
+    MemRefLoadRewriter(mlir::TypeConverter& typeConverter, mlir::MLIRContext* ctx, const Logger& log)
+            : mlir::OpConversionPattern<mlir::memref::LoadOp>(typeConverter, ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(mlir::memref::LoadOp origOp, OpAdaptor adaptor,
+                                        mlir::ConversionPatternRewriter& rewriter) const final {
+        const auto loc = origOp.getLoc();
+        auto destinationRegister = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc).getResult();
+        rewriter.create<bytecode::BufferLoadOp>(loc, destinationRegister, adaptor.getMemref(), adaptor.getIndices());
+        rewriter.replaceOp(origOp, destinationRegister);
+        return mlir::success();
+    }
+
+private:
+    Logger _log;
+};
+
 struct CommandListCreationState {
     bytecode::VirtualGeneralRegisterOp dstCmdListReg;
     bytecode::CmdListExecOp lastCmdListExecOp;
@@ -1578,7 +1590,7 @@ public:
                                         mlir::ConversionPatternRewriter& rewriter) const final {
         const auto isBoolAttrTrue = [&](mlir::StringRef name) {
             auto attr = mlir::dyn_cast_or_null<mlir::BoolAttr>(origOp->getAttr(name));
-            return attr && attr.getValue();
+            return attr != nullptr && attr.getValue();
         };
 
         if (isBoolAttrTrue("barrier")) {
@@ -1611,12 +1623,9 @@ public:
 public:
     mlir::LogicalResult matchAndRewrite(mlir::async::ExecuteOp origOp, OpAdaptor /*adaptor*/,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
-        if (!origOp.getBodyResults().empty()) {
-            return rewriter.notifyMatchFailure(origOp,
-                                               "async.execute returns values; only token-returning ops are handled");
-        }
-
-        auto bodyOps = origOp.getBody()->without_terminator();
+        _log.trace("Lower async.execute at {0}", origOp.getLoc());
+        auto* bodyBlock = origOp.getBody();
+        auto bodyOps = bodyBlock->without_terminator();
         if (std::distance(bodyOps.begin(), bodyOps.end()) != 1) {
             return rewriter.notifyMatchFailure(
                     origOp,
@@ -1627,7 +1636,8 @@ public:
             return rewriter.notifyMatchFailure(origOp, "async.execute body does not contain a Core::NestedCallOp");
         }
 
-        // Resolve the kernel name from the callee symbol; existence is validated by verifySymbolUses.
+        _log.trace("Using Core.NestedCall-based async.execute lowering path");
+        // Resolve the kernel name from the callee symbol and verify it exists in kernel_section.
         auto callee = nestedCall.getCallee();
         auto kernelName = callee.getLeafReference().getValue();
         auto parentModule = origOp->getParentOfType<mlir::ModuleOp>();
@@ -1689,12 +1699,34 @@ public:
             convertedOutputs.push_back(asRegister(val));
         }
 
+        auto kernelSectionRef = mlir::SymbolRefAttr::get(rewriter.getContext(), bytecode::KERNEL_SECTION_NAME,
+                                                         {mlir::FlatSymbolRefAttr::get(callee.getLeafReference())});
+
         auto dstRegOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc);
-        const auto kernelRef = mlir::FlatSymbolRefAttr::get(rewriter.getContext(), kernelName);
-        rewriter.create<bytecode::KernelCreateOp>(loc, dstRegOp.getResult(), kernelRef, convertedInputs,
+        rewriter.create<bytecode::KernelCreateOp>(loc, dstRegOp.getResult(), kernelSectionRef, convertedInputs,
                                                   convertedOutputs);
 
-        rewriter.replaceOp(origOp, dstRegOp.getResult());
+        const size_t numBodyResults = origOp.getBodyResults().size();
+        auto yieldOp = mlir::dyn_cast<mlir::async::YieldOp>(bodyBlock->getTerminator());
+        if (!yieldOp) {
+            return rewriter.notifyMatchFailure(origOp, "async.execute body terminator is not async.yield");
+        }
+        if (yieldOp.getNumOperands() != numBodyResults) {
+            return rewriter.notifyMatchFailure(origOp, "async.execute yield does not match NestedCall output operands");
+        }
+        for (size_t i = 0; i < yieldOp.getNumOperands(); ++i) {
+            if (yieldOp.getOperand(i) != outputOperands[i]) {
+                return rewriter.notifyMatchFailure(origOp,
+                                                   "async.execute yield must forward NestedCall output operands");
+            }
+        }
+
+        SmallVector<mlir::Value> replacements;
+        replacements.push_back(dstRegOp.getResult());
+        for (size_t i = 0; i < numBodyResults; ++i) {
+            replacements.push_back(convertedOutputs[i]);
+        }
+        rewriter.replaceOp(origOp, replacements);
 
         bytecode::StringSectionOp stringSection;
         parentModule.walk([&](bytecode::StringSectionOp op) {
@@ -1725,6 +1757,29 @@ public:
             stringBuilder.create<bytecode::StringOp>(stringBuilder.getUnknownLoc(), kernelNameAttr, kernelNameAttr);
         }
 
+        return mlir::success();
+    }
+
+private:
+    Logger _log;
+};
+
+class AsyncAwaitRewriter final : public mlir::OpConversionPattern<mlir::async::AwaitOp> {
+public:
+    AsyncAwaitRewriter(mlir::TypeConverter& typeConverter, mlir::MLIRContext* ctx, const Logger& log)
+            : mlir::OpConversionPattern<mlir::async::AwaitOp>(typeConverter, ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(mlir::async::AwaitOp origOp, OpAdaptor adaptor,
+                                        mlir::ConversionPatternRewriter& rewriter) const final {
+        // async.await unwraps !async.value<T> -> T. After type conversion both are RegisterType
+        if (!origOp.getResult()) {
+            // async.await is only added in the presence of results
+            return rewriter.notifyMatchFailure(
+                    origOp, "async.await on !async.token is not supported by Hostcode2Bytecode lowering");
+        }
+        rewriter.replaceOp(origOp, adaptor.getOperand());
         return mlir::success();
     }
 
@@ -1764,40 +1819,193 @@ struct PreAllocatedRegisters {
     llvm::DenseMap<mlir::Operation*, mlir::Value> switchCompRegs;
 };
 
+// Identifies a control-flow edge by the branch operation and successor index.
+// (cf.br: 0; cf.cond_br: true=0, false=1; cf.switch: default=0, case_i=i+1).
+using BranchEdgeKey = std::pair<mlir::Operation*, unsigned>;
+
+// Flags which operands need temporary registers to avoid parallel-assignment conflicts.
+// Element i is true if operand i needs a temporary snapshot before canonical register writes.
+using OperandTempFlags = llvm::SmallVector<bool>;
+
+// Stores parallel-copy conflict analysis results. For each control-flow edge, stores which
+// operands need temporary registers to avoid the parallel-assignment conflict when block arguments
+// form permutation cycles (e.g., cf.br ^loop(%b, %a) swapping positions).
+struct ParallelCopyInfo {
+    llvm::DenseMap<BranchEdgeKey, OperandTempFlags> mapEdgeOperandsToTempReg;
+};
+
+// Check if an operation is a pass-through (no-op) at the bytecode level, meaning its conversion
+// pattern replaces the op with its operand without allocating a new bytecode register.
+// Such operations are transparent for parallel-assignment analysis
+bool isPassThroughOp(mlir::Operation* op) {
+    if (op == nullptr) {
+        return false;
+    }
+
+    if (mlir::isa<mlir::CastOpInterface>(op)) {
+        if (auto extSIOp = mlir::dyn_cast<mlir::arith::ExtSIOp>(op)) {
+            const auto srcWidth = mlir::cast<mlir::IntegerType>(extSIOp.getIn().getType()).getWidth();
+            return srcWidth != 1;
+        }
+        return mlir::isa<mlir::arith::IndexCastOp, mlir::memref::CastOp>(op);
+    }
+    return false;
+}
+
+// Trace `value` backward through pass-through ops to find whether it originates from one of
+// destBlock's own block arguments
+std::optional<unsigned> traceToBlockArg(mlir::Value value, mlir::Block* destBlock,
+                                        llvm::DenseMap<mlir::Value, std::optional<unsigned>>& argIndexCache) {
+    if (const auto it = argIndexCache.find(value); it != argIndexCache.end()) {
+        return it->second;
+    }
+
+    std::optional<unsigned> result;
+    if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
+        if (blockArg.getOwner() == destBlock) {
+            result = blockArg.getArgNumber();
+        }
+    } else if (auto* defOp = value.getDefiningOp(); isPassThroughOp(defOp)) {
+        result = traceToBlockArg(defOp->getOperand(0), destBlock, argIndexCache);
+    }
+
+    argIndexCache.emplace_or_assign(value, result);
+    return result;
+}
+
+// Analyze one branch edge (destBlock plus the operands forwarded to it) and decide, per
+// operand, whether a temporary register is required to avoid the parallel-assignment conflict.
+static llvm::SmallVector<bool> detectParallelCopyForEdge(mlir::Block* destBlock, mlir::ValueRange operands) {
+    const auto numOperands = operands.size();
+    llvm::DenseMap<mlir::Value, std::optional<unsigned>> argIndexCache;
+    argIndexCache.reserve(numOperands);
+    llvm::SmallVector<std::optional<unsigned>> traces(numOperands);
+    llvm::SmallVector<bool> operandRequiresTemp(numOperands, false);
+
+    // Position `idx` leaves canonical register `idx` unchanged iff its own operand
+    // is (a pass-through of) block arg `idx` itself.
+    auto isSelfCopy = [&](unsigned idx) {
+        return traces[idx].has_value() && *traces[idx] == idx;
+    };
+
+    for (unsigned index = 0; index < numOperands; ++index) {
+        traces[index] = traceToBlockArg(operands[index], destBlock, argIndexCache);
+        if (!traces[index].has_value()) {
+            continue;
+        }
+        const unsigned k = *traces[index];
+        if (k >= index) {
+            continue;  // k == index: self-copy at the same position; k > index: safe ordering
+        }
+        // k < index: real conflict only if position k's own SetOp actually changed canonical
+        // register k, i.e. position k is not itself a pure self-copy.
+        operandRequiresTemp[index] = !isSelfCopy(k);
+    }
+    return operandRequiresTemp;
+}
+
+// Pre-pass over the original (pre-conversion) IR: for every cf.br/cf.cond_br/cf.switch edge,
+// determine which forwarded operands need a temporary register. Run before applyPartialConversion
+// so results don't depend on pattern application order.
+// Only stores information for edges where at least one operand needs a temp (optimization).
+ParallelCopyInfo checkForParallelCopy(mlir::func::FuncOp funcOp) {
+    ParallelCopyInfo info;
+    funcOp.getBody().walk([&](mlir::Operation* op) {
+        if (auto branchOp = mlir::dyn_cast_or_null<mlir::BranchOpInterface>(op)) {
+            unsigned edge = 0;
+            for (auto* successor : branchOp->getSuccessors()) {
+                auto successorOperands = branchOp.getSuccessorOperands(edge);
+                auto tempVGRFlagVec = detectParallelCopyForEdge(successor, successorOperands.getForwardedOperands());
+                // Only store if at least one operand needs a temp register
+                if (llvm::any_of(tempVGRFlagVec, [](bool needsTempVGR) {
+                        return needsTempVGR;
+                    })) {
+                    auto key = std::make_pair(branchOp.getOperation(), edge);
+                    info.mapEdgeOperandsToTempReg.insert({key, std::move(tempVGRFlagVec)});
+                }
+                edge++;
+            }
+        }
+    });
+    return info;
+}
+
 // Emit bytecode.set ops to copy each adapted operand into the canonical VGR for the
 // corresponding destination block argument. Called before every jump that passes values
 // to a non-entry block.
-// E#216236 - A branch that swaps or rotates destination block arguments requires more complex handling
-static void emitBlockArgSetup(mlir::ConversionPatternRewriter& rewriter, mlir::Location loc, mlir::Block* destBlock,
-                              mlir::ValueRange adaptedOperands,
-                              const llvm::DenseMap<mlir::Value, mlir::Value>& argToReg) {
+//
+// Handles parallel assignment conflict when branch operands form permutation cycles.
+// operandRequiresTemp[i] marks operands requiring temporary registers to avoid read-after-write conflicts.
+// Phase 1: Snapshot marked operands into temporaries before any canonical register writes.
+// Phase 2: Write canonical registers in order, using Phase-1 snapshots where needed.
+void emitBlockArgSetupWithTemporaries(mlir::ConversionPatternRewriter& rewriter, mlir::Location loc,
+                                      mlir::Block* destBlock, mlir::ValueRange adaptedOperands,
+                                      const llvm::DenseMap<mlir::Value, mlir::Value>& argToReg,
+                                      llvm::ArrayRef<bool> operandRequiresTemp) {
     const auto regType = bytecode::RegisterType::get(rewriter.getContext());
-    for (auto [arg, operand] : llvm::zip(destBlock->getArguments(), adaptedOperands)) {
-        const auto it = argToReg.find(arg);
+    const auto numOperands = adaptedOperands.size();
+    VPUX_THROW_UNLESS(operandRequiresTemp.size() == numOperands,
+                      "Analysis is not done for all operands during branch lowering");
+    VPUX_THROW_UNLESS(destBlock->getNumArguments() == numOperands,
+                      "Destination block argument count mismatch during branch lowering");
+
+    // Phase 1: snapshot all parallel copy sources before any SetOp runs, freezing their values
+    // before Phase 2 begins clobbering canonical registers.
+    llvm::SmallVector<mlir::Value> tempVGRVec(numOperands);
+    for (auto&& [requiresTmpReg, operand, tempVGR] : llvm::zip(operandRequiresTemp, adaptedOperands, tempVGRVec)) {
+        if (!requiresTmpReg) {
+            continue;
+        }
+        VPUX_THROW_UNLESS(operand.getType() == regType, "Branch operand must have RegisterType after type conversion");
+        auto regOp = rewriter.create<bytecode::VirtualGeneralRegisterOp>(loc);
+        rewriter.create<bytecode::SetOp>(loc, regOp.getResult(), operand);
+        tempVGR = regOp.getResult();
+    }
+
+    // Phase 2: write canonical registers in order, substituting the Phase-1 snapshot for any
+    // parallel copy source.
+    for (auto&& [requiresTmpReg, blockArg, operand, tempVGR] :
+         llvm::zip(operandRequiresTemp, destBlock->getArguments(), adaptedOperands, tempVGRVec)) {
+        const auto it = argToReg.find(blockArg);
         VPUX_THROW_UNLESS(it != argToReg.end(),
                           "No canonical register found for block argument during branch lowering");
-        VPUX_THROW_UNLESS(operand.getType() == regType, "Branch operand must have RegisterType after type conversion");
-        rewriter.create<bytecode::SetOp>(loc, it->second, operand);
+        const auto src = requiresTmpReg ? tempVGR : operand;
+        VPUX_THROW_UNLESS(src.getType() == regType, "Branch operand must have RegisterType after type conversion");
+        rewriter.create<bytecode::SetOp>(loc, it->second, src);
     }
 }
 
 class CfBranchRewriter final : public mlir::OpConversionPattern<mlir::cf::BranchOp> {
 public:
     CfBranchRewriter(mlir::TypeConverter& typeConverter, mlir::MLIRContext* ctx,
-                     const llvm::DenseMap<mlir::Value, mlir::Value>& argToReg, const Logger& log)
-            : mlir::OpConversionPattern<mlir::cf::BranchOp>(typeConverter, ctx), _argToReg(argToReg), _log(log) {
+                     const llvm::DenseMap<mlir::Value, mlir::Value>& argToReg, const ParallelCopyInfo& parallelCopyInfo,
+                     const Logger& log)
+            : mlir::OpConversionPattern<mlir::cf::BranchOp>(typeConverter, ctx),
+              _argToReg(argToReg),
+              _parallelCopyInfo(parallelCopyInfo),
+              _log(log) {
     }
 
     mlir::LogicalResult matchAndRewrite(mlir::cf::BranchOp brOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
         const auto loc = brOp.getLoc();
-        emitBlockArgSetup(rewriter, loc, brOp.getDest(), adaptor.getDestOperands(), _argToReg);
+        const auto destOperands = adaptor.getDestOperands();
+        const auto edgeInfoIt = _parallelCopyInfo.mapEdgeOperandsToTempReg.find({brOp.getOperation(), 0});
+
+        // Default: no temps needed (all operands get direct assignment)
+        llvm::SmallVector<bool> needsTempReg(destOperands.size(), false);
+        if (edgeInfoIt != _parallelCopyInfo.mapEdgeOperandsToTempReg.end()) {
+            needsTempReg = edgeInfoIt->second;
+        }
+
+        emitBlockArgSetupWithTemporaries(rewriter, loc, brOp.getDest(), destOperands, _argToReg, needsTempReg);
         rewriter.replaceOpWithNewOp<bytecode::JmpOp>(brOp, brOp.getDest());
         return mlir::success();
     }
 
 private:
     const llvm::DenseMap<mlir::Value, mlir::Value>& _argToReg;
+    const ParallelCopyInfo& _parallelCopyInfo;
     Logger _log;
 };
 
@@ -1805,10 +2013,11 @@ class CfCondBranchRewriter final : public mlir::OpConversionPattern<mlir::cf::Co
 public:
     CfCondBranchRewriter(mlir::TypeConverter& typeConverter, mlir::MLIRContext* ctx,
                          const llvm::DenseMap<mlir::Value, mlir::Value>& argToReg, mlir::Value condBrOneReg,
-                         const Logger& log)
+                         const ParallelCopyInfo& parallelCopyInfo, const Logger& log)
             : mlir::OpConversionPattern<mlir::cf::CondBranchOp>(typeConverter, ctx),
               _argToReg(argToReg),
               _condBrOneReg(condBrOneReg),
+              _parallelCopyInfo(parallelCopyInfo),
               _log(log) {
     }
 
@@ -1846,17 +2055,34 @@ public:
         auto* falseSetupBlock = rewriter.createBlock(region, afterCurrent);
         auto* trueSetupBlock = rewriter.createBlock(region, std::next(falseSetupBlock->getIterator()));
 
+        // Successor index convention (matches checkForParallelCopy): true = 0, false = 1.
+        const auto trueParallelCopyIt = _parallelCopyInfo.mapEdgeOperandsToTempReg.find({condBrOp.getOperation(), 0});
+        const auto falseParallelCopyIt = _parallelCopyInfo.mapEdgeOperandsToTempReg.find({condBrOp.getOperation(), 1});
+
+        const auto trueOps = adaptor.getTrueDestOperands();
+        const auto falseOps = adaptor.getFalseDestOperands();
+
+        llvm::SmallVector<bool> trueTempFlags(trueOps.size(), false);
+        if (trueParallelCopyIt != _parallelCopyInfo.mapEdgeOperandsToTempReg.end()) {
+            trueTempFlags = trueParallelCopyIt->second;
+        }
+
+        llvm::SmallVector<bool> falseTempFlags(falseOps.size(), false);
+        if (falseParallelCopyIt != _parallelCopyInfo.mapEdgeOperandsToTempReg.end()) {
+            falseTempFlags = falseParallelCopyIt->second;
+        }
+
         rewriter.setInsertionPoint(condBrOp);
         rewriter.replaceOpWithNewOp<bytecode::JEOp>(condBrOp, condReg, _condBrOneReg, trueSetupBlock, falseSetupBlock);
 
         // Fill ^false_setup: copy false-edge args then jump to falseDest.
         rewriter.setInsertionPointToEnd(falseSetupBlock);
-        emitBlockArgSetup(rewriter, loc, falseDest, adaptor.getFalseDestOperands(), _argToReg);
+        emitBlockArgSetupWithTemporaries(rewriter, loc, falseDest, falseOps, _argToReg, falseTempFlags);
         rewriter.create<bytecode::JmpOp>(loc, falseDest);
 
         // Fill ^true_setup: copy true-edge args then jump to trueDest.
         rewriter.setInsertionPointToEnd(trueSetupBlock);
-        emitBlockArgSetup(rewriter, loc, trueDest, adaptor.getTrueDestOperands(), _argToReg);
+        emitBlockArgSetupWithTemporaries(rewriter, loc, trueDest, trueOps, _argToReg, trueTempFlags);
         rewriter.create<bytecode::JmpOp>(loc, trueDest);
 
         return mlir::success();
@@ -1865,6 +2091,7 @@ public:
 private:
     const llvm::DenseMap<mlir::Value, mlir::Value>& _argToReg;
     mlir::Value _condBrOneReg;
+    const ParallelCopyInfo& _parallelCopyInfo;
     Logger _log;
 };
 
@@ -1872,10 +2099,12 @@ class CfSwitchRewriter final : public mlir::OpConversionPattern<mlir::cf::Switch
 public:
     CfSwitchRewriter(mlir::TypeConverter& typeConverter, mlir::MLIRContext* ctx,
                      const llvm::DenseMap<mlir::Value, mlir::Value>& argToReg,
-                     const llvm::DenseMap<mlir::Operation*, mlir::Value>& switchCompRegs, const Logger& log)
+                     const llvm::DenseMap<mlir::Operation*, mlir::Value>& switchCompRegs,
+                     const ParallelCopyInfo& parallelCopyInfo, const Logger& log)
             : mlir::OpConversionPattern<mlir::cf::SwitchOp>(typeConverter, ctx),
               _argToReg(argToReg),
               _switchCompRegs(switchCompRegs),
+              _parallelCopyInfo(parallelCopyInfo),
               _log(log) {
     }
 
@@ -1887,9 +2116,17 @@ public:
         const auto defaultOps = adaptor.getDefaultOperands();
         const auto caseValuesAttr = switchOp.getCaseValues();
 
+        // Successor index convention (matches checkForParallelCopy): default = 0, case i = i + 1.
+        const auto defaultEdgeInfoIt = _parallelCopyInfo.mapEdgeOperandsToTempReg.find({switchOp.getOperation(), 0});
+
+        llvm::SmallVector<bool> defaultTempFlags(defaultOps.size(), false);
+        if (defaultEdgeInfoIt != _parallelCopyInfo.mapEdgeOperandsToTempReg.end()) {
+            defaultTempFlags = defaultEdgeInfoIt->second;
+        }
+
         // Zero-case: only a default arm — emit blockArgSetup + JMP.
         if (!caseValuesAttr || caseValuesAttr->empty()) {
-            emitBlockArgSetup(rewriter, loc, defaultDest, defaultOps, _argToReg);
+            emitBlockArgSetupWithTemporaries(rewriter, loc, defaultDest, defaultOps, _argToReg, defaultTempFlags);
             rewriter.replaceOpWithNewOp<bytecode::JmpOp>(switchOp, defaultDest);
             return mlir::success();
         }
@@ -1954,13 +2191,21 @@ public:
 
         // Fill def_setup block.
         rewriter.setInsertionPointToEnd(defSetupBlock);
-        emitBlockArgSetup(rewriter, loc, defaultDest, defaultOps, _argToReg);
+        emitBlockArgSetupWithTemporaries(rewriter, loc, defaultDest, defaultOps, _argToReg, defaultTempFlags);
         rewriter.create<bytecode::JmpOp>(loc, defaultDest);
 
         // Fill case-setup blocks: each is only reached when its JE fires.
         for (size_t i = 0; i < numCases; ++i) {
+            const auto caseEdgeInfoIt =
+                    _parallelCopyInfo.mapEdgeOperandsToTempReg.find({compRegIt->first, static_cast<unsigned>(i + 1)});
+
+            llvm::SmallVector<bool> caseTempFlags(caseOps[i].size(), false);
+            if (caseEdgeInfoIt != _parallelCopyInfo.mapEdgeOperandsToTempReg.end()) {
+                caseTempFlags = caseEdgeInfoIt->second;
+            }
+
             rewriter.setInsertionPointToEnd(caseSetupBlocks[i]);
-            emitBlockArgSetup(rewriter, loc, caseDests[i], caseOps[i], _argToReg);
+            emitBlockArgSetupWithTemporaries(rewriter, loc, caseDests[i], caseOps[i], _argToReg, caseTempFlags);
             rewriter.create<bytecode::JmpOp>(loc, caseDests[i]);
         }
 
@@ -1970,10 +2215,9 @@ public:
 private:
     const llvm::DenseMap<mlir::Value, mlir::Value>& _argToReg;
     const llvm::DenseMap<mlir::Operation*, mlir::Value>& _switchCompRegs;
+    const ParallelCopyInfo& _parallelCopyInfo;
     Logger _log;
 };
-
-}  // namespace
 
 // disable pipelined command list recording for host compile inference exec function
 // for dynamic batch support for now.
@@ -1982,13 +2226,11 @@ void preprocessingAsyncOps(mlir::func::FuncOp funcOp) {
     if (!isHostCompileInferenceExecFunc || !funcOp->hasAttr("disable_pipelined_cmdlist_recording")) {
         return;
     }
-
     bool preprocessingRequired = false;
     auto disablePipelinedCmdListAttr = funcOp->getAttr("disable_pipelined_cmdlist_recording");
     if (auto attr = mlir::dyn_cast<mlir::BoolAttr>(disablePipelinedCmdListAttr)) {
         preprocessingRequired = attr.getValue();
     }
-
     if (!preprocessingRequired) {
         return;
     }
@@ -2014,6 +2256,7 @@ void preprocessingAsyncOps(mlir::func::FuncOp funcOp) {
                 awaitAllOp->setAttr("barrier", trueAttr);
             }
         }
+
         // add a create group op at the beginning of the function
         auto& entryBlock = funcOp.getBody().front();
         builder.setInsertionPointToStart(&entryBlock);
@@ -2035,6 +2278,8 @@ void preprocessingAsyncOps(mlir::func::FuncOp funcOp) {
         }
     }
 }
+
+}  // namespace
 
 namespace vpux {
 
@@ -2065,20 +2310,11 @@ private:
             _log.trace("Found host compile function: {0}", funcOp.getSymName());
         }
 
-        // Build name->index map before any function is erased. FuncCallOpRewriter uses this map
-        // to resolve callee indices; searching the module during conversion would fail for
-        // functions that have already been processed and erased
-        std::unordered_map<std::string, int> funcNameToIndex;
-        for (size_t i = 0; i < hostCompileFunctions.size(); ++i) {
-            _log.trace("Registering function {0} with index {1}", hostCompileFunctions[i].getSymName(), i);
-            funcNameToIndex[hostCompileFunctions[i].getSymName().str()] = i;
-        }
-
         auto funcSection = prepareFuncSection(moduleOp);
         for (auto funcOp : hostCompileFunctions) {
             CommandListCreationState cmdListCreationState;
             preprocessingAsyncOps(funcOp);
-            if (mlir::failed(convertFuncToBytecode(funcOp, funcSection, funcNameToIndex, cmdListCreationState))) {
+            if (mlir::failed(convertFuncToBytecode(funcOp, funcSection, cmdListCreationState))) {
                 _log.error("Failed to convert function {0} to bytecode", funcOp.getName());
                 signalPassFailure();
                 return;
@@ -2113,9 +2349,8 @@ private:
             return mlir::WalkResult::interrupt();
         });
         if (hasCondBr) {
-            auto oneReg = builder.create<bytecode::VirtualGeneralRegisterOp>(funcOp.getLoc());
-            builder.create<bytecode::SetImmOp>(funcOp.getLoc(), oneReg.getResult(), builder.getI64IntegerAttr(1));
-            result.condBrOneReg = oneReg.getResult();
+            result.condBrOneReg =
+                    builder.create<bytecode::ImmRegisterOp>(funcOp.getLoc(), builder.getI64IntegerAttr(1)).getResult();
         }
 
         // One comparison VGR per cf.switch op with at least one case (reused for all case value
@@ -2145,7 +2380,6 @@ private:
     // Convert a function to bytecode operations and store the new bytecode function in the provided function section
     // The original function is erased after conversion
     mlir::LogicalResult convertFuncToBytecode(mlir::func::FuncOp funcOp, bytecode::FuncSectionOp funcSection,
-                                              const std::unordered_map<std::string, int>& funcNameToIndex,
                                               CommandListCreationState& cmdListCreationState) {
         mlir::TypeConverter typeConverter;
         typeConverter.addConversion([](mlir::IntegerType type) -> mlir::Type {
@@ -2195,6 +2429,10 @@ private:
         // all placed at the entry block so the register allocator finds them in its single-block scan.
         const auto preAllocRegs = preallocateRegisters(funcOp);
 
+        // Pre-pass: analyze every branch edge on the original IR to determine which forwarded
+        // operands need a temporary register to avoid the parallel-assignment conflict (E#216236).
+        const auto parallelCopyInfo = checkForParallelCopy(funcOp);
+
         auto ctx = &getContext();
         mlir::ConversionTarget target(*ctx);
         target.addIllegalDialect<mlir::arith::ArithDialect>();
@@ -2213,6 +2451,7 @@ private:
         target.addIllegalOp<mlir::memref::CastOp>();
         target.addIllegalOp<mlir::memref::DimOp>();
         target.addIllegalOp<mlir::memref::StoreOp>();
+        target.addIllegalOp<mlir::memref::LoadOp>();
         target.addLegalDialect<bytecode::BytecodeDialect>();
 
         mlir::RewritePatternSet patterns(ctx);
@@ -2261,7 +2500,7 @@ private:
         patterns.add<ArithFPToSIRewriter>(typeConverter, ctx, _log);
         patterns.add<ArithExtFRewriter>(typeConverter, ctx, _log);
         patterns.add<ArithTruncFRewriter>(typeConverter, ctx, _log);
-        patterns.add<FuncCallOpRewriter>(typeConverter, ctx, _log, funcNameToIndex);
+        patterns.add<FuncCallOpRewriter>(typeConverter, ctx, _log);
         patterns.add<ReturnRewriter>(typeConverter, ctx, _log);
         patterns.add<AssertRewriter>(typeConverter, ctx, _log);
         patterns.add<MemRefAllocRewriter>(typeConverter, ctx, _log);
@@ -2271,13 +2510,17 @@ private:
         patterns.add<MemRefCastRewriter>(typeConverter, ctx, _log);
         patterns.add<MemRefDimRewriter>(typeConverter, ctx, _log);
         patterns.add<MemRefStoreRewriter>(typeConverter, ctx, _log);
+        patterns.add<MemRefLoadRewriter>(typeConverter, ctx, _log);
         patterns.add<AsyncCreateGroupRewriter>(typeConverter, ctx, cmdListCreationState, _log);
         patterns.add<AsyncAddToGroupRewriter>(typeConverter, ctx, _log);
+        patterns.add<AsyncAwaitRewriter>(typeConverter, ctx, _log);
         patterns.add<AsyncAwaitAllRewriter>(typeConverter, ctx, cmdListCreationState, _log);
         patterns.add<AsyncExecuteWithNestedCallRewriter>(typeConverter, ctx, _log);
-        patterns.add<CfBranchRewriter>(typeConverter, ctx, preAllocRegs.argToReg, _log);
-        patterns.add<CfCondBranchRewriter>(typeConverter, ctx, preAllocRegs.argToReg, preAllocRegs.condBrOneReg, _log);
-        patterns.add<CfSwitchRewriter>(typeConverter, ctx, preAllocRegs.argToReg, preAllocRegs.switchCompRegs, _log);
+        patterns.add<CfBranchRewriter>(typeConverter, ctx, preAllocRegs.argToReg, parallelCopyInfo, _log);
+        patterns.add<CfCondBranchRewriter>(typeConverter, ctx, preAllocRegs.argToReg, preAllocRegs.condBrOneReg,
+                                           parallelCopyInfo, _log);
+        patterns.add<CfSwitchRewriter>(typeConverter, ctx, preAllocRegs.argToReg, preAllocRegs.switchCompRegs,
+                                       parallelCopyInfo, _log);
 
         if (mlir::failed(mlir::applyPartialConversion(funcOp, target, std::move(patterns)))) {
             return errorAt(funcOp, "Failed to apply conversion patterns");

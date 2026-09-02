@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
 #include <mlir/Support/LLVM.h>
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
@@ -28,7 +29,7 @@ namespace vpux::VPU::VF::v2 {
 constexpr double ELTWISE_PERFORMANT_RATIO_FOR_MULTI_DIM_TILING = 0.5;
 
 bool isCmxOperation(mlir::Operation* operation, const bool checkTilingType) {
-    if (!mlir::isa_and_nonnull<VPU::TilingInfoOpInterface, VPU::VerticalFusionOp>(operation)) {
+    if (!mlir::isa_and_present<VPU::TilingInfoOpInterface, VPU::VerticalFusionOp>(operation)) {
         return false;
     }
 
@@ -45,11 +46,11 @@ bool isCmxOperation(mlir::Operation* operation, const bool checkTilingType) {
         return true;
     }
 
-    if (checkTilingType) {
-        if (isSpatialTiling(tiling)) {
-            return false;
-        }
+    if (isSpatialTiling(tiling)) {
+        return false;
+    }
 
+    if (checkTilingType) {
         const auto checkNCEFunc = [](mlir::Operation* oper) {
             auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(oper);
             auto hasWeights = nceOp != nullptr && nceOp.getWeightsOperand() != nullptr;
@@ -63,21 +64,27 @@ bool isCmxOperation(mlir::Operation* operation, const bool checkTilingType) {
         };
 
         if (auto vfUser = mlir::dyn_cast<VPU::VerticalFusionOp>(operation)) {
-            auto userConfig = VFConfig(vfUser);
+            VFCacheAnalysis cache(vfUser.getOperation());
+            auto userConfig = VFConfig(vfUser, cache);
             return userConfig.getOperationsForTiling().size() == 1 &&
                    llvm::all_of(userConfig.getInputs(), checkNCEFunc);
         }
         return checkNCEFunc(operation);
     }
 
-    const auto outputSize = mlir::cast<NDTypeInterface>(operation->getResult(0).getType()).getTotalAllocSize();
-
-    if (outputSize > VPU::getTotalCMXSize(operation)) {
-        return false;
+    auto outputSize = Byte(0);
+    for (auto result : operation->getResults()) {
+        auto resultType = mlir::dyn_cast<vpux::NDTypeInterface>(result.getType());
+        if (resultType == nullptr) {
+            continue;
+        }
+        outputSize += resultType.getTotalAllocSize();
     }
-    return !isSpatialTiling(tiling);
+
+    return outputSize <= VPU::getTotalCMXSize(operation);
 }
 
+namespace {
 // Using queue to traverse all ops in VF block and back-infer their tiling dims
 // The data structure pattern - {(op, tilingDim)...}
 void traverseVFOps(VFConfig& config, Dim outputDim, llvm::function_ref<void(mlir::Operation*, Dim)> visitor) {
@@ -85,7 +92,7 @@ void traverseVFOps(VFConfig& config, Dim outputDim, llvm::function_ref<void(mlir
 
     VPUX_THROW_WHEN(config.getOutputs().empty(), "VF has no output operations");
     auto* lastOp = config.getOutputs().back();
-    opQueue.push({lastOp, outputDim});
+    opQueue.emplace(lastOp, outputDim);
     auto operations = config.getVFOperations().getArrayRef();
 
     while (!opQueue.empty()) {
@@ -106,21 +113,20 @@ void traverseVFOps(VFConfig& config, Dim outputDim, llvm::function_ref<void(mlir
             auto inputAxis = curAxis;
             if (auto tilingViewLikeOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(curOp)) {
                 inputAxis = tilingViewLikeOp.backInferTilingDim(inputAxis);
-            } else if (auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(curOp)) {
-                if (nceOp.getWeightsOperand() != nullptr && nceOp.getWeightsOperand().getDefiningOp() == parentOp) {
-                    auto is5DTensor = getShape(curOp->getResult(0)).size() == 5;
-                    auto isTilingOnChannel =
-                            is5DTensor ? inputAxis == DimsGroups5D::Act::C : inputAxis == Dims4D::Act::C;
-                    if (!isTilingOnChannel) {
-                        continue;
-                    }
-                    inputAxis = is5DTensor ? DimsGroups5D::Filter::OC : Dims4D::Filter::OC;
+            } else if (nceOpNeedsTilingAxisInference(curOp, input)) {
+                const auto is5DTensor = getShape(curOp->getResult(0)).size() == 5;
+                const auto backInferredAxis = nceBackInferWeightsTilingAxisFromOut(inputAxis, is5DTensor);
+                if (!backInferredAxis.has_value()) {
+                    // axis is not on channels, and therefore weights-like inputs will not be tiled
+                    continue;
                 }
+                inputAxis = backInferredAxis.value();
             }
-            opQueue.push({parentOp, inputAxis});
+            opQueue.emplace(parentOp, inputAxis);
         }
     }
 }
+}  // namespace
 
 mlir::DenseMap<mlir::Operation*, Dim> buildOpDimMap(VFConfig& config, Dim outputDim) {
     mlir::DenseMap<mlir::Operation*, Dim> dimMap;
@@ -187,8 +193,11 @@ mlir::FailureOr<TilingStorage> calculateTilingRegions(VFConfig& config, ArrayRef
         return llvm::is_contained(config.getOutputs(), op);
     };
 
+    // disable alignment for performance optimizations to let cost model deside
+    // if VF with less strict alignment is better with isolated operation with additional alignment requirements
     const auto tiles = fillDividedTiles(config.getOutputs().back(), config.getVFOperations().getArrayRef(), strategy,
-                                        outputShape, dynAlignmentFunction);
+                                        outputShape, dynAlignmentFunction,
+                                        /*enableSWOptimizationAlignment=*/false);
     if (mlir::failed(tiles)) {
         return mlir::failure();
     }
@@ -234,11 +243,40 @@ mlir::FailureOr<SmallVector<int64_t>> getValidTilingStrategyFromRange(
         }
     }
 
-    std::vector<TilingOperationStorage::UPtr> candidateOpStorages(dimValues.size());
-    auto ctx = config.getVFOperations().front()->getContext();
-    auto result = vpux::parallel_find_index(ctx, static_cast<size_t>(dimValues.size()), [&](size_t valueIdx) {
+    // Probe a small number of candidates sequentially to avoid parallel_find overhead on common cases.
+    constexpr size_t sequentialProbeCount = 4;
+    const auto sequentialEnd = std::min(sequentialProbeCount, dimValues.size());
+    auto getTilingStrategy = [&](size_t valueIdx) {
         auto tilingStrategyCandidate = validTilingStrategy;
         tilingStrategyCandidate[tilingAxis.ind()] = dimValues[valueIdx];
+        return tilingStrategyCandidate;
+    };
+
+    for (auto valueIdx : irange(sequentialEnd)) {
+        auto tilingStrategyCandidate = getTilingStrategy(valueIdx);
+
+        auto curOpStorage = std::make_unique<TilingOperationStorage>();
+        auto tilingRegions = calculateTilingRegions(config, tilingStrategyCandidate, log, curOpStorage);
+        if (mlir::failed(tilingRegions)) {
+            continue;
+        }
+
+        auto tilingStrategy = std::move(validTilingStrategy);
+        tilingStrategy[tilingAxis.ind()] = dimValues[valueIdx];
+
+        opStorage = std::move(curOpStorage);
+        return tilingStrategy;
+    }
+
+    if (sequentialEnd == dimValues.size()) {
+        return mlir::failure();
+    }
+
+    std::vector<TilingOperationStorage::UPtr> candidateOpStorages(dimValues.size() - sequentialEnd);
+    auto ctx = config.getVFOperations().front()->getContext();
+    auto result = vpux::parallel_find_index(ctx, dimValues.size() - sequentialEnd, [&](size_t valueIdx) {
+        const auto dimValueIdx = valueIdx + sequentialEnd;
+        auto tilingStrategyCandidate = getTilingStrategy(dimValueIdx);
 
         auto curOpStorage = std::make_unique<TilingOperationStorage>();
         auto tilingRegions = calculateTilingRegions(config, tilingStrategyCandidate, log, curOpStorage);
@@ -253,11 +291,12 @@ mlir::FailureOr<SmallVector<int64_t>> getValidTilingStrategyFromRange(
         return mlir::failure();
     }
 
-    const auto strategyIdx = result.value();
+    const auto storageIdx = result.value();
+    const auto strategyIdx = storageIdx + sequentialEnd;
     auto tilingStrategy = std::move(validTilingStrategy);
     tilingStrategy[tilingAxis.ind()] = dimValues[strategyIdx];
 
-    opStorage = std::move(candidateOpStorages[strategyIdx]);
+    opStorage = std::move(candidateOpStorages[storageIdx]);
     VPUX_THROW_WHEN(opStorage == nullptr, "Expected tiling strategy to have cached storage");
     return tilingStrategy;
 }
@@ -505,7 +544,8 @@ void printVFSchedulingTrace(mlir::func::FuncOp funcOp, const std::unique_ptr<VPU
         auto fileName = llvm::formatv("scheduling_trace_vf_{0}.json", idx);
         log.trace("Dumping scheduling trace for VF {0} to file {1}", vfOp->getLoc(), fileName);
 
-        VFConfig config(vfOp);
+        VFCacheAnalysis cache(vfOp.getOperation());
+        VFConfig config(vfOp, cache);
         auto type = vfOp.getScenario().value();
         auto tilingDims = parseIntArrayAttr<int64_t>(vfOp.getTilingStrategy());
         auto tileLen = std::accumulate(tilingDims.begin(), tilingDims.end(), 1, std::multiplies<int64_t>());
@@ -544,7 +584,8 @@ std::optional<Dim> getVFOptimizedDim(const VFSplit& vfSplit) {
     return dim->first;
 }
 
-bool cmxSizeExceedForEltwiseOpWithSwOpUser(VFConfig& currentConfig, ArrayRef<mlir::Operation*> parents, Logger log) {
+bool cmxSizeExceedForEltwiseOpWithSwOpUser(VFConfig& currentConfig, ArrayRef<mlir::OpResult> parentResults,
+                                           Logger log) {
     /*
         Check the pattern below:
                          ParentVF0
@@ -562,17 +603,22 @@ bool cmxSizeExceedForEltwiseOpWithSwOpUser(VFConfig& currentConfig, ArrayRef<mli
     if (uses.size() != 1) {
         return false;
     }
-    auto userVFOp = mlir::dyn_cast_or_null<VPU::VerticalFusionOp>((*uses.begin())->getOwner());
+    auto userVFOp = mlir::dyn_cast_if_present<VPU::VerticalFusionOp>((*uses.begin())->getOwner());
     if (userVFOp == nullptr) {
         return false;
     }
-    VFConfig userConfig(userVFOp, true);
-    auto swOpUser = mlir::dyn_cast<VPU::SWOpInterface>(userConfig.getOperationsForTiling().front());
+    VFCacheAnalysis cache(userVFOp.getOperation());
+    VFConfig userConfig(userVFOp, cache, true);
+    auto swOpUser = mlir::dyn_cast_if_present<VPU::SWOpInterface>(userConfig.getOperationsForTiling().front());
     if (swOpUser == nullptr) {
         return false;
     }
-    auto parentHasMultiUses = llvm::any_of(parents, [&](auto* parent) {
-        auto parentUses = findUses(parent);
+    auto parentHasMultiUses = llvm::any_of(parentResults, [&](auto parentResult) {
+        if (parentResult == nullptr || parentResult.getOwner() == nullptr) {
+            return false;
+        }
+
+        auto parentUses = findUses(parentResult.getOwner());
         auto otherUserCount = llvm::count_if(parentUses, [&](auto* use) {
             auto userOp = use->getOwner();
             return userOp != nullptr && userOp != currentVFOp && VF::v2::isCmxOperation(userOp, false);
@@ -626,8 +672,12 @@ mlir::BlockArgument getVFBlockArgument(mlir::Value operand) {
     return nullptr;
 }
 
-bool supportMultiClusterStrategyAdjustmentInVF([[maybe_unused]] mlir::Operation* op) {
-    if (auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op)) {
+bool supportMultiClusterStrategyAdjustmentInVF(mlir::Operation* op) {
+    if (op->getNumResults() != 1) {
+        return false;
+    }
+
+    if (auto nceOp = mlir::dyn_cast_if_present<VPU::NCEOpInterface>(op)) {
         // Cost model is not accurate for SEP ops, disable the adjustment for now
         if (mlir::isa<VPU::SparseTensorType>(op->getOperand(0).getType())) {
             return false;

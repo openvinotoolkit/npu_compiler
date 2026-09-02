@@ -55,7 +55,7 @@ func.func @MCLSTMGatesSplitOverHeight(
 //CHECK-DAG:    [[C128:%.+]] = arith.constant 128 : index
 //CHECK-DAG:    [[C32:%.+]] = arith.constant 32 : index
 //CHECK-DAG:    [[EMPTY0:%.+]] = tensor.empty() : tensor<1x1x128x128xf16>
-//CHECK:        [[SCF:%.+]]:2 = scf.for [[IDX0:%.+]] = [[C0]] to [[C128]] step [[C32]] iter_args([[ACC0:%.+]] = [[EMPTY0]], [[ACC1:%.+]] = [[EMPTY0]]) -> (tensor<1x1x128x128xf16>, tensor<1x1x128x128xf16>) 
+//CHECK:        [[SCF:%.+]]:2 = scf.for [[IDX0:%.+]] = [[C0]] to [[C128]] step [[C32]] iter_args([[ACC0:%.+]] = [[EMPTY0]], [[ACC1:%.+]] = [[EMPTY0]]) -> (tensor<1x1x128x128xf16>, tensor<1x1x128x128xf16>)
 //CHECK-NEXT:      [[EXTRACT0:%.+]] = tensor.extract_slice [[ARG0:%.+]][0, 0, [[IDX0]], 0] [1, 1, 32, 512] [1, 1, 1, 1] : tensor<1x1x128x512xf16> to tensor<1x1x32x512xf16>
 //CHECK-NEXT:      [[EXTRACT1:%.+]] = tensor.extract_slice [[ARG1:%.+]][0, 0, [[IDX0]], 0] [1, 1, 32, 128] [1, 1, 1, 1] : tensor<1x1x128x128xf16> to tensor<1x1x32x128xf16>
 //CHECK-NEXT:      [[EMPTY1:%.+]] = tensor.empty() : tensor<1x1x32x128xf16>
@@ -220,7 +220,7 @@ func.func @MCTopKSplitOverHeight(
 //CHECK-NEXT:       [[FOR1:%.+]]:2 = scf.forall ([[IDX1:%.+]]) = (0) to (32) step (6) shared_outs([[ACC2:%.+]] = [[EMPTY3]], [[ACC3:%.+]] = [[EMPTY4]]) -> (tensor<1x8x32x128xf32>, tensor<1x8x32x128xsi32>) {
 //CHECK-NEXT:           [[MIN:%.+]] = affine.min #map([[IDX1]])
 //CHECK-NEXT:           [[EXTRACT1:%.+]] = tensor.extract_slice [[EXTRACT0]][0, 0, [[IDX1]], 0] [1, 64, [[MIN]], 128] [1, 1, 1, 1] : tensor<1x64x32x128xf32> to tensor<1x64x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 64, 32, 128]> : tensor<4xsi64>, order = #NCHW}>
-//CHECK-NEXT:           [[V:%.+]], [[S:%.+]] = VPU.TopK([[EXTRACT1]], [[EMPTY0]]) {axis = 1 : i64, element_type = si32, k_value = 8 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x64x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 64, 32, 128]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x1024xui8> 
+//CHECK-NEXT:           [[V:%.+]], [[S:%.+]] = VPU.TopK([[EXTRACT1]], [[EMPTY0]]) {axis = 1 : i64, element_type = si32, k_value = 8 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x64x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 64, 32, 128]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x1024xui8>
 //CHECK-SAME:               -> tensor<1x8x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 8, 32, 128]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x8x?x128xsi32, {bounds = #const.OpaqueI64Elements<[1, 8, 32, 128]> : tensor<4xsi64>, order = #NCHW}>
 //CHECK-NEXT:           scf.forall.in_parallel {
 //CHECK-NEXT:                   tensor.parallel_insert_slice [[V]] into [[ACC2]][0, 0, [[IDX1]], 0] [1, 8, [[MIN]], 128] [1, 1, 1, 1]

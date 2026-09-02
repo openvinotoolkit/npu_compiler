@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
@@ -24,8 +25,8 @@ size_t vpux::VPUIP::CopyOp::getOperationCycleCost(std::shared_ptr<VPUNN::VPUCost
 
 mlir::LogicalResult vpux::VPUIP::CopyOp::verify() {
     const auto op = getOperation();
-    const auto inShape = mlir::cast<vpux::NDTypeInterface>(getInput().getType()).getShape();
-    const auto outShape = mlir::cast<vpux::NDTypeInterface>(getOutput().getType()).getShape();
+    const auto inShape = getBoundedShape(getInput());
+    const auto outShape = getBoundedShape(getOutput());
 
     if (inShape != outShape) {
         return errorAt(op, "Input shape '{0}' doesn't match output shape '{1}'", inShape, outShape);

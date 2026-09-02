@@ -227,8 +227,8 @@ protected:
         const auto rounding = IE::RoundingTypeAttr::get(&_ctx, IE::RoundingType::FLOOR);
         const auto staticScale = getFPAttr(&_ctx, scale);
 
-        return builder.create<IE::AvgPoolOp>(_loc, outType, input.getResult(), kernel, strides, padsBegin, padsEnd,
-                                             rounding, nullptr, postOpAttr, clampAttr, staticScale,
+        return builder.create<IE::AvgPoolOp>(_loc, outType, input.getResult(), nullptr, kernel, strides, padsBegin,
+                                             padsEnd, rounding, nullptr, postOpAttr, clampAttr, staticScale,
                                              /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
     }
 
@@ -245,8 +245,8 @@ protected:
         const auto rounding = IE::RoundingTypeAttr::get(&_ctx, IE::RoundingType::FLOOR);
         const auto staticScale = getFPAttr(&_ctx, scale);
 
-        return builder.create<IE::MaxPoolOp>(_loc, outType, input.getResult(), kernel, strides, padsBegin, padsEnd,
-                                             rounding, postOpAttr, clampAttr, staticScale,
+        return builder.create<IE::MaxPoolOp>(_loc, outType, input.getResult(), nullptr, kernel, strides, padsBegin,
+                                             padsEnd, rounding, postOpAttr, clampAttr, staticScale,
                                              /*outputPadding=*/nullptr,
                                              /*inputPadding=*/nullptr);
     }
@@ -270,7 +270,7 @@ protected:
         const auto axesAttr = getIntArrayAttr(&_ctx, axes);
         const auto inputPaddingAttr = inputPadding.empty() ? nullptr : getIntArrayAttr(&_ctx, inputPadding);
 
-        return builder.create<IE::ReduceMeanOp>(_loc, outType, input.getResult(), /*axes=*/nullptr, axesAttr,
+        return builder.create<IE::ReduceMeanOp>(_loc, outType, input.getResult(), axesAttr,
                                                 /*keep_dims=*/nullptr, /*output_padding=*/nullptr, inputPaddingAttr);
     }
 
@@ -304,10 +304,10 @@ protected:
                 mlir::DenseI64ArrayAttr::get(&_ctx, mlir::cast<NDTypeInterface>(weights.getType()).getShape());
 
         return builder.create<VPU::NCEInterpolateOp>(_loc, outType, input, weights, weightsTable, nullptr, nullptr,
-                                                     nullptr, nullptr, nullptr, strides, oldPpeAttr, nullptr,
+                                                     nullptr, strides, oldPpeAttr, nullptr,
                                                      /*rawFilterShape=*/mlir::ValueRange{}, staticRawFilterShape,
-                                                     /*multiClusterStrategy=*/nullptr,
-                                                     /*mode=*/nullptr);
+                                                     /*multiClusterStrategy=*/nullptr, /*outputPadding=*/nullptr,
+                                                     /*inputPadding=*/nullptr, /*mode=*/nullptr);
     }
 
     VPU::NCEDepthConvolutionOp createNCEDWConv(mlir::OpBuilder builder, mlir::Type inElemType,
@@ -329,13 +329,14 @@ protected:
         const auto padAttr = VPU::getPaddingAttr(&_ctx, PadInfo(padsBegin, padsEnd));
 
         return builder.create<VPU::NCEDepthConvolutionOp>(
-                _loc, outType, input, weights, weightsTable, /*dataPointerTensor=*/nullptr,
-                /*sparsityPointerTensor=*/nullptr,
-                /*scaleTensor=*/nullptr, /*biasTensor=*/nullptr, /*zeroPointTensor=*/nullptr, strides, padAttr,
-                oldPpeAttr, nullptr, /*rawFilterShape=*/mlir::ValueRange{}, staticRawFilterShape,
+                _loc, outType, /*reduce_xy_max=*/nullptr, /*reduce_xy_min=*/nullptr, /*reduce_tensor_min_max=*/nullptr,
+                input, weights, weightsTable, /*dataPointerTensor=*/nullptr,
+                /*scaleTensor=*/nullptr, /*biasTensor=*/nullptr, strides, padAttr, oldPpeAttr, nullptr,
+                /*rawFilterShape=*/mlir::ValueRange{}, staticRawFilterShape,
                 /*multiClusterStrategy=*/nullptr,
                 /*outputPaddingAttr=*/nullptr,
-                /*inputPaddingAttr=*/nullptr);
+                /*inputPaddingAttr=*/nullptr,
+                /*axes_value=*/nullptr);
     }
 };
 

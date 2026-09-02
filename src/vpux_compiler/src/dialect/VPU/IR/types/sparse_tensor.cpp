@@ -328,7 +328,7 @@ NDTypeInterface VPU::SparseTensorType::changeShapeElemType(ShapeRef shape, mlir:
             if (VPU::isDistributedAttrWithExplicitShapesAndOffsets(dist)) {
                 auto newDistribution = VPU::getNonOverlappedDistributedAttr(
                         shape, dist.getMode(), nullptr, dist.getNumClusters(), nullptr,
-                        dist.getUniformDistributedSegments(), elemType, ndData.getContext());
+                        dist.getUniformDistributedSegments(), ndData.getContext());
                 return mlir::cast<vpux::VPU::SparseTensorType>(ndData).changeShapeElemTypeForExplicitDistribution(
                         shape, elemType, newDistribution);
             }
@@ -401,7 +401,7 @@ NDTypeInterface VPU::SparseTensorType::changeStrides(StridesRef /*strides*/) con
 }
 
 NDTypeInterface VPU::SparseTensorType::changeTypeComponents(const TypeComponents& typeComponents) const {
-    const auto shape = typeComponents.shape.value_or(Shape(getShape().toValues()));
+    const auto shape = typeComponents.shape.has_value() ? ShapeRef(typeComponents.shape.value()) : getShape();
     const auto dimsOrder = typeComponents.dimsOrder.value_or(getDimsOrder());
     const auto memSpace = typeComponents.memSpace.value_or(getMemSpace());
     const auto ndData = mlir::cast<vpux::NDTypeInterface>(getData());
@@ -603,7 +603,7 @@ NDTypeInterface VPU::SparseTensorType::changeTypeComponentsForExplicitDistributi
 
     auto ctx = getContext();
 
-    const auto shape = typeComponents.shape.value_or(Shape(getShape().toValues()));
+    const auto shape = typeComponents.shape.has_value() ? ShapeRef(typeComponents.shape.value()) : getShape();
     const auto dimsOrder = typeComponents.dimsOrder.value_or(getDimsOrder());
     const auto memSpace = typeComponents.memSpace.value_or(getMemSpace());
 

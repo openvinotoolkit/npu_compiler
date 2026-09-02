@@ -18,7 +18,7 @@ func.func @SplitNCEConvOverC(%arg0: tensor<1x32x64x64xf16, {order = #NHWC}>) -> 
     %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [256, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        
+
         strides = [1, 1]
     } : tensor<1x32x64x64xf16, {order = #NHWC}>, tensor<256x32x3x3xf16, {order = #NHWC}>, tensor<256x1x1x4xsi32, {order = #NCHW}> -> tensor<1x256x64x64xf16, {order = #NHWC}>
 
@@ -56,7 +56,7 @@ func.func @SplitQuantNCEConvOverW(%arg0: tensor<1x32x64x64x!qElemType, {order = 
     %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [512, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        
+
         strides = [1, 1]
     } : tensor<1x32x64x64x!qElemType, {order = #NHWC}>, tensor<512x32x3x3x!qElemType2, {order = #NHWC}>, tensor<512x1x1x4xsi32, {order = #NCHW}> -> tensor<1x512x64x64x!qElemType1, {order = #NHWC}>
 
@@ -112,7 +112,7 @@ func.func @SplitNCEEltwiseAddOverW(
         %arg0: tensor<1x1024x24x24xf16, {order = #NHWC}>,
         %arg1: tensor<1x1024x24x24xf16, {order = #NHWC}>)
             -> tensor<1x1024x24x24xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         op_type = #VPU.eltwise_type<ADD>
     } -> tensor<1x1024x24x24xf16, {order = #NHWC}>
@@ -134,7 +134,7 @@ func.func @SplitNCEEltwiseAddOverW(
 // CHECK-LABEL: @SplitNCEEltwiseAddSameInput
 // CHECK-SAME:      [[INPUT:%arg[0-9]]]: tensor<1x4096x14x14xf16, {order = #NHWC}>
 func.func @SplitNCEEltwiseAddSameInput(%arg0: tensor<1x4096x14x14xf16, {order = #NHWC}>) -> tensor<1x4096x14x14xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
     } -> tensor<1x4096x14x14xf16, {order = #NHWC}>

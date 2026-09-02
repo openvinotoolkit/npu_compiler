@@ -39,7 +39,8 @@ void ApplySwizzlingPass::safeRunOnFunc() {
             return;
         }
 
-        for (auto transf : constOp.getContentAttr().getTransformations()) {
+        const auto contentAttr = constOp.getContentAttr();
+        for (auto transf : contentAttr.getTransformations()) {
             if (mlir::isa<Const::SwizzleConstantAttr>(transf)) {
                 return;
             }

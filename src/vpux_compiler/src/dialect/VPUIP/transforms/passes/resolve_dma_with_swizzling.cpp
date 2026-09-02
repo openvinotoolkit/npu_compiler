@@ -186,11 +186,11 @@ void ResolveDMAWithSwizzlingPass::safeRunOnFunc() {
 
         builder.setInsertionPoint(dmaOp);
         auto newDmaOp = builder.create<VPUIP::NNDMAOp>(
-                appendLoc(dmaOp->getLoc(), "flat_buffer_dma"), newInputOp->getResult(0), newOutputBuff,
-                dmaOp.getPortAttr(), dmaOp.getIsOutOfOrder(), dmaOp.getIsCritical(), dmaOp.getSpillIdAttr(),
-                dmaOp.getCompressCandidate(), /*dmaHwpId=*/nullptr,
+                appendLoc(dmaOp->getLoc(), "flat_buffer_dma"), newInputOp->getResult(0),
+                /*dynamic_sequence_length_buff=*/nullptr, newOutputBuff, dmaOp.getPortAttr(), dmaOp.getIsOutOfOrder(),
+                dmaOp.getIsCritical(), dmaOp.getSpillIdAttr(), dmaOp.getCompressCandidate(), /*dmaHwpId=*/nullptr,
                 /*profilingMetadata=*/nullptr, dmaOp.getSplitCandidateAttr(), /*profiling_buffer_mgmt=*/false,
-                dmaOp.getFusionIdAttr());
+                dmaOp.getFusionIdAttr(), /*taskDynId=*/nullptr);
         _log.nest().trace("Create new DMA - '{0}'", newDmaOp->getLoc());
 
         dmaOp->erase();

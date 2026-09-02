@@ -9,8 +9,13 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
+
+#include <algorithm>
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_BROADCASTINPUTFORADD
@@ -38,6 +43,24 @@ public:
 private:
     Logger _log;
 };
+
+bool isBroadcastTooExpensiveForNCE(mlir::Operation* op, const vpux::NDTypeInterface& outputType,
+                                   size_t runtimeBroadcastCount) {
+    if (outputType.getShape().isDynamic()) {
+        return false;
+    }
+    const auto module = getModuleOp(op);
+    auto tileExecutor = config::getTileExecutor(module);
+    const auto cmxMemory = mlir::SymbolRefAttr::get(op->getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
+    if (tileExecutor == nullptr || !tileExecutor.hasAvailableMemory(cmxMemory)) {
+        return false;
+    }
+    const auto availableCmxSize = tileExecutor.getAvailableMemory(cmxMemory).size();
+    const auto availableCmxBytes = static_cast<size_t>(availableCmxSize.count());
+    const auto reservedCmxBytes = std::min(config::getReservedMemorySize(module, cmxMemory), availableCmxBytes);
+    const auto effectiveCmxSize = Byte(static_cast<int64_t>(availableCmxBytes - reservedCmxBytes));
+    return outputType.getTotalAllocSize() * static_cast<int64_t>(runtimeBroadcastCount) > effectiveCmxSize;
+}
 
 mlir::LogicalResult BroadcastInputRewriter::matchAndRewrite(IE::AddOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), origOp->getName(), origOp->getLoc());
@@ -95,6 +118,29 @@ mlir::LogicalResult BroadcastInputRewriter::matchAndRewrite(IE::AddOp origOp, ml
     VPUX_THROW_WHEN((lhsDynBroadcast && rhsBroadcast) || (lhsBroadcast && rhsDynBroadcast),
                     "Cross-broadcast is not currently supported for dynamic shapes: {0} x {1} -> {2}", lhsShape,
                     rhsShape, outputShape);
+
+    // Constant inputs fold the broadcast at compile time (no runtime cost), so only static
+    // (non-dynamic) broadcasts of runtime tensors are subject to the DPU-vs-SHAVE cost heuristic
+    // below. Dynamic broadcasts are excluded because their materialized size isn't known at
+    // compile time.
+    const auto needsStaticRuntimeBroadcast = [&](mlir::Value input, bool needsBroadcast, bool isDynBroadcast) {
+        return needsBroadcast && !isDynBroadcast && mlir::failed(IE::getConstParentOp(input));
+    };
+
+    const auto runtimeBroadcastCount =
+            static_cast<size_t>(needsStaticRuntimeBroadcast(origOp.getInput1(), lhsBroadcast, lhsDynBroadcast)) +
+            static_cast<size_t>(needsStaticRuntimeBroadcast(origOp.getInput2(), rhsBroadcast, rhsDynBroadcast));
+
+    // A single-input broadcast keeps one full-size operand intact and is handled efficiently by DPU
+    // lowering. Only cross-broadcasts materialize multiple output-sized tensors and need the CMX check.
+    if (runtimeBroadcastCount >= 2) {
+        const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
+        if (isBroadcastTooExpensiveForNCE(origOp, outputType, runtimeBroadcastCount)) {
+            _log.trace("[{0}] Broadcast too large for DPU, leaving '{1}' at '{2}' for SW/SHAVE lowering",
+                       this->getDebugName(), origOp->getName(), origOp->getLoc());
+            return mlir::failure();
+        }
+    }
 
     mlir::Value lhsInput = origOp.getInput1();
     mlir::Value rhsInput = origOp.getInput2();

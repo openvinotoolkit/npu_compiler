@@ -32,7 +32,7 @@ class VariadicSplitLayerTestAxisInt32 : public VariadicSplitLayerTestCommon {
         auto variadicSplit = std::dynamic_pointer_cast<ov::op::v1::VariadicSplit>(
                 makeVariadicSplit(params[0], numSplits, axisInt32));
         ov::ResultVector results;
-        for (int i = 0; i < numSplits.size(); i++) {
+        for (size_t i = 0; i < numSplits.size(); i++) {
             results.push_back(std::make_shared<ov::op::v0::Result>(variadicSplit->output(i)));
         }
         function = std::make_shared<ov::Model>(results, params, "VariadicSplit");

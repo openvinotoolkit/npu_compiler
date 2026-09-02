@@ -12,6 +12,7 @@
 #include "npu_bytecode_utils/span.hpp"
 
 #include <algorithm>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -30,7 +31,7 @@ std::optional<uint16_t> extractPrimitiveTypeByteSize(intel_npu::vm::TypeCode typ
             NPU_VM_LOG_ERROR("Failed to parse integer type entry {}", typeIndex);
             return std::nullopt;
         }
-        return (type.bitWidth + 7u) / 8u;
+        return (type.bitWidth + (CHAR_BIT - 1)) / CHAR_BIT;
     }
     case intel_npu::vm::TypeCode::FLOAT: {
         intel_npu::vm::FloatType type{};
@@ -38,7 +39,7 @@ std::optional<uint16_t> extractPrimitiveTypeByteSize(intel_npu::vm::TypeCode typ
             NPU_VM_LOG_ERROR("Failed to parse float type entry {}", typeIndex);
             return std::nullopt;
         }
-        return (type.bitWidth + 7u) / 8u;
+        return (type.bitWidth + (CHAR_BIT - 1)) / CHAR_BIT;
     }
     case intel_npu::vm::TypeCode::OPAQUE: {
         intel_npu::vm::OpaqueType type{};
@@ -46,7 +47,7 @@ std::optional<uint16_t> extractPrimitiveTypeByteSize(intel_npu::vm::TypeCode typ
             NPU_VM_LOG_ERROR("Failed to parse opaque type entry {}", typeIndex);
             return std::nullopt;
         }
-        return (type.bitWidth + 7u) / 8u;
+        return (type.bitWidth + (CHAR_BIT - 1)) / CHAR_BIT;
     }
     default:
         return 0;
@@ -172,13 +173,13 @@ bool intel_npu::vm::BufferType::parseFrom(intel_npu::vm::Span<uint8_t>& buffer) 
     shape.resize(rank);
     strides.resize(rank);
     for (int64_t i = 0; i < rank; ++i) {
-        if (!parseValueFrom(buffer, shape[i])) {
+        if (!parseValueFrom(buffer, shape.at(i))) {
             NPU_VM_LOG_ERROR("Failed to parse BufferType shape dimension {}", i);
             return false;
         }
     }
     for (int64_t i = 0; i < rank; ++i) {
-        if (!parseValueFrom(buffer, strides[i])) {
+        if (!parseValueFrom(buffer, strides.at(i))) {
             NPU_VM_LOG_ERROR("Failed to parse BufferType stride dimension {}", i);
             return false;
         }
@@ -190,14 +191,14 @@ void intel_npu::vm::BufferType::print(size_t indentLevel) const {
     intel_npu::vm::printIndent(indentLevel);
     std::cout << "buffer<typeIndex=" << dataTypeIndex << ", rank=" << static_cast<unsigned>(rank) << ", shape=[";
     for (size_t i = 0; i < shape.size(); ++i) {
-        std::cout << shape[i];
+        std::cout << shape.at(i);
         if (i < shape.size() - 1) {
             std::cout << ",";
         }
     }
     std::cout << "], strides=[";
     for (size_t i = 0; i < strides.size(); ++i) {
-        std::cout << strides[i];
+        std::cout << strides.at(i);
         if (i < strides.size() - 1) {
             std::cout << ",";
         }
@@ -225,7 +226,7 @@ bool intel_npu::vm::FunctionType::parseFrom(intel_npu::vm::Span<uint8_t>& buffer
     }
     paramTypeIndices.resize(numParams);
     for (uint16_t i = 0; i < numParams; ++i) {
-        if (!parseValueFrom(buffer, paramTypeIndices[i])) {
+        if (!parseValueFrom(buffer, paramTypeIndices.at(i))) {
             NPU_VM_LOG_ERROR("Failed to parse FunctionType paramTypeIndex {}", i);
             return false;
         }
@@ -237,7 +238,7 @@ bool intel_npu::vm::FunctionType::parseFrom(intel_npu::vm::Span<uint8_t>& buffer
     }
     resultTypeIndices.resize(numResults);
     for (uint16_t i = 0; i < numResults; ++i) {
-        if (!parseValueFrom(buffer, resultTypeIndices[i])) {
+        if (!parseValueFrom(buffer, resultTypeIndices.at(i))) {
             NPU_VM_LOG_ERROR("Failed to parse FunctionType resultTypeIndex {}", i);
             return false;
         }
@@ -249,14 +250,14 @@ void intel_npu::vm::FunctionType::print(size_t indentLevel) const {
     intel_npu::vm::printIndent(indentLevel);
     std::cout << "function<params=[";
     for (size_t i = 0; i < paramTypeIndices.size(); ++i) {
-        std::cout << paramTypeIndices[i];
+        std::cout << paramTypeIndices.at(i);
         if (i < paramTypeIndices.size() - 1) {
             std::cout << ",";
         }
     }
     std::cout << "], results=[";
     for (size_t i = 0; i < resultTypeIndices.size(); ++i) {
-        std::cout << resultTypeIndices[i];
+        std::cout << resultTypeIndices.at(i);
         if (i < resultTypeIndices.size() - 1) {
             std::cout << ",";
         }
@@ -296,12 +297,12 @@ uint16_t intel_npu::vm::lookupTypeByteSize(const std::vector<uint16_t>& typeByte
     if (typeIndex < 0 || static_cast<size_t>(typeIndex) >= typeByteSizes.size()) {
         return 0;
     }
-    return typeByteSizes[static_cast<size_t>(typeIndex)];
+    return typeByteSizes.at(static_cast<size_t>(typeIndex));
 }
 
 std::optional<std::vector<uint16_t>> intel_npu::vm::extractTypeByteSizes(
         const intel_npu::vm::SectionHeaderTable& sectionHeaderTable,
-        const std::vector<std::vector<uint8_t>>& sections) {
+        const std::vector<intel_npu::vm::Span<uint8_t>>& sections) {
     const auto& sectionHeaders = sectionHeaderTable.getSectionHeaders();
     const auto numTypeSections = std::count_if(sectionHeaders.begin(), sectionHeaders.end(), [](const auto& header) {
         return header.type == intel_npu::vm::SectionType::TypeSection;
@@ -313,7 +314,7 @@ std::optional<std::vector<uint16_t>> intel_npu::vm::extractTypeByteSizes(
 
     std::vector<uint16_t> typeByteSizes;
     for (size_t headerIdx = 0; headerIdx < sectionHeaders.size(); ++headerIdx) {
-        const auto& header = sectionHeaders[headerIdx];
+        const auto& header = sectionHeaders.at(headerIdx);
         if (header.type != intel_npu::vm::SectionType::TypeSection) {
             continue;
         }
@@ -326,18 +327,18 @@ std::optional<std::vector<uint16_t>> intel_npu::vm::extractTypeByteSizes(
             NPU_VM_LOG_ERROR("Type section header has no payload");
             return std::nullopt;
         }
-        const auto& section = sections[headerIdx];
+        const auto& section = sections.at(headerIdx);
         for (size_t typeIndex = 0; typeIndex < typeSectionInfo->dataInfos.size(); ++typeIndex) {
-            const auto& dataInfo = typeSectionInfo->dataInfos[typeIndex];
+            const auto& dataInfo = typeSectionInfo->dataInfos.at(typeIndex);
             if (dataInfo.size == 0 || dataInfo.offset > section.size() ||
                 dataInfo.size > section.size() - dataInfo.offset) {
                 NPU_VM_LOG_ERROR("Type entry {} exceeds section bounds", typeIndex);
                 return std::nullopt;
             }
 
-            const auto* typeStart = section.data() + dataInfo.offset;
-            const auto typeCode = static_cast<intel_npu::vm::TypeCode>(*typeStart);
-            auto typeData = intel_npu::vm::Span<uint8_t>(const_cast<uint8_t*>(typeStart + 1), dataInfo.size - 1);
+            const auto typeSpan = section.subspan(dataInfo.offset, dataInfo.size);
+            const auto typeCode = static_cast<intel_npu::vm::TypeCode>(typeSpan.at(0));
+            auto typeData = typeSpan.subspan(sizeof(uint8_t), typeSpan.size() - 1);
             auto byteSize = extractPrimitiveTypeByteSize(typeCode, typeData, typeIndex);
             if (!byteSize.has_value()) {
                 return std::nullopt;

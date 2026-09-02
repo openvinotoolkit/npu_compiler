@@ -9,9 +9,33 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_scheduler_interface.hpp"
 #include "vpux/utils/core/dense_map.hpp"
 
+#include <llvm/ADT/Hashing.h>
+
 #include <deque>
 
 namespace vpux::VPU::VF::v2 {
+
+// Keeps the derived tiling state for one parent VF while evaluating prefetch and spill costs.
+// The cache avoids rebuilding VFConfig and tiling information for the same parent across tiles.
+struct ParentVFTilingInfo final {
+    ParentVFTilingInfo(mlir::Operation* parentOp, std::unique_ptr<VFCacheAnalysis> cache,
+                       std::unique_ptr<VFConfig> config, TilingOperationStorage::UPtr tilingInfo)
+            : parentOp(parentOp),
+              cache(std::move(cache)),
+              config(std::move(config)),
+              tilingInfo(std::move(tilingInfo)) {
+    }
+
+    mlir::Operation* parentOp = nullptr;
+    std::unique_ptr<VFCacheAnalysis> cache;
+    std::unique_ptr<VFConfig> config;
+    TilingOperationStorage::UPtr tilingInfo;
+};
+
+using ParentVFTilingInfoCache = SmallVector<ParentVFTilingInfo, 2>;
+
+llvm::hash_code getStrategyCostHash(mlir::Operation* operation, const VPUNNCostParameters& parameters);
+
 /*
   Base implementation of scheduling scenario features
 */
@@ -66,6 +90,10 @@ protected:
     VPUNNCostParameters fillInCostParam(mlir::Operation* operation, const TilingOperationStorage::UPtr& opStorage,
                                         size_t index) const;
 
+    StrategyCost getStrategyCost(VFConfig& config, mlir::Operation* operation,
+                                 const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
+                                 const VPUNNCostParameters& parameters) const;
+
     /*
       Prefetch output spill
     */
@@ -100,7 +128,8 @@ protected:
     StrategyCost getPrefetchingCost(mlir::Operation* operation, VFConfig& config,
                                     const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
                                     const VPUNNCostParameters& parameters, const bool isInput,
-                                    const TilingOperationStorage::UPtr& tilingInfo, const int64_t index) const;
+                                    const TilingOperationStorage::UPtr& tilingInfo, const int64_t index,
+                                    ParentVFTilingInfoCache& parentVFTilingInfoCache) const;
 
     /*
       Get output DMA cost

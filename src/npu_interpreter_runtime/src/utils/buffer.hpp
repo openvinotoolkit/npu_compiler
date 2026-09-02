@@ -87,6 +87,8 @@ public:
 
     Ownership getOwnership() const;
 
+    void readData(size_t offset, uint8_t* data, size_t size) const;
+
     void writeData(size_t offset, const uint8_t* data, size_t size);
 };
 

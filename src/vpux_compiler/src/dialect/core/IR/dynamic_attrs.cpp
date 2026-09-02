@@ -4,6 +4,8 @@
 //
 
 #include "vpux/compiler/dialect/core/IR/dynamic_attrs.hpp"
+#include "vpux/compiler/dialect/core/IR/memref_attr.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
 
 using namespace vpux;
 
@@ -20,6 +22,27 @@ inline void assertMask(int64_t dimValue) {
 }
 
 }  // namespace
+
+BoundsRef vpux::getBounds(mlir::Type type) {
+    if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(type)) {
+        return boundedType.getBounds();
+    }
+    if (auto memref = mlir::dyn_cast<mlir::MemRefType>(type)) {
+        if (auto memRefAttr = mlir::dyn_cast_or_null<vpux::MemRefAttr>(memref.getLayout())) {
+            return memRefAttr.bounds();
+        }
+    }
+
+    return {};
+}
+
+DynamicDimsMaskRef vpux::getDynamicDimsMask(mlir::Type type) {
+    if (auto dynamicDimsMaskType = mlir::dyn_cast<Core::DynamicDimsMaskTensorType>(type)) {
+        return dynamicDimsMaskType.getDynamicDimsMask();
+    }
+
+    return {};
+}
 
 //
 // BoundedDim

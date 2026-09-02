@@ -23,7 +23,7 @@ using namespace vpux;
 using namespace VPU;
 
 void OpTilingCache::enableIfNecessary(bool enable) {
-    _enableCache = enable;
+    _enableCache.store(enable, std::memory_order_seq_cst);
 }
 
 mlir::FailureOr<OutputTiling> OpTilingCache::getHWLayerTilingStrategyWithTileDimOrder(

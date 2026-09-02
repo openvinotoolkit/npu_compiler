@@ -42,7 +42,7 @@ void CompilerLoader::ensureLoaded() {
     try {
         (void)loadCreateCompilerFunc();
     } catch (const std::exception& err) {
-        VPUX_THROW("Failed to load compiler library: ", err.what());
+        VPUX_THROW("Failed to load compiler library: {0}", err.what());
     }
 }
 
@@ -52,7 +52,7 @@ std::shared_ptr<vpux::ICompiler> CompilerLoader::createCompiler() try {
     createNPUCompilerFunc(compiler);
     return compiler;
 } catch (const std::exception& err) {
-    VPUX_THROW("Failed to initialize compiler: ", err.what());
+    VPUX_THROW("Failed to initialize compiler: {0}", err.what());
 }
 
 std::shared_ptr<vpux::ICompiler> CompilerLoader::getCompiler() {

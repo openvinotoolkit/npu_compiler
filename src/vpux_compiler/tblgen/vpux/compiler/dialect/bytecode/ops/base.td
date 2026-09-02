@@ -45,9 +45,6 @@ class Bytecode_InstructionOp<string mnemonic, list<Trait> traits = [], string mi
 
 class Bytecode_ZeroOperandsInstructionBase<string mnemonic, list<Trait> traits = [], string minVersion, string opcode>
         : Bytecode_InstructionOp<mnemonic, traits, minVersion, opcode> {
-    string opDescription = "";
-    let description = opDescription;
-
     let assemblyFormat = [{
         attr-dict
     }];
@@ -55,12 +52,6 @@ class Bytecode_ZeroOperandsInstructionBase<string mnemonic, list<Trait> traits =
 
 class Bytecode_OneOperandInstructionBase<string mnemonic, list<Trait> traits = [], string minVersion, string opcode>
         : Bytecode_InstructionOp<mnemonic, traits, minVersion, opcode> {
-    string opDescription = "";
-    let description = opDescription # [{
-        The operation supports one addressing mode:
-        1. Register mode: `reg` is a register
-    }];
-
     let arguments = (ins
         Bytecode_RegisterType:$reg
     );
@@ -73,12 +64,6 @@ class Bytecode_OneOperandInstructionBase<string mnemonic, list<Trait> traits = [
 
 class Bytecode_TwoOperandsInstructionBase<string mnemonic, list<Trait> traits = [], string minVersion, string opcode>
         : Bytecode_InstructionOp<mnemonic, traits, minVersion, opcode> {
-    string opDescription = "";
-    let description = opDescription # [{
-        The operation supports one addressing mode:
-        1. Register mode: `dst` and `src` are registers
-    }];
-
     let arguments = (ins
         Bytecode_RegisterType:$dst,
         Bytecode_RegisterType:$src
@@ -87,16 +72,16 @@ class Bytecode_TwoOperandsInstructionBase<string mnemonic, list<Trait> traits = 
     let assemblyFormat = [{
         $dst `,` $src attr-dict
     }];
+
+    let extraClassDeclaration = [{
+        bool isDstOperand(::mlir::OpOperand& operand) {
+            return operand.get() == getDst();
+        }
+    }];
 }
 
 class Bytecode_ThreeOperandsInstructionBase<string mnemonic, list<Trait> traits = [], string minVersion, string opcode>
         : Bytecode_InstructionOp<mnemonic, traits, minVersion, opcode> {
-    string opDescription = "";
-    let description = opDescription # [{
-        The operation supports one addressing mode:
-        1. Register mode: `lhs` and `rhs` are registers
-    }];
-
     let arguments = (ins
         Bytecode_RegisterType:$dst,
         Bytecode_RegisterType:$lhs,
@@ -106,16 +91,16 @@ class Bytecode_ThreeOperandsInstructionBase<string mnemonic, list<Trait> traits 
     let assemblyFormat = [{
         $dst `,` $lhs `,` $rhs attr-dict
     }];
+
+    let extraClassDeclaration = [{
+        bool isDstOperand(::mlir::OpOperand& operand) {
+            return operand.get() == getDst();
+        }
+    }];
 }
 
 class Bytecode_OneOperandsPlusImmInstructionBase<string mnemonic, list<Trait> traits = [], string minVersion, string opcode>
         : Bytecode_InstructionOp<mnemonic, traits, minVersion, opcode> {
-    string opDescription = "";
-    let description = opDescription # [{
-        The operation supports one addressing mode:
-        1. Register mode: `src` is a register; `flag` is a 16-bit immediate value
-    }];
-
     let arguments = (ins
         Bytecode_RegisterType:$src,
         I16Attr:$flag
@@ -128,12 +113,6 @@ class Bytecode_OneOperandsPlusImmInstructionBase<string mnemonic, list<Trait> tr
 
 class Bytecode_TwoOperandsPlusImmInstructionBase<string mnemonic, list<Trait> traits = [], string minVersion, string opcode>
         : Bytecode_InstructionOp<mnemonic, traits, minVersion, opcode> {
-    string opDescription = "";
-    let description = opDescription # [{
-        The operation supports one addressing mode:
-        1. Register mode: `src` is a register; `flag` is a 16-bit immediate value
-    }];
-
     let arguments = (ins
         Bytecode_RegisterType:$dst,
         Bytecode_RegisterType:$src,
@@ -143,16 +122,16 @@ class Bytecode_TwoOperandsPlusImmInstructionBase<string mnemonic, list<Trait> tr
     let assemblyFormat = [{
         $dst `,` $src `,` $flag attr-dict
     }];
+
+    let extraClassDeclaration = [{
+        bool isDstOperand(::mlir::OpOperand& operand) {
+            return operand.get() == getDst();
+        }
+    }];
 }
 
 class Bytecode_ThreeOperandsPlusImmInstructionBase<string mnemonic, list<Trait> traits = [], string minVersion, string opcode>
         : Bytecode_InstructionOp<mnemonic, traits, minVersion, opcode> {
-    string opDescription = "";
-    let description = opDescription # [{
-        The operation supports one addressing mode:
-        1. Register mode: `lhs` and `rhs` are registers; `flag` is a 16-bit immediate value
-    }];
-
     let arguments = (ins
         Bytecode_RegisterType:$dst,
         Bytecode_RegisterType:$lhs,
@@ -162,6 +141,12 @@ class Bytecode_ThreeOperandsPlusImmInstructionBase<string mnemonic, list<Trait> 
 
     let assemblyFormat = [{
         $dst `,` $lhs `,` $rhs `,` $flag attr-dict
+    }];
+
+    let extraClassDeclaration = [{
+        bool isDstOperand(::mlir::OpOperand& operand) {
+            return operand.get() == getDst();
+        }
     }];
 }
 

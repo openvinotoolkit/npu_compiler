@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/pipelines/developer_config.hpp"
+#include "vpux/compiler/dialect/config/IR/dialect.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/core/utils/dump_intermediate_values.hpp"
 #include "vpux/compiler/locverif/locations_verifier.hpp"
@@ -11,6 +12,7 @@
 #include "vpux/compiler/pipelines/options_mapper.hpp"
 #include "vpux/compiler/utils/dot_printer.hpp"
 #include "vpux/compiler/utils/memory_usage_collector.hpp"
+#include "vpux/compiler/verifiers/memref_format_verifier.hpp"
 #include "vpux/utils/core/error.hpp"
 #if defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
 #include "vpux/utils/core/developer_build_utils.hpp"
@@ -27,7 +29,7 @@
 
 namespace vpux {
 
-DeveloperConfig::DeveloperConfig(Logger log): _log(log) {
+DeveloperConfig::DeveloperConfig(Logger log, mlir::MLIRContext* ctx, const vpux::OV::Config& config): _log(log) {
 #if defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
     parseEnv("IE_NPU_CRASH_REPRODUCER_FILE", _crashReproducerFile);
     parseEnv("IE_NPU_GEN_LOCAL_REPRODUCER", _localReproducer);
@@ -140,6 +142,15 @@ DeveloperConfig::DeveloperConfig(Logger log): _log(log) {
             }
         }
     }
+
+    // Compiler's profiling:
+    const auto compilerProfilerTool = getCompilerProfilerTool(config);
+    if (!compilerProfilerTool.empty()) {
+        _log.info("A profiling tool selected for the compiler is {0}", compilerProfilerTool);
+        // ensure NPU action handler is registered in the context:
+        ctx->getOrLoadDialect<vpux::config::ConfigDialect>();
+        compilerProfilerTool.configureActionHandler(ctx);
+    }
 }
 
 DeveloperConfig::~DeveloperConfig() {
@@ -211,7 +222,7 @@ void addLogging(mlir::PassManager& pm, Logger log) {
     pm.addInstrumentation(std::make_unique<PassLogging>(log));
 }
 
-void DeveloperConfig::setup(mlir::PassManager& pm, const intel_npu::Config& config, bool isSubPipeline) const {
+void DeveloperConfig::setup(mlir::PassManager& pm, const vpux::OV::Config& config, bool isSubPipeline) const {
     addLogging(pm, _log);
 
     // Crash reproducer
@@ -296,6 +307,9 @@ void DeveloperConfig::setup(mlir::PassManager& pm, const intel_npu::Config& conf
     // Enable pass verifiers
     const auto shouldEnableVerifiers = getEnableVerifiers(config).value_or(false);
     _log.info("Verifiers are {0}", shouldEnableVerifiers ? "enabled" : "disabled");
+    if (shouldEnableVerifiers) {
+        verifiers::addMemRefFormatVerifier(pm);
+    }
     pm.enableVerifier(shouldEnableVerifiers);
 }
 

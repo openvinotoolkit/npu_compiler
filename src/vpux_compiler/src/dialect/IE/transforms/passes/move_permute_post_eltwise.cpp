@@ -787,12 +787,26 @@ mlir::LogicalResult PermuteEltwiseDiffLayoutRewriter::matchAndRewrite(IE::AddOp 
     const auto newShape = isLeftNCEOp ? getShape(firstLeftValue) : getShape(firstRightValue);
     const auto newType = outType.changeShape(newShape);
 
+    // A per-channel scale tensor encodes one scale value per output channel. Moving a
+    // permute through the op when it modifies the channel dimension or layout would
+    // invalidate the per-channel scales.
+    if (origOp.getScale() != nullptr) {
+        if (newShape[Dims4D::Act::C] != outType.getShape()[Dims4D::Act::C]) {
+            return matchFailed(_log, rewriter, origOp,
+                               "Skipping: scale table present and channel dimension changes ({0} -> {1})",
+                               outType.getShape()[Dims4D::Act::C], newShape[Dims4D::Act::C]);
+        }
+        if (outType.getDimsOrder() != (isLeftNCEOp ? firstLeftType.getDimsOrder() : firstRightType.getDimsOrder())) {
+            return matchFailed(_log, rewriter, origOp, "Skipping: scale table present and layout changes");
+        }
+    }
+
     auto newAddInputs = isLeftNCEOp ? SmallVector<mlir::Value>{firstLeftValue, permuteCastOp.getResult()}
                                     : SmallVector<mlir::Value>{permuteCastOp.getResult(), firstRightValue};
 
-    auto newAddOp = rewriter.create<IE::AddOp>(origOpLoc, newType, newAddInputs[0], newAddInputs[1],
+    auto newAddOp = rewriter.create<IE::AddOp>(origOpLoc, newType, newAddInputs[0], newAddInputs[1], origOp.getScale(),
                                                origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(),
-                                               origOp.getClampAttr(), nullptr, nullptr);
+                                               origOp.getClampAttr(), origOp.getStaticScaleAttr(), nullptr, nullptr);
     mlir::Value newOutput = newAddOp.getOutput();
 
     auto inputOps = isLeftNCEOp ? leftInputOps : rightInputOps;

@@ -18,7 +18,7 @@ target_include_directories(${TARGET_NAME}
 target_link_libraries(
     ${TARGET_NAME}
     PUBLIC
-        openvino::npu_logger_utils
+        npu_logger
     PRIVATE
         npu_ov_utils # OV core function
         openvino::util

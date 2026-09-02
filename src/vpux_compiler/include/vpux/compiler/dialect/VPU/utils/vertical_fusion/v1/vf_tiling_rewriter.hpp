@@ -23,6 +23,9 @@ public:
     }
 
 protected:
+    VFConfig createVFConfig(VPU::VerticalFusionOp vfOp) const override {
+        return VFConfig(vfOp, _enableVerticalFusionPipelining);
+    }
     std::pair<DimArr, int64_t> getDimsData(ArrayRef<int64_t> strategy) const override {
         auto dim = getVFTilingDim(strategy);
         VPUX_THROW_WHEN(!dim.has_value(), "There is no tiling for VF");

@@ -45,6 +45,11 @@ VPU::DistributionMode getSWInputTensorDistributionMode(VPU::DetectionOutputSortO
                                                        VPU::MultiClusterStrategy strategy);
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::LSTMSequenceOp lstmSequenceOp,
                                                        VPU::MultiClusterStrategy strategy, mlir::Value operand);
+VPU::DistributionMode getSWInputTensorDistributionMode(VPU::GatedDeltaNetOp gdnOp, VPU::MultiClusterStrategy strategy,
+                                                       mlir::Value operand);
+int64_t getGatedDeltaNetHeadGroupSize(VPU::GatedDeltaNetOp gdnOp);
+int64_t getGatedDeltaNetHeadAxis(VPU::GatedDeltaNetOp gdnOp, mlir::Value value);
+SmallVector<int64_t> getGatedDeltaNetHeadAlignment(VPU::GatedDeltaNetOp gdnOp, mlir::Value value);
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::MatMulOp op, VPU::MultiClusterStrategy strategy);
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::LSTMGatesOp lstmGatesOp,
                                                        VPU::MultiClusterStrategy strategy);
@@ -109,6 +114,8 @@ SmallVector<int64_t> getSWInputTensorNumTiles(VPU::InterpolateOp interpolateOp,
                                               VPU::MultiClusterStrategy strategy, mlir::Value operand);
 SmallVector<int64_t> getSWInputTensorNumTiles(VPU::LSTMSequenceOp lstmSequenceOp,
                                               int64_t numClustersAvailableForCompilation,
+                                              VPU::MultiClusterStrategy strategy, mlir::Value operand);
+SmallVector<int64_t> getSWInputTensorNumTiles(VPU::GatedDeltaNetOp gdnOp, int64_t numClustersAvailableForCompilation,
                                               VPU::MultiClusterStrategy strategy, mlir::Value operand);
 SmallVector<int64_t> getSWInputTensorNumTiles(mlir::Operation* eltwiseOp, int64_t numClustersAvailableForCompilation,
                                               VPU::MultiClusterStrategy strategy, vpux::NDTypeInterface inputType);
@@ -184,11 +191,11 @@ SmallVector<int64_t> getSWInputTensorNumTiles(VPU::ScatterElementsUpdateOp op,
                                               int64_t numClustersAvailableForCompilation,
                                               VPU::MultiClusterStrategy strategy, mlir::Value operand);
 
-std::optional<SmallVector<int64_t>> getSWEltwiseAlignment(mlir::Operation* op, ShapeRef divisors,
-                                                          vpux::NDTypeInterface inputType = nullptr,
-                                                          vpux::NDTypeInterface outputType = nullptr);
+std::optional<SmallVector<int64_t>> getSWOpAlignment(mlir::Operation* op, ShapeRef divisors,
+                                                     vpux::NDTypeInterface inputType = nullptr,
+                                                     vpux::NDTypeInterface outputType = nullptr);
 
-bool isSWEltwiseAndNeedsAlignment(mlir::Operation* op);
+bool isSWOpAndNeedsAlignment(mlir::Operation* op);
 
 std::optional<SmallVector<int64_t>> getSWAlignment(mlir::Operation* op, ShapeRef divisors, ShapeRef shape,
                                                    bool enableOptimizationAlignment = true);

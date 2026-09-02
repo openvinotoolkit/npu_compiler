@@ -37,6 +37,7 @@ TEST_P(GRUCellLayerTestCommon, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(GRUCellLayerTestCommon, NPU5020_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);

@@ -141,3 +141,21 @@ func.func @SCF_Pad_Dim_Yield_Cast_With_NonIdentityCast(
   // CHECK: return [[BACK]] : tensor<1x12x?x?xf16, {order = #NHWC}>
   return %back : tensor<1x12x?x?xf16, {order = #NHWC}>
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @ShapeCastWithNonDistributedUnrolledType
+// CHECK-SAME:    ([[ARG0:%.+]]: tensor<1x16x8x8xf16>)
+func.func @ShapeCastWithNonDistributedUnrolledType(%arg0: tensor<1x16x8x8xf16>) -> tensor<1x16x64x1xf16> {
+    %0 = VPU.UnrolledType(%arg0 : tensor<1x16x8x8xf16>) -> tensor<1x16x8x8xf16>
+    %1 = VPU.ShapeCast {shape = [1, 16, 64, 1]} inputs(%0 : tensor<1x16x8x8xf16>) -> tensor<1x16x64x1xf16>
+    %2 = VPU.UnrolledType(%1 : tensor<1x16x64x1xf16>) -> tensor<1x16x64x1xf16>
+    return %2 : tensor<1x16x64x1xf16>
+
+    // ShapeCast remains legal because UnrolledTypeOp types are not DistributedTensorType
+    // CHECK-NOT: VPU.Copy
+    // CHECK: [[SHAPECAST:%.+]] = VPU.ShapeCast {shape = [1, 16, 64, 1]} inputs([[ARG0]] : tensor<1x16x8x8xf16>) -> tensor<1x16x64x1xf16>
+    // CHECK: return [[SHAPECAST]] : tensor<1x16x64x1xf16>
+}

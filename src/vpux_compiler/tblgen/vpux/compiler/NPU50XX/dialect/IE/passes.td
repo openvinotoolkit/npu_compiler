@@ -9,19 +9,39 @@
 include "mlir/Pass/PassBase.td"
 
 //
+// ConvertFakeConvertToDynamicDequantize
+//
+
+def ConvertFakeConvertToDynamicDequantize : PassBase<"convert-fake-convert-to-dynamic-dequantize", "vpux::FunctionPass"> {
+    let summary = "Convert weight FakeConvert to DynamicDequantize";
+
+    let description = [{
+        The pass is a part of the `LowPrecision` pipeline.
+
+        This pass materializes constant float8 weights represented by FakeConvert and replaces the FakeConvert with
+        DynamicDequantize using reciprocal scale and negated shift. FakeConvert ops outside a weights path and cases
+        that cannot be represented exactly as DynamicDequantize remain unchanged.
+    }];
+
+    let constructor = "vpux::IE::arch50xx::createConvertFakeConvertToDynamicDequantizePass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
 // ConvertFakeConvertToFakeQuantize
 //
 
 def ConvertFakeConvertToFakeQuantize : PassBase<"convert-fake-convert-to-fake-quantize", "vpux::FunctionPass"> {
-    let summary = "Convert FakeConvert to FakeQuantize";
+    let summary = "Convert activation FakeConvert to FakeQuantize";
 
     let description = [{
         The pass is a part of `LowPrecision` pipeline.
 
-        This pass converts FakeConvert ops into FakeQuantize ops, which are already implemented in the lower dialects.
-        Thus, FakeConvert ops only needs to be supported by the IE dialect.
-        FakeConvert's scale and shift attributes are converted to FakeQuantize's input/output intervals, and the
-        float8 destination type is preserved by the resulting operation.
+        This pass converts activation FakeConvert ops into FakeQuantize ops.
+        Weights are computed into DynamicDequantize ops by ConvertFakeConvertToDynamicDequantize.
     }];
 
     let constructor = "vpux::IE::arch50xx::createConvertFakeConvertToFakeQuantizePass()";

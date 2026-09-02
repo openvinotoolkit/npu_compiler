@@ -46,44 +46,16 @@ module @TestReduceMeanWithAttr {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: @TestReduceMeanWithConst
-module @TestReduceMeanWithConst{
-    // CHECK-LABEL:    func.func @ReduceMeanWithConstNCE
-    // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x16x30x30xf16, {order = #NHWC}>)
-    func.func @ReduceMeanWithConstNCE(%arg0: tensor<1x16x30x30xf16, {order = #NHWC}>) -> tensor<1x16x30x30xf16, {order = #NHWC}> {
-        %axes = const.Declare tensor<1xsi32> = dense<1> : tensor<1xsi32>
-        %0 = IE.ReduceMean(%arg0, %axes) {keep_dims, output_padding = [0, 15, 0, 0]} : tensor<1x16x30x30xf16, {order = #NHWC}>, tensor<1xsi32> -> tensor<1x16x30x30xf16, {order = #NHWC}>
-        return %0 : tensor<1x16x30x30xf16, {order = #NHWC}>
-
-        // CHECK:       [[MEAN:%.+]] =  VPU.NCE.Reduce([[INPUT]]) {
-        // CHECK-SAME:    axes = [1], 
-        // CHECK-SAME:    op_type = #VPU.reduce_type<MEAN>, output_padding = [0, 15, 0, 0],
-        // CHECK-SAME:    ppe = #VPU.PPEFp<mode = <NOOP>,
-        // CHECK-SAME:          clamp_low = -3.4028234663852886E+38 : f64,
-        // CHECK-SAME:          clamp_high = 3.4028234663852886E+38 : f64,
-        // CHECK-SAME:          scale = 6.250000e-02 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>
-
-        // CHECK-SAME:  } -> tensor<1x16x30x30xf16, {order = #NHWC}>
-
-        // CHECK-NEXT:  return [[MEAN]] : tensor<1x16x30x30xf16, {order = #NHWC}>
-    }
-}
-
-// -----
-
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-
-// CHECK-LABEL: @TestReduceMeanWithConstInputPadding
-module @TestReduceMeanWithConstInputPadding{
+// CHECK-LABEL: @TestReduceMeanWithAttrPadding
+module @TestReduceMeanWithAttrPadding{
     // CHECK-LABEL:    func.func @ReduceMeanWithConstNCEInputPadding
     // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x32x40x40xf16, {order = #NHWC}>)
     func.func @ReduceMeanWithConstNCEInputPadding(%arg0: tensor<1x32x40x40xf16, {order = #NHWC}>) -> tensor<1x16x40x40xf16, {order = #NHWC}> {
-        %axes = const.Declare tensor<1xsi32> = dense<1> : tensor<1xsi32>
-        %0 = IE.ReduceMean(%arg0, %axes) {keep_dims, input_padding = [0, 4, 0, 0], output_padding = [0, 15, 0, 0]} : tensor<1x32x40x40xf16, {order = #NHWC}>, tensor<1xsi32> -> tensor<1x16x40x40xf16, {order = #NHWC}>
+        %0 = IE.ReduceMean(%arg0) {axes_value = [1], keep_dims, input_padding = [0, 4, 0, 0], output_padding = [0, 15, 0, 0]} : tensor<1x32x40x40xf16, {order = #NHWC}> -> tensor<1x16x40x40xf16, {order = #NHWC}>
         return %0 : tensor<1x16x40x40xf16, {order = #NHWC}>
 
         // CHECK:       [[MEAN:%.+]] =  VPU.NCE.Reduce([[INPUT]]) {
-        // CHECK-SAME:    axes = [1], input_padding = [0, 4, 0, 0], 
+        // CHECK-SAME:    axes = [1], input_padding = [0, 4, 0, 0],
         // CHECK-SAME:    op_type = #VPU.reduce_type<MEAN>, output_padding = [0, 15, 0, 0],
         // CHECK-SAME:    ppe = #VPU.PPEFp<mode = <NOOP>,
         // CHECK-SAME:          clamp_low = -3.4028234663852886E+38 : f64,
@@ -301,94 +273,6 @@ func.func @EltwiseAddWithReluRewriter(%arg0: tensor<1x64x28x28xf16, {order = #NH
     // CHECK-SAME:      -> tensor<1x64x28x28xf16, {order = #NHWC}>
 
     // CHECK:       return [[OUT]] : tensor<1x64x28x28xf16, {order = #NHWC}>
-}
-
-// -----
-
-#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-
-// CHECK-LABEL: @MaxPoolToNCE
-// CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x16x1x4xf16, {order = #NHWC}>)
-func.func @MaxPoolToNCE(%arg0: tensor<1x16x1x4xf16, {order = #NHWC}>) -> tensor<1x16x1x4xf16, {order = #NHWC}> {
-    %0 = IE.MaxPool(%arg0) {
-            kernel_size = [1, 1],
-            pads_begin = [0, 0],
-            pads_end = [0, 0],
-            strides = [1, 1],
-            rounding_type = #IE.rounding_type<FLOOR>,
-            clamp = {min = 0.000000e+00 : f64, max = 6.000000e+00 : f64}
-        } : tensor<1x16x1x4xf16, {order = #NHWC}> -> tensor<1x16x1x4xf16, {order = #NHWC}>
-
-    return %0 : tensor<1x16x1x4xf16, {order = #NHWC}>
-
-    // CHECK:       [[OUT:%.+]] = VPU.NCE.MaxPool([[INPUT]]) {kernel_size = [1, 1],
-    // CHECK-SAME:      ppe = #VPU.PPEFp<mode = <LRELUX>,
-    // CHECK-SAME:          clamp_low = 0.000000e+00 : f64,
-    // CHECK-SAME:          clamp_high = 6.000000e+00 : f64,
-    // CHECK-SAME:          scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>
-    // CHECK-SAME:      -> tensor<1x16x1x4xf16, {order = #NHWC}>
-
-    // CHECK:       return [[OUT]] : tensor<1x16x1x4xf16, {order = #NHWC}>
-}
-
-// -----
-
-#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-
-// CHECK-LABEL: @MaxPoolFP32ToNCE
-// CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x16x1x4xf16, {order = #NHWC}>)
-func.func @MaxPoolFP32ToNCE(%arg0: tensor<1x16x1x4xf16, {order = #NHWC}>) -> tensor<1x16x1x4xf32, {order = #NHWC}> {
-    %0 = IE.MaxPool(%arg0) {
-            kernel_size = [1, 1],
-            pads_begin = [0, 0],
-            pads_end = [0, 0],
-            strides = [1, 1],
-            rounding_type = #IE.rounding_type<FLOOR>,
-            post_op = #IE.LeakyRelu<negative_slope = 1.000000e-01 : f64>
-        } : tensor<1x16x1x4xf16, {order = #NHWC}> -> tensor<1x16x1x4xf32, {order = #NHWC}>
-
-    return %0 : tensor<1x16x1x4xf32, {order = #NHWC}>
-
-    // CHECK:       [[OUT:%.+]] = VPU.NCE.MaxPool([[INPUT]]) {kernel_size = [1, 1],
-    // CHECK-SAME:      ppe = #VPU.PPEFp<mode = <LPRELU>,
-    // CHECK-SAME:          clamp_low = -3.4028234663852886E+38 : f64,
-    // CHECK-SAME:          clamp_high = 3.4028234663852886E+38 : f64,
-    // CHECK-SAME:          scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e-01], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>
-    // CHECK-SAME:      -> tensor<1x16x1x4xf32, {order = #NHWC}>
-
-    // CHECK:       return [[OUT]] : tensor<1x16x1x4xf32, {order = #NHWC}>
-}
-
-// -----
-
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-
-// CHECK-LABEL: @AveragePoolToNCE
-// CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x64x28x28xf16, {order = #NHWC}>)
-func.func @AveragePoolToNCE(%arg0: tensor<1x64x28x28xf16, {order = #NHWC}>)
-        -> tensor<1x64x14x14xf16, {order = #NHWC}> {
-    %0 = IE.AvgPool(%arg0) {
-            kernel_size = [2, 2],
-            pads_begin = [0, 0],
-            pads_end = [0, 0],
-            rounding_type = #IE.rounding_type<FLOOR>,
-            strides = [2, 2]
-         } : tensor<1x64x28x28xf16, {order = #NHWC}> -> tensor<1x64x14x14xf16, {order = #NHWC}>
-
-    return %0 : tensor<1x64x14x14xf16, {order = #NHWC}>
-
-    // CHECK:       [[OUT:%.+]] = VPU.NCE.AveragePool([[INPUT]]) {kernel_size = [2, 2],
-    // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
-    // CHECK-SAME:      ppe = #VPU.PPEFp<mode = <NOOP>,
-    // CHECK-SAME:          clamp_low = -3.4028234663852886E+38 : f64
-    // CHECK-SAME:          clamp_high = 3.4028234663852886E+38 : f64
-    // CHECK-SAME:          scale = 2.500000e-01 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>
-    // CHECK-SAME:      strides = [2, 2]}
-    // CHECK-SAME:      -> tensor<1x64x14x14xf16, {order = #NHWC}>
-
-    // CHECK:       return [[OUT]] : tensor<1x64x14x14xf16, {order = #NHWC}>
 }
 
 // -----
@@ -1165,7 +1049,7 @@ func.func @DepthConvToNCE(%arg0: tensor<1x16x40x80xf16, {order = #NHWC}>) -> ten
     // CHECK:       [[OUT:%.+]] = VPU.NCE.DepthConvolution([[INPUT]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [16, 1, 4, 8] {
     // CHECK-SAME:                pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:                ppe = #VPU.PPEFp<mode = <LPRELU>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e-01], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>
-    // CHECK-SAME:                strides = [1, 1]}
+    // CHECK-SAME:                resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1]}
     // CHECK-SAME:                 -> tensor<1x16x37x73xf16, {order = #NHWC}>
 
     // CHECK-NEXT:      return [[OUT]] : tensor<1x16x37x73xf16, {order = #NHWC}>
@@ -1203,7 +1087,7 @@ func.func @DepthConvToNCEWithWeightsAlign(%arg0: tensor<1x16x40x80xf16, {order =
     // CHECK:       [[DEPTHCONV:%.+]] = VPU.NCE.DepthConvolution([[INPUT_0]], [[PERMUTECAST1]], [[WEIGHTS_TABLE]]) rawFilterShape [16, 1, 2, 3] {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:      ppe = #VPU.PPEFp<mode = <LPRELU>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e-01], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>
-    // CHECK-SAME:      strides = [1, 1]}
+    // CHECK-SAME:      resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1]}
     // CHECK-SAME:      -> tensor<1x16x39x78xf16, {order = #NHWC}>
 
     // CHECK:       return [[DEPTHCONV:%.+]] : tensor<1x16x39x78xf16, {order = #NHWC}>

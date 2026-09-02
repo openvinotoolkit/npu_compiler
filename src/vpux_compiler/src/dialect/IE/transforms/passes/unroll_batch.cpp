@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_to_pool_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
@@ -215,7 +216,13 @@ void UnrollBatchPass::safeRunOnFunc() {
 
     target.markUnknownOpDynamicallyLegal([&](mlir::Operation* op) {
         if (_skipUnrollBatch && mlir::isa<IE::ConvolutionOp, IE::MaxPoolOp, IE::AvgPoolOp>(op)) {
-            return true;
+            // SplitOverBatch MC strategy requires batch <= numTiles.
+            // When this condition is not satisfied, fall back to batch unrolling.
+            const auto batch = getShape(op->getOperand(0))[Dims4D::Act::N];
+            const auto numTiles = config::getNumOfTiles(op);
+            if (batch <= numTiles) {
+                return true;
+            }
         }
 
         if (auto iface = mlir::dyn_cast<IE::UnrollBatchOpInterface>(op)) {

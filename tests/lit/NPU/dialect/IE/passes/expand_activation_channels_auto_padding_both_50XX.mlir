@@ -43,3 +43,70 @@ func.func @ExpandQuantConvolutionChannels(%input: tensor<1x3x30x30x!qElemType, {
     // CHECK:       [[SLICE:%.+]] = IE.Slice [[CONV]] [0, 0, 0, 0] [1, 5, 28, 28]
     // CHECK-NEXT:  return [[SLICE]]
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:si8, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16:0, {4.343750e+00,3.625000e+00,-5.031250e+00,-1.375000e+00,-3.484375,4.156250e+00,-2.687500e+00,3.656250e+00,2.765625,-3.062500e+00,-1.640625,-6.281250e+00,-9.625000e+00,-1.7265625,7.937500e+00,5.906250e+00}>
+
+// CHECK: [[QQ:!.+]] = !quant.uniform<!QuantileType.quantile<ui4:si8,
+
+// CHECK:  @NCEConvolutionWithQuantileWeights
+// CHECK-SAME:    ([[IN:%.+]]: tensor<1x16x1x1xf16, {order = #NHWC}>
+module @module {
+    func.func @NCEConvolutionWithQuantileWeights(%input: tensor<1x16x1x1xf16, {order = #NHWC}>, %weights_raw: tensor<16x4x1x1xsi4>) -> tensor<1x16x1x1xf16, {order = #NHWC}> {
+        // First operand side: keep exactly one producer op.
+        %prod_w = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
+        %prod = VPU.NCE.Convolution(%input, %prod_w) rawFilterShape [16, 16, 1, 1] {
+            input_padding = [0, 0, 0, 0],
+            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            output_padding = [0, 0, 0, 0],
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            ppe = #VPU.PPEStub<>,
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            strides = [1, 1]
+        } : tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}> -> tensor<1x16x1x1xf16, {order = #NHWC}>
+
+        %cst_0 = const.Declare tensor<16x12x1x1x!qElemType1, {order = #NHWC}> = dense<0> : tensor<16x12x1x1xui8, {order = #NHWC}>
+
+        %q4 = VPU.QuantizeCast(%weights_raw) {dstElemType = !qElemType1} : tensor<16x4x1x1xsi4> -> tensor<16x4x1x1x!qElemType1>
+        %q5 = VPU.PermuteCast(%q4) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<16x4x1x1x!qElemType1> -> tensor<16x4x1x1x!qElemType1, {order = #NHWC}>
+        %q6 = VPU.Concat(%q5, %cst_0) {static_offsets = [[0, 0, 0, 0], [0, 4, 0, 0]]} : tensor<16x4x1x1x!qElemType1, {order = #NHWC}>, tensor<16x12x1x1x!qElemType1, {order = #NHWC}> -> tensor<16x16x1x1x!qElemType1, {order = #NHWC}>
+        %q7 = VPU.Reshape(%q6) {shape_value = [16, 1, 1, 16]} : tensor<16x16x1x1x!qElemType1, {order = #NHWC}> -> tensor<16x1x1x16x!qElemType1>
+        %q8 = VPU.Expand(%q7) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 16]} : tensor<16x1x1x16x!qElemType1> -> tensor<16x1x1x32x!qElemType1>
+        %q9 = VPU.LayoutCast(%q8) {dst_order = #NHWC} : tensor<16x1x1x32x!qElemType1> -> tensor<16x1x1x32x!qElemType1, {order = #NHWC}>
+
+        %nce = VPU.NCE.Convolution(%prod, %q9) rawFilterShape [16, 16, 1, 1] {
+            input_padding = [0, 12, 0, 0],
+            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>, weight_zp = 0 : i64>,
+            output_padding = [0, 0, 0, 0],
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            ppe = #VPU.PPEStub<>,
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            strides = [1, 1]
+        } : tensor<1x16x1x1xf16, {order = #NHWC}>, tensor<16x1x1x32x!qElemType1, {order = #NHWC}> -> tensor<1x16x1x1xf16, {order = #NHWC}>
+
+        return %nce : tensor<1x16x1x1xf16, {order = #NHWC}>
+
+        // CHECK-DAG:   [[PW:%.+]] = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}>
+        // CHECK-DAG:   [[ZC:%.+]] = const.Declare tensor<16x12x1x1x[[QQ]], {order = #NHWC}> = dense<0>
+
+        // CHECK:       [[ACT:%.+]] = VPU.NCE.Convolution([[IN]], [[PW]])
+        // CHECK-SAME:    -> tensor<1x16x1x1xf16, {order = #NHWC}>
+
+        // CHECK:       [[PC:%.+]] = VPU.PermuteCast
+        // CHECK-SAME:    -> tensor<16x4x1x1x[[QQ]], {order = #NHWC}>
+        // CHECK:       [[CAT:%.+]] = VPU.Concat([[PC]], [[ZC]])
+        // CHECK-SAME:    -> tensor<16x16x1x1x[[QQ]], {order = #NHWC}>
+        // CHECK:       [[RSH:%.+]] = VPU.Reshape([[CAT]]) {shape_value = [16, 1, 1, 16]}
+        // CHECK:       [[EXP:%.+]] = VPU.Expand([[RSH]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 16]}
+        // CHECK:       [[LC:%.+]] = VPU.LayoutCast([[EXP]]) {dst_order = #NHWC}
+        // CHECK-SAME:    -> tensor<16x1x1x32x[[QQ]], {order = #NHWC}>
+
+        // CHECK:       [[OUT:%.+]] = VPU.NCE.Convolution([[ACT]], [[LC]])
+        // CHECK-SAME:    input_padding = [0, 12, 0, 0]
+        // CHECK-SAME:    output_padding = [0, 0, 0, 0]
+        // CHECK:       return [[OUT]]
+    }
+}

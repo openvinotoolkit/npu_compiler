@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
@@ -49,6 +50,18 @@ public:
 private:
     void safeRunOnFunc() final;
 };
+
+SmallVector<mlir::Operation*> getMPEEngineMappableConsumers(mlir::Operation* op) {
+    const auto& strategyFactory = IE::getIEStrategyFactory(op->getContext());
+    if (strategyFactory == nullptr) {
+        return {};
+    }
+    const auto multiConsumerStrategy = strategyFactory->getMultiConsumerStrategy();
+    if (multiConsumerStrategy == nullptr) {
+        return {};
+    }
+    return multiConsumerStrategy->getMPEEngineMappableConsumers(op);
+}
 
 std::pair<SmallVector<float>, SmallVector<float>> getWeightsAndBiases(mlir::Value inputLow, mlir::Value inputHigh,
                                                                       mlir::Value outputLow, mlir::Value outputHigh) {
@@ -204,6 +217,45 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::ma
         return mlir::failure();
     }
 
+    // Analyze consumers that the target's MPE engine can map. Such consumers may require the U16 FQ to be preserved.
+    const auto mpeEngineMappableConsumers = getMPEEngineMappableConsumers(origOp);
+    if (!mpeEngineMappableConsumers.empty()) {
+        const bool allUsersMappable = llvm::all_of(origOp.getOutput().getUsers(), [&](mlir::Operation* userOp) {
+            return llvm::is_contained(mpeEngineMappableConsumers, userOp);
+        });
+        if (allUsersMappable) {
+            // Every consumer can be mapped, so the U16 FQ must be kept for all of them.
+            _log.trace("[{0}] Keeping U16 FQ at '{1}' since all its consumers can be mapped by the MPE engine",
+                       getDebugName(), origOp->getLoc());
+            return mlir::failure();
+        }
+    }
+
+    bool consumersSplit = false;
+    const auto splitMappableConsumers = [&]() {
+        if (mpeEngineMappableConsumers.empty() || consumersSplit) {
+            return;
+        }
+        // Mixed consumers - clone a dedicated U16 FQ for different MPE engine-mappable users and redirect them
+        // to it, origOp is then left feeding only the non-mappable users, so it falls through to
+        // the regular removal/conversion path below
+        const auto isMappableUser = [&](mlir::OpOperand& opOperand) {
+            return llvm::is_contained(mpeEngineMappableConsumers, opOperand.getOwner());
+        };
+        rewriter.setInsertionPoint(origOp);
+        auto clonedFqOp = mlir::cast<IE::FakeQuantizeOp>(rewriter.clone(*origOp.getOperation()));
+        extendOpLoc(clonedFqOp, "mappable_consumers");
+        rewriter.replaceUsesWithIf(origOp, clonedFqOp.getOutput(), isMappableUser);
+
+        if (clonedFqOp.getOutput().use_empty()) {
+            _log.trace("[{0}] No mappable consumers redirected at '{1}'; discarding cloned U16 FQ", getDebugName(),
+                       origOp->getLoc());
+            rewriter.eraseOp(clonedFqOp);
+            return;
+        }
+        consumersSplit = true;
+    };
+
     auto areFQValsEqualToValue = [](IE::FakeQuantizeOp op, float value) {
         auto inLowValue = IE::getConst(op.getInputLow().getDefiningOp<Const::DeclareOp>())[0];
 
@@ -236,6 +288,7 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::ma
 
         // Apply fakeQuantize on the constant
         auto newFqInput = applyU16FakequantizeOnConstant(rewriter, origOp, clonedFoldedConstant);
+        splitMappableConsumers();
         rewriter.replaceOp(origOp, newFqInput);
         return mlir::success();
     }
@@ -255,6 +308,7 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::ma
             // origOp is the parent in a U16 FQ → U16 FQ chain and the parent itself
             // matches the il=ol=0 and ih=oh ReLU pattern
             if (IE::isPerTensorFQ({origOp}) && areFQValsEqualToValue(origOp, 0.0f) && origOp->hasOneUse()) {
+                splitMappableConsumers();
                 rewriter.replaceOpWithNewOp<IE::ReLUOp>(origOp, fqInput);
                 return mlir::success();
             }
@@ -266,6 +320,7 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::ma
             if (IE::isPerTensorFQ({origOp}) && areFQLowValsEqualToValue(origOp, 0.0f) &&
                 mlir::isa_and_present<IE::LayerWithPostOpInterface>(fqInput.getDefiningOp()) &&
                 !mlir::isa_and_present<IE::ElemTypeInfoOpInterface>(fqInput.getDefiningOp())) {
+                splitMappableConsumers();
                 rewriter.replaceOpWithNewOp<IE::ReLUOp>(origOp, fqInput);
                 return mlir::success();
             }
@@ -274,13 +329,22 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::ma
         // ScaleShift op
         if (!areFQValsEqual(origOp.getInputLow(), origOp.getInputHigh(), origOp.getOutputLow(),
                             origOp.getOutputHigh())) {
-            return convertFQToScaleShift(origOp, rewriter);
+            splitMappableConsumers();
+            const auto scaleShiftResult = convertFQToScaleShift(origOp, rewriter);
+            if (mlir::succeeded(scaleShiftResult)) {
+                return mlir::success();
+            }
+            if (!consumersSplit) {
+                return mlir::failure();
+            }
         }
     } else if (IE::isPerTensorFQ({origOp}) && areFQValsEqualToValue(origOp, 0.0f)) {
+        splitMappableConsumers();
         rewriter.replaceOpWithNewOp<IE::ReLUOp>(origOp, fqInput);
         return mlir::success();
     }
 
+    splitMappableConsumers();
     rewriter.replaceOp(origOp, fqInput);
     return mlir::success();
 }
@@ -311,6 +375,12 @@ public:
         auto childMaxLevels = IE::getMaximumQuantizationLevels(
                 childLevels.value_or(QuantizationLevels::QUANT_LEVELS_8BIT), childFqOp);
         if (!childLevels.has_value() || *childLevels <= childMaxLevels) {
+            return mlir::failure();
+        }
+
+        if (!getMPEEngineMappableConsumers(childFqOp).empty()) {
+            _log.trace("[{0}] Keeping child U16 FQ at '{1}' since a consumer can be mapped by the MPE engine",
+                       getDebugName(), childFqOp->getLoc());
             return mlir::failure();
         }
 

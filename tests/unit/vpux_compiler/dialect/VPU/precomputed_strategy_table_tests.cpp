@@ -6,12 +6,18 @@
 #include "common/utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/precomputed_strategy_table_cache.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
+#include <llvm/Support/JSON.h>
 #include <mlir/Parser/Parser.h>
 
 #include <gtest/gtest.h>
 
+#include <cinttypes>
+#include <cstdio>
 #include <cstring>
+#include <string>
 #include <vector>
 
 namespace vpux::VPU {
@@ -32,6 +38,12 @@ constexpr uint32_t kEmptySlot = 0xFFFFFFFFu;
 template <typename T>
 void writeLE(std::vector<uint8_t>& buf, size_t offset, T val) {
     std::memcpy(buf.data() + offset, &val, sizeof(T));
+}
+
+std::string toHexKey(uint64_t hash) {
+    char buf[17];
+    std::snprintf(buf, sizeof(buf), "%016" PRIx64, hash);
+    return buf;
 }
 
 struct TestRecord {
@@ -169,8 +181,9 @@ TEST_F(PtcBinaryTest, Hit_TemporalTiling) {
     mlir::Operation* nceOp = parseAndGetNceOp(ctx, module, func);
     ASSERT_TRUE(nceOp != nullptr);
 
+    const auto device = vpux::config::stringifyArchKind(vpux::config::getArch(func.getOperation())).str();
     TestRecord rec;
-    rec.key = vpux::VPU::computeOpStrategyHash(nceOp, "NPU50XX", /*numTiles=*/3);
+    rec.key = vpux::VPU::computeOpStrategyHash(nceOp, device, /*numTiles=*/3);
     rec.temporal[0] = 2;
 
     const auto buf = buildPtcBuffer({rec});
@@ -187,9 +200,10 @@ TEST_F(PtcBinaryTest, Hit_SpatialStrategy) {
     ASSERT_TRUE(nceOp != nullptr);
 
     const auto targetStrategy = vpux::VPU::MultiClusterStrategy::SplitOverHeight;
+    const auto device = vpux::config::stringifyArchKind(vpux::config::getArch(func.getOperation())).str();
 
     TestRecord rec;
-    rec.key = vpux::VPU::computeOpStrategyHash(nceOp, "NPU50XX", /*numTiles=*/3);
+    rec.key = vpux::VPU::computeOpStrategyHash(nceOp, device, /*numTiles=*/3);
     rec.spatialIdx = static_cast<uint16_t>(static_cast<uint32_t>(targetStrategy));
 
     const auto buf = buildPtcBuffer({rec});
@@ -200,4 +214,103 @@ TEST_F(PtcBinaryTest, Hit_SpatialStrategy) {
     ASSERT_TRUE(clusteredOp);
     ASSERT_TRUE(clusteredOp.getMultiClusterStrategy().has_value());
     EXPECT_EQ(clusteredOp.getMultiClusterStrategy().value(), targetStrategy);
+}
+
+// ── createPrecomputedStrategyTableJSON tests ──────────────────────────────────
+
+using PtcJsonTest = vpux::VPU::arch50xx::UnitTest;
+
+// An op with no tiling strategy must not produce any entry.
+TEST_F(PtcJsonTest, NoStrategy_NoEntry) {
+    mlir::OwningOpRef<mlir::ModuleOp> module;
+    mlir::func::FuncOp func;
+    mlir::Operation* nceOp = parseAndGetNceOp(ctx, module, func);
+    ASSERT_TRUE(nceOp != nullptr);
+
+    llvm::json::Value tableJson(nullptr);
+    vpux::VPU::createPrecomputedStrategyTableJSON(tableJson, func);
+
+    const auto* obj = tableJson.getAsObject();
+    ASSERT_TRUE(obj != nullptr);
+    EXPECT_TRUE(obj->empty());
+}
+
+// An op with only multiClusterStrategy (no temporal tiling) must not produce an
+// entry: the table only covers ops decided to need temporal tiling.
+TEST_F(PtcJsonTest, SpatialOnlyStrategy_NoEntry) {
+    mlir::OwningOpRef<mlir::ModuleOp> module;
+    mlir::func::FuncOp func;
+    mlir::Operation* nceOp = parseAndGetNceOp(ctx, module, func);
+    ASSERT_TRUE(nceOp != nullptr);
+
+    // Set only a spatial (multi-cluster) strategy; leave tilingStrategy unset.
+    auto* attrCtx = nceOp->getContext();
+    nceOp->setAttr("multiClusterStrategy",
+                   vpux::VPU::MultiClusterStrategyAttr::get(attrCtx, vpux::VPU::MultiClusterStrategy::SplitOverHeight));
+
+    llvm::json::Value tableJson(nullptr);
+    vpux::VPU::createPrecomputedStrategyTableJSON(tableJson, func);
+
+    const auto* obj = tableJson.getAsObject();
+    ASSERT_TRUE(obj != nullptr);
+    EXPECT_TRUE(obj->empty());
+}
+
+// An op with tilingStrategy set must produce one entry whose key matches the hash.
+TEST_F(PtcJsonTest, TemporalStrategy_ProducesEntry) {
+    mlir::OwningOpRef<mlir::ModuleOp> module;
+    mlir::func::FuncOp func;
+    mlir::Operation* nceOp = parseAndGetNceOp(ctx, module, func);
+    ASSERT_TRUE(nceOp != nullptr);
+
+    // Set a minimal tiling strategy ([2] = split along N into 2 tiles).
+    auto tileAttr = vpux::getIntArrayAttr(&ctx, vpux::SmallVector<int64_t>{2});
+    nceOp->setAttr("tilingStrategy", tileAttr);
+
+    llvm::json::Value tableJson(nullptr);
+    vpux::VPU::createPrecomputedStrategyTableJSON(tableJson, func);
+
+    const auto* obj = tableJson.getAsObject();
+    ASSERT_TRUE(obj != nullptr);
+    EXPECT_EQ(obj->size(), 1u);
+
+    // Key must be the exact FNV-1a hash of the op, not just a well-formed hex string.
+    const auto device = vpux::config::stringifyArchKind(vpux::config::getArch(func.getOperation())).str();
+    const auto expectedKey = toHexKey(vpux::VPU::computeOpStrategyHash(nceOp, device, /*numTiles=*/3));
+    const auto& [hexKey, entry] = *obj->begin();
+    EXPECT_EQ(hexKey, expectedKey);
+    const auto* entryObj = entry.getAsObject();
+    ASSERT_TRUE(entryObj != nullptr);
+    EXPECT_TRUE(entryObj->find(vpux::VPU::ptcTemporalTiling.str()) != entryObj->end());
+    EXPECT_TRUE(entryObj->find(vpux::VPU::ptcSpatialTiling.str()) != entryObj->end());
+    EXPECT_TRUE(entryObj->find(vpux::VPU::ptcPipelineMode.str()) != entryObj->end());
+}
+
+// Round-trip: JSON key must match the hash used by the binary reader, so that
+// applying the built binary pins the op that produced the JSON entry.
+TEST_F(PtcJsonTest, RoundTrip_JsonKeyMatchesBinaryHash) {
+    mlir::OwningOpRef<mlir::ModuleOp> module;
+    mlir::func::FuncOp func;
+    mlir::Operation* nceOp = parseAndGetNceOp(ctx, module, func);
+    ASSERT_TRUE(nceOp != nullptr);
+
+    // Assign a temporal strategy.
+    auto tileAttr = vpux::getIntArrayAttr(&ctx, vpux::SmallVector<int64_t>{2});
+    nceOp->setAttr("tilingStrategy", tileAttr);
+
+    llvm::json::Value tableJson(nullptr);
+    vpux::VPU::createPrecomputedStrategyTableJSON(tableJson, func);
+
+    const auto* obj = tableJson.getAsObject();
+    ASSERT_TRUE(obj != nullptr);
+    ASSERT_EQ(obj->size(), 1u);
+
+    const auto& hexKey = obj->begin()->first;
+
+    // Parse the hex key back and compare to the direct hash.
+    uint64_t parsedKey = 0;
+    ASSERT_FALSE(llvm::StringRef(hexKey).getAsInteger(16, parsedKey));
+    const auto device = vpux::config::stringifyArchKind(vpux::config::getArch(func.getOperation())).str();
+    const uint64_t directHash = vpux::VPU::computeOpStrategyHash(nceOp, device, /*numTiles=*/3);
+    EXPECT_EQ(parsedKey, directHash);
 }

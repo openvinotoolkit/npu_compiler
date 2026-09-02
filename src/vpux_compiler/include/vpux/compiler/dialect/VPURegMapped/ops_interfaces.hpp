@@ -10,9 +10,6 @@
 #include "vpux/compiler/dialect/VPURegMapped/attributes.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 
-// TODO: E#210671 remove this workaround when all descriptors have version attached.
-#include "vpux/compiler/dialect/config/IR/utils.hpp"
-
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/IR/Value.h>

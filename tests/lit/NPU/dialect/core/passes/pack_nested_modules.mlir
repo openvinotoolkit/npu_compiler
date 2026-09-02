@@ -209,3 +209,119 @@ module @VPUIP {
         return %arg1 : memref<f16, @DDR>
     }
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+module @BoundsOrderRestore {
+    net.NetworkInfo entryPoint : @main inputsInfo : {
+        DataInfo "input" : tensor<?x1x?x1xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548, 1]> : tensor<4xsi64>, order = #NCHW}>
+    } outputsInfo : {
+        DataInfo "output" : tensor<?x1x?x1xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548, 1]> : tensor<4xsi64>, order = #NCHW}>
+    }
+
+    func.func nested @main_func1(%arg0: tensor<?x1x?x1xf16>) -> tensor<?x1x?x1xf16> {
+        %bounded = Core.ReinterpretCast(%arg0) : tensor<?x1x?x1xf16> -> tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 548, 1]> : tensor<4xsi64>, order = #NCHW}>
+        %restored = Core.ReinterpretCast(%bounded) : tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 548, 1]> : tensor<4xsi64>, order = #NCHW}> -> tensor<?x1x?x1xf16>
+        return %restored : tensor<?x1x?x1xf16>
+    }
+
+    func.func @main_func0(%arg0: tensor<?x1x?x1xf16>) -> tensor<?x1x?x1xf16> {
+        return %arg0 : tensor<?x1x?x1xf16>
+    }
+
+    func.func @main_func2_static(%arg0: tensor<?x1x?x1xf16>) -> tensor<?x1x?x1xf16> {
+        return %arg0 : tensor<?x1x?x1xf16>
+    }
+
+    func.func @main_func3_static(%arg0: tensor<?x1x?x1xf16>) -> tensor<?x1x?x1xf16> {
+        return %arg0 : tensor<?x1x?x1xf16>
+    }
+
+    func.func @main(%arg0: tensor<?x1x?x1xf16>) -> tensor<?x1x?x1xf16> {
+        %c0 = arith.constant 0 : index
+        %c1 = arith.constant 1 : index
+
+        scf.for %i = %c0 to %c1 step %c1 {
+            %pre = func.call @main_func0(%arg0) : (tensor<?x1x?x1xf16>) -> tensor<?x1x?x1xf16>
+            scf.yield
+        }
+
+        %call = func.call @main_func1(%arg0) : (tensor<?x1x?x1xf16>) -> tensor<?x1x?x1xf16>
+
+        scf.for %j = %c0 to %c1 step %c1 {
+            %post = func.call @main_func2_static(%call) : (tensor<?x1x?x1xf16>) -> tensor<?x1x?x1xf16>
+            scf.yield
+        }
+
+        %tail = func.call @main_func3_static(%call) : (tensor<?x1x?x1xf16>) -> tensor<?x1x?x1xf16>
+        return %tail : tensor<?x1x?x1xf16>
+    }
+
+    // CHECK-LABEL: module @Module0 attributes {{.+}} {
+    // CHECK:     net.NetworkInfo entryPoint : @main_func1 inputsInfo : {
+    // CHECK:       DataInfo "in_0" tensorNames = ["in_0"] : tensor<?x1x?x1xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548, 1]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:     } outputsInfo : {
+    // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<?x1x?x1xf16, {bounds = #const.OpaqueI64Elements<[32, 1, 548, 1]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:     func.func nested @main_func1
+    // CHECK-LABEL: func.func @main
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @BoundsOrderRestoreOnOutputTensor {
+    net.NetworkInfo entryPoint : @main inputsInfo : {
+        DataInfo "input0" : tensor<1x?x?x1xf16, {bounds = #const.OpaqueI64Elements<[1, 360, 640, 1]> : tensor<4xsi64>, order = #NCHW}>
+        DataInfo "input1" : tensor<1x?x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 180, 320, 2]> : tensor<4xsi64>, order = #NCHW}>
+        DataInfo "input2" : tensor<4xf32>
+    } outputsInfo : {
+        DataInfo "output" friendlyName = "output/sink_port_0" tensorNames = ["output"] : tensor<1x?x?x3xui8, {bounds = #const.OpaqueI64Elements<[1, 2160, 3840, 3]> : tensor<4xsi64>, order = #NCHW}>
+    }
+
+    func.func @main_func2_static(%arg0: tensor<1x360x320x1xf16>, %arg1: tensor<1x180x160x2xf16>) -> tensor<1x360x320x3xf16> {
+                %0 = VPU.Concat(%arg0, %arg0, %arg0) {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 0, 2]]} : tensor<1x360x320x1xf16>, tensor<1x360x320x1xf16>, tensor<1x360x320x1xf16> -> tensor<1x360x320x3xf16>
+                return %0 : tensor<1x360x320x3xf16>
+    }
+
+    func.func nested @main_func1(%arg0: tensor<1x?x?x3xf16>, %arg1: tensor<4xf32>) -> tensor<1x?x?x3xf16> {
+        %0 = Core.ReinterpretCast(%arg1) : tensor<4xf32> -> tensor<4xf32>
+        %1 = Core.ReinterpretCast(%arg0) : tensor<1x?x?x3xf16> -> tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 360, 640, 3]> : tensor<4xsi64>, order = #NCHW}>
+        %2 = VPU.PermuteCast(%1) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 360, 640, 3]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 360, 640]> : tensor<4xsi64>, order = #NHWC}>
+        %3 = VPU.Empty : tensor<1x1x1x1323060xui8>
+        %4 = VPU.InterpolateDMA(%2, %0, %3) {attr = #IE.Interpolate<mode = <LINEAR_ONNX>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [0, 1, 2, 3], multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>} : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 360, 640]> : tensor<4xsi64>, order = #NHWC}>, tensor<4xf32>, tensor<1x1x1x1323060xui8> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}>
+        %5 = Core.ReinterpretCast(%4) : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x?x?x3xf16>
+        return %5 : tensor<1x?x?x3xf16>
+    }
+
+    func.func @main(%arg0: tensor<1x?x?x1xf16>, %arg1: tensor<1x?x?x2xf16>, %arg2: tensor<4xf32>) -> tensor<1x?x?x3xf16> attributes {HostExec.HostCompileInferenceExec, config.pureHostCompileFunc} {
+        %c320 = arith.constant 320 : index
+        %c1 = arith.constant 1 : index
+        %c0 = arith.constant 0 : index
+        %c2 = arith.constant 2 : index
+        %dim = tensor.dim %arg0, %c1 : tensor<1x?x?x1xf16>
+        %dim_0 = tensor.dim %arg0, %c2 : tensor<1x?x?x1xf16>
+        %0 = tensor.empty(%dim, %dim_0) : tensor<1x?x?x3xf16>
+        %3 = scf.for %arg3 = %c0 to %dim_0 step %c320 iter_args(%arg4 = %0) -> (tensor<1x?x?x3xf16>) {
+            %33 = affine.min affine_map<(d0)[s0] -> (s0 - 320, d0)>(%arg3)[%dim_0]
+            %34 = affine.apply affine_map<(d0) -> (d0 floordiv 2)>(%33)
+            %extracted_slice = tensor.extract_slice %arg0[0, 0, %33, 0] [1, 360, 320, 1] [1, 1, 1, 1] : tensor<1x?x?x1xf16> to tensor<1x360x320x1xf16>
+            %extracted_slice_8 = tensor.extract_slice %arg1[0, 0, %34, 0] [1, 180, 160, 2] [1, 1, 1, 1] : tensor<1x?x?x2xf16> to tensor<1x180x160x2xf16>
+            %35 = func.call @main_func2_static(%extracted_slice, %extracted_slice_8) : (tensor<1x360x320x1xf16>, tensor<1x180x160x2xf16>) -> tensor<1x360x320x3xf16>
+            %inserted_slice = tensor.insert_slice %35 into %arg4[0, 0, %33, 0] [1, 360, 320, 3] [1, 1, 1, 1] : tensor<1x360x320x3xf16> into tensor<1x?x?x3xf16>
+            scf.yield %inserted_slice : tensor<1x?x?x3xf16>
+        }
+        %4 = call @main_func1(%3, %arg2) : (tensor<1x?x?x3xf16>, tensor<4xf32>) -> tensor<1x?x?x3xf16>
+        return %4 : tensor<1x?x?x3xf16>
+    }
+
+    // CHECK-LABEL: module @Module1 attributes {{.+}} {
+    // CHECK:     net.NetworkInfo entryPoint : @main_func1 inputsInfo : {
+    // CHECK:       DataInfo "in_0" tensorNames = ["in_0"] : tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 360, 640, 3]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:       DataInfo "in_1" tensorNames = ["in_1"] : tensor<4xf32>
+    // CHECK:     } outputsInfo : {
+    // CHECK:       DataInfo "out_0" tensorNames = ["out_0"] : tensor<1x?x?x3xf16, {bounds = #const.OpaqueI64Elements<[1, 2160, 3840, 3]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:     }
+    // CHECK:     func.func nested @main_func1
+}

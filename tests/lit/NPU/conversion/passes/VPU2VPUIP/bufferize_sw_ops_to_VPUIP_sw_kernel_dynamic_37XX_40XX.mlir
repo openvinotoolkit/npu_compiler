@@ -48,14 +48,14 @@
 
 
 // CHECK-LABEL:  func.func @DynamicLSTMSequence
+// CHECK-SAME: [[INPUT_DDR:%.+]]: memref<1x2x?x512xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 35, 512]> : tensor<4xsi64>, order = #NCHW}>
 func.func @DynamicLSTMSequence(
-        %arg1: tensor<1x2x35x512xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 0]> : tensor<4xsi64>, order = #NCHW}>,
+        %arg1: tensor<1x2x?x512xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 35, 512]> : tensor<4xsi64>, order = #NCHW}>,
         %arg2: tensor<1x2x1x128xf16>, %arg3: tensor<1x2x1x128xf16>,
         %arg4: tensor<2x4x128x128xf16, {order = #NWHC}>, %arg5: tensor<1x1x1x2xsi32>)
-    -> (tensor<1x2x35x128xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 0]> : tensor<4xsi64>, order = #NCHW}>,
+    -> (tensor<1x2x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 35, 128]> : tensor<4xsi64>, order = #NCHW}>,
         tensor<1x2x1x128xf16>,
         tensor<1x2x1x128xf16>) {
-      // CHECK: [[INPUT_DDR:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x2x35x512xf16>, dynamic_shape=memref<4xsi32>>
 
       // CHECK: [[IN_DATA:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x2x35x512xf16
       // CHECK: [[IN_SHAPE:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<4xsi32
@@ -70,7 +70,7 @@ func.func @DynamicLSTMSequence(
       // CHECK: [[OUT_BOUNDED_BUFFER:%.+]] = VPUIP.GroupBoundedBuffer([[OUT_DATA]], [[OUT_SHAPE]])
 
       %cmx_input1 = VPU.Copy(%arg1) {out_mem_space = @CMX_NN}
-          : tensor<1x2x35x512xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 0]> : tensor<4xsi64>, order = #NCHW}>
+          : tensor<1x2x?x512xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 35, 512]> : tensor<4xsi64>, order = #NCHW}>
           -> !InputDistributed1
       %cmx_input2 = VPU.Copy(%arg2) {out_mem_space = @CMX_NN} : tensor<1x2x1x128xf16> -> !InputDistributed2
       %cmx_input3 = VPU.Copy(%arg3) {out_mem_space = @CMX_NN} : tensor<1x2x1x128xf16> -> !InputDistributed2
@@ -90,12 +90,12 @@ func.func @DynamicLSTMSequence(
       // CHECK-SAME: outputs([[OUT_BOUNDED_BUFFER]]
 
       %res1 = VPU.Copy(%outputHiddenValues) : !OutputDistributed1
-          -> tensor<1x2x35x128xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 0]> : tensor<4xsi64>, order = #NCHW}>
+          -> tensor<1x2x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 35, 128]> : tensor<4xsi64>, order = #NCHW}>
       %res2 = VPU.Copy(%outputHiddenState) : !OutputDistributed2 -> tensor<1x2x1x128xf16>
       %res3 = VPU.Copy(%outputCellState) : !OutputDistributed3 -> tensor<1x2x1x128xf16>
 
       return %res1, %res2, %res3
-        : tensor<1x2x35x128xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 0]> : tensor<4xsi64>, order = #NCHW}>,
+        : tensor<1x2x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 35, 128]> : tensor<4xsi64>, order = #NCHW}>,
           tensor<1x2x1x128xf16>,
           tensor<1x2x1x128xf16>
 }

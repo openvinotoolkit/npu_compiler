@@ -38,7 +38,7 @@ public:
         }
 
         const auto supportedChannels = splitter.getSupportedChannels(producerNCEOps, sparsityConstraint);
-        log.trace("getSupportedWorkLoadChannels: supportedChannels {0} on 40XX for nceOp '{1}'", supportedChannels,
+        log.trace("getSupportedWorkLoadChannels: supportedChannels {0} for nceOp '{1}'", supportedChannels,
                   nceOp->getLoc());
         return supportedChannels;
     }

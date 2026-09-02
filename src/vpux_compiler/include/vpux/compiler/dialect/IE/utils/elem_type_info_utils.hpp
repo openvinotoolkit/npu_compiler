@@ -21,6 +21,7 @@ bool isSupportedElemTypeInfoCase(mlir::Operation* op, bool seOpsEnabled, LogCb l
 void propagateElemTypeDownForAffineReshapeOp(AffineReshapeOp affineReshape, LayerDataInfo<mlir::Type>& info);
 void propagateElemTypeUpForAffineReshapeOp(AffineReshapeOp affineReshape, LayerDataInfo<mlir::Type>& info);
 void propagateElemTypeDownForConcatOp(ConcatOp concat, LayerDataInfo<mlir::Type>& info);
+void propagateElemTypeDownForSliceOp(SliceOp slice, LayerDataInfo<mlir::Type>& info);
 void propagateElemTypeDownForExpandDilatedOp(ExpandDilatedOp expandDilated, LayerDataInfo<mlir::Type>& info);
 void propagateElemTypeDownForReorderOp(ReorderOp reorder, LayerDataInfo<mlir::Type>& info);
 void propagateElemTypeDownForTransposeOp(TransposeOp transpose, LayerDataInfo<mlir::Type>& info);
@@ -97,6 +98,22 @@ public:
         VPUX_THROW_WHEN(origOp == nullptr, "Expected ConcatOp, got {0} at loc {1}", op->getName(), op->getLoc());
 
         propagateElemTypeDownForConcatOp(origOp, info);
+    }
+    static void inferElemTypeInfoUp(mlir::Operation* /*op*/, LayerDataInfo<mlir::Type>& info) {
+        propagateElementTypeUp(info);
+    }
+    static LayerDataInfo<mlir::Type> getElemTypeInfo(mlir::Operation* op) {
+        return vpux::IE::getElemTypeInfo(op);
+    }
+};
+
+class ElemTypeInfoSliceOpModel final : public IE::ElemTypeInfoOpInterface::FallbackModel<ElemTypeInfoSliceOpModel> {
+public:
+    static void inferElemTypeInfo(mlir::Operation* op, LayerDataInfo<mlir::Type>& info) {
+        auto origOp = mlir::dyn_cast<IE::SliceOp>(op);
+        VPUX_THROW_WHEN(origOp == nullptr, "Expected SliceOp, got {0} at loc {1}", op->getName(), op->getLoc());
+
+        propagateElemTypeDownForSliceOp(origOp, info);
     }
     static void inferElemTypeInfoUp(mlir::Operation* /*op*/, LayerDataInfo<mlir::Type>& info) {
         propagateElementTypeUp(info);

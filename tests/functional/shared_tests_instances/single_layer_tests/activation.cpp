@@ -34,6 +34,8 @@ class ActivationLayerTest_HW_FP : public ActivationLayerTestCommon {};
 class DynamicActivationLayerTest_SW_FP16 : public ActivationLayerTestCommon {};
 class DynamicActivationLayerTest_HW_FP16 : public ActivationLayerTestCommon {};
 
+using DynamicActivationLayerTest_HC_FP16 = ActivationLayerTestCommon;
+
 class ShaveCodeGenActivationLayerTest : public ActivationLayerTestCommon {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-shave-code-gen=true";
@@ -108,6 +110,15 @@ class ActivationLayerTest_SCFTiling : public ActivationLayerTestCommon {
         run(Platform::PLATFORM);                                                                       \
     }
 
+#define DEFINE_DYNAMIC_ACT_HC_TESTS(PLATFORM, DISABLE_DYN_HC, EXTRA_DYN_HC)     \
+    TEST_P(DynamicActivationLayerTest_HC_FP16, DISABLE_DYN_HC##PLATFORM##_HC) { \
+        abs_threshold = 0.0056;                                                 \
+        setHostCompileMode("HostCompile_Interpreter");                          \
+        setPluginCompilerType();                                                \
+        EXTRA_DYN_HC;                                                           \
+        run(Platform::PLATFORM);                                                \
+    }
+
 #define DEFINE_SHAVE_CODE_GEN_TESTS(PLATFORM, DISABLE_SW, DISABLE_PROFILING, EXTRA_SW, EXTRA_PROF) \
     TEST_P(ShaveCodeGenActivationLayerTest, DISABLE_SW##PLATFORM) {                                \
         const auto type = std::get<1>(GetParam());                                                 \
@@ -139,27 +150,23 @@ DEFINE_DYNAMIC_ACT_TESTS(NPU4000, /*DISABLED_DYN_SW_*/, /*DISABLED_DYN_HW_*/, /*
 DEFINE_DYNAMIC_ACT_TESTS(NPU5010, DISABLED_DYN_SW_, /*DISABLED_DYN_HW_*/, /*CONFIG_DYN_SW*/, /*CONFIG_DYN_HW*/);
 DEFINE_DYNAMIC_ACT_TESTS(NPU5020, /*DISABLED_DYN_SW_*/, /*DISABLED_DYN_HW_*/, /*CONFIG_DYN_SW*/, /*CONFIG_DYN_HW*/);
 
+DEFINE_DYNAMIC_ACT_HC_TESTS(NPU4000, /*DISABLED_DYN_HC_*/, enableTurbo());
+DEFINE_DYNAMIC_ACT_HC_TESTS(NPU5010, /*DISABLED_DYN_HC_*/, /*CONFIG_DYN_HC*/);
+
 DEFINE_SHAVE_CODE_GEN_TESTS(NPU4000, /*DISABLED_SW_*/, /*DISABLED_PROF_*/, /*CONFIG_SW*/, /*CONFIG_PROF*/);
 DEFINE_SHAVE_CODE_GEN_TESTS(NPU5010, /*DISABLED_SW_*/, /*DISABLED_PROF_*/, /*CONFIG_SW*/, /*CONFIG_PROF*/);
 DEFINE_SHAVE_CODE_GEN_TESTS(NPU5020, /*DISABLED_SW_*/, /*DISABLED_PROF_*/, /*CONFIG_SW*/, /*CONFIG_PROF*/);
 
-TEST_P(ActivationLayerTest_SCFTiling, NPU4000_SW) {
-    abs_threshold = 0.0056;
-    setReferenceSoftwareMode();
-    run(Platform::NPU4000);
-}
+#define DEFINE_SCF_TILING_TESTS(PLATFORM)                  \
+    TEST_P(ActivationLayerTest_SCFTiling, PLATFORM##_SW) { \
+        abs_threshold = 0.0056;                            \
+        setReferenceSoftwareMode();                        \
+        run(Platform::PLATFORM);                           \
+    }
 
-TEST_P(ActivationLayerTest_SCFTiling, NPU5010_SW) {
-    abs_threshold = 0.0056;
-    setReferenceSoftwareMode();
-    run(Platform::NPU5010);
-}
-
-TEST_P(ActivationLayerTest_SCFTiling, NPU5020_SW) {
-    abs_threshold = 0.0056;
-    setReferenceSoftwareMode();
-    run(Platform::NPU5020);
-}
+DEFINE_SCF_TILING_TESTS(NPU4000)
+DEFINE_SCF_TILING_TESTS(NPU5010)
+DEFINE_SCF_TILING_TESTS(NPU5020)
 
 }  // namespace test
 }  // namespace ov
@@ -200,41 +207,24 @@ const auto genActLessParamsDyn = [](auto activationTypes, auto dynamicShapes, au
 };
 
 const std::map<ActivationTypes, std::vector<std::vector<float>>> activationTypesSWFP16 = {
-        {Sigmoid, {{1.0f}}},
-        {Sign, {{1.0f}}},
-        {Tanh, {{1.0f}}},
-        {Sin, {{1.0f}}},
-        {Cos, {{1.0f}}},
-        {Relu, {{1.0f}}},
-        {Elu, {{1.0f}}},
-        {Clamp, {{-1.0f, 1.0f}}},
-        {HSwish, {{1.0f}}},
-        {Mish, {{1.0f}}},
-        {SoftPlus, {{1.0f}}},
-        {Floor, {{1.0f}}},
-        {Sqrt, {{1.0f}}},
-        {Sinh, {{1.0f}}},
-        {Cosh, {{1.0f}}},
-        {Asinh, {{1.0f}}},
-        {Acosh, {{1.0f}}},
-        {Atanh, {{1.0f}}},
-        {Erf, {{1.0f}}},
-        {Gelu, {{1.0f}}},
-        {Exp, {{1.0f}}},
-        {Log, {{1.0f}}},
-        {Selu, {{1.6732f, 1.0507f}}},
-        {Swish, {{1.0f}}},
-        {Negative, {{1.0f}}},
-        {Abs, {{1.0f}}},
-        {Atan, {{1.0f}}},
-        {Asin, {{1.0f}}},
-        {Acos, {{1.0f}}},
-        {HSigmoid, {{1.0f}}},
-        {HardSigmoid, {{0.2f, 0.5f}}},
-        {RoundHalfToEven, {}},
-        {RoundHalfAwayFromZero, {}},
-        {Ceiling, {{1.0f}}},
-        {Tan, {{1.0f}}},
+        {Sigmoid, {{1.0f}}},   {Sign, {{1.0f}}},
+        {Tanh, {{1.0f}}},      {Sin, {{1.0f}}},
+        {Cos, {{1.0f}}},       {Relu, {{1.0f}}},
+        {Elu, {{1.0f}}},       {Clamp, {{-1.0f, 1.0f}}},
+        {HSwish, {{1.0f}}},    {Mish, {{1.0f}}},
+        {SoftPlus, {{1.0f}}},  {Floor, {{1.0f}}},
+        {Sqrt, {{1.0f}}},      {Sinh, {{1.0f}}},
+        {Cosh, {{1.0f}}},      {Asinh, {{1.0f}}},
+        {Acosh, {{1.0f}}},     {Atanh, {{1.0f}}},
+        {Erf, {{1.0f}}},       {ErfInv, {{1.0f}}},
+        {Gelu, {{1.0f}}},      {Exp, {{1.0f}}},
+        {Log, {{1.0f}}},       {Selu, {{1.6732f, 1.0507f}}},
+        {Swish, {{1.0f}}},     {Negative, {{1.0f}}},
+        {Abs, {{1.0f}}},       {Atan, {{1.0f}}},
+        {Asin, {{1.0f}}},      {Acos, {{1.0f}}},
+        {HSigmoid, {{1.0f}}},  {HardSigmoid, {{0.2f, 0.5f}}},
+        {RoundHalfToEven, {}}, {RoundHalfAwayFromZero, {}},
+        {Ceiling, {{1.0f}}},   {Tan, {{1.0f}}},
         {SoftSign, {{1.0f}}},
 };
 
@@ -322,6 +312,7 @@ std::vector<ov::test::InputShape> dynamicBasic = {generateTestShape(256_Dyn), ge
                                                   generateTestShape(1, 8_Dyn, 3072), generateTestShape(1, 50_Dyn, 1, 1),
                                                   generateTestShape(1, 128_Dyn, 1, 1)};
 std::vector<ov::test::InputShape> dynamicLarge = {generateTestShape(1, 1, 1, 2333333_Dyn)};
+std::vector<ov::test::InputShape> dynamicLargeHC = {generateTestShape(std::vector<BoundedDim>{1, 1, 1, 2333333_Dyn})};
 
 ShapeMap profilingBasic = {{{{1, 1, 50, 120}}, {}}, {{{1, 20, 50, 150}}, {}}};
 
@@ -356,6 +347,7 @@ const auto basicShaveCodeGenIntCases = genActLessParams(shaveCodeGenIntActivatio
 const auto basicDynamicCasesSWFP16 = genActLessParamsDyn(activationDynamicTypes, dynamicBasic, ov::element::f16);
 const auto basicDynamicCasesHWFP16 = genActLessParamsDyn(activationDynamicTypes, dynamicBasic, ov::element::f16);
 const auto largeDynamicCasesHWFP16 = genActLessParamsDyn(activationDynamicTypesLarge, dynamicLarge, ov::element::f16);
+const auto largeDynamicCasesHCFP16 = genActLessParamsDyn(activationDynamicTypesLarge, dynamicLargeHC, ov::element::f16);
 
 const auto basicClampI32 = genActLessParams(
         std::map<ActivationTypes, std::vector<std::vector<float>>>{{Clamp, {{-1.0f, 1.0f}}}},
@@ -386,9 +378,19 @@ const auto basicReluSignInteger = ::testing::Combine(
         ::testing::Values(test_utils::TARGET_DEVICE));
 
 const std::map<ActivationTypes, std::vector<std::vector<float>>> absActivationTypes = {{Abs, {{1.0f}}}};
-const std::vector<ov::element::Type> absIntegerElementTypes = {ov::element::i8, ov::element::i16, ov::element::i32};
+const std::vector<ov::element::Type> absIntegerElementTypes = {ov::element::i8, ov::element::i16, ov::element::i32,
+                                                               ov::element::i64};
 const auto basicAbsInteger = ::testing::Combine(
         ::testing::ValuesIn(::combineParams(absActivationTypes)), ::testing::ValuesIn(absIntegerElementTypes),
+        ::testing::ValuesIn(staticShapesParamTransform(ov::test::utils::combineParams(
+                std::map<std::vector<ov::Shape>, std::vector<ov::Shape>>({{{{1, 16, 48, 1}}, {}}})))),
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+const std::map<ActivationTypes, std::vector<std::vector<float>>> negativeActivationTypes = {{Negative, {{1.0f}}}};
+// i8/i16 excluded: OV Template Interpreter lacks evaluate() for v0::Negative on these types
+const std::vector<ov::element::Type> negativeIntegerElementTypes = {ov::element::i32, ov::element::i64};
+const auto basicNegativeInteger = ::testing::Combine(
+        ::testing::ValuesIn(::combineParams(negativeActivationTypes)), ::testing::ValuesIn(negativeIntegerElementTypes),
         ::testing::ValuesIn(staticShapesParamTransform(ov::test::utils::combineParams(
                 std::map<std::vector<ov::Shape>, std::vector<ov::Shape>>({{{{1, 16, 48, 1}}, {}}})))),
         ::testing::Values(test_utils::TARGET_DEVICE));
@@ -412,6 +414,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Act_tiling_Sw, ActivationLayerTest_SW_FP, basicTi
 INSTANTIATE_TEST_SUITE_P(precommit_Act_Floor_Integer, ActivationLayerTest_SW_FP, basicFloorInteger,
                          ActivationLayerTest::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(precommit_Act_ReluSign_Integer, ActivationLayerTest_SW_FP, basicReluSignInteger,
+                         ActivationLayerTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(precommit_Act_Negative_Integer, ActivationLayerTest_SW_FP, basicNegativeInteger,
                          ActivationLayerTest::getTestCaseName);
 
 // ------ NPU HW ------
@@ -444,6 +448,10 @@ INSTANTIATE_TEST_SUITE_P(precommit_Act_Dynamic, DynamicActivationLayerTest_SW_FP
 INSTANTIATE_TEST_SUITE_P(smoke_Act_Dynamic, DynamicActivationLayerTest_HW_FP16, basicDynamicCasesHWFP16,
                          ActivationLayerTest::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_Act_Large_Dynamic, DynamicActivationLayerTest_HW_FP16, largeDynamicCasesHWFP16,
+                         ActivationLayerTest::getTestCaseName);
+
+// ------ [DYNAMIC][HostCompile] NPU FP16 ------
+INSTANTIATE_TEST_SUITE_P(smoke_Act_Large_Dynamic_HC, DynamicActivationLayerTest_HC_FP16, largeDynamicCasesHCFP16,
                          ActivationLayerTest::getTestCaseName);
 
 // Verify Log on fp16 does not produce NaN when input is in the subnormal range
@@ -485,22 +493,16 @@ class LogSubnormalLayerTest : public ActivationLayerTestCommon {
     }
 };
 
-TEST_P(LogSubnormalLayerTest, NPU3720) {
-    setReferenceSoftwareMode();
-    run(Platform::NPU3720);
-}
-TEST_P(LogSubnormalLayerTest, NPU4000) {
-    setReferenceSoftwareMode();
-    run(Platform::NPU4000);
-}
-TEST_P(LogSubnormalLayerTest, NPU5010) {
-    setReferenceSoftwareMode();
-    run(Platform::NPU5010);
-}
-TEST_P(LogSubnormalLayerTest, NPU5020) {
-    setReferenceSoftwareMode();
-    run(Platform::NPU5020);
-}
+#define DEFINE_LOG_SUBNORMAL_TESTS(PLATFORM)  \
+    TEST_P(LogSubnormalLayerTest, PLATFORM) { \
+        setReferenceSoftwareMode();           \
+        run(Platform::PLATFORM);              \
+    }
+
+DEFINE_LOG_SUBNORMAL_TESTS(NPU3720)
+DEFINE_LOG_SUBNORMAL_TESTS(NPU4000)
+DEFINE_LOG_SUBNORMAL_TESTS(NPU5010)
+DEFINE_LOG_SUBNORMAL_TESTS(NPU5020)
 
 const auto logSubnormalCases = ::testing::Combine(
         ::testing::Values(std::pair<ActivationTypes, std::vector<float>>{Log, {1.0f}}),
@@ -550,7 +552,6 @@ const std::map<ActivationTypes, std::vector<std::vector<float>>> scfTilingActiva
         {Elu, {{1.0f}}},
         {HSwish, {{1.0f}}},
         {HardSigmoid, {{0.2f, 0.5f}}},
-        {HSigmoid, {{1.0f}}},
         {LeakyRelu, {{0.01f}}},
         {Selu, {{1.6732f, 1.0507f}}},
 };

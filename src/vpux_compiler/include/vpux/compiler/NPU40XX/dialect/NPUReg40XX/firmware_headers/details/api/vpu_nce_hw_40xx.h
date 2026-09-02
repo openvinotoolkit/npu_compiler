@@ -559,17 +559,6 @@ enum class VpuHWPStatMode : uint8_t {
     INVALID_MODE = 04
 };
 
-enum class VpuActWLType : uint8_t {
-    WL_KERNEL = 0x00,
-    WL_DXIL_KERNEL,
-    WL_DEBUG = 0x04,
-    WL_CACHE_OP_FLUSH,
-    WL_CACHE_OP_INVALIDATE,
-    WL_CACHE_OP_FLUSHINV,
-    WL_CACHE_OP_PREFETCH,
-    WL_UNKNOWN
-};
-
 // NCE_DPU_TENSOR_MODE wmode&amode - IDU types for activation&weights
 enum class VpuInputTensorDType : uint8_t {
     FP16 = 0x0,

@@ -26,7 +26,7 @@ func.func @inplaceFp16Eltwise (%arg0: tensor<1x256x56x56xf16, {order = #NHWC}>,
         strides = [1, 1]
     } -> tensor<1x256x56x56xf16, {order = #NHWC}>
 
-    %2 = VPU.NCE.Eltwise(%0, %1) {
+    %2 = VPU.NCE.Eltwise(%0, %1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
     } -> tensor<1x256x56x56xf16, {order = #NHWC}>
@@ -68,7 +68,7 @@ func.func @inplaceQuantEltwise (%arg0: tensor<1x256x56x56x!qElemType, {order = #
         strides = [1, 1]
     } -> tensor<1x256x56x56x!qElemType1, {order = #NHWC}>
 
-    %2 = VPU.NCE.Eltwise(%0, %1) {
+    %2 = VPU.NCE.Eltwise(%0, %1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
     } -> tensor<1x256x56x56x!qElemType2, {order = #NHWC}>
@@ -94,7 +94,7 @@ func.func @fp16EltwiseBlockArg (%arg0: tensor<1x256x56x56xf16, {order = #NHWC}>,
                            %arg1: tensor<1x256x56x56xf16, {order = #NHWC}>)
                            -> tensor<1x256x56x56xf16, {order = #NHWC}> {
 
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
     } -> tensor<1x256x56x56xf16, {order = #NHWC}>
@@ -132,7 +132,7 @@ func.func @Fp16EltwiseFitIntoCMX (%arg0: tensor<1x16x56x56xf16, {order = #NHWC}>
         strides = [1, 1]
     } -> tensor<1x16x56x56xf16, {order = #NHWC}>
 
-    %2 = VPU.NCE.Eltwise(%0, %1) {
+    %2 = VPU.NCE.Eltwise(%0, %1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
     } -> tensor<1x16x56x56xf16, {order = #NHWC}>
@@ -171,7 +171,7 @@ func.func @Fp16EltwiseDiffLayout (%arg0: tensor<1x16x56x56xf16, {order = #NHWC}>
         strides = [1, 1]
     } -> tensor<1x16x56x56xf16, {order = #NHWC}>
 
-    %2 = VPU.NCE.Eltwise(%0, %1) {
+    %2 = VPU.NCE.Eltwise(%0, %1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
     } -> tensor<1x16x56x56xf16, {order = #NCHW}>

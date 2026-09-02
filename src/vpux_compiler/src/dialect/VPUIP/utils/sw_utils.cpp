@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/Shave/IR/ops/meta-ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/tiling_info.hpp"
+#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -212,6 +213,37 @@ void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log) {
     //  adding runtime kernel configuration - stacks, etc
     auto moduleBuilder = mlir::OpBuilder::atBlockBegin(module.getBody(), &builderLog);
     moduleBuilder.create<VPURT::SWRunTimeOp>(mlir::UnknownLoc::get(ctx), runtimeSym, getIntArrayAttr(ctx, stacksArray));
+}
+
+void createPrefetchKernelDefinition(mlir::ModuleOp moduleOp, const Logger& log) {
+    auto vpuswModule = vpux::VPUIP::getVPUSWModule(moduleOp, log);
+    auto* ctx = moduleOp.getContext();
+
+    const std::string functionName = "cache_prefetch";
+    auto prebuiltFunction = vpuswModule.lookupSymbol<mlir::func::FuncOp>(functionName);
+    if (prebuiltFunction) {
+        return;
+    }
+
+    OpBuilderLogger builderLog(log.nest());
+    auto innerModuleBuilder = mlir::OpBuilder::atBlockBegin(vpuswModule.getBody(), &builderLog);
+
+    const auto funcType = mlir::FunctionType::get(ctx, {}, {});
+    auto newFuncOp = innerModuleBuilder.create<mlir::func::FuncOp>(mlir::UnknownLoc::get(ctx), functionName, funcType);
+
+    // modify attributes
+    newFuncOp.setSymVisibilityAttr(mlir::StringAttr::get(ctx, "nested"));
+    newFuncOp->setAttr(
+            vpuTaskTypeAttrName,
+            mlir::SymbolRefAttr::get(ctx, VPU::stringifyActShaveTaskType(VPU::ActShaveTaskType::CACHE_PREFETCH)));
+}
+
+void initSwKernelRuntime(mlir::ModuleOp moduleOp, const Logger& log) {
+    VPUIP::createRuntimeKernelDefinition(moduleOp, log);
+    auto arch = config::getArch(moduleOp);
+    if (arch != config::ArchKind::NPU40XX && arch != config::ArchKind::NPU37XX) {
+        VPUIP::createPrefetchKernelDefinition(moduleOp, log);
+    }
 }
 
 void initSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::ValueRange inputs, mlir::ValueRange outputBuffs,
@@ -450,16 +482,23 @@ bool isSwKernelUseDpu(VPUIP::SwKernelOp swKernelOp) {
     return false;
 }
 
-// Check if the given task is SHV Sync DMA
-
-// SHV Sync DMAs are special DMAs legalized for SHV submitting DMAs such that the task immediately after them is a
-// ReleaseDMA for SHV task If such release DMA doesn't exist the legalization pass ensures to create one.
-//  SHV Sync DMAs are used as insertion point for Skip DMAs for SHV
-bool isShvSyncDmaTask(VPURT::TaskOp taskOp) {
+// Returns true for the guard (skip-position) sync DMA inserted before SHV execution to ensure
+// DMA descriptors are ready in CMX. Carries LOGICAL_TASK_INDEX_ATTR_NAME but not SHV_RELEASE_DMA_ATTR_NAME.
+bool isShvGuardSyncDmaTask(VPURT::TaskOp taskOp) {
     if (auto syncDMAOp = mlir::dyn_cast<VPUIP::SyncDMAOp>(taskOp.getInnerTaskOp())) {
-        return syncDMAOp->getAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME) != nullptr;
+        return syncDMAOp->hasAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME) &&
+               !syncDMAOp->hasAttr(VPUIP::SHV_RELEASE_DMA_ATTR_NAME);
     }
+    return false;
+}
 
+// Returns true for the release sync DMA inserted after SHV execution to signal completion.
+// Carries both LOGICAL_TASK_INDEX_ATTR_NAME and SHV_RELEASE_DMA_ATTR_NAME.
+bool isShvReleaseSyncDmaTask(VPURT::TaskOp taskOp) {
+    if (auto syncDMAOp = mlir::dyn_cast<VPUIP::SyncDMAOp>(taskOp.getInnerTaskOp())) {
+        return syncDMAOp->hasAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME) &&
+               syncDMAOp->hasAttr(VPUIP::SHV_RELEASE_DMA_ATTR_NAME);
+    }
     return false;
 }
 
@@ -671,15 +710,15 @@ InputTiling backInferInterpolateSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, 
     const auto inputs = swKernelOp.getInputs();
     auto inOrder = mlir::dyn_cast<vpux::NDTypeInterface>(inputs[0].getType()).getDimsOrder();
 
-    std::optional<SmallVector<int64_t>> coordinatesShape;
-    std::optional<SmallVector<int64_t>> lambdasShape;
+    std::optional<ArrayRef<int64_t>> coordinatesShape;
+    std::optional<ArrayRef<int64_t>> lambdasShape;
     if (inputs.size() >= 2) {
         const auto coordinates = inputs[1];
-        coordinatesShape = to_small_vector(getShape(coordinates));
+        coordinatesShape = getShape(coordinates).raw();
     }
     if (inputs.size() >= 3) {
         const auto lambdas = inputs[2];
-        lambdasShape = to_small_vector(getShape(lambdas));
+        lambdasShape = getShape(lambdas).raw();
     }
 
     const auto interpolateMode = static_cast<IE::InterpolateMode>(mlir::dyn_cast<mlir::IntegerAttr>(attrs[1]).getInt());
@@ -691,16 +730,16 @@ InputTiling backInferInterpolateSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, 
     const auto initialInputOffset = reverseIntArrayAttr(inOrder, mlir::dyn_cast<mlir::ArrayAttr>(attrs[10]));
     const auto initialOutputOffset = reverseIntArrayAttr(inOrder, mlir::dyn_cast<mlir::ArrayAttr>(attrs[11]));
 
-    // Extract scalingAxis (attrs[8]), calcMode (attrs[12]) and originalScales (attrs[13])
+    // Extract scalingAxis (attrs[8]), useScaleAttr marker (attrs[12]) and originalScales (attrs[13])
     const auto scalingAxis = parseIntArrayAttr<int64_t>(mlir::dyn_cast<mlir::ArrayAttr>(attrs[8]));
-    const auto calcMode = static_cast<IE::InterpolateCalcMode>(mlir::dyn_cast<mlir::IntegerAttr>(attrs[12]).getInt());
+    const bool useScaleAttr = mlir::dyn_cast<mlir::IntegerAttr>(attrs[12]).getInt() != 0;
     const auto originalScalesArr = parseFPArrayAttr<double>(mlir::dyn_cast<mlir::ArrayAttr>(attrs[13]));
 
     const auto currentInputDims = to_small_vector(getShape(inputs[0]));
 
     return vpux::backInferInterpolateTile(outputTile, initialInputDims, initialOutputDims, initialInputOffset,
                                           initialOutputOffset, currentInputDims, coordinatesShape, lambdasShape,
-                                          interpolateMode, coordMode, nearestMode, calcMode, originalScalesArr,
+                                          interpolateMode, coordMode, nearestMode, useScaleAttr, originalScalesArr,
                                           scalingAxis, log);
 }
 
@@ -779,10 +818,11 @@ InputTiling backInferGatherNDSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, con
     const auto origInputShape = getShape(inputs[0]);
     const auto origIndicesShape = getShape(inputs[1]);
     const auto batchDims = mlir::cast<mlir::IntegerAttr>(attrs[0]).getValue().getSExtValue();
+    const auto originalShapeAttr =
+            vpux::extractOriginalShapeAttrFromGatherNDSwOp(mlir::cast<mlir::ArrayAttr>(attrs[1]));
 
     const auto originalShapeAttrVal =
-            vpux::extractOriginalShapeAttrFromGatherNDSwOp(mlir::cast<mlir::ArrayAttr>(attrs[1]))
-                    .value_or(Shape(origInputShape));
+            originalShapeAttr.has_value() ? ShapeRef(originalShapeAttr.value()) : origInputShape;
 
     return vpux::backInferGatherNDTile(outputTile, origInputShape, origIndicesShape, batchDims, originalShapeAttrVal,
                                        log);
@@ -1067,7 +1107,24 @@ InputTiling backInferAttentionSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, co
     if (hasSink) {
         const auto sinkIndex = attentionMaskIndex + hasAttentionMask + hasScale;
         TileInfo sinkTile(getShape(swKernelOp->getOperand(sinkIndex)));
-        adjustAttentionAuxiliaryBroadcastTile(sinkTile, inTiles.tiles[0]);
+        // Sink packs heads on C; Q/output split them as N×C
+        // Account for N tiling: flatHead = N * headsPerGroup + C
+        const auto& qTile = inTiles.tiles[0];
+        // A per-position sink carries one logit per query row (H == L) and must follow H tiling.
+        // A per-head sink keeps H == 1 and stays broadcast across query positions.
+        if (sinkTile.shape[Dims4D::Act::H] != 1) {
+            sinkTile.shape[Dims4D::Act::H] = qTile.shape[Dims4D::Act::H];
+            sinkTile.offsets[Dims4D::Act::H] = qTile.offsets[Dims4D::Act::H];
+        }
+        const auto headsPerGroup = getShape(inputs[0])[Dims4D::Act::C];
+        // A tile spanning multiple batches (N) together with a partial head group (C) maps to a
+        // non-contiguous set of flattened sink heads, which a single contiguous slice cannot express.
+        VPUX_THROW_UNLESS(qTile.shape[Dims4D::Act::N] == 1 || qTile.shape[Dims4D::Act::C] == headsPerGroup,
+                          "Unsupported sink tiling: tile covers multiple batches and a partial head group, mapping "
+                          "to non-contiguous flattened sink heads");
+        sinkTile.offsets[Dims4D::Act::C] =
+                qTile.offsets[Dims4D::Act::N] * headsPerGroup + qTile.offsets[Dims4D::Act::C];
+        sinkTile.shape[Dims4D::Act::C] = qTile.shape[Dims4D::Act::N] * qTile.shape[Dims4D::Act::C];
         inTiles.tiles.push_back(sinkTile);
     }
 
@@ -1089,6 +1146,16 @@ InputTiling backInferAttentionSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, co
     inTiles.tiles.push_back(dpuStorageTile);
 
     return inTiles;
+}
+
+InputTiling backInferGatedDeltaNetSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const vpux::TileInfo& /*outputTile*/,
+                                                    Logger log) {
+    log.trace("Back infer input tiling for gated_delta_net (full inputs)");
+    SmallVector<TileInfo> tiles;
+    for (auto input : swKernelOp.getInputs()) {
+        tiles.push_back(TileInfo(getShape(input)));
+    }
+    return TilingInfo{tiles};
 }
 
 InputTiling backInferDepthToSpaceSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const vpux::TileInfo& outputTile,
@@ -1496,6 +1563,53 @@ InputTiling backInferTopKSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const v
             topKBufferTile.offsets[Dims4D::Act::W] = topKBufferShape[Dims4D::Act::W] / 2;
         }
         inputTiles.push_back(topKBufferTile);
+    }
+
+    return TilingInfo{inputTiles};
+}
+
+// ScatterElementsUpdate operands have a three-role axis structure relative to the output:
+//   1. the tiled dim - the single dim whose tile extent is smaller than the full output;
+//      every operand follows the output tile here;
+//   2. the scatter axis - never tiled (guaranteed by isScatterElementsUpdateAxis);
+//   3. all other (passthrough) dims.
+// The indices/updates operands are independently sized on every NON-tiled axis (both the
+// scatter axis AND the passthrough dims) - their extent is generally smaller than the
+// output's. Therefore each operand must use its OWN full extent (offset 0) on every dim
+// except the tiled dim; only the tiled dim mirrors the output tile. Copying the output
+// extent onto a passthrough dim would build an over-sized tile whose strides no longer
+// match the operand buffer and crash MemRefType verification.
+InputTiling backInferScatterElementsUpdateSwKernelInputTile(VPUIP::SwKernelOp swKernelOp,
+                                                            const vpux::TileInfo& outputTile, Logger) {
+    auto swKernelRuns = swKernelOp.getBody().getOps<VPUIP::SwKernelRun>();
+    VPUX_THROW_UNLESS(std::distance(swKernelRuns.begin(), swKernelRuns.end()) == 1,
+                      "SwKernelOp has already been tiled at '{0}'", swKernelOp);
+
+    // The tiled dim is the single dim where the output tile differs from the full output
+    // shape; act-shave tiling splits on exactly one dim. Deriving it from the tile avoids a
+    // dependency on the pass-local getSwKernelTileDim while staying equivalent to it.
+    const auto outputShape = getShape(swKernelOp.getResult(0));
+    VPUX_THROW_UNLESS(outputShape.size() == outputTile.shape.size(),
+                      "Mismatched output rank for SwKernel operation '{0}' at '{1}'", swKernelOp->getName(),
+                      swKernelOp->getLoc());
+
+    SmallVector<TileInfo> inputTiles;
+    for (const auto& input : swKernelOp.getInputs()) {
+        const auto inShape = getShape(input);
+        VPUX_THROW_UNLESS(inShape.size() == outputTile.shape.size(),
+                          "Can't tile SwKernel operation '{0}' at '{1}', which has operands with different rank",
+                          swKernelOp->getName(), swKernelOp->getLoc());
+
+        auto curTile = outputTile;
+        for (auto ind : irange(inShape.size())) {
+            const auto d = Dim(ind);
+            // Non-tiled dim: use the operand's own full extent. Tiled dim: keep the output tile.
+            if (outputTile.shape[d] == outputShape[d]) {
+                curTile.shape[d] = inShape[d];
+                curTile.offsets[d] = 0;
+            }
+        }
+        inputTiles.push_back(curTile);
     }
 
     return TilingInfo{inputTiles};
@@ -2115,6 +2229,8 @@ InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const Small
         return backInferDeformableConvolutionSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "gather_elements") {
         return backInferGatherElementsSwKernelInputTile(swKernelOp, outputTile, log);
+    } else if (kernelEntryName == "scatter_elements_update") {
+        return backInferScatterElementsUpdateSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "rms_norm") {
         return backInferRMSSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "rope" || kernelEntryName == "rope_ilv" || kernelEntryName == "rope_pairwise" ||
@@ -2124,6 +2240,8 @@ InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const Small
         return backInferSDPASwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "attention") {
         return backInferAttentionSwKernelInputTile(swKernelOp, outputTile, log);
+    } else if (kernelEntryName == "gated_delta_net") {
+        return backInferGatedDeltaNetSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "pad") {
         return backInferPadSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "mvn1_sum") {
@@ -2306,11 +2424,12 @@ SmallVector<vpux::NDTypeInterface> getSwKernelTiledTypes(VPUIP::SwKernelOp swKer
 
         tiledTypes.push_back(outputType);
         return tiledTypes;
-    } else if (kernelEntryName == "eltwise_mul" || kernelEntryName == "eltwise_power" ||
-               kernelEntryName == "eltwise_div" || kernelEntryName == "prelu_fp16" ||
-               kernelEntryName == "eltwise_greater" || kernelEntryName == "eltwise_less" ||
-               kernelEntryName == "eltwise_sub" || kernelEntryName == "eltwise_add" ||
-               kernelEntryName == "eltwise_squared_difference" || kernelEntryName == "eltwise_select" ||
+    } else if (kernelEntryName == "eltwise_mul" || kernelEntryName == "eltwise_mul_quantized_output" ||
+               kernelEntryName == "eltwise_power" || kernelEntryName == "eltwise_div" ||
+               kernelEntryName == "prelu_fp16" || kernelEntryName == "eltwise_greater" ||
+               kernelEntryName == "eltwise_less" || kernelEntryName == "eltwise_sub" ||
+               kernelEntryName == "eltwise_add" || kernelEntryName == "eltwise_squared_difference" ||
+               kernelEntryName == "eltwise_select" || kernelEntryName == "eltwise_logical_or" ||
                kernelEntryName == "eltwise_bitwise_or" || kernelEntryName == "eltwise_bitwise_and" ||
                kernelEntryName == "eltwise_bitwise_not" || kernelEntryName == "eltwise_bitwise_xor" ||
                kernelEntryName == "eltwise_bitwise_right_shift" || kernelEntryName == "eltwise_bitwise_left_shift") {
@@ -2375,6 +2494,23 @@ SmallVector<vpux::NDTypeInterface> getSwKernelTiledTypes(VPUIP::SwKernelOp swKer
         }
 
         tiledTypes.push_back(outputType);
+        return tiledTypes;
+    } else if (kernelEntryName == "rms_norm" && swKernelOp->hasAttr(VF_LOOP_INDEX_ATTR_NAME)) {
+        // Only take this specialized path for RMS kernels that belong to a Vertical Fusion region.
+        // Excluding the broadcast gamma from the tiled types lets needInsertSubviewOnly() treat the
+        // remaining input/output as memory-contiguous and pick the subview-only tiling, which optimizes
+        // the VF case. For non-VF RMS kernels the same path triggers an unexplained CI regression that
+        // disappears when profiling is enabled, so they fall through to the default all-tiled handling.
+        // Ticket: E#227030
+        SmallVector<vpux::NDTypeInterface> tiledTypes;
+        // input gamma broadcast on 'tileDim' is not tiled
+        for (auto input : swKernelOp->getOperands()) {
+            const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+            if (inputType.getShape()[tileDim] != 1) {
+                tiledTypes.push_back(inputType);
+            }
+        }
+        tiledTypes.push_back(mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType()));
         return tiledTypes;
     } else {
         // By default, all inputs and outputs will be tiled

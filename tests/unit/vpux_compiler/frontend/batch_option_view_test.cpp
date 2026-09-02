@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2025 Intel Corporation
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -10,8 +10,6 @@
 
 #include "common/utils.hpp"
 #include "frontend/utils.hpp"
-#include "intel_npu/config/options.hpp"
-#include "intel_npu/npu_private_properties.hpp"
 #include "vpux/compiler/frontend/ov_batch_detection.hpp"
 #include "vpux/compiler/utils/batch.hpp"
 

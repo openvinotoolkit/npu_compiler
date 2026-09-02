@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -83,6 +84,11 @@ mlir::LogicalResult DynamicDequantizeConverter::matchAndRewrite(IE::DynamicDequa
                                                          mlir::TypeAttr::get(cvtElemType));
     auto newDynamicDequantizeOp = rewriter.create<IE::DynamicDequantizeOp>(origOp->getLoc(), origOp.getInput(),
                                                                            scaleCvt, origOp.getZp(), cvtElemType);
+    if (origOp->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
+        newDynamicDequantizeOp->setAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR,
+                                        origOp->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR));
+    }
+
     const auto outputCvtToOrig = rewriter.createOrFold<IE::ConvertOp>(
             takeOpLoc(origOp, "outCvt"), newDynamicDequantizeOp.getOutput(), mlir::TypeAttr::get(origElemType));
     rewriter.replaceOp(origOp, outputCvtToOrig);

@@ -45,7 +45,6 @@ public:
         const std::string sep = "_";
         std::ostringstream result;
 
-        obj.param;
         result << "TestKind" << ov::test::utils::testKind(__FILE__) << sep;
         result << "TestIdx=" << obj.index << sep;
 

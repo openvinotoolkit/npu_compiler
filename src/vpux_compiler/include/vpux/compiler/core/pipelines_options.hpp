@@ -70,12 +70,33 @@ public:
         return _batchCompileAdapter;
     }
 
+    // Compiler infrastructure options applied before pipeline construction. Start.
+
     BoolOption enableVerifiers{*this, "enable-verifiers", llvm::cl::desc("Enable verifiers execution after each pass"),
                                llvm::cl::init(isDeveloperBuild())};
 
     BoolOption enableMemoryUsageCollector{*this, "enable-memory-usage-collector",
                                           llvm::cl::desc("Enable peak memory usage instrumentation after each pass"),
                                           llvm::cl::init(isDeveloperBuild())};
+    StrOption compilerProfilerTool{*this, "compiler-profiler-tool",
+                                   llvm::cl::desc("Select the compiler profiler tool to use. Example: "
+                                                  "compiler-profiler-tool='mlir-profiler=path=./dump.json'"),
+                                   llvm::cl::init("")};
+
+    BoolOption enableDecomposeSDPA{*this, "enable-decompose-sdpa",
+                                   llvm::cl::desc("Enable ngraph passes decomposing SDPA like ops"),
+                                   llvm::cl::init(true)};
+
+    BoolOption enableDummyOpReplacement{*this, "dummy-op-replacement",
+                                        llvm::cl::desc("Replace unsupported SW Kernel ops with Dummy ones"),
+                                        llvm::cl::init(false)};
+
+    BoolOption enableProfiling{*this, "profiling", llvm::cl::desc("Enable profiling"), llvm::cl::init(false)};
+
+    BoolOption enablePipelinedCmdListRecording{
+            *this, "enable-pipelined-cmd-list-recording",
+            llvm::cl::desc("Enable pipelined command list recording and inference execution"),
+            llvm::cl::init(vpux::HostExec::defaultEnablePipelinedCmdListRecording)};
 
     BoolOption enableDynamicDimAlignment{
             *this, "dynamic-dim-alignment",
@@ -87,6 +108,8 @@ public:
             *this, "enable-function-statistics-instrumentation",
             llvm::cl::desc("Enable printing statistics for functions after each pass"), llvm::cl::init(false)};
 
+    // Compiler infrastructure options applied before pipeline construction. End.
+
     StrOption functionOutlining{*this, "function-outlining",
                                 llvm::cl::desc("Define a list of outlining modes and their parameters where the next "
                                                "outlining mode is the fallback mode of the previous one."
@@ -95,37 +118,6 @@ public:
 
     BoolOption enableLoopOutliner{*this, "loop-outlining", llvm::cl::desc("Apply outlining for body of Loop op"),
                                   llvm::cl::init(false)};
-
-    BoolOption enableDummyOpReplacement{*this, "dummy-op-replacement",
-                                        llvm::cl::desc("Replace unsupported SW Kernel ops with Dummy ones"),
-                                        llvm::cl::init(false)};
-
-    BoolOption constantFoldingInBackground{*this, "constant-folding-in-background",
-                                           llvm::cl::desc("Fold constants in background threads"),
-                                           llvm::cl::init(false)};
-
-    IntOption constantFoldingInBackgroundNumThreads{
-            *this, "constant-folding-in-background-num-threads",
-            llvm::cl::desc("Number of background threads to use for constant folding in background. Ignored if "
-                           "`constant-folding-in-background` is disabled."),
-            llvm::cl::init(1)};
-
-    BoolOption constantFoldingInBackgroundCollectStatistics{
-            *this, "constant-folding-in-background-collect-statistics",
-            llvm::cl::desc("Toggle for the collection of statistics when folding constants in background. Ignored if "
-                           "`constant-folding-in-background` is disabled."),
-            llvm::cl::init(false)};
-
-    IntOption constantFoldingInBackgroundMemoryUsageLimit{
-            *this, "constant-folding-in-background-memory-usage-limit",
-            llvm::cl::desc("Fold constants in background memory usage limit (in MB)"), llvm::cl::init(3 * 1024)};
-
-    DoubleOption constantFoldingInBackgroundCacheCleanThreshold{
-            *this, "constant-folding-in-background-cache-clean-threshold",
-            llvm::cl::desc("Cache will be cleaned to this threshold when reach the memory usage limit"),
-            llvm::cl::init(0.8)};
-
-    BoolOption enableProfiling{*this, "profiling", llvm::cl::desc("Enable profiling"), llvm::cl::init(false)};
 
     // This is a temporary option to enable running profiling passes along with outlining passes.
     // It will be removed after all profiling engines are updated to support outlined functions.
@@ -291,6 +283,10 @@ public:
                                   llvm::cl::desc("Enable Shave Code Generation - JIT kernels compilation"),
                                   llvm::cl::init(false)};
 
+    BoolOption enableShaveCodeGenTiling{*this, "enable-shave-code-gen-tiling",
+                                        llvm::cl::desc("Enable tiling of Shave Code Generation JIT kernels"),
+                                        llvm::cl::init(false)};
+
     BoolOption enableFuseD2SExpand{*this, "enable-fuse-d2s-expand", llvm::cl::desc("Enable Fuse D2S Expand pass"),
                                    llvm::cl::init(false)};
 
@@ -326,18 +322,24 @@ public:
                              clEnumValN(AutoUnrollingMode::BIGGEST, "biggest",
                                         "Unroll only the loop with the largest auto-assigned factor"))};
 
-    BoolOption enableDynamicQuantizationForStaticCase{*this, "enable-dynamic-quantization-for-static-case",
-                                                      llvm::cl::desc("Enable dynamic quantization for static case"),
-                                                      llvm::cl::init(false)};
+    BoolOption enableBacktrackingBeyondResidualKernel{
+            *this, "enable-backtracking-beyond-residual-kernel",
+            llvm::cl::desc("Enable tail-overlap backtracking for cascaded loop unrolling (runtime-selected stage)"),
+            llvm::cl::init(false)};
+
+    Int64Option tailOverlapBacktrackMarginPercent{
+            *this, "tail-overlap-backtrack-margin-percent",
+            llvm::cl::desc(
+                    "Allowed deficit for tail-overlap backtracking as a percentage (0..100) of one overlap tile step"),
+            llvm::cl::init(15)};
 
     StrOption disabledPasses{*this, "disabled-passes",
                              llvm::cl::desc("Regex for disabling specific passes in the compiler pipeline"),
                              llvm::cl::init("")};
 
-    BoolOption enablePipelinedCmdListRecording{
-            *this, "enable-pipelined-cmd-list-recording",
-            llvm::cl::desc("Enable pipelined command list recording and inference execution"),
-            llvm::cl::init(vpux::HostExec::defaultEnablePipelinedCmdListRecording)};
+    BoolOption constantTracing{*this, "constant-tracing",
+                               llvm::cl::desc("Flag for enabling constant tracing in the compiler pipeline"),
+                               llvm::cl::init(false)};
 
     mlir::detail::PassOptions::Option<VFMergeConfiguration> vfMergeConfiguration{
             *this, "vf-merge-configuration", ::llvm::cl::desc("Option for configuring vertical fusion merge strategy."),
@@ -356,9 +358,9 @@ public:
                                           "Allocate DDR buffer to be used as shave stack frames."),
                                clEnumValN(AllocateDDRStackFrames::DISABLED, "DISABLED", "Shave stack frames in CMX."))};
 
-    StrOption outdatedPassDetectionFile{*this, "outdated-pass-detection-file",
-                                        llvm::cl::desc("File to dump information about detecting outdated passes"),
-                                        llvm::cl::init("")};
+    BoolOption enableOutdatedPassDetection{*this, "enable-outdated-pass-detection",
+                                           llvm::cl::desc("Enable detection of outdated passes"),
+                                           llvm::cl::init(false)};
 };
 
 //
@@ -509,6 +511,17 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
                              clEnumValN(AutoUnrollingMode::ALL, "all", "Unroll all loops without anti-nesting guard"),
                              clEnumValN(AutoUnrollingMode::BIGGEST, "biggest",
                                         "Unroll only the loop with the largest auto-assigned factor"))};
+
+    BoolOption enableBacktrackingBeyondResidualKernel{
+            *this, "enable-backtracking-beyond-residual-kernel",
+            llvm::cl::desc("Enable tail-overlap backtracking for cascaded loop unrolling (runtime-selected stage)"),
+            llvm::cl::init(false)};
+
+    Int64Option tailOverlapBacktrackMarginPercent{
+            *this, "tail-overlap-backtrack-margin-percent",
+            llvm::cl::desc(
+                    "Allowed deficit for tail-overlap backtracking as a percentage (0..100) of one overlap tile step"),
+            llvm::cl::init(15)};
 
     BoolOption enableRunMVNNormalizeOnDPU{*this, "enable-run-mvn-normalize-on-dpu",
                                           llvm::cl::desc("Enable RunMVNNormalizeOnDPU pass on DPU"),

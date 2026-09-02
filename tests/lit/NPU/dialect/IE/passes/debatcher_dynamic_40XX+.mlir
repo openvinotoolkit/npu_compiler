@@ -32,6 +32,15 @@ func.func @SingleInputSingleOutputBatched(%arg: tensor<?x3x62x62xf32, {bounds = 
     // CHECK: return [[VAL3]] : tensor<?x48x60x60xf32, [[ANY_MATCH:{.+}]]>
 }
 
+net.NetworkInfo entryPoint : @SingleInputSingleOutputBatched inputsInfo : {
+    DataInfo "input0" : tensor<?x3x62x62xf32, {bounds = #const.OpaqueI64Elements<[3, 3, 62, 62]> : tensor<4xsi64>}>
+} outputsInfo : {
+    DataInfo "output" : tensor<?x48x60x60xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}>
+}
+
+// -----
+
+
 // CHECK-LABEL: @MultipleInputSingleOutputBatched
 // CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<?x3x62x62xf32, {bounds = #const.OpaqueI64Elements<[3, 3, 62, 62]> : tensor<4xsi64>}>, [[ARG_1:%[^:]+]]: tensor<?x48x60x60xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}>)
 func.func @MultipleInputSingleOutputBatched(%arg0: tensor<?x3x62x62xf32, {bounds = #const.OpaqueI64Elements<[3, 3, 62, 62]> : tensor<4xsi64>}>, %arg1: tensor<?x48x60x60xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}>) -> tensor<?x48x60x60xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}> {
@@ -63,6 +72,14 @@ func.func @MultipleInputSingleOutputBatched(%arg0: tensor<?x3x62x62xf32, {bounds
         // CHECK: return [[VAL6]] : tensor<?x48x60x60xf32, [[ANY_MATCH:{.+}]]>
 
 }
+
+net.NetworkInfo entryPoint : @MultipleInputSingleOutputBatched inputsInfo : {
+    DataInfo "input0" : tensor<?x3x62x62xf32, {bounds = #const.OpaqueI64Elements<[3, 3, 62, 62]> : tensor<4xsi64>}>
+    DataInfo "input1" : tensor<?x48x60x60xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}>
+} outputsInfo : {
+    DataInfo "output" : tensor<?x48x60x60xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}>
+}
+
 
 // -----
 
@@ -98,6 +115,15 @@ func.func @MultipleInputMultipleOutputBatched(%arg0: tensor<?x3x62x62xf32, {boun
         // CHECK: return [[VAL6]], [[VAL7]] : tensor<?x48x60x60xf32, [[ANY_MATCH:{.+}]]>, tensor<?x48x60x60xf32, [[ANY_MATCH:{.+}]]>
 }
 
+net.NetworkInfo entryPoint : @MultipleInputMultipleOutputBatched inputsInfo : {
+    DataInfo "input0" : tensor<?x3x62x62xf32, {bounds = #const.OpaqueI64Elements<[3, 3, 62, 62]> : tensor<4xsi64>}>
+    DataInfo "input1" : tensor<?x48x60x60xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}>
+} outputsInfo : {
+    DataInfo "output0" : tensor<?x48x60x60xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}>
+    DataInfo "output1" : tensor<?x48x60x60xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}>
+}
+
+
 // -----
 
 // CHECK-LABEL: @SingleInputSingleOutputDynamicReshapeOnlyBatchDynamic
@@ -131,6 +157,13 @@ func.func @SingleInputSingleOutputDynamicReshapeOnlyBatchDynamic(%arg: tensor<?x
     // CHECK: return [[VAL5]] : tensor<?x48x60x60xf32, [[ANY_MATCH:{.+}]]>
 }
 
+net.NetworkInfo entryPoint : @SingleInputSingleOutputDynamicReshapeOnlyBatchDynamic inputsInfo : {
+    DataInfo "input0" : tensor<?x3x62x62xf32, {bounds = #const.OpaqueI64Elements<[3, 3, 62, 62]> : tensor<4xsi64>}>
+} outputsInfo : {
+    DataInfo "output" : tensor<?x48x60x60xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}>
+}
+
+
 // -----
 
 // CHECK-LABEL: @SingleInputSingleOutputDynamicReshapeMultiDynamicDims
@@ -162,4 +195,10 @@ func.func @SingleInputSingleOutputDynamicReshapeMultiDynamicDims(%arg: tensor<?x
     // CHECK: [[VAL4:%.+]] = IE.SoftMax([[VAL3]]) {axisInd = 3 : i64} : tensor<1x48x?x?xf32, [[ANY_MATCH:{.+}]]> -> tensor<1x48x?x?xf32, [[ANY_MATCH:{.+}]]>
     // CHECK: [[VAL5:%.+]] = builtin.unrealized_conversion_cast [[VAL4]] : tensor<1x48x?x?xf32, [[ANY_MATCH:{.+}]]> to tensor<?x48x?x?xf32, [[ANY_MATCH:{.+}]]>
     // CHECK: return [[VAL5]] : tensor<?x48x?x?xf32, [[ANY_MATCH:{.+}]]>
+}
+
+net.NetworkInfo entryPoint : @SingleInputSingleOutputDynamicReshapeMultiDynamicDims inputsInfo : {
+    DataInfo "input0" : tensor<?x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 3, 62, 62]> : tensor<4xsi64>}>
+} outputsInfo : {
+    DataInfo "output" : tensor<?x48x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 48, 60, 60]> : tensor<4xsi64>}>
 }

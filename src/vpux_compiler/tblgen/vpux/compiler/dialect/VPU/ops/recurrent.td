@@ -117,7 +117,7 @@ def VPU_GRUSequenceOp :
         VPU_LayerOp<
             "GRUSequence",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMainOutputTile"]>
             ]
         > {
     let summary = "GRUSequence VPU layer";
@@ -174,7 +174,7 @@ def VPU_GRUSequenceLastPartOp :
         VPU_LayerOp<
             "GRUSequenceLastPart",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMainOutputTile"]>
             ]
         > {
     let summary = "GRUSequenceLastPart VPU layer";
@@ -239,7 +239,7 @@ def VPU_LSTMGatesOp :
         VPU_LayerOp<
             "LSTMGates",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles"]>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles", "getMainOutputTile"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>

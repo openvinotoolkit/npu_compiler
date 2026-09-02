@@ -527,3 +527,64 @@ func.func @NotDecomposePatternIfNotPerChannelZP(%act : tensor<1x1x4xf32>, %weigh
   // CHECK: return [[RESHAPE_3]]
 }
 
+// -----
+
+// WAI decode pattern with Transpose in the weight chain:
+//   Convert(ui2→f32) → Subtract(shift) → Multiply(scale) → Transpose → AffineReshape → FullyConnected.
+
+// CHECK: #HCW = affine_map<(d0, d1, d2) -> (d1, d0, d2)>
+
+// CHECK-LABEL: @DecomposeWAIKVcachedU2DynamicScaleTransposePattern
+// CHECK-SAME:  ([[ACT:%.+]]: tensor<1x16xf32>, [[WEIGHTS:%.+]]: tensor<2x4x8xui2>, [[SCALE:%.+]]: tensor<2x4x1xf32>, [[SHIFT:%.+]]: tensor<2x4x1xui2>)
+func.func @DecomposeWAIKVcachedU2DynamicScaleTransposePattern(%act: tensor<1x16xf32>, %weights: tensor<2x4x8xui2>, %scale: tensor<2x4x1xf32>, %shift: tensor<2x4x1xui2>) -> tensor<1x4xf32> {
+  %0 = IE.Convert(%weights) {dstElemType = f32} : tensor<2x4x8xui2> -> tensor<2x4x8xf32>
+  %1 = IE.Convert(%shift) {dstElemType = f32} : tensor<2x4x1xui2> -> tensor<2x4x1xf32>
+  %2 = IE.Subtract(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x4x8xf32>, tensor<2x4x1xf32> -> tensor<2x4x8xf32>
+  %3 = IE.Multiply(%2, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x4x8xf32>, tensor<2x4x1xf32> -> tensor<2x4x8xf32>
+  %4 = IE.Transpose(%3) {order_value = affine_map<(d0, d1, d2) -> (d1, d0, d2)>} : tensor<2x4x8xf32> -> tensor<4x2x8xf32>
+  %5 = IE.AffineReshape(%4) {dim_mapping = [[0], [1], [1]], shape_value = [4, 16]} : tensor<4x2x8xf32> -> tensor<4x16xf32>
+  %6 = IE.FullyConnected(%act, %5) : tensor<1x16xf32>, tensor<4x16xf32> -> tensor<1x4xf32>
+  return %6 : tensor<1x4xf32>
+
+  // CHECK: [[CONVERT_1:%.+]] = IE.Convert([[WEIGHTS]]) {dstElemType = f32} : tensor<2x4x8xui2> -> tensor<2x4x8xf32>
+  // CHECK: [[MULTIPLY_1:%.+]] = IE.Multiply([[CONVERT_1]], [[SCALE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x4x8xf32>, tensor<2x4x1xf32> -> tensor<2x4x8xf32>
+  // CHECK: [[CONVERT_2:%.+]] = IE.Convert([[SHIFT]]) {dstElemType = f32} : tensor<2x4x1xui2> -> tensor<2x4x1xf32>
+  // CHECK: [[TRANSPOSE_1:%.+]] = IE.Transpose([[MULTIPLY_1]]) {order_value = #HCW} : tensor<2x4x8xf32> -> tensor<4x2x8xf32>
+  // CHECK: [[RESHAPE_1:%.+]] = IE.AffineReshape([[TRANSPOSE_1]]) {{.*}} shape_value = [4, 16]{{.*}} : tensor<4x2x8xf32> -> tensor<4x16xf32>
+  // CHECK: [[FC_1:%.+]] = IE.FullyConnected([[ACT]], [[RESHAPE_1]]) : tensor<1x16xf32>, tensor<4x16xf32> -> tensor<1x4xf32>
+  // CHECK: [[RESHAPE_2:%.+]] = IE.Reshape([[ACT]]) {shape_value = [1, 2, 8]} : tensor<1x16xf32> -> tensor<1x2x8xf32>
+  // CHECK: [[REDUCE_SUM:%.+]] = IE.ReduceSum([[RESHAPE_2]]) {axes_value = [2]} : tensor<1x2x8xf32> -> tensor<1x2xf32>
+  // CHECK: [[MULTIPLY_2:%.+]] = IE.Multiply([[SCALE]], [[CONVERT_2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x4x1xf32>, tensor<2x4x1xf32> -> tensor<2x4x1xf32>
+  // CHECK: [[TRANSPOSE_2:%.+]] = IE.Transpose([[MULTIPLY_2]]) {order_value = #HCW} : tensor<2x4x1xf32> -> tensor<4x2x1xf32>
+  // CHECK: [[RESHAPE_3:%.+]] = IE.Reshape([[TRANSPOSE_2]]) {shape_value = [4, 2]} : tensor<4x2x1xf32> -> tensor<4x2xf32>
+  // CHECK: [[FC_2:%.+]] = IE.FullyConnected([[REDUCE_SUM]], [[RESHAPE_3]]) : tensor<1x2xf32>, tensor<4x2xf32> -> tensor<1x4xf32>
+  // CHECK: [[SUBTRACT:%.+]] = IE.Subtract([[FC_1]], [[FC_2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4xf32>, tensor<1x4xf32> -> tensor<1x4xf32>
+  // CHECK: return [[SUBTRACT]]
+}
+
+// -----
+
+// Prefill variant of the WAI Transpose pattern: seq_len > 1 causes isKVcachedPattern() to
+// return false, so the u2 decomposition is skipped.
+
+// CHECK-LABEL: @NotDecomposeU2WAITransposePrefillPattern
+// CHECK-SAME:  ([[ACT:%.+]]: tensor<4x16xf32>, [[WEIGHTS:%.+]]: tensor<2x4x8xui2>, [[SCALE:%.+]]: tensor<2x4x1xf32>, [[SHIFT:%.+]]: tensor<2x4x1xui2>)
+func.func @NotDecomposeU2WAITransposePrefillPattern(%act: tensor<4x16xf32>, %weights: tensor<2x4x8xui2>, %scale: tensor<2x4x1xf32>, %shift: tensor<2x4x1xui2>) -> tensor<4x4xf32> {
+  %0 = IE.Convert(%weights) {dstElemType = f32} : tensor<2x4x8xui2> -> tensor<2x4x8xf32>
+  %1 = IE.Convert(%shift) {dstElemType = f32} : tensor<2x4x1xui2> -> tensor<2x4x1xf32>
+  %2 = IE.Subtract(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x4x8xf32>, tensor<2x4x1xf32> -> tensor<2x4x8xf32>
+  %3 = IE.Multiply(%2, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x4x8xf32>, tensor<2x4x1xf32> -> tensor<2x4x8xf32>
+  %4 = IE.Transpose(%3) {order_value = affine_map<(d0, d1, d2) -> (d1, d0, d2)>} : tensor<2x4x8xf32> -> tensor<4x2x8xf32>
+  %5 = IE.AffineReshape(%4) {dim_mapping = [[0], [1], [1]], shape_value = [4, 16]} : tensor<4x2x8xf32> -> tensor<4x16xf32>
+  %6 = IE.FullyConnected(%act, %5) : tensor<4x16xf32>, tensor<4x16xf32> -> tensor<4x4xf32>
+  return %6 : tensor<4x4xf32>
+
+  // CHECK: [[CONVERT_1:%.+]] = IE.Convert([[WEIGHTS]]) {dstElemType = f32} : tensor<2x4x8xui2> -> tensor<2x4x8xf32>
+  // CHECK: [[CONVERT_2:%.+]] = IE.Convert([[SHIFT]]) {dstElemType = f32} : tensor<2x4x1xui2> -> tensor<2x4x1xf32>
+  // CHECK: [[SUBTRACT:%.+]] = IE.Subtract([[CONVERT_1]], [[CONVERT_2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x4x8xf32>, tensor<2x4x1xf32> -> tensor<2x4x8xf32>
+  // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[SUBTRACT]], [[SCALE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x4x8xf32>, tensor<2x4x1xf32> -> tensor<2x4x8xf32>
+  // CHECK: [[TRANSPOSE:%.+]] = IE.Transpose([[MULTIPLY]]) {{.*}} : tensor<2x4x8xf32> -> tensor<4x2x8xf32>
+  // CHECK: [[RESHAPE:%.+]] = IE.AffineReshape([[TRANSPOSE]]) {{.*}} shape_value = [4, 16]{{.*}} : tensor<4x2x8xf32> -> tensor<4x16xf32>
+  // CHECK: [[FC:%.+]] = IE.FullyConnected([[ACT]], [[RESHAPE]]) : tensor<4x16xf32>, tensor<4x16xf32> -> tensor<4x4xf32>
+  // CHECK: return [[FC]]
+}

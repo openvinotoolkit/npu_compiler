@@ -542,6 +542,36 @@ func.func @AFQDQConvQuantizedWts(%arg0 : tensor<1x256x256x256xf32>) -> tensor<1x
 
 // -----
 
+// CHECK-LABEL: @AdjustFQMulUpFuseDynamicDequantizeWeights
+// CHECK-SAME:     [[INPUT_0:%.+]]: tensor<1x3x32x64xf32>
+func.func @AdjustFQMulUpFuseDynamicDequantizeWeights(%arg0 : tensor<1x3x32x64xf32>) -> tensor<1x8x32x64xf32> {
+    %fq2_in_low = const.Declare tensor<1x1x1x1xf32> = dense <0.000000e+00> : tensor<1x1x1x1xf32>
+    %fq2_in_hi = const.Declare tensor<1x1x1x1xf32> = dense <160302.078125> : tensor<1x1x1x1xf32>
+    %fq2_out_low = const.Declare tensor<1x1x1x1xf32> = dense <0.000000e+00> : tensor<1x1x1x1xf32>
+    %fq2_out_hi = const.Declare tensor<1x1x1x1xf32> = dense <160302.078125> : tensor<1x1x1x1xf32>
+    %weights = const.Declare tensor<8x3x3x3xsi8> = dense<10> : tensor<8x3x3x3xsi8>
+    %weightsScale = const.Declare tensor<8x1x1x1xf32> = dense<8.537536814401392e-06> : tensor<8x1x1x1xf32>
+
+    %weightsDD = IE.DynamicDequantize(%weights, %weightsScale) {dstElemType = f32} : tensor<8x3x3x3xsi8>, tensor<8x1x1x1xf32> -> tensor<8x3x3x3xf32>
+    %0 = IE.Convolution(%arg0, %weightsDD) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x3x32x64xf32>, tensor<8x3x3x3xf32> -> tensor<1x8x32x64xf32>
+    %1 = IE.FakeQuantize(%0, %fq2_in_low, %fq2_in_hi, %fq2_out_low, %fq2_out_hi) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x8x32x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x8x32x64xf32>
+    return %1 : tensor<1x8x32x64xf32>
+
+    // CHECK-DAG: [[MUL_SCALE:%.+]] = const.Declare tensor<1xf32> = dense<4.89203119> : tensor<1xf32>
+    // CHECK-DAG: [[FQ_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<3.276800e+04> : tensor<1x1x1x1xf32>
+    // CHECK-DAG: [[FQ_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK-DAG: [[WEIGHTS:%.+]] = const.Declare tensor<8x3x3x3xsi8> = dense<10> : tensor<8x3x3x3xsi8>
+    // CHECK-DAG: [[WEIGHTS_SCALE:%.+]] = const.Declare tensor<8x1x1x1xf32> = dense<8.53753681E-6> : tensor<8x1x1x1xf32>, [#const.Rescale<0.20441406965255737 : f64>]
+
+    // CHECK-NEXT: [[DDQ0:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[WEIGHTS_SCALE]]) {dstElemType = f32} : tensor<8x3x3x3xsi8>, tensor<8x1x1x1xf32> -> tensor<8x3x3x3xf32>
+    // CHECK-NOT: IE.Multiply
+    // CHECK-NEXT: [[CONV:%.+]] = IE.Convolution([[INPUT_0]], [[DDQ0]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x3x32x64xf32>, tensor<8x3x3x3xf32> -> tensor<1x8x32x64xf32>
+    // CHECK-NEXT: [[FQ:%.+]] = IE.FakeQuantize([[CONV]], [[FQ_LOW]], [[FQ_HIGH]], [[FQ_LOW]], [[FQ_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x8x32x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x8x32x64xf32>
+    // CHECK-NEXT: [[MUL:%.+]] = IE.Multiply([[FQ]], [[MUL_SCALE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x8x32x64xf32>, tensor<1xf32> -> tensor<1x8x32x64xf32>
+}
+
+// -----
+
 // Tests FQ prop to multiple users.
 // CHECK-LABEL: @AdjustFakeQuantizeWithMultipleUsers
 // CHECK-SAME:     [[INPUT_0:%.+]]: tensor<1x128x32x64xf32>,

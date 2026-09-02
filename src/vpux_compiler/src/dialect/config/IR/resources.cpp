@@ -16,6 +16,8 @@
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/Location.h>
 
+#include <algorithm>
+
 using namespace vpux;
 
 //
@@ -52,42 +54,64 @@ mlir::Region* getRegionContainer(mlir::ModuleOp mainModule, mlir::SymbolRefAttr 
     return &resources.getRegion();
 }
 
-size_t getReservedMemoryStartOffset(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace) {
-    size_t startMemoryOffset = 0;
-
-    // DDR reserved memory starts at 0. Adjustment is required only for CMX
+// DDR reserved memory always starts at 0. Adjustment is required only for CMX sections holding stack frames and
+// metadata that are anchored at the bottom (beginning) of CMX. Every other CMX reservation stays at the top (end) of
+// CMX.
+bool reservationPlacedAtBottom(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace, StringRef section) {
     auto cmxSpaceAttr = mlir::SymbolRefAttr::get(mainModule.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
     if (memSpace == cmxSpaceAttr) {
-        startMemoryOffset = config::getAvailableMemory(mainModule, cmxSpaceAttr).size().count();
-        for (auto resource : config::getReservedMemoryResources(mainModule, memSpace)) {
-            VPUX_THROW_WHEN(!resource.getOffset().has_value(), "reserved memory without offset");
-            size_t offset = resource.getOffset().value();
-            if (offset < startMemoryOffset) {
-                startMemoryOffset = offset;
-            }
-        }
+        return (section == config::cmxStackFramesResMemModuleName || section == config::cmxMetadataResMemModuleName);
     }
-
-    return startMemoryOffset;
+    return true;
 }
 
-size_t getReservedMemoryEndOffset(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace) {
-    // CMX reserved memory always ends at the CMX end.
-    auto cmxSpaceAttr = mlir::SymbolRefAttr::get(mainModule.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
-    if (memSpace == cmxSpaceAttr) {
-        return config::getAvailableMemory(mainModule, cmxSpaceAttr).size().count() - 1;
+// Reserved memory resources paired with the name of the section that owns them.
+SmallVector<std::pair<StringRef, config::MemoryResourceOp>> getReservedMemoryResourcesWithSection(
+        mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace) {
+    SmallVector<std::pair<StringRef, config::MemoryResourceOp>> result;
+
+    auto resources = getResources(mainModule, memSpace);
+    auto resMemTable = resources.lookupSymbol<mlir::ModuleOp>(config::resMemModuleName);
+    if (resMemTable == nullptr) {
+        return result;
     }
 
-    size_t endMemoryOffset = 0;
-    for (auto resource : config::getReservedMemoryResources(mainModule, memSpace)) {
-        VPUX_THROW_WHEN(!resource.getOffset().has_value(), "reserved memory without offset value");
-        size_t offset = resource.getOffset().value() + resource.getByteSize();
-        if (offset > endMemoryOffset) {
-            endMemoryOffset = offset;
+    for (auto&& resMemModuleOp : resMemTable.getOps<mlir::ModuleOp>()) {
+        auto res = resMemModuleOp.lookupSymbol<config::MemoryResourceOp>(memSpace);
+        if (res == nullptr) {
+            continue;
         }
+        result.push_back({resMemModuleOp.getName().value_or(StringRef()), res});
     }
 
-    return endMemoryOffset;
+    return result;
+}
+
+// Top edge of the bottom-anchored reservation block. The free memory region starts at this offset.
+size_t getBottomReservedEnd(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace) {
+    size_t bottomEnd = 0;
+    for (auto& [section, resource] : getReservedMemoryResourcesWithSection(mainModule, memSpace)) {
+        if (!reservationPlacedAtBottom(mainModule, memSpace, section)) {
+            continue;
+        }
+        VPUX_THROW_WHEN(!resource.getOffset().has_value(), "reserved memory without offset");
+        bottomEnd = std::max(bottomEnd, static_cast<size_t>(resource.getOffset().value()) + resource.getByteSize());
+    }
+    return bottomEnd;
+}
+
+// Bottom edge of the top-anchored reservation block. The free memory region ends at this offset.
+size_t getTopReservedStart(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace) {
+    auto resources = getResources(mainModule, memSpace);
+    auto topStart = static_cast<size_t>(resources.getAvailableMemory(memSpace).size().count());
+    for (auto& [section, resource] : getReservedMemoryResourcesWithSection(mainModule, memSpace)) {
+        if (reservationPlacedAtBottom(mainModule, memSpace, section)) {
+            continue;
+        }
+        VPUX_THROW_WHEN(!resource.getOffset().has_value(), "reserved memory without offset");
+        topStart = std::min(topStart, static_cast<size_t>(resource.getOffset().value()));
+    }
+    return topStart;
 }
 
 config::MemoryResourceOp addReservedMemoryResource(mlir::ModuleOp mainModule, mlir::StringLiteral reservedMemorySection,
@@ -102,22 +126,22 @@ config::MemoryResourceOp addReservedMemoryResource(mlir::ModuleOp mainModule, ml
     }
 
     auto resMemBuilder = mlir::OpBuilder::atBlockBegin(resMemTable.getBody());
-    auto cmxSpaceAttr = mlir::SymbolRefAttr::get(mainModule.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
-    // For DDR - reserve memory at the beginning of DDR space. The offset should be aligned according to the specified
-    // alignment.
-    // For CMX - reserve at the end of CMX space. This is done to satisfy the requirement of SW kernel data
-    // prefetching. When prefetching SW kernel can exceed the input buffer size potentially reading the memory outside
-    // the CMX range. To prevent this compiler reserves 1KiB of CMX at the end so that at worst reserved, but
-    // accessible, memory is read by SW kernel.
+
+    // Bottom-anchored reservations grow upwards from the current bottom edge, top-anchored reservations
+    // grow downwards from the current top edge. The free memory region always stays in between, spanning
+    // [bottomEnd, topStart). Top and bottom reservations can coexist (e.g. NPU4+ CMX places stack frames
+    // and metadata at the bottom while DMA profiling and prefetching stay at the top).
     size_t offset = 0;
-    if (memSpace == cmxSpaceAttr) {
-        offset = getReservedMemoryStartOffset(mainModule, memSpace);
-        VPUX_THROW_WHEN(static_cast<int64_t>(offset) < size, "Out of CMX memory for reservation");
-        offset -= size;
-        offset = alignValDown(offset, alignment);
+    if (reservationPlacedAtBottom(mainModule, memSpace, reservedMemorySection)) {
+        offset = alignValUp(getBottomReservedEnd(mainModule, memSpace), alignment);
+        VPUX_THROW_WHEN(offset + static_cast<size_t>(size) > getTopReservedStart(mainModule, memSpace),
+                        "Out of '{0}' memory for bottom reservation", memSpace);
     } else {
-        offset = getReservedMemoryEndOffset(mainModule, memSpace);
-        offset = alignValUp(offset, alignment);
+        const size_t topStart = getTopReservedStart(mainModule, memSpace);
+        VPUX_THROW_WHEN(topStart < static_cast<size_t>(size), "Out of '{0}' memory for top reservation", memSpace);
+        offset = alignValDown(topStart - size, alignment);
+        VPUX_THROW_WHEN(offset < getBottomReservedEnd(mainModule, memSpace), "Out of '{0}' memory for top reservation",
+                        memSpace);
     }
 
     auto resMemModule = resMemTable.lookupSymbol<mlir::ModuleOp>(reservedMemorySection);
@@ -189,7 +213,16 @@ SmallVector<config::MemoryResourceOp> vpux::config::getReservedMemoryResources(m
 }
 
 size_t vpux::config::getReservedMemorySize(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace) {
-    return getReservedMemoryEndOffset(mainModule, memSpace) - getReservedMemoryStartOffset(mainModule, memSpace) + 1;
+    // Reserved memory can span both ends of the memory at the same time. The total reserved size is the
+    // bottom-anchored block plus the top-anchored block, excluding the free region in between.
+    const size_t availableSize = config::getAvailableMemory(mainModule, memSpace).size().count();
+    const size_t bottomBlock = getBottomReservedEnd(mainModule, memSpace);
+    const size_t topBlock = availableSize - getTopReservedStart(mainModule, memSpace);
+    return bottomBlock + topBlock;
+}
+
+size_t vpux::config::getReservedMemoryOffset(mlir::ModuleOp mainModule, mlir::SymbolRefAttr memSpace) {
+    return getBottomReservedEnd(mainModule, memSpace);
 }
 
 // Get information about reserved resources in given memory type
@@ -270,15 +303,42 @@ config::MemoryResourceOp vpux::config::getDummySwKernelsForInstructionPrefetchRe
 // CMX stack frames reserved memory
 //
 
-config::MemoryResourceOp vpux::config::setCMXStackFramesReservedMemory(mlir::ModuleOp mainModule,
-                                                                       mlir::SymbolRefAttr memSpace, int64_t size,
+config::MemoryResourceOp vpux::config::setCMXStackFramesReservedMemory(mlir::ModuleOp mainModule, int64_t size,
                                                                        size_t alignment) {
-    return addReservedMemoryResource(mainModule, cmxStackFramesResMemModuleName, memSpace, size, alignment);
+    auto cmxSpaceAttr = mlir::SymbolRefAttr::get(mainModule.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
+    return addReservedMemoryResource(mainModule, cmxStackFramesResMemModuleName, cmxSpaceAttr, size, alignment);
 }
 
-config::MemoryResourceOp vpux::config::getCMXStackFramesReservedMemory(mlir::ModuleOp mainModule,
-                                                                       mlir::SymbolRefAttr memSpace) {
-    return getReservedMemoryResource(mainModule, cmxStackFramesResMemModuleName, memSpace);
+config::MemoryResourceOp vpux::config::getCMXStackFramesReservedMemory(mlir::ModuleOp mainModule) {
+    auto cmxSpaceAttr = mlir::SymbolRefAttr::get(mainModule.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
+    return getReservedMemoryResource(mainModule, cmxStackFramesResMemModuleName, cmxSpaceAttr);
+}
+
+config::MemoryResourceOp vpux::config::setCMXAdditionalStackFramesReservedMemory(mlir::ModuleOp mainModule,
+                                                                                 int64_t size, size_t alignment) {
+    auto cmxSpaceAttr = mlir::SymbolRefAttr::get(mainModule.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
+    return addReservedMemoryResource(mainModule, cmxAdditionalStackFramesResMemModuleName, cmxSpaceAttr, size,
+                                     alignment);
+}
+
+config::MemoryResourceOp vpux::config::getCMXAdditionalStackFramesReservedMemory(mlir::ModuleOp mainModule) {
+    auto cmxSpaceAttr = mlir::SymbolRefAttr::get(mainModule.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
+    return getReservedMemoryResource(mainModule, cmxAdditionalStackFramesResMemModuleName, cmxSpaceAttr);
+}
+
+//
+// CMX metadata reserved memory
+//
+
+config::MemoryResourceOp vpux::config::setCMXMetadataReservedMemory(mlir::ModuleOp mainModule, int64_t size,
+                                                                    size_t alignment) {
+    auto cmxSpaceAttr = mlir::SymbolRefAttr::get(mainModule.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
+    return addReservedMemoryResource(mainModule, cmxMetadataResMemModuleName, cmxSpaceAttr, size, alignment);
+}
+
+config::MemoryResourceOp vpux::config::getCMXMetadataReservedMemory(mlir::ModuleOp mainModule) {
+    auto cmxSpaceAttr = mlir::SymbolRefAttr::get(mainModule.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
+    return getReservedMemoryResource(mainModule, cmxMetadataResMemModuleName, cmxSpaceAttr);
 }
 
 //

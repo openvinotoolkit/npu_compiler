@@ -25,9 +25,7 @@ def IE_ReduceL1Op :
 
     let arguments = (ins
         AnyRankedTensor:$input,
-        Optional<TensorRankOf<[AnyInteger], [0, 1]>>:$axes,
-
-        OptionalAttr<I64ArrayAttr>:$axes_value,
+        I64ArrayAttr:$axes_value,
         UnitAttr:$keep_dims
     );
 
@@ -35,7 +33,6 @@ def IE_ReduceL1Op :
         AnyRankedTensor:$output
     );
 
-    let hasCanonicalizer = 1;
     let hasFolder = 1;
 }
 
@@ -50,9 +47,7 @@ def IE_ReduceL2Op :
 
     let arguments = (ins
         AnyRankedTensor:$input,
-        Optional<TensorRankOf<[AnyInteger], [0, 1]>>:$axes,
-
-        OptionalAttr<I64ArrayAttr>:$axes_value,
+        I64ArrayAttr:$axes_value,
         UnitAttr:$keep_dims
     );
 
@@ -60,7 +55,6 @@ def IE_ReduceL2Op :
         AnyRankedTensor:$output
     );
 
-    let hasCanonicalizer = 1;
     let hasFolder = 1;
 }
 
@@ -72,9 +66,7 @@ def IE_ReduceLogicalAndOp :
 
     let arguments = (ins
         AnyRankedTensor:$input,
-        Optional<TensorRankOf<[AnyInteger], [0, 1]>>:$axes,
-
-        OptionalAttr<I64ArrayAttr>:$axes_value,
+        I64ArrayAttr:$axes_value,
         UnitAttr:$keep_dims
     );
 
@@ -82,7 +74,6 @@ def IE_ReduceLogicalAndOp :
         AnyRankedTensor:$output
     );
 
-    let hasCanonicalizer = 1;
     let hasFolder = 1;
 }
 
@@ -94,9 +85,7 @@ def IE_ReduceLogicalOrOp :
 
     let arguments = (ins
         AnyRankedTensor:$input,
-        Optional<TensorRankOf<[AnyInteger], [0, 1]>>:$axes,
-
-        OptionalAttr<I64ArrayAttr>:$axes_value,
+        I64ArrayAttr:$axes_value,
         UnitAttr:$keep_dims
     );
 
@@ -104,7 +93,6 @@ def IE_ReduceLogicalOrOp :
         AnyRankedTensor:$output
     );
 
-    let hasCanonicalizer = 1;
     let hasFolder = 1;
 }
 
@@ -119,9 +107,7 @@ def IE_ReduceMaxOp :
 
     let arguments = (ins
         AnyRankedTensor:$input,
-        Optional<TensorRankOf<[AnyInteger], [0, 1]>>:$axes,
-
-        OptionalAttr<I64ArrayAttr>:$axes_value,
+        I64ArrayAttr:$axes_value,
         UnitAttr:$keep_dims
     );
 
@@ -129,7 +115,6 @@ def IE_ReduceMaxOp :
         AnyRankedTensor:$output
     );
 
-    let hasCanonicalizer = 1;
     let hasFolder = 1;
 }
 
@@ -141,9 +126,7 @@ def IE_ReduceMeanOp :
 
     let arguments = (ins
         AnyRankedTensor:$input,
-        Optional<TensorRankOf<[AnyInteger], [0, 1]>>:$axes,
-
-        OptionalAttr<I64ArrayAttr>:$axes_value,
+        I64ArrayAttr:$axes_value,
         UnitAttr:$keep_dims,
         OptionalAttr<I64ArrayAttr>:$output_padding,
         OptionalAttr<I64ArrayAttr>:$input_padding
@@ -157,19 +140,16 @@ def IE_ReduceMeanOp :
         OpBuilder<(ins
             "mlir::Type":$outputType,
             "mlir::Value":$input,
-            "mlir::Value":$axes,
             "mlir::ArrayAttr":$axes_value,
             "mlir::UnitAttr":$keep_dims
         )>,
         OpBuilder<(ins
             "mlir::Value":$input,
-            "mlir::Value":$axes,
             "mlir::ArrayAttr":$axes_value,
             "mlir::UnitAttr":$keep_dims
         )>
     ];
 
-    let hasCanonicalizer = 1;
     let hasFolder = 1;
     let hasVerifier = 1;
 
@@ -187,9 +167,7 @@ def IE_ReduceMinOp :
 
     let arguments = (ins
         AnyRankedTensor:$input,
-        Optional<TensorRankOf<[AnyInteger], [0, 1]>>:$axes,
-
-        OptionalAttr<I64ArrayAttr>:$axes_value,
+        I64ArrayAttr:$axes_value,
         UnitAttr:$keep_dims
     );
 
@@ -197,7 +175,6 @@ def IE_ReduceMinOp :
         AnyRankedTensor:$output
     );
 
-    let hasCanonicalizer = 1;
     let hasFolder = 1;
 }
 
@@ -209,9 +186,7 @@ def IE_ReduceProdOp :
 
     let arguments = (ins
         AnyRankedTensor:$input,
-        Optional<TensorRankOf<[AnyInteger], [0, 1]>>:$axes,
-
-        OptionalAttr<I64ArrayAttr>:$axes_value,
+        I64ArrayAttr:$axes_value,
         UnitAttr:$keep_dims
     );
 
@@ -219,7 +194,6 @@ def IE_ReduceProdOp :
         AnyRankedTensor:$output
     );
 
-    let hasCanonicalizer = 1;
     let hasFolder = 1;
 }
 
@@ -234,9 +208,7 @@ def IE_ReduceSumOp :
 
     let arguments = (ins
         AnyRankedTensor:$input,
-        Optional<TensorRankOf<[AnyInteger], [0, 1]>>:$axes,
-
-        OptionalAttr<I64ArrayAttr>:$axes_value,
+        I64ArrayAttr:$axes_value,
         UnitAttr:$keep_dims,
         OptionalAttr<I64ArrayAttr>:$output_padding,
         OptionalAttr<I64ArrayAttr>:$input_padding
@@ -250,19 +222,16 @@ def IE_ReduceSumOp :
         OpBuilder<(ins
             "mlir::Type":$outputType,
             "mlir::Value":$input,
-            "mlir::Value":$axes,
             "mlir::ArrayAttr":$axes_value,
             "mlir::UnitAttr":$keep_dims
         )>,
         OpBuilder<(ins
             "mlir::Value":$input,
-            "mlir::Value":$axes,
             "mlir::ArrayAttr":$axes_value,
             "mlir::UnitAttr":$keep_dims
         )>
     ];
 
-    let hasCanonicalizer = 1;
     let hasFolder = 1;
     let hasVerifier = 1;
 
@@ -277,9 +246,8 @@ def IE_ReduceSquareOp :
 
     let arguments = (ins
         AnyRankedTensor:$input,
-        Optional<TensorRankOf<[AnyInteger], [0, 1]>>:$axes,
         OptionalAttr<F64Attr>:$epsilon,
-        OptionalAttr<I64ArrayAttr>:$axes_value,
+        I64ArrayAttr:$axes_value,
         UnitAttr:$keep_dims,
         OptionalAttr<I64Attr>:$scale
     );

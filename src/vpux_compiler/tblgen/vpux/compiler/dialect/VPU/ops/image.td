@@ -147,6 +147,8 @@ def VPU_InterpolateOp :
         Optional<AnyTypeOf<[RankedTensorOf<[AnyInteger]>, VPU_DistributedTensor]>>:$axes,
         Optional<AnyTypeOf<[RankedTensorOf<[SI32]>, VPU_DistributedTensor]>>:$coordinates,
         Optional<AnyTypeOf<[RankedTensorOf<[F16]>, VPU_DistributedTensor]>>:$lambdas,
+        Optional<1DTensorOf<[I64]>>:$dynamic_input_offsets,
+        Optional<1DTensorOf<[I64]>>:$dynamic_output_offsets,
 
         OptionalAttr<I64ArrayAttr>:$sizes_attr,
         OptionalAttr<F64ArrayAttr>:$scales_attr,
@@ -157,6 +159,15 @@ def VPU_InterpolateOp :
         OptionalAttr<I64ArrayAttr>:$initial_input_offset_attr,
         OptionalAttr<I64ArrayAttr>:$initial_output_offset_attr,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
+
+        // Set at the IE->VPU boundary (convert_layers_to_VPU) for ops authored in SCALES
+        // mode. In the VPU dialect shape_calc_mode is uniformly SIZES; useScaleAttr is the
+        // single source of truth for "scales_attr is the authoritative coordinate-transform
+        // scale". Every consumer that needs the SCALES coordinate path (VPU-dialect tile
+        // back-inference, the SwKernel serializer, the VPUIP-dialect back-inference and the
+        // SHAVE kernel) keys off this marker, never off shape_calc_mode. A SIZES-authored
+        // op's scales_attr (if any) is vestigial and must not drive the kernel.
+        UnitAttr:$useScaleAttr,
 
         IE_InterpolateAttr:$attr,
         OptionalAttr<I64ArrayAttr>:$output_padding,
@@ -193,20 +204,17 @@ def VPU_InterpolateOp :
         )>
     ];
 
+    let hasVerifier = 1;
+
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT,
                                IE_TypeComparisonMode_ALLOW_GROUPED_OUTPUT, IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
 def VPU_InterpolateDMAOp :
-        VPU_LayerOp<
+        VPU_SwIoDmaOp<
             "InterpolateDMA",
             [
-                VPU_SwIoDmaOpInterface,
-                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
-                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["getDistributedTypeForOpOperand",
-                                                                     "getDistributedTypeForOpResult"]>,
                 VPU_BoundsRepresentationInterface
             ]
         > {
@@ -237,11 +245,6 @@ def VPU_InterpolateDMAOp :
     let results = (outs
         AnyTypeOf<[RankedTensorOf<[UI8, F16, F32, quant_QuantizedType]>, VPU_DistributedTensor]>:$output
     );
-
-    let extraClassDeclaration = [{
-        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
-        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
-    }] # baseExtraClassDeclaration;
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT];
 }

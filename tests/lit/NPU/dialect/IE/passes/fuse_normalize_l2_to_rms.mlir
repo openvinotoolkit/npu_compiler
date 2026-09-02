@@ -22,6 +22,39 @@ func.func @FuseNormalizeL2PlusMultiplyToRMS(%arg0: tensor<1x1x3072xf32>) -> tens
 
 // -----
 
+// CHECK-LABEL: @FuseNormalizeL2PlusMultiplyToRMSWithNegativeAxis
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x3072xf32>)
+func.func @FuseNormalizeL2PlusMultiplyToRMSWithNegativeAxis(%arg0: tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32> {
+    %cst = const.Declare tensor<1x1x3072xf32> = dense<2.0> : tensor<1x1x3072xf32>
+    %0 = IE.NormalizeL2(%arg0) {axes_value = [-1], eps = 1.000000e-05 : f64, eps_mode = #IE.eps_mode<ADD>} : tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
+    %1 = IE.Multiply(%0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
+    return %1 : tensor<1x1x3072xf32>
+
+    // CHECK-NOT: IE.NormalizeL2
+    // CHECK-DAG: [[GAMMA:%.+]] = const.Declare tensor<3072xf32>
+    // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[GAMMA]]) {eps = {{.+}} : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
+    // CHECK: return [[RMS]]
+}
+
+// -----
+
+// CHECK-LABEL: @FuseNormalizeL2PlusMultiplyToRMSWithAxesOperand
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x3072xf32>)
+func.func @FuseNormalizeL2PlusMultiplyToRMSWithAxesOperand(%arg0: tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32> {
+    %cst = const.Declare tensor<1x1x3072xf32> = dense<2.0> : tensor<1x1x3072xf32>
+    %axes = const.Declare tensor<1xi64> = dense<2> : tensor<1xi64>
+    %0 = IE.NormalizeL2(%arg0, %axes) {eps = 1.000000e-05 : f64, eps_mode = #IE.eps_mode<ADD>} : tensor<1x1x3072xf32>, tensor<1xi64> -> tensor<1x1x3072xf32>
+    %1 = IE.Multiply(%0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
+    return %1 : tensor<1x1x3072xf32>
+
+    // CHECK-NOT: IE.NormalizeL2
+    // CHECK-DAG: [[GAMMA:%.+]] = const.Declare tensor<3072xf32>
+    // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[GAMMA]]) {eps = {{.+}} : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
+    // CHECK: return [[RMS]]
+}
+
+// -----
+
 // Any intermediary op between NormalizeL2 and Multiply blocks fusion (fusion requires direct consumer).
 
 // CHECK-LABEL: @NoFuseWhenIntermediaryOpBetweenNormalizeL2AndMultiply

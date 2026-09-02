@@ -40,7 +40,7 @@ private:
     void safeRunOnModule() override final;
 
     bool _allowCustomValues = false;
-    llvm::SmallVector<std::pair<llvm::StringRef, mlir::Attribute>, /* expected num Opts*/ 14> _optionSet;
+    llvm::SmallVector<std::pair<llvm::StringRef, mlir::Attribute>, /* expected num Opts*/ 22> _optionSet;
 };
 
 mlir::LogicalResult SetTargetIndependentPassOptionsPass::initialize(mlir::MLIRContext* context) {
@@ -82,6 +82,11 @@ mlir::LogicalResult SetTargetIndependentPassOptionsPass::initialize(mlir::MLIRCo
     }
     _optionSet.push_back({config::SOFTMAX_MASK_AWARE_THRESHOLD, softmaxThresholdAttr});
 
+    if (preferredSpatialAlignment.hasValue()) {
+        _optionSet.push_back(
+                {config::PREFERRED_SPATIAL_ALIGNMENT, getAttributeFromOption(context, preferredSpatialAlignment)});
+    }
+
     if (allowCustomValues.hasValue()) {
         _allowCustomValues = allowCustomValues.getValue();
     }
@@ -90,6 +95,19 @@ mlir::LogicalResult SetTargetIndependentPassOptionsPass::initialize(mlir::MLIRCo
 
 void SetTargetIndependentPassOptionsPass::safeRunOnModule() {
     auto moduleOp = getModuleOp(getOperation());
+
+    // If preferredSpatialAlignment was not explicitly set, derive it from the platform.
+    if (!preferredSpatialAlignment.hasValue()) {
+        int64_t defaultAlignment = VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT;
+        if (auto platformAttr = moduleOp->getAttrOfType<config::PlatformAttr>(config::PlatformAttr::name)) {
+            const auto platform = platformAttr.getValue();
+            if (platform == config::Platform::NPU5010) {
+                defaultAlignment = 8;
+            }
+        }
+        _optionSet.push_back({config::PREFERRED_SPATIAL_ALIGNMENT,
+                              mlir::IntegerAttr::get(mlir::IntegerType::get(&getContext(), 64), defaultAlignment)});
+    }
     auto optionsBuilder = mlir::OpBuilder::atBlockBegin(moduleOp.getBody());
     auto pipelineOptionsOp = config::getPipelineOptionsOp(getContext(), moduleOp);
     optionsBuilder =

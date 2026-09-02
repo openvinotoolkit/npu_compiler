@@ -7,8 +7,8 @@
 
 #include "vpux/compiler/core/pipelines_options.hpp"
 #include "vpux/utils/core/string_ref.hpp"
+#include "vpux/utils/ov/config.hpp"
 
-#include <intel_npu/config/config.hpp>
 #include <memory>
 
 namespace vpux {
@@ -24,7 +24,7 @@ constexpr bool arePrivateOptionsEnabled() {
 // Ensures that all compilation options given by the user are parsable. An exception will be thrown if invalid options
 // are provided. In case the user has provided private options and the project build has these options excluded, a
 // warning will be printed for each of them
-void checkCompilerOptions(const intel_npu::Config& config);
+void checkCompilerOptions(const vpux::OV::Config& config);
 
 // Parse in the next argument from the given options string. Returns a tuple
 // containing [the key of the option, the value of the option, updated

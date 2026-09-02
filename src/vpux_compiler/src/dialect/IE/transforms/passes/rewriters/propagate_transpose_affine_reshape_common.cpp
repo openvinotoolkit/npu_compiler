@@ -115,6 +115,19 @@ std::optional<int64_t> getNewSoftmaxAxisAfterSwappingWithAffineReshape(IE::SoftM
     const auto invertedDimMapping =
             IE::invertDimMappingWithAxesNotSplitOrMerged(dimMapping, affineInShape, affineOutShape);
     const auto newSoftmaxAxis = invertedDimMapping[softmaxAxis];
+    auto affineInShapeVec = to_small_vector(getShape(affineReshapeOp.getInput()));
+    auto affineOutShapeVec = to_small_vector(getShape(affineReshapeOp.getOutput()));
+    const auto dimIsOne = [](int64_t dim) {
+        return dim == 1;
+    };
+    affineInShapeVec.erase(std::remove_if(affineInShapeVec.begin(), affineInShapeVec.end(), dimIsOne),
+                           affineInShapeVec.end());
+    affineOutShapeVec.erase(std::remove_if(affineOutShapeVec.begin(), affineOutShapeVec.end(), dimIsOne),
+                            affineOutShapeVec.end());
+    if (affineInShapeVec == affineOutShapeVec) {
+        return newSoftmaxAxis;
+    }
+
     if (softmaxOp.getPadSize().has_value() && newSoftmaxAxis != softmaxAxis) {
         log.trace("Softmax axis is changed");
         return std::nullopt;
@@ -514,6 +527,22 @@ mlir::LogicalResult MoveTransposeAffineReshapeThroughAdd::matchAndRewrite(IE::Ad
         return mlir::failure();
     }
 
+    // A per-channel scale tensor encodes one scale value per output channel. Moving a
+    // Transpose/AffineReshape through the op when it modifies the channel dimension or
+    // changes the memory layout would invalidate the per-channel scales.
+    if (origOp.getScale() != nullptr) {
+        if (inputShape[Dims4D::Act::C] != addInput[Dims4D::Act::C]) {
+            _log.trace("Skipping '{0}': scale table present and channel dimension changes ({1} -> {2})",
+                       origOp->getLoc(), addInput[Dims4D::Act::C], inputShape[Dims4D::Act::C]);
+            return mlir::failure();
+        }
+        const auto perm = DimsOrder::fromAffineMap(transposeOp.getOrderValueAttr().getValue());
+        if (perm.dimAt(Dims4D::Act::C.ind()) != Dims4D::Act::C) {
+            _log.trace("Skipping '{0}': scale table present and transpose permutes the channel axis", origOp->getLoc());
+            return mlir::failure();
+        }
+    }
+
     if (!isBeneficialConversion(origOp, inputsMode)) {
         return mlir::failure();
     }
@@ -560,7 +589,8 @@ mlir::LogicalResult MoveTransposeAffineReshapeThroughAdd::matchAndRewrite(IE::Ad
     newAddOutType = newAddOutType.changeDimsOrder(origOutputType.getDimsOrder());
     auto outputVal =
             rewriter.create<IE::AddOp>(takeOpLoc(origOp, "as_add"), newAddOutType, newInput1, newInput2,
-                                       origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+                                       origOp.getScale(), origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(),
+                                       origOp.getClampAttr(), origOp.getStaticScaleAttr(),
                                        origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr())
                     .getOutput();
 

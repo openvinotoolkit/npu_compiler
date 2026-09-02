@@ -80,7 +80,7 @@ protected:
             std::uniform_int_distribution<int> dist(1, seqLen);
 
             std::vector<int> sequenceLenData(B);
-            for (int b = 0; b < B; b++) {
+            for (size_t b = 0; b < B; b++) {
                 const int len = dist(gen);
                 sequenceLenData[b] = len;
             }
@@ -113,7 +113,7 @@ protected:
                         : std::make_shared<ov::op::v6::CTCGreedyDecoderSeqLen>(
                                   params[0], sequenceLenNode, mergeRepeated, indicesPrecision, indicesPrecision);
         ov::OutputVector results;
-        for (int i = 0; i < ctcGreedyDecoderSeqLen->get_output_size(); i++) {
+        for (size_t i = 0; i < ctcGreedyDecoderSeqLen->get_output_size(); i++) {
             results.push_back(std::make_shared<ov::op::v0::Result>(ctcGreedyDecoderSeqLen->output(i)));
         }
         function = std::make_shared<ov::Model>(results, params, "CTCGreedyDecoderSeqLen");
@@ -138,6 +138,7 @@ TEST_P(CTCGreedyDecoderSeqLenLayerTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(CTCGreedyDecoderSeqLenLayerTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     // TODO E####-159644

@@ -4,23 +4,23 @@
 //
 
 #include "vpux/compiler/frontend/model_preprocessor.hpp"
+#include "vpux/utils/ov/config.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 #include "vpux/compiler/frontend/xml_deserializer.hpp"
 #include "vpux/utils/logger/logger.hpp"
-#include "vpux/utils/ov/config.hpp"
-#include "vpux/utils/ov/private_properties.hpp"
 
 #include <openvino/core/op_extension.hpp>
 #include <openvino/core/preprocess/pre_post_process.hpp>
 #include <openvino/core/rt_info/weightless_caching_attributes.hpp>
 #include <openvino/op/constant.hpp>
+#include <openvino/op/gated_delta_net.hpp>
 #include <openvino/op/group_query_attention.hpp>
-#include <openvino/runtime/intel_npu/properties.hpp>
 
+#include <ov_ops/dynamic_quantize.hpp>
 #include <ov_ops/rms.hpp>
 #include <ov_ops/rotary_positional_embeddings.hpp>
 
-#include <intel_npu/config/options.hpp>
 #include <intel_npu/ops/flash_attention_tile.hpp>
 
 #include <regex>
@@ -147,11 +147,11 @@ std::string getValidTileValue(std::map<std::string, std::string>& config, vcl_de
         return v[0] != '-' && v != "0";
     };
     // If maxTile in the user config is valid, use the smaller value between user config and deviceDesc
-    if (config.find(ov::intel_npu::max_tiles.name()) != config.end() &&
-        isValidTileConfig(config[ov::intel_npu::max_tiles.name()])) {
+    if (config.find(vpux::OV::MAX_TILES::key().data()) != config.end() &&
+        isValidTileConfig(config[vpux::OV::MAX_TILES::key().data()])) {
         std::string validTileValue =
-                static_cast<uint32_t>(std::stoi(config[ov::intel_npu::max_tiles.name()])) < deviceDesc.tileCount
-                        ? config[ov::intel_npu::max_tiles.name()]
+                static_cast<uint32_t>(std::stoi(config[vpux::OV::MAX_TILES::key().data()])) < deviceDesc.tileCount
+                        ? config[vpux::OV::MAX_TILES::key().data()]
                         : std::to_string(deviceDesc.tileCount);
         return validTileValue;
     }
@@ -210,15 +210,16 @@ ov::element::Type_t stringToOVPrecision(const std::string& value, bool& matched)
     static const std::unordered_map<std::string, ov::element::Type_t> supportedPrecisions = {
             {"DYNAMIC", ov::element::Type_t::dynamic}, {"BOOL", ov::element::Type_t::boolean},
             {"FP8_E4M3", ov::element::Type_t::f8e4m3}, {"FP8_E5M2", ov::element::Type_t::f8e5m2},
-            {"FP8_E8M0", ov::element::Type_t::f8e8m0}, {"BF16", ov::element::Type_t::bf16},
-            {"FP16", ov::element::Type_t::f16},        {"FP32", ov::element::Type_t::f32},
-            {"FP64", ov::element::Type_t::f64},        {"I4", ov::element::Type_t::i4},
-            {"I8", ov::element::Type_t::i8},           {"I16", ov::element::Type_t::i16},
-            {"I32", ov::element::Type_t::i32},         {"I64", ov::element::Type_t::i64},
-            {"BIN", ov::element::Type_t::u1},          {"U2", ov::element::Type_t::u2},
-            {"U4", ov::element::Type_t::u4},           {"U8", ov::element::Type_t::u8},
-            {"U16", ov::element::Type_t::u16},         {"U32", ov::element::Type_t::u32},
-            {"U64", ov::element::Type_t::u64},         {"NF4", ov::element::Type_t::nf4},
+            {"FP8_E8M0", ov::element::Type_t::f8e8m0}, {"FP4_E2M1", ov::element::Type_t::f4e2m1},
+            {"BF16", ov::element::Type_t::bf16},       {"FP16", ov::element::Type_t::f16},
+            {"FP32", ov::element::Type_t::f32},        {"FP64", ov::element::Type_t::f64},
+            {"I4", ov::element::Type_t::i4},           {"I8", ov::element::Type_t::i8},
+            {"I16", ov::element::Type_t::i16},         {"I32", ov::element::Type_t::i32},
+            {"I64", ov::element::Type_t::i64},         {"BIN", ov::element::Type_t::u1},
+            {"U2", ov::element::Type_t::u2},           {"U4", ov::element::Type_t::u4},
+            {"U8", ov::element::Type_t::u8},           {"U16", ov::element::Type_t::u16},
+            {"U32", ov::element::Type_t::u32},         {"U64", ov::element::Type_t::u64},
+            {"NF4", ov::element::Type_t::nf4},
     };
 
     return getElementFromCon<std::string, ov::element::Type_t>(value, matched, supportedPrecisions,
@@ -278,7 +279,7 @@ std::string rankToLegacyLayoutString(const size_t rank) {
 }  // namespace
 
 void prepareConfig(const std::string& descOptions, const vcl_compiler_desc_t& compilerDesc,
-                   const vcl_device_desc_t& deviceDesc, intel_npu::Config& config, bool isDeviceDescEmpty) {
+                   const vcl_device_desc_t& deviceDesc, vpux::OV::Config& config, bool isDeviceDescEmpty) {
     Logger log = Logger::global();
     const std::size_t configSeparator = descOptions.find(KEY_CONFIGS);
 
@@ -310,10 +311,10 @@ void prepareConfig(const std::string& descOptions, const vcl_compiler_desc_t& co
         // As a consequence of complying to the conventions established in the 2.0 OV API, the set of values
         // corresponding to the "model priority" key has been modified. The change was introduced in the 5.2 version of
         // the driver->compiler adapter.
-        const auto& getTargetRegex = [](const ov::intel_npu::LegacyPriority& priorityValue) -> std::regex {
+        const auto& getTargetRegex = [](const vpux::OV::LegacyPriority& priorityValue) -> std::regex {
             std::ostringstream result;
-            result << ov::intel_npu::legacy_model_priority.name() << KEY_VALUE_SEPARATOR << VALUE_DELIMITER
-                   << priorityValue << VALUE_DELIMITER;
+            result << vpux::OV::MODEL_PRIORITY::key().data() << KEY_VALUE_SEPARATOR << VALUE_DELIMITER << priorityValue
+                   << VALUE_DELIMITER;
             return std::regex(result.str());
         };
         const auto& getStringReplacement = [](const ov::hint::Priority& priorityValue) -> std::string {
@@ -324,11 +325,11 @@ void prepareConfig(const std::string& descOptions, const vcl_compiler_desc_t& co
         };
 
         // E.g. (valid as of writing this): MODEL_PRIORITY="MODEL_PRIORITY_MED" -> MODEL_PRIORITY="MEDIUM"
-        content = std::regex_replace(content, getTargetRegex(ov::intel_npu::LegacyPriority::LOW),
+        content = std::regex_replace(content, getTargetRegex(vpux::OV::LegacyPriority::LOW),
                                      getStringReplacement(ov::hint::Priority::LOW));
-        content = std::regex_replace(content, getTargetRegex(ov::intel_npu::LegacyPriority::MEDIUM),
+        content = std::regex_replace(content, getTargetRegex(vpux::OV::LegacyPriority::MEDIUM),
                                      getStringReplacement(ov::hint::Priority::MEDIUM));
-        content = std::regex_replace(content, getTargetRegex(ov::intel_npu::LegacyPriority::HIGH),
+        content = std::regex_replace(content, getTargetRegex(vpux::OV::LegacyPriority::HIGH),
                                      getStringReplacement(ov::hint::Priority::HIGH));
         // Replace NPU_DPU_GROUPS with NPU_TILES since NPU_DPU_GROUPS is deprecated in OV
         content = std::regex_replace(content, std::regex("NPU_DPU_GROUPS"), "NPU_TILES");
@@ -370,17 +371,6 @@ void prepareConfig(const std::string& descOptions, const vcl_compiler_desc_t& co
 
     /// Save the parsed configs from user
     std::map<std::string, std::string> configOptions;
-    if (!isDeviceDescEmpty) {
-        if (static_cast<size_t>(deviceDesc.size) != sizeof(vcl_device_desc_t)) {
-            log.warning("Host VCL version:{0}.{1}, device VCL version:{2}.{3}", compilerDesc.version.major,
-                        compilerDesc.version.minor, VCL_COMPILER_VERSION_MAJOR, VCL_COMPILER_VERSION_MINOR);
-        }
-
-        /// Set default value of NPU_STEPPING property, -1u is invalid value
-        if (deviceDesc.revision != static_cast<uint16_t>(-1)) {
-            configOptions[ov::intel_npu::stepping.name()] = std::to_string(deviceDesc.revision);
-        }
-    }
 
     /// Parse compilation options and save to config
     /// User options will overwrite default values in config
@@ -406,44 +396,89 @@ void prepareConfig(const std::string& descOptions, const vcl_compiler_desc_t& co
         log.debug("config options - key: {0} value: {1}", key, configOptions[key]);
     }
 
+    bool deviceDescHasValidInfo = !isDeviceDescEmpty;
     // If platform exists, check if it has a valid value
-    auto iter = configOptions.find(ov::intel_npu::platform.name());
+    auto iter = configOptions.find(vpux::OV::PLATFORM::key().data());
     if (iter != configOptions.end()) {
         const auto standardizedPlatform =
-                ov::intel_npu::Platform::standardize(configOptions[ov::intel_npu::platform.name()]);
+                vpux::OV::Platform::standardize(configOptions[vpux::OV::PLATFORM::key().data()]);
 
-        if (standardizedPlatform == ov::intel_npu::Platform::AUTO_DETECT) {
+        if (standardizedPlatform == vpux::OV::Platform::AUTO_DETECT) {
             // Platform is already auto-detected in VCL based on deviceID, keeping NPU_PLATFORM=AUTO_DETECT for
             // backwards comaptibility with old OV versions.
-            VPUX_THROW_WHEN(!config.has(ov::intel_npu::platform.name()),
+            VPUX_THROW_WHEN(!config.has(vpux::OV::PLATFORM::key().data()),
                             "Auto-detect platform is not supported when device description is not set. Please specify "
                             "the platform in config.");
             // Do not override platform detected in VCL with AUTO_DETECT
             configOptions.erase(iter);
         } else {
-            const bool isSupportedPlatform = standardizedPlatform == ov::intel_npu::Platform::NPU3720 ||
-                                             standardizedPlatform == ov::intel_npu::Platform::NPU4000 ||
-                                             standardizedPlatform == ov::intel_npu::Platform::NPU5010 ||
-                                             standardizedPlatform == ov::intel_npu::Platform::NPU5020;
+            const bool isSupportedPlatform = standardizedPlatform == vpux::OV::Platform::NPU3720 ||
+                                             standardizedPlatform == vpux::OV::Platform::NPU4000 ||
+                                             standardizedPlatform == vpux::OV::Platform::NPU5010 ||
+                                             standardizedPlatform == vpux::OV::Platform::NPU5020;
 
             VPUX_THROW_WHEN(!isSupportedPlatform, "Unknown value for platform: {0}",
-                            configOptions[ov::intel_npu::platform.name()]);
+                            configOptions[vpux::OV::PLATFORM::key().data()]);
+
+            // If platform from deviceDesc is not same with the platform from user config, info in deviceDesc is not
+            // valid
+            if (config.has(vpux::OV::PLATFORM::key().data())) {
+                if (config.get<vpux::OV::PLATFORM>() != standardizedPlatform) {
+                    deviceDescHasValidInfo = false;
+                    // Erase deviceID which we get from device desc
+                    config.erase(vpux::OV::DEVICE_ID::key().data());
+                    log.info("Device description from VCL is not valid since the platform from user config is "
+                             "different. "
+                             "Current platform: {0}, target platform: {1}",
+                             config.get<vpux::OV::PLATFORM>(), standardizedPlatform);
+                } else {
+                    if (!isDeviceDescEmpty) {
+                        deviceDescHasValidInfo = true;
+                        log.debug("Device description from VCL is valid since the platform from user config is same. "
+                                  "Current platform: {0}, target platform: {1}",
+                                  config.get<vpux::OV::PLATFORM>(), standardizedPlatform);
+                    } else {
+                        log.debug("Device description from VCL is empty, but the platform from user config is same. "
+                                  "Current platform: {0}, target platform: {1}",
+                                  config.get<vpux::OV::PLATFORM>(), standardizedPlatform);
+                    }
+                }
+            }
         }
     }
 
-    /// Update maxTiles config with compiler desc
-    ///  - If deviceDesc is valid, compare its tileCount with user config and use the smaller value
-    ///  - If deviceDesc is empty, its tileCount is invalid, then just handle it according to the config
-    ///  - If deviceDesc's tileCount is invalid, then skip updating maxTiles
-    if (!isDeviceDescEmpty && (deviceDesc.tileCount != static_cast<uint32_t>(-1))) {
-        configOptions[ov::intel_npu::max_tiles.name()] = getValidTileValue(configOptions, deviceDesc);
-        log.debug("NPU_MAX_TILES is updated to {0}", configOptions[ov::intel_npu::max_tiles.name()]);
+    // A version mismatch may cause invalid value; warn here since this does not happen often
+    if (!isDeviceDescEmpty && static_cast<size_t>(deviceDesc.size) != sizeof(vcl_device_desc_t)) {
+        log.warning("Host VCL version:{0}.{1}, device VCL version:{2}.{3}", compilerDesc.version.major,
+                    compilerDesc.version.minor, VCL_COMPILER_VERSION_MAJOR, VCL_COMPILER_VERSION_MINOR);
+    }
+
+    // Only update the config with deviceDesc if it has valid info.
+    // For NPU_STEPPING, only set a default when user did not provide it.
+    // For NPU_MAX_TILES, clamp or set value based on valid deviceDesc tileCount.
+    if (deviceDescHasValidInfo) {
+        /// Set default value of NPU_STEPPING property, -1u is invalid value
+        if (deviceDesc.revision != static_cast<uint16_t>(-1) &&
+            configOptions.find(vpux::OV::STEPPING::key().data()) == configOptions.end()) {
+            configOptions[vpux::OV::STEPPING::key().data()] = std::to_string(deviceDesc.revision);
+        }
+
+        /// Update maxTiles config with compiler desc
+        ///  - If deviceDesc is valid, compare its tileCount with user config and use the smaller value
+        ///  - If deviceDesc is empty, its tileCount is invalid, then just handle it according to the config
+        ///  - If deviceDesc's tileCount is invalid, then skip updating maxTiles
+        if (deviceDesc.tileCount != static_cast<uint32_t>(-1)) {
+            configOptions[vpux::OV::MAX_TILES::key().data()] = getValidTileValue(configOptions, deviceDesc);
+            log.debug("NPU_MAX_TILES is updated to {0}", configOptions[vpux::OV::MAX_TILES::key().data()]);
+        } else {
+            log.debug("DeviceDesc tileCount is invalid, skip updating NPU_MAX_TILES");
+        }
     } else {
-        log.debug("DeviceDesc is empty or tileCount is invalid, skip updating NPU_MAX_TILES");
+        log.debug("DeviceDesc is empty or not valid, skip updating NPU_STEPPING and NPU_MAX_TILES");
     }
 
     /// Remove runtime option MODEL_PRIORITY passed by plugin versions <= OV25.1
-    iter = configOptions.find(ov::hint::model_priority.name());
+    iter = configOptions.find(vpux::OV::MODEL_PRIORITY::key().data());
     if (iter != configOptions.end()) {
         configOptions.erase(iter);
     }
@@ -452,6 +487,15 @@ void prepareConfig(const std::string& descOptions, const vcl_compiler_desc_t& co
     iter = configOptions.find(ov::cache_dir.name());
     if (iter != configOptions.end()) {
         configOptions.erase(iter);
+    }
+
+    /// Convert ov::log::Level to vpux::LogLevel
+    iter = configOptions.find(ov::log::level.name());
+    if (iter != configOptions.end()) {
+        ov::log::Level level;
+        VPUX_THROW_UNLESS(std::stringstream(iter->second) >> level, "Invalid value '{0}' for ov::log::level",
+                          iter->second);
+        iter->second = vpux::OV::LOG_LEVEL::toString(getLogLevel(level));
     }
 
     /// Update default compilation config options with the new values we parsed from user descriptions
@@ -470,7 +514,7 @@ void prepareConfig(const std::string& descOptions, const vcl_compiler_desc_t& co
 std::pair<Precisions, Layouts> prepareBuildFlags(const std::string& descOptions,
                                                  const vcl_compiler_desc_t& compilerDesc,
                                                  const vcl_compiler_properties_t& compilerProp,
-                                                 const vcl_device_desc_t& deviceDesc, intel_npu::Config& config,
+                                                 const vcl_device_desc_t& deviceDesc, vpux::OV::Config& config,
                                                  bool isDeviceDescEmpty) {
     Logger log = Logger::global();
     /// Find the location of special separator in descOptions, the separator helps us to find input options, output
@@ -533,50 +577,62 @@ std::pair<Precisions, Layouts> prepareBuildFlags(const std::string& descOptions,
     return parseIOOption(ioInfoOptions);
 }
 
-std::shared_ptr<ov::Model> prepareModel(const uint8_t* modelIR, uint64_t modelIRSize, intel_npu::Config& config,
+std::shared_ptr<ov::Model> prepareModel(const uint8_t* modelIR, uint64_t modelIRSize, vpux::OV::Config& config,
                                         const vcl_compiler_properties_t& compilerProp) {
     Logger log = Logger::global();
 
     const vcl_version_info_t currentAPIVersion = compilerProp.version;
     const std::vector<ov::Extension::Ptr> extensionsVector{
+            std::make_shared<ov::OpExtension<ov::op::internal::DynamicQuantize>>(),
             std::make_shared<ov::OpExtension<ov::op::internal::RMS>>(),
             std::make_shared<ov::OpExtension<ov::op::internal::RoPE>>(),
             std::make_shared<ov::OpExtension<ov::op::internal::GroupQueryAttention>>(),
+            std::make_shared<ov::OpExtension<ov::op::internal::GatedDeltaNet>>(),
             std::make_shared<ov::OpExtension<ov::intel_npu::op::FlashAttentionTile>>()};
 
-    if (!config.has<intel_npu::MODEL_SERIALIZER_VERSION>()) {
+    if (!config.has<vpux::OV::MODEL_SERIALIZER_VERSION>()) {
         // Plugin versions older than the "model_serializer_version" config option won't specify a serialization
         // algorithm. The default is "AUTO" which results in an error in the code below. In this case, the older
         // deserializer ("all weights copy") should be used.
-        config.update({{ov::intel_npu::model_serializer_version.name(), "ALL_WEIGHTS_COPY"}});
+        config.update({{vpux::OV::MODEL_SERIALIZER_VERSION::key().data(), "ALL_WEIGHTS_COPY"}});
+    }
+
+    // OV_EXTENSION_LIB_PATH accepts a semicolon-separated list of shared library paths,
+    // e.g. "/path/to/ext1.dll;/path/to/ext2.dll"
+    // Custom op definitions are available during model deserialization, which also handles the library load
+    const std::string extensionLibPaths =
+            config.has<vpux::OV::EXTENSION_LIB_PATH>() ? config.get<vpux::OV::EXTENSION_LIB_PATH>() : "";
+    if (!extensionLibPaths.empty()) {
+        log.info("extensionLibPaths: {0}", extensionLibPaths);
     }
 
     std::shared_ptr<ov::Model> model;
     std::ostringstream errorMessage;
 
-    switch (config.get<intel_npu::MODEL_SERIALIZER_VERSION>()) {
-    case ov::intel_npu::ModelSerializerVersion::ALL_WEIGHTS_COPY:
-        model = deserializeIrModelBase(const_cast<uint8_t*>(modelIR), modelIRSize, currentAPIVersion, extensionsVector);
+    switch (config.get<vpux::OV::MODEL_SERIALIZER_VERSION>()) {
+    case vpux::OV::ModelSerializerVersion::ALL_WEIGHTS_COPY:
+        model = deserializeIrModelBase(const_cast<uint8_t*>(modelIR), modelIRSize, currentAPIVersion, extensionsVector,
+                                       extensionLibPaths);
         break;
-    case ov::intel_npu::ModelSerializerVersion::NO_WEIGHTS_COPY:
+    case vpux::OV::ModelSerializerVersion::NO_WEIGHTS_COPY:
         model = deserializeIrModelOptimized(const_cast<uint8_t*>(modelIR), modelIRSize, currentAPIVersion,
-                                            extensionsVector);
+                                            extensionsVector, extensionLibPaths);
         break;
-    case ov::intel_npu::ModelSerializerVersion::AUTO:
+    case vpux::OV::ModelSerializerVersion::AUTO:
         errorMessage << "The driver-compiler adapter received an unsupported value for the "
-                        "\"ov::intel_npu::model_serializer_version\" config option. Received: AUTO. AUTO can only "
+                        "\"vpux::model_serializer_version\" config option. Received: AUTO. AUTO can only "
                         "be used by the NPU plugin to allow it to choose a fitting version of the model "
                         "marshalling algorithm. This adapter requires the version to be specified explicitly. "
                         "Supported values: "
-                     << ov::intel_npu::ModelSerializerVersion::ALL_WEIGHTS_COPY << ", "
-                     << ov::intel_npu::ModelSerializerVersion::NO_WEIGHTS_COPY << ".";
+                     << vpux::OV::ModelSerializerVersion::ALL_WEIGHTS_COPY << ", "
+                     << vpux::OV::ModelSerializerVersion::NO_WEIGHTS_COPY << ".";
         throw std::invalid_argument(errorMessage.str());
     default:
         errorMessage << "The driver-compiler adapter received an unsupported value for the "
-                        "\"ov::intel_npu::model_serializer_version\" config option. Received: "
-                     << config.get<intel_npu::MODEL_SERIALIZER_VERSION>()
-                     << ". Supported: " << ov::intel_npu::ModelSerializerVersion::ALL_WEIGHTS_COPY << ", "
-                     << ov::intel_npu::ModelSerializerVersion::NO_WEIGHTS_COPY << ".";
+                        "\"vpux::model_serializer_version\" config option. Received: "
+                     << config.get<vpux::OV::MODEL_SERIALIZER_VERSION>()
+                     << ". Supported: " << vpux::OV::ModelSerializerVersion::ALL_WEIGHTS_COPY << ", "
+                     << vpux::OV::ModelSerializerVersion::NO_WEIGHTS_COPY << ".";
         throw std::invalid_argument(errorMessage.str());
     }
 

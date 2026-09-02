@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -17,7 +18,7 @@ namespace vpux::VPU {
 // VerticalFusionTilingRewriter
 //
 
-typedef std::function<void(int64_t, mlir::Operation*, mlir::Value&, Shape&)> TilingFunction;
+using TilingFunction = std::function<void(int64_t, mlir::Operation*, SmallVector<mlir::Value>&, SmallVector<Shape>&)>;
 
 template <typename VFConfigType, typename VFSchedulingFactoryType>
 class VerticalFusionTilingRewriterBase : public mlir::OpRewritePattern<VPU::VerticalFusionOp> {
@@ -33,12 +34,14 @@ public:
     mlir::LogicalResult matchAndRewrite(VPU::VerticalFusionOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 protected:
+    virtual VFConfigType createVFConfig(VPU::VerticalFusionOp vfOp) const = 0;
     virtual std::pair<DimArr, int64_t> getDimsData(ArrayRef<int64_t> strategy) const = 0;
 
     virtual TilingStorage restoreTilingStorage(VFConfigType& config, ArrayRef<int64_t> strategy,
                                                TilingOperationStorage::UPtr& operationStorage) const = 0;
 
     Logger _log;
+    bool _enableVerticalFusionPipelining;
 
 private:
     void adjustInputShape(mlir::PatternRewriter& rewriter, mlir::Operation* operation, InputTiling& inputTiling,
@@ -48,13 +51,14 @@ private:
                        int64_t tilingIndex, DimArrRef dims, ShapeRef expectedShape) const;
     bool processBlockArgument(mlir::BlockArgument blockArg, mlir::Operation* operation, TilingStorage& tilingStorage,
                               TileInfo& originalTiling, int64_t tilingIndex, DimArrRef dims) const;
-    void applyLinearTiling(const int64_t numTiles, VFConfigType& config, SmallVector<mlir::Value>& resultTileVals,
-                           SmallVector<Shape>& resultTileOffsets, const TilingFunction& tilingProcedure,
+    void applyLinearTiling(const int64_t numTiles, VFConfigType& config,
+                           SmallVector<SmallVector<mlir::Value>>& resultTileVals,
+                           SmallVector<SmallVector<Shape>>& resultTileOffsets, const TilingFunction& tilingProcedure,
                            VFLoopIndexAttr vfIndexAttr) const;
-    void applyPipelinedTiling(const int64_t numTiles, VFConfigType& config, SmallVector<mlir::Value>& resultTileVals,
-                              SmallVector<Shape>& resultTileOffsets, const TilingFunction& tilingProcedure,
+    void applyPipelinedTiling(const int64_t numTiles, VFConfigType& config,
+                              SmallVector<SmallVector<mlir::Value>>& resultTileVals,
+                              SmallVector<SmallVector<Shape>>& resultTileOffsets, const TilingFunction& tilingProcedure,
                               const TilingOperationStorage::UPtr& storage, VFLoopIndexAttr vfIndexAttr) const;
-    bool _enableVerticalFusionPipelining;
     const std::unique_ptr<VPU::LayerVPUNNCost>& _vpunnCostFunction;
 };
 
@@ -252,30 +256,48 @@ void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::ad
 
 template <typename VFConfigType, typename VFSchedulingFactoryType>
 void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::applyLinearTiling(
-        const int64_t numTiles, VFConfigType& config, SmallVector<mlir::Value>& resultTileVals,
-        SmallVector<Shape>& resultTileOffsets, const TilingFunction& tilingProcedure,
+        const int64_t numTiles, VFConfigType& config, SmallVector<SmallVector<mlir::Value>>& resultTileVals,
+        SmallVector<SmallVector<Shape>>& resultTileOffsets, const TilingFunction& tilingProcedure,
         VFLoopIndexAttr vfIndexAttr) const {
     auto operations = config.getVFOperations();
 
     for (auto index : irange(numTiles)) {
-        mlir::Value currentResult;
-        Shape currentTile;
+        SmallVector<mlir::Value> currentResults;
+        SmallVector<Shape> currentTiles;
         for (auto* op : operations) {
-            tilingProcedure(index, op, currentResult, currentTile);
-            currentResult.getDefiningOp()->setAttr(VF_LOOP_INDEX_ATTR_NAME, vfIndexAttr);
-            currentResult.getDefiningOp()->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME,
-                                                   VFLoopTileIndexAttr::get(getContext(), index));
+            currentResults.clear();
+            currentTiles.clear();
+            tilingProcedure(index, op, currentResults, currentTiles);
+            VPUX_THROW_WHEN(currentResults.empty(), "Tiling procedure didn't return any result for operation @ {0}",
+                            op);
+            currentResults.front().getDefiningOp()->setAttr(VF_LOOP_INDEX_ATTR_NAME, vfIndexAttr);
+            currentResults.front().getDefiningOp()->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME,
+                                                            VFLoopTileIndexAttr::get(getContext(), index));
         }
 
-        resultTileVals.push_back(currentResult);
-        resultTileOffsets.push_back(currentTile);
+        VPUX_THROW_WHEN(currentResults.size() != resultTileVals.size(),
+                        "VF tiling expects {0} results but tiling procedure returned {1} for tile {2}",
+                        resultTileVals.size(), currentResults.size(), index);
+        VPUX_THROW_WHEN(currentTiles.size() != resultTileOffsets.size(),
+                        "VF tiling expects {0} offsets but tiling procedure returned {1} for tile {2}",
+                        resultTileOffsets.size(), currentTiles.size(), index);
+        VPUX_THROW_WHEN(currentTiles.size() != currentResults.size(),
+                        "Mismatch between tiled results ({0}) and tile offsets ({1}) for tile {2}",
+                        currentResults.size(), currentTiles.size(), index);
+
+        for (const auto& [resIdx, result] : enumerate(currentResults)) {
+            resultTileVals[resIdx].push_back(result);
+            resultTileOffsets[resIdx].push_back(currentTiles[resIdx]);
+            _log.trace("  [applyLinearTiling] tile {0}, result[{1}]: resultTileOffsets = {2}", index, resIdx,
+                       resultTileOffsets[resIdx]);
+        }
     }
 }
 
 template <typename VFConfigType, typename VFSchedulingFactoryType>
 void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::applyPipelinedTiling(
-        const int64_t numTiles, VFConfigType& config, SmallVector<mlir::Value>& resultTileVals,
-        SmallVector<Shape>& resultTileOffsets, const TilingFunction& tilingProcedure,
+        const int64_t numTiles, VFConfigType& config, SmallVector<SmallVector<mlir::Value>>& resultTileVals,
+        SmallVector<SmallVector<Shape>>& resultTileOffsets, const TilingFunction& tilingProcedure,
         const TilingOperationStorage::UPtr& storage, VFLoopIndexAttr vfIndexAttr) const {
     auto scheduling = config.getSubgraph().getScenario();
     VPUX_THROW_WHEN(!scheduling.has_value(), "Cannot get scheduling scenario from VF {0}", config.getSubgraph());
@@ -288,14 +310,21 @@ void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::ap
         auto timeline = pipelining.getTimeLine();
 
         if (!timeline.empty()) {
-            mlir::Value currentResult;
-            Shape currentTile;
+            SmallVector<mlir::Value> currentResults;
+            currentResults.reserve(resultTileVals.size());
+            SmallVector<Shape> currentTiles;
+            currentTiles.reserve(resultTileOffsets.size());
             for (auto& [index, operation] : pipelining.getTimeLine()) {
                 // pipelining only records the compute ops, need to handle its view-like parents in advance
                 auto viewLikeParents = VPU::getParentViewLikeOpsInVF(operation);
                 for (auto viewOp : viewLikeParents) {
-                    tilingProcedure(index, viewOp, currentResult, currentTile);
-                    auto* viewProducerOp = currentResult.getDefiningOp();
+                    tilingProcedure(index, viewOp, currentResults, currentTiles);
+                    // View ops have only one result
+                    VPUX_THROW_WHEN(currentResults.size() != 1,
+                                    "Tiling procedure didn't return exactly one result for view operation @ {0}",
+                                    operation->getLoc());
+
+                    auto* viewProducerOp = currentResults.back().getDefiningOp();
                     VPUX_THROW_UNLESS(viewProducerOp != nullptr,
                                       "tilingProcedure returned a non-op-defined value for viewOp at index {0};"
                                       " cannot attach VF loop attrs",
@@ -306,8 +335,10 @@ void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::ap
                 }
 
                 // currentResult and currentTiles keep result from previous call tilingProcedure
-                tilingProcedure(index, operation, currentResult, currentTile);
-                auto* producerOp = currentResult.getDefiningOp();
+                tilingProcedure(index, operation, currentResults, currentTiles);
+                VPUX_THROW_WHEN(currentResults.empty(), "Tiling procedure didn't return any result for operation @ {0}",
+                                operation->getLoc());
+                auto* producerOp = currentResults.front().getDefiningOp();
                 VPUX_THROW_UNLESS(producerOp != nullptr,
                                   "tilingProcedure returned a non-op-defined value for operation at index {0};"
                                   " cannot attach VF loop attrs",
@@ -315,9 +346,21 @@ void VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingFactoryType>::ap
                 producerOp->setAttr(VF_LOOP_INDEX_ATTR_NAME, vfIndexAttr);
                 producerOp->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME, VFLoopTileIndexAttr::get(getContext(), index));
 
+                VPUX_THROW_WHEN(currentResults.size() != resultTileVals.size(),
+                                "VF tiling expects {0} results but tiling procedure returned {1} for tile {2}",
+                                resultTileVals.size(), currentResults.size(), index);
+                VPUX_THROW_WHEN(currentTiles.size() != resultTileOffsets.size(),
+                                "VF tiling expects {0} offsets but tiling procedure returned {1} for tile {2}",
+                                resultTileOffsets.size(), currentTiles.size(), index);
+                VPUX_THROW_WHEN(currentTiles.size() != currentResults.size(),
+                                "Mismatch between tiled results ({0}) and tile offsets ({1}) for tile {2}",
+                                currentResults.size(), currentTiles.size(), index);
+
                 if (llvm::find(config.getOutputs(), operation) != config.getOutputs().end()) {
-                    resultTileVals.push_back(currentResult);
-                    resultTileOffsets.push_back(currentTile);
+                    for (const auto& [resIdx, result] : enumerate(currentResults)) {
+                        resultTileVals[resIdx].push_back(result);
+                        resultTileOffsets[resIdx].push_back(currentTiles[resIdx]);
+                    }
                 }
             }
             return;
@@ -339,27 +382,34 @@ mlir::LogicalResult VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingF
         return mlir::failure();
     }
 
-    VFConfigType vfConfig(vfOp, _enableVerticalFusionPipelining);
+    _log.trace("Applying tiling for VF op at {0}: tilingStrategy = {1}", vfOp->getLoc(), tilingStrategy);
+
+    auto vfConfig = createVFConfig(vfOp);
 
     auto operationStorage = std::make_unique<TilingOperationStorage>();
     auto tilingStorage = restoreTilingStorage(vfConfig, tilingStrategy, operationStorage);
 
-    SmallVector<mlir::Value> resultTileVals;
-    resultTileVals.reserve(tilesLen);
-    SmallVector<Shape> resultTileOffsets;
+    // resultTileVals = {{res_0_tile_0, res_0_tile_1, ...}, {res_1_tile_0, res_1_tile_1, ...}, ...}
+    auto resultTileVals = SmallVector<SmallVector<mlir::Value>>(vfOp->getNumResults(), {});
+    auto resultTileOffsets = SmallVector<SmallVector<Shape>>(vfOp->getNumResults(), {});
+    for (size_t i = 0; i < vfOp->getNumResults(); ++i) {
+        resultTileVals[i].reserve(tilesLen);
+        resultTileOffsets[i].reserve(tilesLen);
+    }
+
     DenseMap<int64_t, mlir::IRMapping> mappers;
-    DenseMap<mlir::Operation*, DenseMap<int64_t, mlir::Value>> opTileResults;
+    DenseMap<mlir::Operation*, DenseMap<int64_t, SmallVector<mlir::Value>>> opTileResults;
 
-    const auto tilingProcedure = [&](int64_t index, mlir::Operation* op, mlir::Value& currentResult,
-                                     Shape& currentTile) {
+    const auto tilingProcedure = [&](int64_t index, mlir::Operation* op, SmallVector<mlir::Value>& currentResults,
+                                     SmallVector<Shape>& currentTiles) {
         auto inputTiling = operationStorage->get(op, index);
-
         VPUX_THROW_WHEN(!inputTiling.has_value(), "Couldn't find tile information for operation {0} and tile {1}", *op,
                         index);
 
+        currentTiles.clear();
+
         const auto& inputTilingPair = inputTiling.value();
         auto inputTilingInfo = inputTilingPair.first;
-        currentTile = inputTilingPair.second.offsets;
         auto& mapper = mappers[index];
 
         auto firstSameTile = operationStorage->findFirstTile(op, inputTilingPair);
@@ -368,8 +418,20 @@ mlir::LogicalResult VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingF
             VPUX_THROW_UNLESS(opTileResults.count(op) > 0 && opTileResults[op].count(firstSameTile.value()) > 0,
                               "Tile result not found for operation {0} and tile {1}", op->getLoc(),
                               firstSameTile.value());
-            currentResult = opTileResults[op][firstSameTile.value()];
-            mapper.map(op->getResult(0), currentResult);
+            currentResults = opTileResults[op][firstSameTile.value()];
+            mapper.map(op->getResults(), currentResults);
+
+            // Also restore per-result tile offsets; they are needed later when building Concat static_offsets.
+            if (auto tiledBuilderOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(op)) {
+                const auto outTiles = tiledBuilderOp.getOutputTiling(inputTilingPair.second, _log);
+                currentTiles.reserve(outTiles.size());
+                for (const auto& outTile : outTiles) {
+                    currentTiles.push_back(outTile.offsets);
+                }
+            } else {
+                // View-like ops are expected to have a single result.
+                currentTiles.push_back(inputTilingPair.second.offsets);
+            }
             return;
         }
 
@@ -391,20 +453,35 @@ mlir::LogicalResult VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingF
 
         auto* copiedOp = rewriter.clone(*op, mapper);
         extendOpLoc(copiedOp, "slice_{0}", index);
-        currentResult = copiedOp->getResult(0);
+        currentResults = copiedOp->getResults();
+        OutputTiling crtOpOutputTiling = {inputTilingPair.second};
 
         const auto baseResType = mlir::cast<NDTypeInterface>(op->getResult(0).getType());
         if (auto tiledBuilderOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(copiedOp)) {
-            tiledBuilderOp.adjustAttrs(inputTilingInfo, inputTilingPair.second);
+            tiledBuilderOp.adjustAttrs(inputTilingInfo, crtOpOutputTiling.front());
+            crtOpOutputTiling = tiledBuilderOp.getOutputTiling(crtOpOutputTiling.front(), _log);
         } else if (auto tiledViewOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(copiedOp)) {
             tiledViewOp.adjustAttrs(inputTilingInfo, inputTilingPair.second, baseResType.getShape());
         }
-        const auto tiledResType =
-                baseResType.extractDenseTile(inputTilingPair.second.offsets, inputTilingPair.second.shape);
 
-        currentResult.setType(tiledResType);
-        mapper.map(op->getResult(0), currentResult);
-        opTileResults[op][index] = currentResult;
+        // Tile results
+        const unsigned numOpResults = copiedOp->getNumResults();
+        VPUX_THROW_WHEN(crtOpOutputTiling.size() != numOpResults,
+                        "getOutputTiling returned {0} tiles for op '{1}' @ {2}, expected {3}", crtOpOutputTiling.size(),
+                        op->getName(), op->getLoc(), numOpResults);
+
+        for (unsigned i = 0; i < numOpResults; ++i) {
+            const auto resNdType = mlir::cast<NDTypeInterface>(op->getResult(i).getType());
+            const auto& tiledShape = crtOpOutputTiling[i].shape;
+            const auto& tiledOffsets = crtOpOutputTiling[i].offsets;
+
+            currentTiles.push_back(tiledOffsets);
+
+            const auto tiledResType = resNdType.extractDenseTile(tiledOffsets, tiledShape);
+            copiedOp->getResult(i).setType(tiledResType);
+            mapper.map(op->getResult(i), copiedOp->getResult(i));
+        }
+        opTileResults[op][index] = currentResults;
     };
 
     VPUX_THROW_UNLESS(vfOp->hasAttrOfType<VFLoopIndexAttr>(VF_LOOP_INDEX_ATTR_NAME),
@@ -419,8 +496,17 @@ mlir::LogicalResult VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingF
     } else {
         applyLinearTiling(tilesLen, vfConfig, resultTileVals, resultTileOffsets, tilingProcedure, vfIndexAttr);
     }
-    rewriter.replaceOpWithNewOp<VPU::ConcatOp>(vfOp, vfOp->getResult(0).getType(), mlir::ValueRange(resultTileVals),
-                                               ArrayRef(resultTileOffsets));
+
+    _log.trace("Replacing VF at {0} with Concat over {1} tiles", vfOp->getLoc(), tilesLen);
+    SmallVector<mlir::Value> replacements;
+    replacements.reserve(vfOp->getNumResults());
+    for (size_t i = 0; i < vfOp->getNumResults(); ++i) {
+        auto concatOp =
+                rewriter.create<VPU::ConcatOp>(appendLoc(vfOp.getLoc(), "concat_{0}", i), vfOp->getResult(i).getType(),
+                                               mlir::ValueRange(resultTileVals[i]), ArrayRef(resultTileOffsets[i]));
+        replacements.push_back(concatOp.getResult());
+    }
+    rewriter.replaceOp(vfOp, replacements);
     return mlir::success();
 }
 

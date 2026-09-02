@@ -102,7 +102,11 @@ mlir::LogicalResult TransposedConvolutionConversion::matchAndRewrite(IE::Transpo
     auto strides = getIntArrayAttr(getContext(), SmallVector<int64_t>{1, 1});
     auto padsBegin = getIntArrayAttr(getContext(), SmallVector<int64_t>{0, 0});
     auto padsEnd = getIntArrayAttr(getContext(), SmallVector<int64_t>{0, 0});
-    auto dilations = getIntArrayAttr(getContext(), SmallVector<int64_t>{1, 1});
+    // E#222712: Preserve original dilations; hard-coding [1,1] dropped dilation and caused shape mismatches.
+    auto dilations = origOp.getDilationsAttr();
+    const auto dilationsVec = parseIntArrayAttr<int64_t>(dilations);
+    const auto dilY = dilationsVec[Dims4D::Dilation::Y.ind()];
+    const auto dilX = dilationsVec[Dims4D::Dilation::X.ind()];
 
     auto resultOP =
             rewriter.create<IE::ConvolutionOp>(origOp.getLoc(), paddingOutput, origOp.getFilter(), origOp.getBias(),
@@ -118,8 +122,9 @@ mlir::LogicalResult TransposedConvolutionConversion::matchAndRewrite(IE::Transpo
         auto upsamplingOp = paddingOutput.getDefiningOp<IE::UpsamplingOp>();
         const auto padHeightVector = parseIntArrayAttr<int64_t>(upsamplingOp.getPadAttr().getPadsHeight());
         const auto padWidthVector = parseIntArrayAttr<int64_t>(upsamplingOp.getPadAttr().getPadsWidth());
-        const auto origPadLeft = filterShape[Dims4D::Filter::KX] - 1;
-        const auto origPadTop = filterShape[Dims4D::Filter::KY] - 1;
+        // Mirror createUpsampling: (K_eff - 1) = (K - 1) * dilation.
+        const auto origPadLeft = (filterShape[Dims4D::Filter::KX] - 1) * dilX;
+        const auto origPadTop = (filterShape[Dims4D::Filter::KY] - 1) * dilY;
         const auto reducedPadLeft = origPadLeft - padWidthVector[0];
         const auto reducedPadTop = origPadTop - padHeightVector[0];
         const auto padsBeginVector = Shape(parseIntArrayAttr<int64_t>(origOp.getPadsBegin()));
@@ -139,9 +144,11 @@ mlir::LogicalResult TransposedConvolutionConversion::matchAndRewrite(IE::Transpo
         }
     }
 
+    const auto origLoc = origOp.getLoc();
+
     rewriter.replaceOp(origOp, resultOP);
 
-    _log.trace("Replaced TransposedConvolution at '{0}' with 'IE::Convolution' (2D)", origOp.getLoc());
+    _log.trace("Replaced TransposedConvolution at '{0}' with 'IE::Convolution' (2D)", origLoc);
 
     return mlir::success();
 }

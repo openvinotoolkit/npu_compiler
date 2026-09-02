@@ -469,7 +469,7 @@ func.func @NCEConvSOK(%arg0: tensor<1x32x64x64xf16, {order = #NHWC}>) -> tensor<
 
 // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS_SLICE]]) rawFilterShape [[[TILE_SZ]], 32, 3, 3] {
 // CHECK-SAME:      pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-// CHECK-SAME:      ppe = #VPU.PPEStub<>, 
+// CHECK-SAME:      ppe = #VPU.PPEStub<>,
 // CHECK-SAME:      strides = [1, 1]}
 // CHECK-SAME:    : tensor<1x32x64x64xf16, {order = #NHWC}>, tensor<?x32x3x3xf16, {bounds = #const.OpaqueI64Elements<[256, 32, 3, 3]> : tensor<4xsi64>, order = #NHWC}>
 // CHECK-SAME:    -> tensor<1x?x64x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
@@ -496,7 +496,7 @@ config.Resources 3 of @NCE at 1.850000e+03 MHz {
 // CHECK-SAME:       [[INPUT:%[^:]+]]: tensor<1x128x64x64xf16, {order = #NHWC}>
 func.func @NCEDWConvSOK(%arg0: tensor<1x128x64x64xf16, {order = #NHWC}>) -> tensor<1x128x64x64xf16, {order = #NHWC}> {
   %weights = const.Declare tensor<128x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<128x16x1x1xf16>, [#const.Reorder<#NHWC>]
-  %0 = VPU.NCE.DepthConvolution(%arg0, %weights) rawFilterShape [128, 1, 3, 3] {
+  %0 = VPU.NCE.DepthConvolution(%arg0, %weights) rawFilterShape [128, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
       multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
       pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
        strides = [1, 1]
@@ -522,8 +522,8 @@ func.func @NCEDWConvSOK(%arg0: tensor<1x128x64x64xf16, {order = #NHWC}>) -> tens
 
 // CHECK:       [[DWCONV:%.+]] = VPU.NCE.DepthConvolution([[IN_SLICE]], [[WEIGHTS_SLICE]]) rawFilterShape [[[TILE_SZ]], 1, 3, 3] {
 // CHECK-SAME:      pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-// CHECK-SAME:      ppe = #VPU.PPEStub<>, 
-// CHECK-SAME:      strides = [1, 1]}
+// CHECK-SAME:      ppe = #VPU.PPEStub<>,
+// CHECK-SAME:      resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1]}
 // CHECK-SAME:    -> tensor<1x?x64x64xf16, {bounds = #const.OpaqueI64Elements<[1, 128, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
 
 // CHECK:       scf.forall.in_parallel
@@ -594,7 +594,7 @@ config.Resources 4 of @NCE at 1.850000e+03 MHz {
 // CHECK-SAME:       [[INPUT1:%[^:]+]]: tensor<1x112x12x12xf16, {order = #NHWC}>
 func.func @NCEEltwiseSOK(%arg0: tensor<1x112x12x12xf16, {order = #NHWC}>, %arg1: tensor<1x112x12x12xf16, {order = #NHWC}>)
     -> tensor<1x112x12x12xf16, {order = #NHCW}> {
-  %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+  %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
       is_inplace = true,
       multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
       op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>
@@ -794,7 +794,7 @@ config.Resources 3 of @NCE at 1.850000e+03 MHz {
 // CHECK-SAME:       [[INPUT:%[^:]+]]: tensor<1x128x64x64xf16, {order = #NHWC}>
 func.func @NCEDWConvSOH(%arg0: tensor<1x128x64x64xf16, {order = #NHWC}>) -> tensor<1x128x32x32xf16, {order = #NHWC}> {
   %weights = const.Declare tensor<128x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<128x16x1x1xf16>, [#const.Reorder<#NHWC>]
-  %0 = VPU.NCE.DepthConvolution(%arg0, %weights) rawFilterShape [128, 1, 2, 2] {
+  %0 = VPU.NCE.DepthConvolution(%arg0, %weights) rawFilterShape [128, 1, 2, 2] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
       multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
       pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
        strides = [2, 2]
@@ -827,8 +827,8 @@ func.func @NCEDWConvSOH(%arg0: tensor<1x128x64x64xf16, {order = #NHWC}>) -> tens
 
 // CHECK:       [[DWCONV:%.+]] = VPU.NCE.DepthConvolution([[PAD]], [[WEIGHTS]]) rawFilterShape [128, 1, 2, 2] {
 // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-// CHECK-SAME:      ppe = #VPU.PPEStub<>, 
-// CHECK-SAME:      strides = [2, 2]}
+// CHECK-SAME:      ppe = #VPU.PPEStub<>,
+// CHECK-SAME:      resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [2, 2]}
 // CHECK-SAME:    -> tensor<1x128x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 128, 32, 32]> : tensor<4xsi64>, order = #NHWC}>
 
 // CHECK:       scf.forall.in_parallel
@@ -898,7 +898,7 @@ config.Resources 5 of @NCE at 1.850000e+03 MHz {
 // CHECK-SAME:       [[INPUT1:%[^:]+]]: tensor<1x112x12x12xf16, {order = #NHWC}>
 func.func @NCEEltwiseSOHUsing4Clusters(%arg0: tensor<1x112x12x12xf16, {order = #NHWC}>, %arg1: tensor<1x112x12x12xf16, {order = #NHWC}>)
     -> tensor<1x112x12x12xf16, {order = #NHWC}> {
-  %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+  %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
       is_inplace = true,
       multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
       op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>
@@ -1581,8 +1581,8 @@ func.func @DynamicNCEReduce(%arg0: tensor<1x32x175x?xf16, {bounds = #const.Opaqu
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #map = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
 
-// CHECK: #[[MAP:.+]]= affine_map<(d0)[s0] -> (-d0 + s0, 103)>
-// CHECK: #[[MAP1:.+]]= affine_map<(d0) -> (-d0 + 175, 44)>
+// CHECK-DAG: #[[$MAP:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
+// CHECK-DAG: #[[$MAP1:.+]] = affine_map<(d0) -> (-d0 + 175, 44)>
 
 module @test {
 config.Resources 4 of @NCE at 6.000000e+02 MHz {
@@ -1646,8 +1646,8 @@ func.func @DynamicReduceL1(%arg0: tensor<1x32x175x?xf16, {bounds = #const.Opaque
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #map = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
 
-// CHECK: #[[MAP:.+]]= affine_map<(d0)[s0] -> (-d0 + s0, 103)>
-// CHECK: #[[MAP1:.+]]= affine_map<(d0) -> (-d0 + 175, 44)>
+// CHECK-DAG: #[[$MAP:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
+// CHECK-DAG: #[[$MAP1:.+]] = affine_map<(d0) -> (-d0 + 175, 44)>
 
 module @test {
 config.Resources 4 of @NCE at 6.000000e+02 MHz {
@@ -1711,8 +1711,8 @@ func.func @DynamicReduceL2(%arg0: tensor<1x32x175x?xf16, {bounds = #const.Opaque
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #map = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
 
-// CHECK: #[[MAP:.+]]= affine_map<(d0)[s0] -> (-d0 + s0, 103)>
-// CHECK: #[[MAP1:.+]]= affine_map<(d0) -> (-d0 + 175, 44)>
+// CHECK-DAG: #[[$MAP:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
+// CHECK-DAG: #[[$MAP1:.+]] = affine_map<(d0) -> (-d0 + 175, 44)>
 
 module @test {
 config.Resources 4 of @NCE at 6.000000e+02 MHz {
@@ -1776,8 +1776,8 @@ func.func @DynamicReduceMax(%arg0: tensor<1x32x175x?xf16, {bounds = #const.Opaqu
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #map = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
 
-// CHECK: #[[MAP:.+]]= affine_map<(d0)[s0] -> (-d0 + s0, 103)>
-// CHECK: #[[MAP1:.+]]= affine_map<(d0) -> (-d0 + 175, 44)>
+// CHECK-DAG: #[[$MAP:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
+// CHECK-DAG: #[[$MAP1:.+]] = affine_map<(d0) -> (-d0 + 175, 44)>
 
 module @test {
 config.Resources 4 of @NCE at 6.000000e+02 MHz {
@@ -1841,8 +1841,8 @@ func.func @DynamicReduceMean(%arg0: tensor<1x32x175x?xf16, {bounds = #const.Opaq
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #map = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
 
-// CHECK: #[[MAP:.+]]= affine_map<(d0)[s0] -> (-d0 + s0, 103)>
-// CHECK: #[[MAP1:.+]]= affine_map<(d0) -> (-d0 + 175, 44)>
+// CHECK-DAG: #[[$MAP:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
+// CHECK-DAG: #[[$MAP1:.+]] = affine_map<(d0) -> (-d0 + 175, 44)>
 
 module @test {
 config.Resources 4 of @NCE at 6.000000e+02 MHz {
@@ -1906,8 +1906,8 @@ func.func @DynamicReduceSum(%arg0: tensor<1x32x175x?xf16, {bounds = #const.Opaqu
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #map = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
 
-// CHECK: #[[MAP:.+]]= affine_map<(d0)[s0] -> (-d0 + s0, 103)>
-// CHECK: #[[MAP1:.+]]= affine_map<(d0) -> (-d0 + 175, 44)>
+// CHECK-DAG: #[[$MAP:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
+// CHECK-DAG: #[[$MAP1:.+]] = affine_map<(d0) -> (-d0 + 175, 44)>
 
 module @test {
 config.Resources 4 of @NCE at 6.000000e+02 MHz {
@@ -1971,8 +1971,8 @@ func.func @DynamicReduceProd(%arg0: tensor<1x32x175x?xf16, {bounds = #const.Opaq
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #map = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
 
-// CHECK: #[[MAP:.+]]= affine_map<(d0)[s0] -> (-d0 + s0, 103)>
-// CHECK: #[[MAP1:.+]]= affine_map<(d0) -> (-d0 + 175, 44)>
+// CHECK-DAG: #[[$MAP:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
+// CHECK-DAG: #[[$MAP1:.+]] = affine_map<(d0) -> (-d0 + 175, 44)>
 
 module @test {
 config.Resources 4 of @NCE at 6.000000e+02 MHz {
@@ -2036,8 +2036,8 @@ func.func @DynamicReduceLogicalOr(%arg0: tensor<1x32x175x?xf16, {bounds = #const
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #map = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
 
-// CHECK: #[[MAP:.+]]= affine_map<(d0)[s0] -> (-d0 + s0, 103)>
-// CHECK: #[[MAP1:.+]]= affine_map<(d0) -> (-d0 + 175, 44)>
+// CHECK-DAG: #[[$MAP:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
+// CHECK-DAG: #[[$MAP1:.+]] = affine_map<(d0) -> (-d0 + 175, 44)>
 
 module @test {
 config.Resources 4 of @NCE at 6.000000e+02 MHz {
@@ -2101,8 +2101,8 @@ func.func @DynamicReduceLogicalAnd(%arg0: tensor<1x32x175x?xf16, {bounds = #cons
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #map = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
 
-// CHECK: #[[MAP:.+]]= affine_map<(d0)[s0] -> (-d0 + s0, 103)>
-// CHECK: #[[MAP1:.+]]= affine_map<(d0) -> (-d0 + 175, 44)>
+// CHECK-DAG: #[[$MAP:.+]] = affine_map<(d0)[s0] -> (-d0 + s0, 103)>
+// CHECK-DAG: #[[$MAP1:.+]] = affine_map<(d0) -> (-d0 + 175, 44)>
 
 module @test {
 config.Resources 4 of @NCE at 6.000000e+02 MHz {
@@ -2310,14 +2310,15 @@ func.func @InterpolateSOH(%arg0: tensor<1x21x?x14xf16, {bounds = #const.OpaqueI6
         initial_input_dims_attr = [1, 21, 14, 14],
         initial_output_dims_attr = [1, 21, 16, 10],
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>,
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
         scales_attr = [2.3571428571428572, 2.3571428571428572],
         sizes_attr = [16, 10],
         tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]
     } : tensor<1x21x?x14xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 14, 14]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x21x?x10xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 16, 10]> : tensor<4xsi64>, order = #NHWC}>
     return %0 : tensor<1x21x?x10xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 16, 10]> : tensor<4xsi64>, order = #NHWC}>
 
-    // CHECK-DAG:   [[CST_SCALE:%.+]] = arith.constant 2.3571428571428572 : f64
+    // CHECK-DAG:   [[CST_SCALE:%.+]] = arith.constant 1.1428571428571428 : f64
+    // CHECK-DAG:   [[C0_I64:%.+]] = arith.constant 0 : i64
     // CHECK-DAG:   [[C2:%.+]] = arith.constant 2 : index
     // CHECK:       [[DIM:%.+]] = tensor.dim [[INPUT]], [[C2]]
     // CHECK:       [[DIM_I64:%.+]] = arith.index_cast [[DIM]] : index to i64
@@ -2343,21 +2344,30 @@ func.func @InterpolateSOH(%arg0: tensor<1x21x?x14xf16, {bounds = #const.OpaqueI6
 
     // CHECK:           [[INPUT_SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[IN_OFFSET_CLAMPED]], 0] [1, 21, [[IN_TILE_SZ]], 14] [1, 1, 1, 1]
     // CHECK-SAME:          : tensor<1x21x?x14xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 14, 14]> : tensor<4xsi64>, order = #NHWC}>
-    // CHECK-SAME:          to tensor<1x21x?x14xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 6, 14]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK-SAME:          to tensor<1x21x?x14xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 3, 14]> : tensor<4xsi64>, order = #NHWC}>
 
-    // CHECK:           [[INTERP:%.+]] = VPU.Interpolate([[INPUT_SLICE]])
-    // CHECK-SAME:          attr = #IE.Interpolate<mode = <LINEAR_ONNX>, shape_calc_mode = <SCALES>, coord_mode = <ASYMMETRIC>
+    // CHECK:           [[IN_OFF_CAST:%.+]] = arith.index_cast [[IN_OFFSET_CLAMPED]] : index to i64
+    // CHECK:           [[OUT_OFF_CAST:%.+]] = arith.index_cast [[LOOP_ITER]] : index to i64
+    // CHECK:           [[IN_OFF_TENSOR:%.+]] = tensor.from_elements [[C0_I64]], [[C0_I64]], [[IN_OFF_CAST]], [[C0_I64]] : tensor<4xi64>
+    // CHECK:           [[OUT_OFF_TENSOR:%.+]] = tensor.from_elements [[C0_I64]], [[C0_I64]], [[OUT_OFF_CAST]], [[C0_I64]] : tensor<4xi64>
+
+    // Per-tile op stays in SIZES mode: sizes_attr pins each tile's output extent.
+    // scales_attr is non-authoritative here (no useScaleAttr) and is carried over from the clone.
+    // CHECK:           [[INTERP:%.+]] = VPU.Interpolate([[INPUT_SLICE]], [[IN_OFF_TENSOR]], [[OUT_OFF_TENSOR]])
+    // CHECK-SAME:          attr = #IE.Interpolate<mode = <LINEAR_ONNX>, shape_calc_mode = <SIZES>, coord_mode = <ASYMMETRIC>
     // CHECK-SAME:          initial_input_dims_attr = [1, 21, 14, 14]
-    // CHECK-SAME:          initial_input_offset_attr = [0, 0, 0, 0]
+    // CHECK-SAME:          initial_input_offset_attr = [0, 0, -9223372036854775808, 0]
     // CHECK-SAME:          initial_output_dims_attr = [1, 21, 16, 10]
-    // CHECK-SAME:          initial_output_offset_attr = [0, 0, 0, 0]
-    // CHECK-SAME:          scales_attr = [1.1428571428571428, 0.7142857142857143]
-    // CHECK-SAME:          : tensor<1x21x?x14xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 6, 14]> : tensor<4xsi64>, order = #NHWC}>
-    // CHECK-SAME:          -> tensor<1x21x?x10xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 6, 10]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK-SAME:          initial_output_offset_attr = [0, 0, -9223372036854775808, 0]
+    // CHECK-SAME:          operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 1, 1>
+    // CHECK-SAME:          scales_attr = [2.3571428571428572, 2.3571428571428572]
+    // CHECK-SAME:          sizes_attr = [3, 10]
+    // CHECK-SAME:          : tensor<1x21x?x14xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 3, 14]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK-SAME:          -> tensor<1x21x?x10xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 3, 10]> : tensor<4xsi64>, order = #NHWC}>
 
     // CHECK:           scf.forall.in_parallel
     // CHECK:               tensor.parallel_insert_slice [[INTERP]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER]], 0] [1, 21, [[OUT_TILE_SZ]], 10] [1, 1, 1, 1]
-    // CHECK-SAME:              : tensor<1x21x?x10xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 6, 10]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK-SAME:              : tensor<1x21x?x10xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 3, 10]> : tensor<4xsi64>, order = #NHWC}>
     // CHECK-SAME:              into tensor<1x21x?x10xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 16, 10]> : tensor<4xsi64>, order = #NHWC}>
 
     // CHECK:       return [[LOOP]] : tensor<1x21x?x10xf16, {bounds = #const.OpaqueI64Elements<[1, 21, 16, 10]> : tensor<4xsi64>, order = #NHWC}>
@@ -3291,5 +3301,182 @@ func.func @NonSOKConvSOKTilingDynamicRawFilter(%arg0: tensor<1x32x64x64xf16, {or
     // CHECK-SAME:     into tensor<1x256x64x64xf16, {order = #NHWC}>
     // CHECK: scf.yield [[INSERT]] : tensor<1x256x64x64xf16, {order = #NHWC}>
     // CHECK: return [[LOOP]] : tensor<1x256x64x64xf16, {order = #NHWC}>
+}
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qtype_117 = !quant.uniform<u8:f16, 0.0034980668741113998:117>
+!qtype_138 = !quant.uniform<u8:f16, 0.0033925405904358507:138>
+!qtype_151 = !quant.uniform<u8:f16, 0.004351120485978968:151>
+!qtype_105 = !quant.uniform<u8:f16, 0.0039397156706043315:105>
+
+!qtype_w1 = !quant.uniform<u8:f16, 5.42596274731206E-4:128>
+!qtype_w2 = !quant.uniform<u8:f16, 5.792334675788879E-4:128>
+
+!in1_type = tensor<1x32x800x1280x!qtype_117, {order = #NHWC}>
+!in2_type = tensor<1x32x800x1280x!qtype_138, {order = #NHWC}>
+!out_type = tensor<1x32x800x1280x!qtype_105, {order = #NHWC}>
+
+// Vertically-fused scf.for loop with Conv -> Eltwise -> Pad -> Conv -> Eltwise chain.
+// The loop tiles over the width dimension (step=37 over 1280) with IV-dependent padding.
+// The pass should add scf.forall for SOH multiclustering inside the loop body
+// and move tensor.pad after extract_slice inside the forall body.
+
+module {
+config.Resources 3 of @NCE at 1.850000e+03 MHz {
+  config.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: @VFConvEltwiseConvEltwise
+func.func @VFConvEltwiseConvEltwise(
+        %arg0: !in1_type,
+        %arg1: !in2_type)
+        -> !out_type {
+
+    %cst_w1 = const.Declare tensor<32x32x3x3x!qtype_w1, {order = #NHWC}> = dense<128> : tensor<32x32x3x3xui8>, [#const.CastElemType<f16>, #const.CastElemType<!qtype_w1>, #const.Reorder<#NHWC>]
+    %cst_w2 = const.Declare tensor<32x32x3x3x!qtype_w2, {order = #NHWC}> = dense<128> : tensor<32x32x3x3xui8>, [#const.CastElemType<f16>, #const.CastElemType<!qtype_w2>, #const.Reorder<#NHWC>]
+
+    %c_138 = arith.constant -118 : i8
+    %c_151 = arith.constant -105 : i8
+    %c0 = arith.constant 0 : index
+    %c37 = arith.constant 37 : index
+    %c1280 = arith.constant 1280 : index
+
+    %acc = tensor.empty() : !out_type
+
+    %result = scf.for %arg2 = %c0 to %c1280 step %c37 iter_args(%arg3 = %acc) -> (!out_type) {
+        %adj_offset = affine.min affine_map<(d0) -> ((d0 floordiv 37) * 37, (d0 floordiv 37) * 36 + 20)>(%arg2)
+        %tile_cap = affine.min affine_map<(d0) -> (d0 floordiv 37, 20)>(%arg2)
+        %adj_size = affine.min affine_map<(d0) -> (-d0 + 56, 37)>(%tile_cap)
+
+        // Extract eltwise input from %arg0
+        %eltwise_slice = tensor.extract_slice %arg0[0, 0, 0, %adj_offset] [1, 32, 800, %adj_size] [1, 1, 1, 1]
+            : !in1_type to tensor<1x32x800x?x!qtype_117, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
+
+        // Compute padding for conv1 (rdb1_conv2)
+        %in_off_1 = affine.max affine_map<(d0) -> (0, d0 - 1)>(%adj_offset)
+        %max_diff_1 = affine.max affine_map<(d0) -> (-d0 + 1, 0)>(%adj_offset)
+        %pad_before_1 = affine.min affine_map<()[s0] -> (1, s0)>()[%max_diff_1]
+        %max_diff_after_1 = affine.max affine_map<(d0, d1) -> (0, d0 + d1 - 1278)>(%adj_size, %in_off_1)
+        %pad_after_1 = affine.min affine_map<()[s0] -> (1, s0)>()[%max_diff_after_1]
+        %in_size_1 = affine.apply affine_map<(d0, d1, d2) -> (d0 - d1 - d2 + 2)>(%adj_size, %pad_before_1, %pad_after_1)
+
+        // Extract conv1 input from %arg1 with halo
+        %conv1_input = tensor.extract_slice %arg1[0, 0, 0, %in_off_1] [1, 32, 800, %in_size_1] [1, 1, 1, 1]
+            : !in2_type to tensor<1x32x800x?x!qtype_138, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
+
+        // Compute nested padding for conv2 (rdb1_conv2, deeper halo)
+        %in_off_2 = affine.max affine_map<(d0) -> (0, d0 - 1)>(%in_off_1)
+        %max_diff_2 = affine.max affine_map<(d0) -> (-d0 + 1, 0)>(%in_off_1)
+        %pad_before_2 = affine.min affine_map<()[s0] -> (1, s0)>()[%max_diff_2]
+        %max_diff_after_2 = affine.max affine_map<(d0, d1, d2, d3) -> (0, d0 + d1 - d2 - d3 - 1276)>(%in_off_2, %adj_size, %pad_before_1, %pad_after_1)
+        %pad_after_2 = affine.min affine_map<()[s0] -> (1, s0)>()[%max_diff_after_2]
+        %in_size_2 = affine.apply affine_map<(d0, d1, d2, d3, d4) -> (-d0 - d1 + d2 - d3 - d4 + 4)>(%pad_before_2, %pad_after_2, %adj_size, %pad_before_1, %pad_after_1)
+
+        // Extract conv2 input from %arg1 (deeper halo)
+        %conv2_input = tensor.extract_slice %arg1[0, 0, 0, %in_off_2] [1, 32, 800, %in_size_2] [1, 1, 1, 1]
+            : !in2_type to tensor<1x32x800x?x!qtype_138, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
+
+        // Pad conv2 input
+        %pad_val_1 = builtin.unrealized_conversion_cast %c_138 : i8 to !qtype_138
+        %padded_1 = tensor.pad %conv2_input low[0, 0, 1, %pad_before_2] high[0, 0, 1, %pad_after_2] {
+        ^bb0(%a0: index, %a1: index, %a2: index, %a3: index):
+            tensor.yield %pad_val_1 : !qtype_138
+        } : tensor<1x32x800x?x!qtype_138, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
+          to tensor<1x32x802x?x!qtype_138, {bounds = #const.OpaqueI64Elements<[1, 32, 802, 1282]> : tensor<4xsi64>, order = #NHWC}>
+
+        // Conv2 (rdb1_conv2)
+        %conv2_out = VPU.NCE.Convolution(%padded_1, %cst_w1) rawFilterShape [32, 32, 3, 3] {
+            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            pinnedStrategy,
+            ppe = #VPU.PPEStub<>,
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            strides = [1, 1]
+        } : tensor<1x32x802x?x!qtype_138, {bounds = #const.OpaqueI64Elements<[1, 32, 802, 1282]> : tensor<4xsi64>, order = #NHWC}>,
+            tensor<32x32x3x3x!qtype_w1, {order = #NHWC}>
+          -> tensor<1x32x800x?x!qtype_138, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
+
+        // Eltwise Add_1 (conv1_input + conv2_out)
+        %eltwise_1 = VPU.NCE.Eltwise(%conv1_input, %conv2_out) {
+            is_inplace = true,
+            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            op_type = #VPU.eltwise_type<ADD>,
+            ppe = #VPU.PPEStub<>,
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>
+        } -> tensor<1x32x800x?x!qtype_151, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
+
+        // Pad eltwise_1 result for conv3
+        %pad_val_2 = builtin.unrealized_conversion_cast %c_151 : i8 to !qtype_151
+        %padded_2 = tensor.pad %eltwise_1 low[0, 0, 1, %pad_before_1] high[0, 0, 1, %pad_after_1] {
+        ^bb0(%b0: index, %b1: index, %b2: index, %b3: index):
+            tensor.yield %pad_val_2 : !qtype_151
+        } : tensor<1x32x800x?x!qtype_151, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
+          to tensor<1x32x802x?x!qtype_151, {bounds = #const.OpaqueI64Elements<[1, 32, 802, 1282]> : tensor<4xsi64>, order = #NHWC}>
+
+        // Conv3 (rdb1_conv3)
+        %conv3_out = VPU.NCE.Convolution(%padded_2, %cst_w2) rawFilterShape [32, 32, 3, 3] {
+            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            pinnedStrategy,
+            ppe = #VPU.PPEStub<>,
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            strides = [1, 1]
+        } : tensor<1x32x802x?x!qtype_151, {bounds = #const.OpaqueI64Elements<[1, 32, 802, 1282]> : tensor<4xsi64>, order = #NHWC}>,
+            tensor<32x32x3x3x!qtype_w2, {order = #NHWC}>
+          -> tensor<1x32x800x?x!qtype_117, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
+
+        // Eltwise Add_2 (eltwise_slice + conv3_out)
+        %eltwise_2 = VPU.NCE.Eltwise(%eltwise_slice, %conv3_out) {
+            is_inplace = true,
+            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            op_type = #VPU.eltwise_type<ADD>,
+            ppe = #VPU.PPEStub<>,
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>
+        } -> tensor<1x32x800x?x!qtype_105, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
+
+        %inserted = tensor.insert_slice %eltwise_2 into %arg3[0, 0, 0, %adj_offset] [1, 32, 800, %adj_size] [1, 1, 1, 1]
+            : tensor<1x32x800x?x!qtype_105, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}> into !out_type
+
+        scf.yield %inserted : !out_type
+    }
+
+    return %result : !out_type
+
+    // The pass creates a separate scf.forall per NCE op for SOH multiclustering
+    // and moves tensor.pad inside the forall body.
+    // CHECK:       [[CST_118:%.+]] = arith.constant -118 : i8
+    // CHECK:       [[CST_105:%.+]] = arith.constant -105 : i8
+    // CHECK:       scf.for
+    // CHECK:         [[PAD_VAL1:%.+]] = builtin.unrealized_conversion_cast [[CST_118]] : i8 to !qElemType1
+    // CHECK:         scf.forall
+    // CHECK:           tensor.extract_slice
+    // CHECK:           tensor.pad
+    // CHECK:             tensor.yield [[PAD_VAL1]] : !qElemType1
+    // CHECK:           VPU.NCE.Convolution
+    // CHECK-SAME:        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK:           tensor.parallel_insert_slice
+    // CHECK:         scf.forall
+    // CHECK:           VPU.NCE.Eltwise
+    // CHECK:           tensor.parallel_insert_slice
+    // CHECK:         [[PAD_VAL2:%.+]] = builtin.unrealized_conversion_cast [[CST_105]] : i8 to !qElemType5
+    // CHECK:         scf.forall
+    // CHECK:           tensor.extract_slice
+    // CHECK:           tensor.pad
+    // CHECK:             tensor.yield [[PAD_VAL2]] : !qElemType5
+    // CHECK:           VPU.NCE.Convolution
+    // CHECK-SAME:        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK:           tensor.parallel_insert_slice
+    // CHECK:         scf.forall
+    // CHECK:           VPU.NCE.Eltwise
+    // CHECK:           tensor.parallel_insert_slice
+    // CHECK:         tensor.insert_slice
 }
 }

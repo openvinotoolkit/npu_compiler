@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters/expand_with_layer_rewriter.hpp"
 #include "vpux/compiler/dialect/IE/utils/analysis.hpp"
+#include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
@@ -327,12 +328,77 @@ bool isContinuousMemShape(vpux::NDTypeInterface inType, vpux::NDTypeInterface ou
     return isTrivialPermute(inMemShape, origReorderPermutation) && mlir::succeeded(reassociationMap);
 }
 
-// Maintain the Reorder -> PermuteCast -> Reorder chain as it can later be reduced to a single operation
 bool isMaintainPattern(mlir::Operation* op) {
-    if (auto prevPermuteCastOp = op->getOperand(0).getDefiningOp<IE::PermuteCastOp>()) {
-        if (auto prevReorderOp = prevPermuteCastOp.getOperand().getDefiningOp<IE::ReorderOp>()) {
+    auto origReorderOp = mlir::dyn_cast_if_present<IE::ReorderOp>(op);
+    if (origReorderOp == nullptr) {
+        return false;
+    }
+
+    // Maintain the Reorder -> PermuteCast -> Reorder chain as it can later be reduced to a single operation
+    if (auto prevPermuteCastOp = origReorderOp.getInput().getDefiningOp<IE::PermuteCastOp>()) {
+        if (auto prevReorderOp = prevPermuteCastOp.getInput().getDefiningOp<IE::ReorderOp>()) {
             return true;
         }
+    }
+
+    // Maintain the Concat -> PermuteCast(optional) -> Reorder chain because reorder can be propagated before Concat
+    auto canPropagateReorderBeforeConcat = [&]() -> bool {
+        auto reorderInput = origReorderOp.getInput();
+        IE::PermuteCastOp permuteCastOp = nullptr;
+        if (auto maybePermuteCastOp = reorderInput.getDefiningOp<IE::PermuteCastOp>()) {
+            permuteCastOp = maybePermuteCastOp;
+            if (!permuteCastOp->hasOneUse()) {
+                return false;
+            }
+            reorderInput = permuteCastOp.getInput();
+        }
+
+        auto concatOp = reorderInput.getDefiningOp<IE::ConcatOp>();
+        if (concatOp == nullptr || !concatOp->hasOneUse()) {
+            return false;
+        }
+
+        const auto mayBeConcatAxis = IE::getConcatAxis(concatOp);
+        auto outShape = getShape(concatOp.getOutput());
+        auto dimOrder = DimsOrder::fromValue(concatOp.getOutput());
+        const auto mayBeHighestDim = getHighestNonTrivialDim(outShape, dimOrder);
+        if (!mayBeConcatAxis.has_value() || !mayBeHighestDim.has_value() ||
+            mayBeConcatAxis.value() != mayBeHighestDim.value()) {
+            return false;
+        }
+
+        if (checked_cast<int64_t>(concatOp.getInputs().size()) != outShape[mayBeHighestDim.value()]) {
+            return false;
+        }
+
+        const auto concatOutType = mlir::cast<vpux::NDTypeInterface>(concatOp.getOutput().getType());
+        const auto concatAxisMemDim = MemDim(dimOrder.dimPos(mayBeConcatAxis.value()));
+        if (permuteCastOp != nullptr) {
+            const auto reorderInType = mlir::cast<vpux::NDTypeInterface>(origReorderOp.getInput().getType());
+            if (concatOutType.getMemShape() != reorderInType.getMemShape()) {
+                return false;
+            }
+        }
+
+        const auto inOrder = DimsOrder::fromValue(origReorderOp.getInput());
+        const auto outOrder = DimsOrder::fromValue(origReorderOp.getOutput());
+        const auto memPerm = getPermutationFromOrders(inOrder, outOrder, origReorderOp->getContext());
+        SmallVector<int64_t> memPermVec;
+        for (const auto expr : memPerm.getResults()) {
+            memPermVec.push_back(mlir::cast<mlir::AffineDimExpr>(expr).getPosition());
+        }
+
+        memPermVec.erase(std::remove(memPermVec.begin(), memPermVec.end(), concatAxisMemDim.ind()), memPermVec.end());
+        for (size_t index = 0; index + 1 < memPermVec.size(); ++index) {
+            if (memPermVec[index] > memPermVec[index + 1]) {
+                return false;
+            }
+        }
+
+        return true;
+    }();
+    if (canPropagateReorderBeforeConcat) {
+        return true;
     }
 
     return false;
@@ -574,7 +640,7 @@ mlir::LogicalResult ReorderWithTile::matchAndRewrite(IE::TileOp origTileOp, mlir
     auto newOutputType = outputType.changeDimsOrder(DimsOrder::fromAffineMap(newReorderOp.getDstOrder()));
 
     auto tileOp = rewriter.replaceOpWithNewOp<IE::TileOp>(origReorderOp, newOutputType, newReorderOp.getOutput(),
-                                                          origTileOp.getRepeats(), origTileOp.getRepeatsValuesAttr());
+                                                          origTileOp.getRepeatsValuesAttr());
     extendOpLoc(tileOp, "tile");
 
     return mlir::success();
@@ -865,9 +931,8 @@ mlir::LogicalResult ReorderWithAffineReshapeTile::matchAndRewrite(IE::TileOp ori
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(origTileOp.getOutput().getType());
     auto newOutputType = outputType.changeDimsOrder(targetOrder);
 
-    auto newTileOp =
-            rewriter.create<IE::TileOp>(takeOpLoc(origTileOp, "as_tile"), newOutputType, inputShapeCastOp.getResult(),
-                                        nullptr, origTileOp.getRepeatsValuesAttr());
+    auto newTileOp = rewriter.create<IE::TileOp>(takeOpLoc(origTileOp, "as_tile"), newOutputType,
+                                                 inputShapeCastOp.getResult(), origTileOp.getRepeatsValuesAttr());
 
     auto outputReshapeOutputShape = getShape(outputReshapeOp.getOutput());
     auto outputShapeAttr = getIntArrayAttr(ctx, outputReshapeOutputShape);
@@ -1773,6 +1838,13 @@ mlir::LogicalResult ReorderWithHWAddSlice::matchAndRewrite(IE::AddOp origOp, mli
             return mlir::failure();
         }
     }
+    // A per-channel scale tensor encodes one scale value per output channel. Moving a
+    // reorder through the op when it changes the layout would invalidate the per-channel scales.
+    if (origOp.getScale() != nullptr && newDimsOrder != origDimsOrder) {
+        _log.trace("Skipping '{0}': scale table present and layout changes ({1} -> {2})", origOp->getLoc(),
+                   origDimsOrder, newDimsOrder);
+        return mlir::failure();
+    }
 
     // Pattern matched
     const auto origOrderMap = origDimsOrder.toAffineMap(rewriter.getContext());
@@ -1787,8 +1859,9 @@ mlir::LogicalResult ReorderWithHWAddSlice::matchAndRewrite(IE::AddOp origOp, mli
         newIn2 = rewriter.create<IE::LayoutCastOp>(takeOpLoc(origOp, "lcast_in2"), reorderInput2, origOrderMap);
     }
     mlir::Value newAdd = rewriter.create<IE::AddOp>(
-            takeOpLoc(origOp, "as_add"), origOp.getType(), newIn1, newIn2, origOp.getAutoBroadcastAttr(),
-            origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            takeOpLoc(origOp, "as_add"), origOp.getType(), newIn1, newIn2, origOp.getScale(),
+            origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
+            origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
     _log.trace("New AddOp: {0}", newAdd);
     auto newOut = rewriter.create<IE::LayoutCastOp>(takeOpLoc(origOp, "lcast_out"), newAdd, newOrderMap);
     auto newReorderOp = rewriter.create<IE::ReorderOp>(takeOpLoc(origOp, "reorder_out"), newOut, origOrderMap);
@@ -1836,7 +1909,7 @@ mlir::Value getNewFilter(IE::GroupConvolutionOp origOp, int64_t newChannel, int6
         if (filterTileOp && filterTileOp->hasOneUse()) {
             repeatsShape[Dims4D::Act::N.ind()] = newChannel;
             auto newTileOp = rewriter.create<IE::TileOp>(takeOpLoc(filterTileOp, "as_tile"), filterTileOp.getInput(),
-                                                         nullptr, getIntArrayAttr(ctx, Shape(repeatsShape)));
+                                                         getIntArrayAttr(ctx, Shape(repeatsShape)));
             return rewriter
                     .create<IE::ReorderOp>(takeOpLoc(filterReorderOp, "reorder_out"), newTileOp.getOutput(),
                                            filterReorderOp.getDstOrderAttr())
@@ -1846,7 +1919,7 @@ mlir::Value getNewFilter(IE::GroupConvolutionOp origOp, int64_t newChannel, int6
 
     repeatsShape[Dims4D::Act::N.ind()] = repeatCnt;
     return rewriter
-            .create<IE::TileOp>(takeOpLoc(origOp, "filter_repeats"), origOp.getFilter(), nullptr,
+            .create<IE::TileOp>(takeOpLoc(origOp, "filter_repeats"), origOp.getFilter(),
                                 getIntArrayAttr(ctx, Shape(repeatsShape)))
             .getOutput();
 }
@@ -2102,6 +2175,14 @@ mlir::LogicalResult ReorderWithAddAndGroupConv::matchAndRewrite(IE::GroupConvolu
     _log.trace("Replacing Reorder-Add-GroupConv-Reorder with PermuteCast-Add-GroupConv-PermuteCast at '{0}'",
                origOp->getLoc());
 
+    // A per-channel scale tensor encodes one scale value per output channel. The PermuteCast changes
+    // the layout and the channel count (C = origShape[W] after cast), which would invalidate the
+    // per-channel scales.
+    if (addOp.getScale() != nullptr && (newChannels != origGroups || inType.getDimsOrder() != groupConvInOrder)) {
+        _log.trace("Skipping '{0}': scale table present and channel count or layout changes", origOp->getLoc());
+        return mlir::failure();
+    }
+
     const auto ctx = rewriter.getContext();
     const auto identityMap = mlir::AffineMap::getMultiDimIdentityMap(checked_cast<uint32_t>(outType.getRank()), ctx);
     const auto identityMapAttr = mlir::AffineMapAttr::get(identityMap);
@@ -2124,10 +2205,10 @@ mlir::LogicalResult ReorderWithAddAndGroupConv::matchAndRewrite(IE::GroupConvolu
     const auto origAddElemType = mlir::cast<vpux::NDTypeInterface>(addOp.getType()).getElementType();
     const auto newAddOutType =
             mlir::cast<vpux::NDTypeInterface>(in1PermuteCast.getOutput().getType()).changeElemType(origAddElemType);
-    auto newAddOp =
-            rewriter.create<IE::AddOp>(addOp->getLoc(), newAddOutType, in1PermuteCast.getOutput(),
-                                       in2PermuteCast.getOutput(), addOp.getAutoBroadcastAttr(), addOp.getPostOpAttr(),
-                                       addOp.getClampAttr(), addOp.getOutputPaddingAttr(), addOp.getInputPaddingAttr());
+    auto newAddOp = rewriter.create<IE::AddOp>(
+            addOp->getLoc(), newAddOutType, in1PermuteCast.getOutput(), in2PermuteCast.getOutput(), addOp.getScale(),
+            addOp.getAutoBroadcastAttr(), addOp.getPostOpAttr(), addOp.getClampAttr(), addOp.getStaticScaleAttr(),
+            addOp.getOutputPaddingAttr(), addOp.getInputPaddingAttr());
 
     // The GroupConv filter must match the new groups count. Since isEltwiseGroupConv ensures
     // the filter is a splat constant, slicing OC dim from origGroups to newGroups is semantically equivalent.

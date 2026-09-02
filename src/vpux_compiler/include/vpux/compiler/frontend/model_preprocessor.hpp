@@ -39,7 +39,7 @@ void preprocessModel(const std::shared_ptr<ModelData>& modelData);
  * @param isDeviceDescEmpty Indicates whether the device description is empty.
  */
 void prepareConfig(const std::string& descOptions, const vcl_compiler_desc_t& compilerDesc,
-                   const vcl_device_desc_t& deviceDesc, intel_npu::Config& config, bool isDeviceDescEmpty);
+                   const vcl_device_desc_t& deviceDesc, vpux::OV::Config& config, bool isDeviceDescEmpty);
 
 /**
  * @brief Parse the build flags from vcl_executable_desc_t
@@ -55,7 +55,7 @@ void prepareConfig(const std::string& descOptions, const vcl_compiler_desc_t& co
 std::pair<Precisions, Layouts> prepareBuildFlags(const std::string& descOptions,
                                                  const vcl_compiler_desc_t& compilerDesc,
                                                  const vcl_compiler_properties_t& compilerProp,
-                                                 const vcl_device_desc_t& deviceDesc, intel_npu::Config& config,
+                                                 const vcl_device_desc_t& deviceDesc, vpux::OV::Config& config,
                                                  bool isDeviceDescEmpty);
 
 /**
@@ -66,7 +66,7 @@ std::pair<Precisions, Layouts> prepareBuildFlags(const std::string& descOptions,
  * @param compilerProp Compiler capabilities, used to determine deserialization format.
  * @return Deserialized model.
  */
-std::shared_ptr<ov::Model> prepareModel(const uint8_t* modelIR, uint64_t modelIRSize, intel_npu::Config& config,
+std::shared_ptr<ov::Model> prepareModel(const uint8_t* modelIR, uint64_t modelIRSize, vpux::OV::Config& config,
                                         const vcl_compiler_properties_t& compilerProp);
 
 }  // namespace vpux

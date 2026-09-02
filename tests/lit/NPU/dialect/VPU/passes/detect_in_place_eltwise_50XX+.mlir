@@ -18,7 +18,7 @@ func.func @InplaceEltwiseWithSprLUT(%input1: tensor<1x256x56x56xf16, {order = #N
         strides = [1, 1]
     } -> tensor<1x256x56x56xf16, {order = #NHWC}>
 
-    %eltwise = VPU.NCE.Eltwise(%avg_pool, %input2) {
+    %eltwise = VPU.NCE.Eltwise(%avg_pool, %input2) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEFp<mode = <SWISH>,
                          clamp_low = -3.4028234663852886E+38 : f64,

@@ -219,7 +219,7 @@ mlir::LogicalResult GatherElementsFlatConverter::matchAndRewrite(IE::GatherEleme
 
         // Gather: output[i] = data_flat[indices_absolute[i]]
         auto gatherResult = rewriter.create<IE::GatherOp>(appendLoc(loc, "gather_{0}", chunk), dataFlat,
-                                                          indicesAbsolute.getOutput(), nullptr, getIntAttr(ctx, 0),
+                                                          indicesAbsolute.getOutput(), /*axis=*/0,
                                                           /*batchDims=*/0, nullptr);
 
         // Reshape to 2D chunk: [chunkRows, gatherSize]
@@ -311,9 +311,6 @@ mlir::LogicalResult GatherElementsOpConverter::matchAndRewrite(IE::GatherElement
 
     // Get repeatsValues from TileOp
     auto repeatsValues = maybeTileOp.getRepeatsValues();
-    if (!repeatsValues.has_value()) {
-        return matchFailed(rewriter, maybeTileOp, "No repeats values found");
-    }
 
     auto getNonOneRepeatAxesValue = [](mlir::ArrayAttr repeatsValues) -> SmallVector<std::pair<size_t, size_t>> {
         SmallVector<std::pair<size_t, size_t>> repeatAxesValue;
@@ -326,7 +323,7 @@ mlir::LogicalResult GatherElementsOpConverter::matchAndRewrite(IE::GatherElement
         return repeatAxesValue;
     };
 
-    auto repeatAxesValue = getNonOneRepeatAxesValue(repeatsValues.value());
+    auto repeatAxesValue = getNonOneRepeatAxesValue(repeatsValues);
     if (repeatAxesValue.size() != 1) {
         return matchFailed(rewriter, maybeTileOp, "Not one repeat axis");
     }
@@ -365,8 +362,7 @@ mlir::LogicalResult GatherElementsOpConverter::matchAndRewrite(IE::GatherElement
 
     // Create GatherOp
     int64_t batchDims = 0;
-    rewriter.replaceOpWithNewOp<IE::GatherOp>(origOp, origOp.getOperand(0), squeezeOpResult, nullptr,
-                                              getIntAttr(ctx, axis), batchDims, nullptr);
+    rewriter.replaceOpWithNewOp<IE::GatherOp>(origOp, origOp.getOperand(0), squeezeOpResult, axis, batchDims, nullptr);
 
     return mlir::success();
 }

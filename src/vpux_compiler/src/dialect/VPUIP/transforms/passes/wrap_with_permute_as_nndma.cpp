@@ -229,7 +229,8 @@ bool checkPermuteWithCopyPattern(VPUIP::SwKernelOp swKernelOp, Logger log) {
         // Find a scenerior has regression. Need investigate the root cause and find a cost model for that.
         // For example: Shape size with 1x4420x1x2, mode is DUPLICATED.
         // It will be unrolled to 18 PermuteDMA with shape size 1x256x1x2 (17) + 1x68x1x2 (1)
-        if (!dmaSubShapes.has_value() || dmaSubShapes.value().size() > 2) {
+        const auto maxSubDMAs = static_cast<size_t>(2 * dmaPortNum);
+        if (!dmaSubShapes.has_value() || dmaSubShapes->size() > maxSubDMAs) {
             return false;
         }
 
@@ -1810,15 +1811,14 @@ public:
 
 private:
     VPU::DistributionInfoAttr getDuplicatedDistribution(ShapeRef shape, VPU::DistributionInfoAttr origDistribution,
-                                                        mlir::MLIRContext* ctx, mlir::Type elementType) const;
+                                                        mlir::MLIRContext* ctx) const;
 
 private:
     Logger _log;
 };
 
 VPU::DistributionInfoAttr FuseDistributedMemPermuteWithViewLikeOps::getDuplicatedDistribution(
-        ShapeRef shape, VPU::DistributionInfoAttr origDistribution, mlir::MLIRContext* ctx,
-        mlir::Type elementType) const {
+        ShapeRef shape, VPU::DistributionInfoAttr origDistribution, mlir::MLIRContext* ctx) const {
     const auto distrModeAttr = VPU::DistributionModeAttr::get(ctx, VPU::DistributionMode::DUPLICATED);
     if (!isDistributedAttrWithExplicitShapesAndOffsets(origDistribution)) {
         return VPU::DistributionInfoAttr::get(
@@ -1827,8 +1827,7 @@ VPU::DistributionInfoAttr FuseDistributedMemPermuteWithViewLikeOps::getDuplicate
     }
 
     return VPU::getNonOverlappedDistributedAttr(shape, distrModeAttr, nullptr, origDistribution.getNumClusters(),
-                                                nullptr, origDistribution.getUniformDistributedSegments(), elementType,
-                                                ctx);
+                                                nullptr, origDistribution.getUniformDistributedSegments(), ctx);
 }
 
 mlir::LogicalResult FuseDistributedMemPermuteWithViewLikeOps::matchAndRewrite(VPUIP::PermuteDMAOp permuteOp,
@@ -1879,7 +1878,7 @@ mlir::LogicalResult FuseDistributedMemPermuteWithViewLikeOps::matchAndRewrite(VP
     const auto outShape = outType.getShape();
     const auto outElemType = outType.getElementType();
     const auto order = mlir::AffineMapAttr::get(outType.getDimsOrder().toAffineMap(ctx));
-    auto permuteDistribution = getDuplicatedDistribution(outShape, outDistribution, ctx, outElemType);
+    auto permuteDistribution = getDuplicatedDistribution(outShape, outDistribution, ctx);
     auto newPermuteDistributedOutType = VPUIP::DistributedBufferType::get(
             ctx, outShape.raw(), outElemType, order, distributedCopyOutType.getMemSpace(), permuteDistribution);
 
@@ -1901,7 +1900,7 @@ mlir::LogicalResult FuseDistributedMemPermuteWithViewLikeOps::matchAndRewrite(VP
         auto viewLikeOutShape = viewLikeOutType.getShape();
         auto viewLikeOutOrder = mlir::AffineMapAttr::get(viewLikeOutType.getDimsOrder().toAffineMap(ctx));
         auto viewLikeElemType = viewLikeOutType.getElementType();
-        auto viewLikeDistribution = getDuplicatedDistribution(viewLikeOutShape, outDistribution, ctx, viewLikeElemType);
+        auto viewLikeDistribution = getDuplicatedDistribution(viewLikeOutShape, outDistribution, ctx);
         auto newViewLikeOutType =
                 VPUIP::DistributedBufferType::get(ctx, viewLikeOutShape.raw(), viewLikeElemType, viewLikeOutOrder,
                                                   distributedCopyOutType.getMemSpace(), viewLikeDistribution);

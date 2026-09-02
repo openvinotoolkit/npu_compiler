@@ -7,14 +7,15 @@
 set(FUNCTIONAL_TARGET vpuxCompilerL0Test)
 set(FUNCTIONAL_SOURCES
     vcl_tests_common.cpp
-    vcl_tests_single_thread.cpp
+    vcl_tests_single_thread_compilation.cpp
+    vcl_tests_single_thread_allocators.cpp
+    vcl_tests_single_thread_query_network.cpp
     vcl_tests_multiple_compiler.cpp
-    vcl_tests_parallel_compilation.cpp)
+    vcl_tests_multiple_compiler_allocator.cpp
+    vcl_tests_parallel_compilation.cpp
+    vcl_tests_parallel_compilation_allocators.cpp
+    vcl_tests_parallel_query_network.cpp)
 add_executable(${FUNCTIONAL_TARGET} ${FUNCTIONAL_SOURCES})
-
-if(ENABLE_BLOB_DUMP)
-    target_compile_definitions(${FUNCTIONAL_TARGET} PUBLIC BLOB_DUMP=1)
-endif()
 
 if(NOT TARGET gtest)
     if(NOT OpenVINO_SOURCE_DIR)

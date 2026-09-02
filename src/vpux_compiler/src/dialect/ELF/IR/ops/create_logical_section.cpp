@@ -29,7 +29,7 @@ size_t ELF::LogicalSectionOp::getTotalSize(vpux::ELF::SymbolReferenceMap& symRef
             // getting the BinarySize using config::ArchKind::UNKNOWN is OK at this point because the binarySizeOps
             // should already all be in their arch-specific form or are arch-independent
             auto span = binarySizeOp.getBinarySizeCached(symRefMap, config::ArchKind::UNKNOWN) +
-                        binarySizeOp.getMemoryOffset();
+                        binarySizeOp.getMemoryOffset().value_or(0);
             totalSize = std::max(totalSize, span);
         }
     };

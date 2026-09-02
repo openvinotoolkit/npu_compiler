@@ -165,40 +165,23 @@ namespace {
 
 // tensors -> buffers
 
-mlir::bufferization::BufferLikeType tensorWithBoundsToBoundedBuffer(mlir::RankedTensorType tensorType) {
-    VPUX_THROW_UNLESS(mlir::isa<Core::DynamicDimsMaskTensorType>(tensorType),
-                      "Expected to have dynamic tensor, got {0}", tensorType);
-
-    const auto ndType = mlir::cast<vpux::NDTypeInterface>(tensorType);
-
-    const auto dataMemShape = ndType.getShape();
-    const auto dataMemOrder = ndType.getDimsOrder();
-    const auto dataMemType = ndType.getElementType();
-    const auto dataMemSpace = ndType.getMemSpace();
-    const auto dataMemRef = getMemRefType(dataMemShape, dataMemType, dataMemOrder, dataMemSpace);
-
-    const auto rank = checked_cast<int32_t>(dataMemShape.size());
-    const auto si32 = getSInt32Type(tensorType.getContext());
-    const auto dynamicShapeMemRef = getMemRefType({rank}, si32, DimsOrder::C, dataMemSpace);
-
-    return VPUIP::BoundedBufferType::get(dataMemRef, dynamicShapeMemRef);
-}
-
 mlir::bufferization::BufferLikeType tensorToBuffer(mlir::RankedTensorType tensorType) {
-    if (mlir::isa<Core::DynamicDimsMaskTensorType>(tensorType)) {
-        return tensorWithBoundsToBoundedBuffer(tensorType);
-    }
+    VPUX_THROW_WHEN(mlir::isa<Core::DynamicDimsMaskTensorType>(tensorType),
+                    "Tensors with dynamic_dims_mask are not supported");
     const auto type = mlir::cast<vpux::NDTypeInterface>(tensorType);
     const auto shape = type.getShape();
     const auto elemType = type.getElementType();
     const auto order = type.getDimsOrder();
     const auto memSpace = type.getMemSpace();
-    return mlir::cast<mlir::bufferization::BufferLikeType>(getMemRefType(shape, elemType, order, memSpace));
+    const auto strides = type.getStrides();
+    const auto bounds = getBounds(tensorType);
+    return mlir::cast<mlir::bufferization::BufferLikeType>(
+            getMemRefType(shape, elemType, order, memSpace, strides, bounds));
 }
 
 mlir::bufferization::BufferLikeType distributedTensorToBuffer(VPU::DistributedTensorType type) {
     mlir::MLIRContext* ctx = type.getContext();
-    if (mlir::isa<Core::DynamicDimsMaskTensorType>(type)) {
+    if (auto mask = type.getDynamicDimsMask(); mask != nullptr && !mask.empty()) {
         const auto data =
                 VPUIP::DistributedBufferType::get(ctx, type.getShape().raw(), type.getElementType(), type.getOrder(),
                                                   type.getMemSpace(), type.getDistribution());
@@ -310,8 +293,8 @@ VPU::SparseTensorType bufferToTensor(VPUIP::SparseBufferType type) {
 mlir::RankedTensorType bufferToTensor(VPUIP::BoundedBufferType type) {
     auto dataType = tensorizeBuffer(type.getData());
     auto ndType = mlir::cast<NDTypeInterface>(dataType);
-    auto dimsMask = DynamicDimsMask(ndType.getShape().size(), 1);
-    dataType = Core::DynamicDimsMaskTensorType::get(ndType, dimsMask);
+    auto bounds = Bounds(ndType.getShape().raw());
+    dataType = Core::BoundedTensorType::get(ndType, bounds);
     return mlir::cast<mlir::RankedTensorType>(dataType);
 }
 
@@ -518,11 +501,12 @@ mlir::bufferization::OneShotBufferizationOptions vpux::getOneShotBufferizationOp
     // but only adding `__inplace_operands_attr__`. Need to investigate whether it could be set to false,
     // and eliminate the introduced `bufferization.alloc_tensor, which will reduce the insertion of VPUIP.Copy
     options.testAnalysisOnly = true;
-    options.unknownTypeConverterFn = [](mlir::TensorType tensorType, mlir::Attribute memorySpace,
+    options.unknownTypeConverterFn = [](mlir::bufferization::TensorLikeType tensorType, mlir::Attribute /*memorySpace*/,
                                         const mlir::bufferization::BufferizationOptions& /*options*/) {
-        return mlir::bufferization::getMemRefTypeWithStaticIdentityLayout(tensorType, memorySpace);
+        return mlir::cast<mlir::bufferization::BufferLikeType>(vpux::getBufferType(tensorType));
     };
-    options.defaultMemorySpaceFn = [](mlir::TensorType tensorType) -> std::optional<mlir::Attribute> {
+    options.defaultMemorySpaceFn =
+            [](mlir::bufferization::TensorLikeType tensorType) -> std::optional<mlir::Attribute> {
         if (auto rankedType = mlir::dyn_cast<mlir::RankedTensorType>(tensorType)) {
             return getMemorySpace(rankedType);
         }

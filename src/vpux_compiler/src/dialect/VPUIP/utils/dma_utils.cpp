@@ -35,8 +35,7 @@ vpux::NDTypeInterface changeShapeAndKeepStrides(vpux::NDTypeInterface type, vpux
 
     const auto newDistribution = VPU::getNonOverlappedDistributedAttr(
             newShape, oldDistribution.getMode(), oldDistribution.getNumTiles(), oldDistribution.getNumClusters(),
-            oldDistribution.getAlignment(), oldDistribution.getUniformDistributedSegments(), type.getElementType(),
-            type.getContext());
+            oldDistribution.getAlignment(), oldDistribution.getUniformDistributedSegments(), type.getContext());
 
     newType = outputType.changeShapeForExplicitDistribution(newShape, newDistribution);
     return newType.changeStrides(originalStrides);

@@ -134,8 +134,8 @@ TEST_F(MLIR_ContentSetupCallStackActionTest, NullptrTest) {
         }
     }
     EXPECT_TRUE(addAttr != nullptr);
-    EXPECT_EQ(csCache.getSpecificCallStack(nullptr, addAttr), "UNKNOWN_CALL_STACK");
-    EXPECT_EQ(csCache.getSpecificCallStack(nullptr, nullptr), "UNKNOWN_CALL_STACK");
+    EXPECT_EQ(csCache.getSpecificCallStack(nullptr, addAttr), "NO_TRACE_FOR_PARSED_BASE_CONTENT");
+    EXPECT_EQ(csCache.getSpecificCallStack(nullptr, nullptr), "NO_TRACE_FOR_PARSED_BASE_CONTENT");
 }
 
 TEST_F(MLIR_ContentSetupCallStackNoObserverActionTest, NoObserverAction) {
@@ -155,5 +155,5 @@ TEST_F(MLIR_ContentSetupCallStackNoObserverActionTest, NoObserverAction) {
         }
     }
     EXPECT_TRUE(addAttr != nullptr);
-    EXPECT_TRUE(csCache.getSpecificCallStack(baseAttr, addAttr).empty());
+    EXPECT_EQ(csCache.getSpecificCallStack(baseAttr, addAttr), "NO_TRACE_FOR_PARSED_BASE_CONTENT");
 }

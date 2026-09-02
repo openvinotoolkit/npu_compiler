@@ -214,7 +214,7 @@ std::vector<ELF::RelocationInfo> vpux::VPUASM::KernelParamsOp::getRelocationInfo
             return NDTypeIf;
         };
 
-        auto baseOffset = getMemoryOffset();
+        auto baseOffset = getMemoryOffset().value_or(0);
         auto sizeOfParamsStruct = getParamsStructSize();
         auto addend = baseOffset + sizeOfParamsStruct;
         auto fullSourceSymRef = ELF::composeSectionObjectSymRef(targetSection, this->getOperation());

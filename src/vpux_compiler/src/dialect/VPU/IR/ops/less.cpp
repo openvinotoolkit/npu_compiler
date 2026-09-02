@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/comparison.hpp"
+#include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -57,6 +58,15 @@ vpux::VPU::DistributionInfo vpux::VPU::LessOp::getExplicitDistributionInfoAttr(
 //
 // SWOpInterface
 //
+
+bool vpux::VPU::LessOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& outputTile) {
+    return VPU::isEltwiseSWOpSplitOverHeightCompatible(getOperation(), outputTile.shape);
+}
+
+bool vpux::VPU::LessOp::isOperationSplitOverWidthCompatible(ShapeRef outputShape, ShapeRef /*offset*/,
+                                                            ShapeRef /*axis*/) {
+    return VPU::isEltwiseSWOpSplitOverWidthCompatible(getOperation(), outputShape);
+}
 
 bool vpux::VPU::LessOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {
     VPUX_THROW_UNLESS(buffers.size() == 3, "LessOp requires 2 input and 1 output, but the number of buffer is {0}",

@@ -13,7 +13,7 @@ void InitialLowPrecisionTransformationsPipelineStrategy::registerRewriters(Rewri
                                                                            Logger& log) const {
     SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(3);
     IE::registerDecomposeMultiZPQuantizationRewriters(registry, benefitLevels, 0, log);
-    IE::registerWeightsDequantizeToFakeQuantizeRewriters(registry, benefitLevels, 1, _funcOp, log);
+    IE::registerWeightsDequantizeToDynamicDequantizeRewriters(registry, benefitLevels, 1, log);
     IE::registerConsolidateWeightsDequantizationRewriters(registry, benefitLevels, 2, log);
 }
 }  // namespace vpux::IE::arch37xx

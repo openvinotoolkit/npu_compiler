@@ -387,7 +387,7 @@ private:
                 return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., uint8_t>(types, std::forward<Caller>(caller));
             } else if (elemType.isUnsignedInteger(4) || elemType.isSignlessInteger(4)) {
                 return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., uint8_t>(types, std::forward<Caller>(caller));
-            } else if (elemType.isUnsignedInteger(2)) {
+            } else if (elemType.isUnsignedInteger(2) || elemType.isSignlessInteger(2)) {
                 return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., uint8_t>(types, std::forward<Caller>(caller));
             } else if (elemType.isUnsignedInteger(16) || elemType.isSignlessInteger(16)) {
                 return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., uint16_t>(types,

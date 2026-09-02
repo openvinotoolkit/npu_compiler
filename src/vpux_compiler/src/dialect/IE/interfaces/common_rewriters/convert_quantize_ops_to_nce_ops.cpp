@@ -10,13 +10,14 @@
 #include "vpux/compiler/dialect/IE/transforms/passes/convert_quantize_ops_to_nce_ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 
 namespace vpux::IE {
 
 bool isSignedInt8QuantizedElemType(mlir::Type elemType) {
     auto quantType = mlir::cast<mlir::quant::QuantizedType>(elemType);
-    return quantType.isSigned() && mlir::cast<mlir::IntegerType>(quantType.getStorageType()).getWidth() == 8;
+    return quantType.isSigned() && quantType.getStorageTypeIntegralWidth() == 8;
 }
 
 //
@@ -26,6 +27,12 @@ bool isSignedInt8QuantizedElemType(mlir::Type elemType) {
 mlir::LogicalResult QuantizeToDwRewriter::matchAndRewrite(IE::QuantizeOp originOp,
                                                           mlir::PatternRewriter& rewriter) const {
     if (_canSkipConversion(originOp)) {
+        return mlir::failure();
+    }
+
+    // The identity DW conv encodes the quantize as a legacy weight-table rescale (1 / outScale). A rescale that needs
+    // a post-shift cannot be represented and would throw during weights table generation, so leave it as SW Quantize.
+    if (!IE::checkQuantApproximation(originOp)) {
         return mlir::failure();
     }
 

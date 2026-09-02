@@ -384,12 +384,10 @@ bool vpux::VPU::hasReduceOutputs(VPU::NCEConvolutionOp op) {
     return op->getNumResults() > 1;
 }
 
-mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, mlir::Value weightInput,
-                                                 SmallVector<VPU::NCEConvolutionOp>& convOps,
-                                                 SmallVector<VPU::NCEEltwiseOp>& addOps,
-                                                 SmallVector<VPU::DequantizeOp>& dequantizeOps,
-                                                 const OutputTiling& tiles, VPU::DequantizeOp weightDequantizeOp,
-                                                 mlir::PatternRewriter& rewriter, Logger log) {
+SmallVector<mlir::Value> vpux::VPU::splitNCEConvolutionOverIC(
+        VPU::NCEConvolutionOp origOp, mlir::Value weightInput, SmallVector<VPU::NCEConvolutionOp>& convOps,
+        SmallVector<VPU::NCEEltwiseOp>& addOps, SmallVector<VPU::DequantizeOp>& dequantizeOps,
+        const OutputTiling& tiles, VPU::DequantizeOp weightDequantizeOp, mlir::PatternRewriter& rewriter, Logger log) {
     auto arch = config::getArch(origOp.getOperation());
     auto ctx = rewriter.getContext();
 
@@ -450,9 +448,13 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
         const auto oldScale = scaleAdapter->getScale(finalPpeAttr);
         const auto oldBias = scaleAdapter->getBias(finalPpeAttr);
         auto isPerTensorScale = !inputRescale.empty() && llvm::all_equal(inputRescale);
+        auto perTensorScale = isPerTensorScale ? inputRescale.front() : 1.0f;
         if (oldScale.has_value()) {
             eltwisePpeAttr = scaleAdapter->updateScale(eltwisePpeAttr, {1.0});
-            finalPpeAttr = scaleAdapter->updateScale(finalPpeAttr, {1.0});
+            // needs further analysis for PPEInt, E#224639
+            double finalScale =
+                    mlir::isa<vpux::VPU::PPEFpAttr>(finalPpeAttr) ? oldScale.value()[0] / perTensorScale : 1.0;
+            finalPpeAttr = scaleAdapter->updateScale(finalPpeAttr, {finalScale});
 
             if (oldBias.has_value()) {
                 finalPpeAttr = scaleAdapter->updateBias(finalPpeAttr, 0.0);
@@ -460,7 +462,6 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
             }
 
             if (isPerTensorScale) {
-                const auto perTensorScale = inputRescale.front();
                 firstConvPpeAttr = scaleAdapter->updateScale(firstConvPpeAttr, {perTensorScale});
                 strippedPpeAttr = scaleAdapter->updateScale(strippedPpeAttr, {perTensorScale});
 
@@ -561,6 +562,20 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
                                                                     rewriter.getF32Type());
     }
 
+    // Extract reduce output types from the original op; they will be forwarded to the last op in the subgraph.
+    const auto reduceXyMaxType = origOp.getReduceXyMax() ? origOp.getReduceXyMax().getType() : nullptr;
+    const auto reduceXyMinType = origOp.getReduceXyMin() ? origOp.getReduceXyMin().getType() : nullptr;
+    const auto reduceTensorMinMaxType =
+            origOp.getReduceTensorMinMax() ? origOp.getReduceTensorMinMax().getType() : nullptr;
+
+    // Determine the type of the last op in the resulting subgraph.
+    // Per-channel output quantization scales require a trailing NCEDepthConvolutionOp; all other cases
+    // end with the last NCEEltwiseOp.
+    const bool hasPerTensorOrNoOutputScales = !mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outElemType);
+    const bool lastOpIsDepthConv = !outQuantScales.empty() && !llvm::all_of(outQuantScales, [](double val) {
+        return isDoubleEqual(val, 1.0);
+    }) && !hasPerTensorOrNoOutputScales;
+
     for (size_t tile = 0; tile < tiles.size(); tile++) {
         auto offsetIC = tiles[tile].offsets[Dims4D::Act::C];
         auto sizeIC = tiles[tile].shape[Dims4D::Act::C];
@@ -625,18 +640,17 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
         // Set the bias values to 0, if bias exists
         mlir::Value convBiasTable = (biasTable != nullptr && tile != 0) ? zeroFilledBiasTable : biasTable;
         auto convPpeAttr = tile == 0 ? firstConvPpeAttr : strippedPpeAttr;
-        auto reduceXyMaxType = origOp.getReduceXyMax() ? origOp.getReduceXyMax().getType() : nullptr;
-        auto reduceXyMinType = origOp.getReduceXyMin() ? origOp.getReduceXyMin().getType() : nullptr;
-        auto reduceTensorMinMaxType =
-                origOp.getReduceTensorMinMax() ? origOp.getReduceTensorMinMax().getType() : nullptr;
         auto convOp = rewriter.create<VPU::NCEConvolutionOp>(
-                appendLoc(origOp->getLoc(), "ic_tile_{0}", tile), f16TypeOutputs, reduceXyMaxType, reduceXyMinType,
-                reduceTensorMinMaxType, convInput.getResult(), weightSliceResult, weightTable,
-                origOp.getWeightTableDataPtr(), origOp.getWeightTableSpPtr(), convScaleTable, convBiasTable,
-                origOp.getWeightZeroPoints(), origOp.getStrides(), origOp.getPad(), convPpeAttr,
-                origOp.getMpeEngineAttr(), /*rawFilterShape=*/mlir::ValueRange{},
+                appendLoc(origOp->getLoc(), "ic_tile_{0}", tile), f16TypeOutputs, /*reduce_xy_max=*/nullptr,
+                /*reduce_xy_min=*/nullptr, /*reduce_tensor_min_max=*/nullptr, convInput.getResult(), weightSliceResult,
+                weightTable, convScaleTable, convBiasTable, origOp.getWeightZeroPoints(), origOp.getStrides(),
+                origOp.getPad(), convPpeAttr, origOp.getMpeEngineAttr(), /*rawFilterShape=*/mlir::ValueRange{},
                 /*static_raw_filter_shape=*/kernelSliceShape, origOp.getMultiClusterStrategyAttr(),
-                origOp.getOutputPaddingAttr(), /*inputPadding=*/nullptr, origOp.getAxesValueAttr());
+                origOp.getOutputPaddingAttr(), /*inputPadding=*/nullptr,
+                // This intermediate sub-convolution carries no reduce outputs (reduce_xy_max/min/tensor_min_max
+                // are all nullptr above); axes_value must not be forwarded here or it would falsely suggest
+                // a reduce result slot exists. Only the final accumulator forwards it, and only when active.
+                /*axes_value=*/nullptr);
 
         convOps.push_back(convOp);
         log.trace("Created new conv.");
@@ -648,9 +662,9 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
 
     const auto opType = VPU::EltwiseType::ADD;
     VPU::NCEEltwiseOp addResult = nullptr;
-    VPU::MPEEngineAttr mpeEngineModeAttr = nullptr;
+    VPU::MPEEngineAttr mpeEngineAttr = nullptr;
     if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(origOp.getOperation())) {
-        mpeEngineModeAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineMode());
+        mpeEngineAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngine());
     }
     // Assumption: Unless the output type has per channel quantization scales, there is no way for the output scale
     // to be per channel. The scale is computed as:
@@ -659,7 +673,6 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
     // - static_scale is per tensor
     // - output_quant_scale is the only one that can be per channel and that happens when outElemType is
     //   mlir::quant::UniformQuantizedPerAxisType
-    const bool hasPerTensorOrNoOutputScales = !mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outElemType);
     for (size_t index = 0; index < convOps.size() - 1; index++) {
         const auto addOperand = index == 0 ? convOps[index].getOutput() : addResult.getOutput();
 
@@ -670,12 +683,20 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
         auto ppeAttr = (index == convOps.size() - 2 && hasPerTensorOrNoOutputScales) ? finalPpeAttr : eltwisePpeAttr;
 
         auto outputPadding = origOp.getOutputPaddingAttr();
-        addResult = rewriter.create<VPU::NCEEltwiseOp>(appendLoc(origOp->getLoc(), "accumulator_{0}", index),
-                                                       eltwiseOutputType, addOperand, convOps[index + 1].getOutput(),
-                                                       /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
-                                                       opType, ppeAttr, mpeEngineModeAttr,
-                                                       /*multicluster_strategy_attr=*/nullptr,
-                                                       /*in_place=*/nullptr, outputPadding, outputPadding);
+        const bool isLastEltwise = (index == convOps.size() - 2) && !lastOpIsDepthConv;
+        // When the last eltwise carries reduce outputs, also propagate the reduction axes from the
+        // original convolution so that downstream passes can correctly infer buffer sizes. Guard on
+        // hasReduceOutputs(): origOp may carry a stale axes_value attribute without active reduce
+        // results (e.g. an unfused reduce consumer), in which case it must not be forwarded.
+        auto eltwiseAxesValue = (isLastEltwise && VPU::hasReduceOutputs(origOp)) ? origOp.getAxesValueAttr() : nullptr;
+        addResult = rewriter.create<VPU::NCEEltwiseOp>(
+                appendLoc(origOp->getLoc(), "accumulator_{0}", index), eltwiseOutputType,
+                isLastEltwise ? reduceXyMaxType : nullptr, isLastEltwise ? reduceXyMinType : nullptr,
+                isLastEltwise ? reduceTensorMinMaxType : nullptr, addOperand, convOps[index + 1].getOutput(),
+                /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr, opType, ppeAttr, mpeEngineAttr,
+                /*multicluster_strategy_attr=*/nullptr,
+                /*in_place=*/nullptr, outputPadding, outputPadding,
+                /*axes_value=*/eltwiseAxesValue);
 
         // change NCEConv's output layout to supported NCEEltwise input layout
         // Eg: if NCEConv (inL=NHWC,outL=NCHW) splits into 3 small NCEConv:
@@ -713,7 +734,7 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
     if (outQuantScales.empty() || llvm::all_of(outQuantScales, [](double val) {
             return isDoubleEqual(val, 1.0);
         })) {
-        return addResult.getOutput();
+        return SmallVector<mlir::Value>(addResult->getResults().begin(), addResult->getResults().end());
     }
 
     // If we have a per channel output quantization scale, we cannot add it to the last eltwise op due to the lack
@@ -794,16 +815,19 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
         auto strides = getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
         auto padding = VPU::getPaddingAttr(ctx, PadInfo(0, 0, 0, 0));
         auto nceDepthConvolutionOp = rewriter.create<VPU::NCEDepthConvolutionOp>(
-                appendLoc(origOp->getLoc(), "dw_conv_out_scale"), origOp.getOutput().getType(), addResult.getOutput(),
-                alignedWeights, dwWeightTable, /*data_ptr_table=*/nullptr, /*sparsity_ptr_table=*/nullptr, dwScaleTable,
-                dwBiasTable,
-                /*zp_table=*/nullptr, strides, padding, finalPpeAttr, mpeEngineModeAttr,
+                appendLoc(origOp->getLoc(), "dw_conv_out_scale"), origOp.getOutput().getType(), reduceXyMaxType,
+                reduceXyMinType, reduceTensorMinMaxType, addResult.getOutput(), alignedWeights, dwWeightTable,
+                /*data_ptr_table=*/nullptr, dwScaleTable, dwBiasTable, strides, padding, finalPpeAttr, mpeEngineAttr,
                 /*rawFilterShape=*/mlir::ValueRange{},
                 /*static_raw_filter_shape=*/weightsShape.raw(),
                 /*multiClusterStrategyAttr=*/nullptr, origOp.getOutputPaddingAttr(),
-                nullptr /*origOp.getInputPaddingAttr()*/);
+                nullptr /*origOp.getInputPaddingAttr()*/,
+                // Only forward axes_value when origOp actually has active reduce outputs; a stale
+                // attribute from an unfused reduce consumer must not be propagated onto this op.
+                /*axes_value=*/VPU::hasReduceOutputs(origOp) ? origOp.getAxesValueAttr() : nullptr);
 
-        return nceDepthConvolutionOp.getOutput();
+        return SmallVector<mlir::Value>(nceDepthConvolutionOp->getResults().begin(),
+                                        nceDepthConvolutionOp->getResults().end());
     }
 
     // If we have output quantization scale and it is per tensor, adapt the PPE scale of the last Eltwise with
@@ -832,7 +856,7 @@ mlir::Value vpux::VPU::splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, m
         addResult.setPpeAttr(finalPpeAttr);
     }
 
-    return addResult.getOutput();
+    return SmallVector<mlir::Value>(addResult->getResults().begin(), addResult->getResults().end());
 }
 
 SmallVector<int64_t> vpux::VPU::resolveRawFilterShape(ArrayRef<int64_t> staticRawFilterShape,

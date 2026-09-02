@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_analysis_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/scf/scf_multicluster_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_unroll_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
@@ -349,10 +350,13 @@ mlir::LogicalResult SimplifyDynamicCast::matchAndRewrite(mlir::tensor::CastOp ca
 
     if (sourceType.hasStaticShape() || !resultType.hasStaticShape()) {
         if (sourceType.hasStaticShape()) {
-            auto users = castOp.getResult().getUsers();
+            // Collect users before replaceOp, because getUsers() returns a live view
+            // of the use-list which becomes empty after replaceOp rewires all uses
+            SmallVector<mlir::Operation*> userOps(castOp.getResult().getUsers().begin(),
+                                                  castOp.getResult().getUsers().end());
             rewriter.replaceOp(castOp, castOp.getSource());
             if (!resultType.hasStaticShape()) {
-                for (auto* user : users) {
+                for (auto* user : userOps) {
                     if (mlir::isa<mlir::InferTypeOpInterface>(user)) {
                         vpux::inferReturnTypes(user, vpux::InferShapedTypeMode::SHAPE);
                     }
@@ -508,29 +512,20 @@ void FullUnrollSCFLoopPass::unrollTiling(ArrayRef<mlir::scf::ForOp> loopVector,
     if (mlir::failed(mlir::applyPatternsGreedily(moduleOp, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
-}
 
-// TODO: After E193460 is implemented, adjustments will need to be made to identify strategies that depend on both
-// input and output distribution schemes (e.g. HKSwitch)
-VPU::MultiClusterStrategy getMulticlusteringStrategy(mlir::Operation* computeOp, const int64_t outputTilingAxis) {
-    if (outputTilingAxis == Dims4D::Act::H.ind()) {
-        return mlir::isa<VPU::InterpolateOp>(computeOp) ? VPU::MultiClusterStrategy::SplitOverHeightOverlapped
-                                                        : VPU::MultiClusterStrategy::SplitOverHeight;
+    // Re-infer types after SimplifyDynamicCast removes tensor.cast ops, since
+    // inferReturnTypes in that pattern only updates direct users, not the full chain
+    inferShapeOps();
+
+    // After type propagation, tensor.insert_slice/extract_slice ops may have stale
+    // dynamic size declarations incompatible with now-static source types. Run
+    // ConvertSlice again to convert them to VPU.Concat/VPU.Slice.
+    mlir::RewritePatternSet finalPatterns(&ctx);
+    finalPatterns.add<ConvertSlice>(&ctx, _log);
+    if (mlir::failed(
+                mlir::applyPatternsGreedily(moduleOp, std::move(finalPatterns), getDefaultGreedyRewriteConfig()))) {
+        signalPassFailure();
     }
-
-    if (outputTilingAxis == Dims4D::Act::W.ind()) {
-        return VPU::MultiClusterStrategy::SplitOverWidth;
-    }
-
-    if (outputTilingAxis == Dims4D::Act::C.ind()) {
-        return VPU::MultiClusterStrategy::SplitOverKernel;
-    }
-
-    if (outputTilingAxis == Dims4D::Act::N.ind()) {
-        return VPU::MultiClusterStrategy::SplitOverBatch;
-    }
-
-    VPUX_THROW("Unsupported tiling axis {0} for multiclustering", outputTilingAxis);
 }
 
 VPU::DistributionMode getInputNonDuplicatedMode(VPU::ClusteredOpInterface clusteredOp, mlir::OpOperand* input,
@@ -553,84 +548,6 @@ VPU::DistributionMode getInputNonDuplicatedMode(VPU::ClusteredOpInterface cluste
     return VPU::getWeightsTensorDistributionMode(strategy);
 }
 
-// Derive a static shape from the distribution's compute_shapes.
-// When the tensor type has dynamic dims, the concrete shape is the element-wise
-// maximum across all clusters' compute_offset + compute_shape.
-SmallVector<int64_t> resolveShapeFromDistribution(ArrayRef<int64_t> origShape,
-                                                  const VPU::DistributionInfo& distribution) {
-    auto resolved = SmallVector<int64_t>(origShape);
-    const auto& computeShapes = distribution.getComputeShapes();
-    const auto& computeOffsets = distribution.getComputeOffsets();
-    if (computeShapes.empty()) {
-        return resolved;
-    }
-    for (size_t dim = 0; dim < resolved.size(); ++dim) {
-        if (resolved[dim] != mlir::ShapedType::kDynamic) {
-            continue;
-        }
-        int64_t maxExtent = 0;
-        for (size_t c = 0; c < computeShapes.size(); ++c) {
-            VPUX_THROW_WHEN(dim >= computeShapes[c].size() || dim >= computeOffsets[c].size(),
-                            "Rank mismatch in resolveShapeFromDistribution: origShape rank {0} exceeds "
-                            "per-cluster shape rank {1} for cluster {2}",
-                            resolved.size(), computeShapes[c].size(), c);
-            maxExtent = std::max(maxExtent, computeOffsets[c][dim] + computeShapes[c][dim]);
-        }
-        resolved[dim] = maxExtent;
-    }
-    return resolved;
-}
-
-void fillInDistribution(VPU::OpChainAnalysis& analysis, mlir::OffsetSizeAndStrideOpInterface offsetSizeOp,
-                        NDTypeInterface type, const int64_t numClusters, VPU::DistributionInfo& distribution) {
-    auto offsets = SmallVector<SmallVector<int64_t>>(numClusters,
-                                                     SmallVector<int64_t>(type.getRank(), static_cast<int64_t>(0)));
-
-    const auto shape = SmallVector<int64_t>(type.getShape().raw());
-    auto sizes = SmallVector<SmallVector<int64_t>>(numClusters, shape);
-
-    const auto isValidVecSize = [&](ArrayRef<int64_t> arr) {
-        return arr.size() == 1 || arr.size() == static_cast<size_t>(numClusters);
-    };
-
-    ValueRangeMap emptyMap;
-    auto mixedOffsets = offsetSizeOp.getMixedOffsets();
-    auto mixedSizes = offsetSizeOp.getMixedSizes();
-    auto numTiles = SmallVector<int64_t>(type.getRank(), 1);
-    for (auto idx : irange(mixedOffsets.size())) {
-        if (!offsetSizeOp.isDynamicOffset(idx) && !offsetSizeOp.isDynamicSize(idx)) {
-            continue;
-        }
-
-        auto offsetsFolded =
-                analysis.getOpFoldResultValue(mixedOffsets[idx], emptyMap, OpChainAnalysis::MODE::ALL_VALUES);
-        auto sizesFolded = analysis.getOpFoldResultValue(mixedSizes[idx], emptyMap, OpChainAnalysis::MODE::ALL_VALUES);
-        VPUX_THROW_WHEN(!offsetsFolded || !sizesFolded, "Failed to extract offsets and sizes for distribution.");
-
-        const auto invalidOffsetsSizes = !isValidVecSize(offsetsFolded.value()) || !isValidVecSize(sizesFolded.value());
-        VPUX_THROW_WHEN(
-                invalidOffsetsSizes,
-                "Invalid number of offsets or sizes for distribution. Expected 1 or numClusters ({0}), got {1} and {2}",
-                numClusters, offsetsFolded.value().size(), sizesFolded.value().size());
-
-        for (int64_t clusterIdx = 0; clusterIdx < numClusters; ++clusterIdx) {
-            offsets[clusterIdx][idx] =
-                    offsetsFolded.value().size() == 1 ? offsetsFolded.value()[0] : offsetsFolded.value()[clusterIdx];
-            sizes[clusterIdx][idx] =
-                    sizesFolded.value().size() == 1 ? sizesFolded.value()[0] : sizesFolded.value()[clusterIdx];
-        }
-
-        numTiles[idx] = static_cast<int64_t>(offsetsFolded.value().size());
-    }
-
-    distribution.setComputeShapes(sizes);
-    distribution.setComputeOffsets(offsets);
-    distribution.setMemoryShapes(std::move(sizes));
-    distribution.setMemoryOffsets(std::move(offsets));
-    distribution.setNumClusters(numClusters);
-    distribution.setNumTiles(std::move(numTiles));
-}
-
 VPU::DistributedTensorType getDistributedTypeForInput(VPU::OpChainAnalysis& analysis, mlir::Operation* computeOp,
                                                       mlir::OpOperand* input,
                                                       mlir::tensor::ExtractSliceOp extractSliceOp,
@@ -644,9 +561,9 @@ VPU::DistributedTensorType getDistributedTypeForInput(VPU::OpChainAnalysis& anal
         // Use bounded shape to resolve dynamic dims for the distributed type.
         const auto shape = getBoundedShape(inputType);
         auto distrModeAttr = VPU::DistributionModeAttr::get(ctx, VPU::DistributionMode::DUPLICATED);
-        auto distribution = getNonOverlappedDistributedAttr(
-                shape, distrModeAttr, /*numTiles=*/nullptr, numClustersAttr,
-                /*alignment=*/nullptr, /*uniformDistributedSegments=*/nullptr, inputType.getElementType(), ctx);
+        auto distribution =
+                getNonOverlappedDistributedAttr(shape, distrModeAttr, /*numTiles=*/nullptr, numClustersAttr,
+                                                /*alignment=*/nullptr, /*uniformDistributedSegments=*/nullptr, ctx);
 
         auto orderAttr = mlir::AffineMapAttr::get(inputType.getDimsOrder().toAffineMap(ctx));
         return VPU::DistributedTensorType::get(ctx, shape, inputType.getElementType(), orderAttr, memSpaceCMX,
@@ -685,97 +602,6 @@ VPU::DistributedTensorType getDistributedTypeForInput(VPU::OpChainAnalysis& anal
 
     auto orderAttr = mlir::AffineMapAttr::get(inputType.getDimsOrder().toAffineMap(ctx));
     return VPU::DistributedTensorType::get(ctx, resolvedShape, inputType.getElementType(), orderAttr, memSpaceCMX,
-                                           distributionAttr);
-}
-
-// Follow the use-chain from a compute op result to its tensor.parallel_insert_slice.
-// The chain may contain tensor.cast or VPU.Copy ops.
-mlir::tensor::ParallelInsertSliceOp findParallelInsertSlice(mlir::OpResult output) {
-    if (!output.hasOneUse()) {
-        return nullptr;
-    }
-
-    mlir::Operation* current = *(output.user_begin());
-    while (!mlir::isa_and_present<mlir::tensor::ParallelInsertSliceOp>(current)) {
-        if (!mlir::isa_and_present<mlir::tensor::CastOp, VPU::CopyOp>(current)) {
-            return nullptr;
-        }
-
-        if (current->getNumResults() != 1) {
-            return nullptr;
-        }
-
-        mlir::Value currentOutput = current->getResult(0);
-        if (!currentOutput.hasOneUse()) {
-            return nullptr;
-        }
-        current = *(currentOutput.user_begin());
-    }
-
-    return mlir::dyn_cast_if_present<mlir::tensor::ParallelInsertSliceOp>(current);
-}
-
-// Infer the multiclustering strategy from the distribution pattern of a single result.
-// All results of the same compute op share the same strategy (same tiling axis).
-VPU::MultiClusterStrategy inferMulticlusterStrategy(VPU::OpChainAnalysis& analysis, mlir::Operation* computeOp,
-                                                    mlir::OpResult output, mlir::IntegerAttr numClustersAttr) {
-    auto parallelInsertSlice = findParallelInsertSlice(output);
-    VPUX_THROW_WHEN(parallelInsertSlice == nullptr, "Cannot find parallel_insert_slice for result {0} of op at {1}",
-                    output.getResultNumber(), computeOp->getLoc());
-
-    auto outputType = mlir::cast<NDTypeInterface>(parallelInsertSlice.getDestType());
-    VPU::DistributionInfo distribution;
-    fillInDistribution(analysis, parallelInsertSlice, outputType, numClustersAttr.getInt(), distribution);
-
-    const auto tilingAxes = VPU::getNonOneDimInds(distribution.getNumTiles());
-    VPUX_THROW_WHEN(tilingAxes.size() != 1, "Currently only supporting strategies with single multiclustering axis");
-
-    return getMulticlusteringStrategy(computeOp, tilingAxes.front());
-}
-
-// Compute the distributed type for a single result given the multiclustering strategy.
-VPU::DistributedTensorType getOutputDistributedType(VPU::OpChainAnalysis& analysis, mlir::Operation* computeOp,
-                                                    mlir::OpResult output, const VPU::MultiClusterStrategy& strategy,
-                                                    mlir::IntegerAttr numClustersAttr, mlir::MLIRContext* ctx) {
-    const auto memSpaceCMX = IndexedSymbolAttr::get(ctx, stringifyEnum(MemoryKind::CMX_NN));
-
-    auto parallelInsertSlice = findParallelInsertSlice(output);
-    VPUX_THROW_WHEN(parallelInsertSlice == nullptr, "Cannot find parallel_insert_slice for result {0} of op at {1}",
-                    output.getResultNumber(), computeOp->getLoc());
-
-    auto outputType = mlir::cast<NDTypeInterface>(parallelInsertSlice.getDestType());
-
-    VPU::DistributionInfo distribution;
-    fillInDistribution(analysis, parallelInsertSlice, outputType, numClustersAttr.getInt(), distribution);
-
-    // For SOK + NCEOpInterface, getOutputTensorDistributionMode will return SEGMENTED|DUPLICATED due to the presence
-    // of only one op inside scf.forall. However, broadcasting is not supported until E#193460 is done, so the correct
-    // mode is SEGMENTED, to fit the per cluster offsets/sizes computed above.
-    const auto mode = strategy == VPU::MultiClusterStrategy::SplitOverKernel && mlir::isa<NCEOpInterface>(computeOp)
-                              ? VPU::DistributionMode::SEGMENTED
-                              : VPU::getOutputTensorDistributionMode(mlir::cast<VPU::ClusteredOpInterface>(computeOp),
-                                                                     strategy, outputType);
-    distribution.setDistributionMode(mode);
-
-    // Resolve dynamic dims from compute_shapes/compute_offsets populated by fillInDistribution.
-    // Placed after setDistributionMode so the distribution object is fully configured
-    // before any further use.
-    const auto resolvedShape = resolveShapeFromDistribution(outputType.getShape().raw(), distribution);
-
-    if (VPU::bitEnumContainsAny(mode, VPU::DistributionMode::SEGMENTED)) {
-        const auto alignment =
-                vpux::getAlignment(computeOp, ShapeRef(distribution.getNumTiles()), ShapeRef(resolvedShape));
-
-        const auto distributionAxis = VPU::getDistributedTilingAxis(distribution.getNumTiles());
-        if (alignment[distributionAxis] != 1) {
-            distribution.setAlignment(alignment);
-        }
-    }
-
-    auto distributionAttr = VPU::DistributionInfo::getAttrFromClass(ctx, distribution);
-
-    auto orderAttr = mlir::AffineMapAttr::get(outputType.getDimsOrder().toAffineMap(ctx));
-    return VPU::DistributedTensorType::get(ctx, resolvedShape, outputType.getElementType(), orderAttr, memSpaceCMX,
                                            distributionAttr);
 }
 
@@ -849,12 +675,12 @@ void FullUnrollSCFLoopPass::unrollMulticlustering(mlir::ModuleOp moduleOp) {
         // Infer the multiclustering strategy from result 0. All results of the same
         // compute op share the same strategy because the tiling axis is identical.
         nestedLog.trace("Inferring multiclustering strategy from result 0.");
-        auto strategy = inferMulticlusterStrategy(analysis, computeOp, computeOp->getOpResult(0), numClustersAttr);
+        auto strategy = inferMulticlusterStrategy(analysis, computeOp, computeOp->getOpResult(0));
 
         // Verify that every result produces the same strategy as result 0.
         // This guards against future ops where results might have different distributions.
         for (auto result : llvm::drop_begin(computeOp->getOpResults())) {
-            const auto resultStrategy = inferMulticlusterStrategy(analysis, computeOp, result, numClustersAttr);
+            const auto resultStrategy = inferMulticlusterStrategy(analysis, computeOp, result);
             VPUX_THROW_WHEN(resultStrategy != strategy,
                             "Result {0} of op at {1} infers a different multiclustering strategy than "
                             "result 0: expected {2}, got {3}",

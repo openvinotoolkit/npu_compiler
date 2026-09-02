@@ -18,7 +18,9 @@ def VPU_AddOp :
                 VPU_TilingBuilderOpInterface,
                 Commutative,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible",
+                                                                     "isOperationSplitOverKernelCompatible"]>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 VPU_EltwiseOp
             ]
@@ -64,7 +66,8 @@ def VPU_DivideOp :
             [
                 VPU_TilingBuilderOpInterface,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
                 VPU_EltwiseOp
             ]
         > {
@@ -130,7 +133,8 @@ def VPU_MinimumOp :
                 VPU_TilingBuilderOpInterface,
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>
             ]
         > {
     let summary = "InferenceEngine Minimum layer";
@@ -171,7 +175,8 @@ def VPU_MaximumOp :
                 VPU_TilingBuilderOpInterface,
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>
             ]
         > {
     let summary = "Maximum VPU layer";
@@ -235,15 +240,17 @@ def VPU_MultiplyOp :
                 Commutative,
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible",
+                                                                     "isOperationSplitOverKernelCompatible"]>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>
             ]
         > {
     let summary = "Multiply VPU layer";
 
     let arguments = (ins
-        AnyTypeOf<[RankedTensorOf<[F16, F32, SI32, UI8, UI16, UI32]>, VPU_DistributedTensor]>:$input1,
-        AnyTypeOf<[RankedTensorOf<[F16, F32, SI32, UI8, UI16, UI32]>, VPU_DistributedTensor]>:$input2,
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI8, SI16, SI32, UI8, UI16, UI32]>, VPU_DistributedTensor]>:$input1,
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI8, SI16, SI32, UI8, UI16, UI32]>, VPU_DistributedTensor]>:$input2,
 
         IE_AutoBroadcastTypeAttr:$auto_broadcast,
         OptionalAttr<IE_PostOpAttrInterface>:$post_op,
@@ -251,7 +258,7 @@ def VPU_MultiplyOp :
     );
 
     let results = (outs
-        AnyTypeOf<[RankedTensorOf<[F16, F32, SI32, UI8, UI16, UI32]>, VPU_DistributedTensor]>:$output
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI8, SI16, SI32, UI8, UI16, UI32, quant_QuantizedType]>, VPU_DistributedTensor]>:$output
     );
 
     let builders = [
@@ -269,7 +276,7 @@ def VPU_MultiplyOp :
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
     }] # baseExtraClassDeclaration;
 
-    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT, IE_TypeComparisonMode_ALLOW_MIXED_PRECISION];
 }
 
 
@@ -279,7 +286,8 @@ def VPU_PowerOp :
             [
                 VPU_TilingBuilderOpInterface,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
                 VPU_EltwiseOp
             ]
         > {
@@ -344,7 +352,8 @@ def VPU_SquaredDifferenceOp :
             [
                 VPU_TilingBuilderOpInterface,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
                 VPU_EltwiseOp
             ]
         > {
@@ -386,7 +395,8 @@ def VPU_SubtractOp :
             [
                 VPU_TilingBuilderOpInterface,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 VPU_EltwiseOp
             ]

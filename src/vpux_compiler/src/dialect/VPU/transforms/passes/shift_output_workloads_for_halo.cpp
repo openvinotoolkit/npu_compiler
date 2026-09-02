@@ -9,6 +9,9 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/odu_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
 namespace vpux::VPU {
@@ -121,11 +124,26 @@ void ShiftOutputWorkloadsForHaloPass::safeRunOnFunc() {
 
         _log.trace("Adapting workloads for operation '{0}' at '{1}'.", nceOp->getName(), nceOp->getLoc());
 
-        auto workloads = nceOp.getWorkloads().getOps<VPU::DPUWorkloadOp>();
+        auto workloads = VPU::collectAllWorkloads(nceOp);
         auto outDataDistributedType =
                 mlir::cast<vpux::VPU::DistributedTensorType>(*outputTypes.getDistributedTypes().begin());
-        const auto clusteringOffsets = getClusteringOffsets(outDataDistributedType);
-        for (auto workloadOp : llvm::make_early_inc_range(workloads)) {
+
+        auto clusteringOffsets = getClusteringOffsets(outDataDistributedType);
+
+        // DPU workloads are in pre-ODU coordinates. For s2dd2s ops, distributed buffer
+        // offsets are post-ODU, so convert offsets back before shifting workloads.
+        const auto oduScales = VPU::getODUScaling(nceOp.getOperation());
+        if (!oduScales.empty()) {
+            for (auto& offset : clusteringOffsets) {
+                auto preODUOffsetResult = VPU::invertODUScaling(oduScales, offset, nceOp->getLoc());
+                VPUX_THROW_UNLESS(mlir::succeeded(preODUOffsetResult),
+                                  "Failed to invert ODU clustering offset for operation '{0}' at '{1}'",
+                                  nceOp->getName(), nceOp->getLoc());
+                offset = preODUOffsetResult.value();
+            }
+        }
+
+        for (auto workloadOp : workloads) {
             VPUX_THROW_UNLESS(workloadOp.getClusterId().has_value(),
                               "DPU Workload should have cluster_id set. It does not.");
             auto clusterId = workloadOp.getClusterId().value();

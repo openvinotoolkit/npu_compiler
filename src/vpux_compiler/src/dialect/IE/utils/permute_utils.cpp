@@ -64,3 +64,17 @@ bool IE::isTrivialMemPermute(IE::MemPermuteOp origOp) {
     const auto inMemShape = inOrder.toMemoryOrder(inShape);
     return isTrivialPermute(inMemShape, origOp.getMemPerm());
 }
+
+std::optional<mlir::AffineMap> IE::createTrivialAffineMap(int64_t rank, mlir::MLIRContext* ctx) {
+    if (rank == 1) {
+        return DimsOrder::C.toAffineMap(ctx);
+    } else if (rank == 2) {
+        return DimsOrder::NC.toAffineMap(ctx);
+    } else if (rank == 3) {
+        return DimsOrder::CHW.toAffineMap(ctx);
+    } else if (rank == 4) {
+        return DimsOrder::NCHW.toAffineMap(ctx);
+    }
+
+    return std::nullopt;
+}

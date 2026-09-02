@@ -66,14 +66,7 @@ class ReduceLayerTestCommon : public ReduceOpsLayerTest, virtual public VpuOv2La
 
 public:
     static std::string getTestCaseName(const testing::TestParamInfo<reduceOpsParams>& obj) {
-        std::vector<size_t> input_shape;
-        ov::element::Type model_type;
-        bool keep_dims;
-        ov::test::utils::ReductionType reduction_type;
-        std::vector<int> axes;
-        ov::test::utils::OpType op_type;
-        std::string target_device;
-        std::tie(axes, op_type, keep_dims, reduction_type, model_type, input_shape, target_device) = obj.param;
+        const auto& [axes, op_type, keep_dims, reduction_type, model_type, input_shape, target_device] = obj.param;
         std::ostringstream result;
         result << "IS=" << ov::test::utils::vec2str(input_shape) << "_";
         result << "axes=" << ov::test::utils::vec2str(axes) << "_";

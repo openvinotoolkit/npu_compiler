@@ -34,6 +34,29 @@ def ConvertIntermediateBytecodeOps : PassBase<"convert-intermediate-bytecode-ops
 }
 
 //
+// DeduplicateAndLowerImmRegisterOps
+//
+
+def DeduplicateAndLowerImmRegisterOps : PassBase<"deduplicate-and-lower-imm-register-ops", "vpux::ModulePass"> {
+    let summary = "Deduplicate and lower bytecode.imm_register to VirtualGeneralRegisterOp + SetImmOp";
+
+    let description = [{
+        Converts each bytecode.imm_register {value} op to a (VirtualGeneralRegisterOp + SetImmOp)
+        pair. Deduplication of same-value source uses is performed by this pass itself: entry-block
+        VGRs are reused across all successor blocks; within non-entry blocks, same-value source uses
+        share a single VGR. Destination uses always receive a fresh VGR so the shared source VGR is
+        never overwritten. Must run before AllocateBytecodeRegisters (which requires only concrete
+        VGR/VPR ops).
+    }];
+
+    let constructor = "vpux::bytecode::createDeduplicateAndLowerImmRegisterOpsPass()";
+
+    let dependentDialects = [
+        "vpux::bytecode::BytecodeDialect"
+    ];
+}
+
+//
 // AllocateBytecodeRegisters
 //
 

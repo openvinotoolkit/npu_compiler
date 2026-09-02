@@ -1123,9 +1123,14 @@ std::vector<size_t> FeasibleMemoryScheduler::getReadyLoopOps() {
         nonLoopNextIdx[queue.first] = *firstOpInQueue;
     }
 
-    // ensure data out ops scheduled
+    // ensure nonLoop data out/compute ops scheduled
     const auto& aliveVals = _scan.handler().getAliveValues();
     for (const auto& opIdx : _readyDMAOps) {
+        // Skip operations belonging to loop region itself
+        if (_computeRegionsSchedule.loopRegionInd.count(opIdx)) {
+            continue;
+        }
+
         auto op = _depsInfo.getExecuteOpAtIndex(opIdx);
         for (auto& buffer : _liveRangeInfo.getUsedBuffers(op)) {
             if (aliveVals.count(buffer)) {
@@ -1327,7 +1332,10 @@ mlir::DenseSet<mlir::Value> FeasibleMemoryScheduler::loopPrefetch(const ComputeR
 
 size_t FeasibleMemoryScheduler::applyIterationSchedule(const IterationSchedule& iterSchedule,
                                                        vpux::AddressType reserveOffset, size_t loopCycleEnd) {
-    for (const auto& [allocInfo, deallocations, allocations] : iterSchedule) {
+    for (const auto& entry : iterSchedule) {
+        const auto& allocInfo = entry.allocInfo;
+        const auto& deallocations = entry.deallocations;
+        const auto& allocations = entry.allocations;
         const auto& opIdx = allocInfo.opIdx;
         // perform necessary deallocations
         moveFromCycleBeginToCycleEndHeap();
@@ -1373,6 +1381,7 @@ size_t FeasibleMemoryScheduler::applyIterationSchedule(const IterationSchedule& 
             const auto bufferAddress = reserveOffset + bufferOffset;
             _scan.handler().markAsAlive(buffer);
             _scan.handler().setAddress(buffer, bufferAddress);
+            _log.nest(2).trace("Try to allocate buffer '{0}' at address {1}", buffer, bufferAddress);
             VPUX_THROW_UNLESS(_scan.allocDefinedRange(buffer), "Failed to allocate defined range at {0}",
                               bufferAddress);
 
@@ -1430,12 +1439,20 @@ size_t FeasibleMemoryScheduler::applyIterationSchedule(const IterationSchedule& 
 
 std::optional<vpux::AddressType> FeasibleMemoryScheduler::prepareLoopRegion(const ComputeRegion& computeRegion,
                                                                             const LoopScheduleResult& scheduleResult) {
-    // 1. Get all "shared" buffers
+    // 1. Get all "shared" buffers that need allocation before loop execution
     mlir::DenseSet<mlir::Value> buffersToAllocate;
     for (const auto& shared : scheduleResult.sharedExternalBuffers) {
         if (_scan.handler().isAlive(shared)) {
             continue;
         }
+
+        // In case some loop op was already prefetched and executed before loop, its buffer may no longer
+        // be needed. Before allocating such buffer check if it has any remaining users
+        if (!_liveRangeInfo.hasRemainingUsers(shared)) {
+            _log.nest().trace("Shared buffer '{0}' has no remaining users, skip allocation", shared);
+            continue;
+        }
+
         buffersToAllocate.insert(shared);
     }
 
@@ -1472,7 +1489,12 @@ std::optional<vpux::AddressType> FeasibleMemoryScheduler::prepareLoopRegion(cons
     }
 
     // 4. Schedule spills
-    for (auto val : scheduleResult.sharedExternalBuffers) {
+    // Use ordered set to guarantee deterministic insertion of spill ops
+    for (const auto& val : vpux::ValueOrderedSet{buffersToAllocate.begin(), buffersToAllocate.end()}) {
+        if (_scan.handler().isAlive(val)) {
+            continue;
+        }
+
         _scan.handler().markAsAlive(val);
         _log.nest().trace("Mark loop shared buffer as alive '{0}'", val);
         if (!_scan.handler().isDynamicSpill(val)) {
@@ -1516,10 +1538,15 @@ void FeasibleMemoryScheduler::applyLoopSchedule(const ComputeRegion& computeRegi
         _log.nest().trace("Schedule loop iteration {0}", loopIteration);
         const auto& iterationSchedule = explicitSchedule[loopIteration];
 
-        if (loopIteration > 1) {
-            // every 2nd loop overlaps
-            const auto iterationMinusTwoCycleEnd = loopCycleEnd[loopIteration - 2];
-            unscheduleOpsToCycle(iterationMinusTwoCycleEnd);
+        // TODO E#226504: For now disable overlap window for VF to make sure ops and buffers are unscheduled before
+        // next iteration starts as in case of VF MINIMAL strategy next loop first op may use conflicting
+        // resources with previous loop last op. Analyze if other approach could be used that would satisfy
+        // both Tiling and VF loop scheduling
+        const size_t overlapWindow = (computeRegion.getLoopType() == LoopType::VF) ? 0 : 1;
+
+        if (loopIteration > overlapWindow) {
+            const auto previousIterationCycleEnd = loopCycleEnd[loopIteration - overlapWindow - 1];
+            unscheduleOpsToCycle(previousIterationCycleEnd);
         }
 
         loopCycleEnd[loopIteration] = applyIterationSchedule(iterationSchedule, reserveOffset, loopMaxCycleEnd);
@@ -1783,6 +1810,12 @@ void FeasibleMemoryScheduler::scheduleComputeOps() {
         auto operationBuffers = getBuffersToAllocateForOp(readyOpIdx);
         operationBuffers.insert(buffersToAllocate.begin(), buffersToAllocate.end());
         if (!canAllocBuffers(operationBuffers)) {
+            continue;
+        }
+
+        // Skip operations belonging to loop regions
+        // Loop operations are handled separately by scheduleLoopRegions()
+        if (_computeRegionsSchedule.loopRegionInd.count(readyOpIdx)) {
             continue;
         }
 
@@ -2259,6 +2292,12 @@ void FeasibleMemoryScheduler::clearLists() {
 
 bool FeasibleMemoryScheduler::init() {
     _log.trace("Feasible Memory Scheduler init()");
+    doInitSetup();
+    schedulingLoop();
+    return true;
+}
+
+void FeasibleMemoryScheduler::doInitSetup() {
     _depsInfo.buildConsMap();
 
     // compute op in/out degree
@@ -2309,9 +2348,6 @@ bool FeasibleMemoryScheduler::init() {
     // TODO: check if input is dag
     initializeReadyLists();
     createBufferAsyncIdxMap();
-    schedulingLoop();
-
-    return true;
 }
 
 void FeasibleMemoryScheduler::schedulingLoop() {

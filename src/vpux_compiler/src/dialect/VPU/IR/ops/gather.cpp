@@ -19,40 +19,6 @@
 using namespace vpux;
 
 namespace {
-
-mlir::FailureOr<int64_t> extractAxis(mlir::Location loc, VPU::GatherOpAdaptor gather) {
-    if (gather.getAxis() != nullptr) {
-        auto axisValue = gather.getAxis();
-        while (auto parentOp = axisValue.getDefiningOp<VPU::CopyOp>()) {
-            axisValue = parentOp->getOperand(0);
-        }
-        auto axisConst = axisValue.getDefiningOp<Const::DeclareOp>();
-        if (axisConst == nullptr) {
-            return errorAt(loc, "Only constant input is supported for axis");
-        }
-
-        if (const auto& attr = axisConst.getContentAttr(); !attr.isSplat()) {
-            return errorAt(loc, "Axis value must be a scalar");
-        }
-
-        const auto axisContent = axisConst.getContent();
-        int64_t axisInd = axisContent.getSplatValue<int64_t>();
-
-        if (axisInd < 0) {
-            const auto inType = mlir::cast<vpux::NDTypeInterface>(gather.getInput().getType());
-            const auto inRank = inType.getRank();
-            axisInd += inRank;
-            VPUX_THROW_UNLESS(axisInd >= 0 && axisInd < inRank, "Wrong Gather axis {0}", axisInd);
-        }
-
-        return axisInd;
-    } else if (gather.getAxisValue().has_value()) {
-        return gather.getAxisValue().value();
-    } else {
-        return errorAt(loc, "Axis was not provided");
-    }
-}
-
 auto calculateOutputShape(const llvm::ArrayRef<int64_t>& inputShape, const llvm::ArrayRef<int64_t>& indicesShape,
                           int64_t batchDims, int64_t axisVal, int64_t indicesRank) {
     SmallVector<int64_t> shape;
@@ -99,13 +65,8 @@ mlir::LogicalResult vpux::VPU::GatherOp::inferReturnTypes(mlir::MLIRContext* ctx
     const auto indicesType = mlir::cast<mlir::ShapedType>(gather.getIndices().getType());
     const auto indicesShape = indicesType.getShape();
 
-    const auto inAxis = extractAxis(loc, gather);
-    if (mlir::failed(inAxis)) {
-        return mlir::failure();
-    }
-
+    const auto axis = gather.getAxisValue();
     auto batch = gather.getBatchDims();
-    auto axis = checked_cast<int64_t>(*inAxis);
     auto rank = gather.getIndicesRank().value_or(indicesShape.size());
 
     auto outShape = calculateOutputShape(inputShape, indicesShape, batch, axis, rank);
@@ -136,19 +97,7 @@ vpux::InputTiling vpux::VPU::GatherOp::backInferTileInfo(const vpux::TileInfo& o
     const auto origIndicesShape = getShape(getIndices());
     bool hasAxisTensor = false;
 
-    int64_t axisValue = 0;
-
-    if (getAxisValueAttr() != nullptr) {
-        axisValue = mlir::dyn_cast_or_null<mlir::IntegerAttr>(getAxisValueAttr()).getValue().getSExtValue();
-    }
-    if (getAxis() != nullptr) {
-        auto axisConst = getAxis().getDefiningOp<Const::DeclareOp>();
-        VPUX_THROW_UNLESS(axisConst != nullptr, "Only constant input is supported for axis");
-        VPUX_THROW_UNLESS(axisConst.getContentAttr().isSplat(), "Axis value must be a scalar");
-        const auto axisContent = axisConst.getContent();
-        axisValue = axisContent.getSplatValue<int64_t>();
-        hasAxisTensor = true;
-    }
+    const int64_t axisValue = getAxisValue();
     int64_t batchDims = 0;
     if (getBatchDimsAttr() != nullptr) {
         batchDims = mlir::dyn_cast_or_null<mlir::IntegerAttr>(getBatchDimsAttr()).getValue().getSExtValue();
@@ -168,19 +117,7 @@ mlir::FailureOr<OutputTiling> vpux::VPU::GatherOp::getTilingStrategy(TilingMode 
     VPUX_THROW_WHEN(tilingMode != TilingMode::ISOLATED,
                     "Only supporting isolated tiling for Gather currently, for op {0} at '{1}'", baseOp->getName(),
                     getLoc());
-    int64_t axisValue = 0;
-
-    if (getAxisValueAttr() != nullptr) {
-        axisValue = mlir::dyn_cast_or_null<mlir::IntegerAttr>(getAxisValueAttr()).getValue().getSExtValue();
-    }
-    if (getAxis() != nullptr) {
-        auto axisConst = getAxis().getDefiningOp<Const::DeclareOp>();
-        VPUX_THROW_UNLESS(axisConst != nullptr, "Only constant input is supported for axis");
-        VPUX_THROW_UNLESS(axisConst.getContentAttr().isSplat(), "Axis value must be a scalar");
-        const auto axisContent = axisConst.getContent();
-        axisValue = axisContent.getSplatValue<int64_t>();
-    }
-
+    const int64_t axisValue = getAxisValue();
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(baseOp->getResult(0).getType());
     const auto outputShape = outputType.getShape();
 
@@ -269,10 +206,9 @@ vpux::VPU::DistributionInfo vpux::VPU::GatherOp::getExplicitDistributionInfoAttr
 }
 
 void vpux::VPU::GatherOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
-                                mlir::Value indices, /*optional*/ mlir::Value axis,
-                                /*optional*/ mlir::IntegerAttr axis_value, mlir::IntegerAttr batch_dims,
+                                mlir::Value indices, mlir::IntegerAttr axis_value, mlir::IntegerAttr batch_dims,
                                 mlir::IntegerAttr indices_rank) {
-    build(builder, state, input, indices, axis, axis_value, batch_dims, indices_rank, {});
+    build(builder, state, input, indices, axis_value, batch_dims, indices_rank, {});
 }
 
 //

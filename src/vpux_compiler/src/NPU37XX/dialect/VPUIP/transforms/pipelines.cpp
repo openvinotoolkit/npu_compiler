@@ -136,7 +136,7 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     VPUIP::buildHardwareAdaptationPipeline(pm, log);
 
     // Level 1 : VPU RunTime
-    pm.addPass(VPUIP::createAssignLogicalTaskIndexPass(log));
+    pm.addPass(VPUIP::createAssignShvLogicalTaskIndexPass(log));
     pm.addPass(VPUIP::createUnrollSwKernelPass(log));
 
     pm.addPass(VPUIP::createUnrollDistributedOpsPass(log));

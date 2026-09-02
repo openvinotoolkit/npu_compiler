@@ -23,6 +23,7 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/se_roll_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
@@ -408,8 +409,7 @@ bool vpux::VPU::NCEInvariant::isSparseWorkloadEligibleForSmallKernelOpt(mlir::Op
     if (nceOp == nullptr) {
         return false;
     }
-    const auto wlRange = nceOp.getWorkloads().getOps<VPU::DPUWorkloadOp>();
-    const SmallVector<VPU::DPUWorkloadOp> workloads(wlRange.begin(), wlRange.end());
+    const auto workloads = to_small_vector(nceOp.getWorkloads().getOps<VPU::DPUWorkloadOp>());
     if (workloads.empty()) {
         return false;
     }
@@ -458,7 +458,7 @@ bool vpux::VPU::NCEInvariant::isSmallKernelOptimizationSupported(mlir::Operation
     const auto kernelStride = nceOp.getStridesVal();
     const auto SX = kernelStride[Dims4D::Strides::X.ind()];
 
-    const auto workloads = nceOp.getWorkloads().getOps<VPU::DPUWorkloadOp>();
+    const auto workloads = VPU::collectAllWorkloads(nceOp);
     if (workloads.empty()) {
         return false;
     }
@@ -653,4 +653,14 @@ bool vpux::VPU::NCEInvariant::hasDimensionExceedingVPULimit(ShapeRef shape) {
     return llvm::any_of(shape, [](auto dim) {
         return dim > VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
     });
+}
+
+bool vpux::VPU::NCEInvariant::isLargeEnoughForDPUOverSHAVE(mlir::Operation* op, int64_t sizeBytes, int64_t numTiles) {
+    VPUX_THROW_UNLESS(numTiles > 0, "Number of tiles must be positive, got {0}", numTiles);
+    // getTotalCMXSize returns the per-tile (per-cluster) CMX capacity. This heuristic requires
+    // the tensor to be at least that capacity divided across numTiles -- a proxy for "large
+    // enough that DPU/broadcast-DMA overhead pays off", calibrated empirically rather than
+    // derived from an exact per-tile data distribution model.
+    const auto cmxBytes = static_cast<int64_t>(VPU::getTotalCMXSize(op).count());
+    return sizeBytes >= (cmxBytes + numTiles - 1) / numTiles;
 }

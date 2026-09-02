@@ -32,7 +32,7 @@ func.func @BuildSubgraphEltwise(%arg0: tensor<1x16x256x256x!qElemType, {order = 
     }
     %2 = VPU.VerticalFusion (%0 as %arg1: tensor<1x32x256x256x!qElemType, {order = #NHWC}>, %1 as %arg2: tensor<1x32x256x256x!qElemType, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x32x256x256x!qElemType, {order = #NHWC}> {
       %3 = VPU.NCE.Eltwise(%arg1, %arg2)
-         {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
+         {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
          ppe = #VPU.PPEStub<>}
          -> tensor<1x32x256x256x!qElemType, {order = #NHWC}>
       VPU.Yield %3

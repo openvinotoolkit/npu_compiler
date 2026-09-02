@@ -7,6 +7,7 @@
 #include <queue>
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/hash_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
@@ -36,7 +37,8 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
     };
 
     auto isParentVFOpCompatible = [](VPU::VerticalFusionOp parentVFOp,
-                                     SmallVector<VPU::TilingViewLikeOpInterface> viewOpChain) -> bool {
+                                     ArrayRef<VPU::TilingViewLikeOpInterface> viewOpChain,
+                                     bool isWeightsOperand) -> bool {
         if (!parentVFOp) {
             return false;
         }
@@ -46,10 +48,20 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
         // output space dims. Use backInferTilingDim to generically find which output dims
         // correspond to the parent's tiling dims, without op-specific special casing.
         for (auto viewOp : viewOpChain | reversed) {
-            // TODO: parentTilingDims is empty, For view ops without restricted tiling dims. It should be fine to move
-            // it into VF. But currently we keep it outside, due to affinereshape return false on restrict tiling dim.
             if (parentTilingDims.empty()) {
-                return false;
+                // Allow empty parent tiling only for NCE weights. Their tiling is derived from the consumer NCE
+                // output-channel split, and backUserTileInfo recomputes weights MC dims instead of reusing
+                // activation-output dims.
+                if (!isWeightsOperand) {
+                    return false;
+                }
+                auto inferredTilingStrategy = viewOp.inferTilingStrategy(parentTilingStrategy);
+                if (mlir::failed(inferredTilingStrategy)) {
+                    return false;
+                }
+                parentTilingStrategy = inferredTilingStrategy.value();
+                parentTilingDims = getNonOneDim(ShapeRef(parentTilingStrategy));
+                continue;
             }
             auto outShape = getShape(viewOp->getResult(0));
             SmallVector<Dim> mappedDims;
@@ -141,6 +153,31 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
                 }
                 userOpTile = inTiles[operandIdx];
                 userOpMCDims = mlir::isa<VPU::TilingBuilderOpInterface>(currentOp) ? currentOutMCDims : inMCDims;
+                // Recompute MC dims for NCE weights because output activation dims do not describe weights
+                // distribution.
+                if (hasMCStrategy && mlir::isa<VPU::TilingBuilderOpInterface>(currentOp)) {
+                    if (auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(currentOp)) {
+                        auto weights = nceOp.getWeightsOperand();
+                        if (weights != nullptr && currentOp->getOpOperand(operandIdx).get() == weights) {
+                            userOpMCDims.clear();
+                            auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(currentOp);
+                            if (clusteredOp == nullptr) {
+                                return std::make_tuple(currentOp, userOpTile, userOpMCDims);
+                            }
+                            const auto mcStrategyOpt = clusteredOp.getMultiClusterStrategy();
+                            if (!mcStrategyOpt.has_value()) {
+                                return std::make_tuple(currentOp, userOpTile, userOpMCDims);
+                            }
+                            auto weightsType = mlir::cast<vpux::NDTypeInterface>(weights.getType());
+                            const auto mcStrategy = mcStrategyOpt.value();
+                            const auto numClusters =
+                                    VPU::getOptimalNumClusters(clusteredOp, currentOutTile.shape, mcStrategy);
+                            const auto weightsNumTiles =
+                                    getWeightsTensorNumTiles(clusteredOp, weightsType, numClusters, mcStrategy);
+                            userOpMCDims = getNonOneDim(ShapeRef(weightsNumTiles));
+                        }
+                    }
+                }
                 return std::make_tuple(currentOp, userOpTile, userOpMCDims);
             }
             for (size_t i = 0; i < currentOp->getNumOperands() && i < inTiles.size(); ++i) {
@@ -297,7 +334,6 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
         }
         auto parentVFOp =
                 mlir::dyn_cast_or_null<VPU::VerticalFusionOp>(viewLikeOpChain.back()->getOperand(0).getDefiningOp());
-        const auto isParentStrategyCompatible = isParentVFOpCompatible(parentVFOp, viewLikeOpChain);
         bool isValid = true;
         for (auto& use : vfOp.getBody()->getArgument(vfOperand.index()).getUses()) {
             if (!isValid) {
@@ -316,6 +352,9 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
                 isValid = false;
                 break;
             }
+            const auto isWeightsOperand = isOpWeightsFromVFOperandIndex(user, vfOperand.index());
+            const auto isParentStrategyCompatible =
+                    isParentVFOpCompatible(parentVFOp, viewLikeOpChain, isWeightsOperand);
 
             auto getNextTilingDims = [&]() -> std::optional<DimArr> {
                 if (vfOp->hasOneUse()) {

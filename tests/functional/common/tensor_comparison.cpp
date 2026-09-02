@@ -203,6 +203,40 @@ TensorComparisonResult compareTensorsTyped(const T* expectedData, const T* actua
     return result;
 }
 
+// Sub-byte 4-bit types are packed 2 elements per byte:
+// element[idx] is at byte[idx/2], bits 3:0 if idx is even, bits 7:4 if idx is odd.
+TensorComparisonResult compareU4Tensors(const ov::Tensor& expected, const ov::Tensor& actual, const ov::Shape& shape,
+                                        double absThreshold, double relThreshold, size_t topN) {
+    const size_t nElem = ov::shape_size(shape);
+    const auto* expBytes = static_cast<const uint8_t*>(expected.data());
+    const auto* actBytes = static_cast<const uint8_t*>(actual.data());
+
+    std::vector<uint8_t> expUnpacked(nElem), actUnpacked(nElem);
+    for (size_t i = 0; i < nElem; ++i) {
+        expUnpacked[i] = (expBytes[i / 2] >> (4 * (i % 2))) & 0xF;
+        actUnpacked[i] = (actBytes[i / 2] >> (4 * (i % 2))) & 0xF;
+    }
+    return compareTensorsTyped(expUnpacked.data(), actUnpacked.data(), shape, ov::element::u4, absThreshold,
+                               relThreshold, topN);
+}
+
+TensorComparisonResult compareI4Tensors(const ov::Tensor& expected, const ov::Tensor& actual, const ov::Shape& shape,
+                                        double absThreshold, double relThreshold, size_t topN) {
+    const size_t nElem = ov::shape_size(shape);
+    const auto* expBytes = static_cast<const uint8_t*>(expected.data());
+    const auto* actBytes = static_cast<const uint8_t*>(actual.data());
+
+    std::vector<int8_t> expUnpacked(nElem), actUnpacked(nElem);
+    for (size_t i = 0; i < nElem; ++i) {
+        const uint8_t expNibble = (expBytes[i / 2] >> (4 * (i % 2))) & 0xF;
+        const uint8_t actNibble = (actBytes[i / 2] >> (4 * (i % 2))) & 0xF;
+        expUnpacked[i] = static_cast<int8_t>(expNibble | (expNibble & 0x8 ? 0xF0 : 0));
+        actUnpacked[i] = static_cast<int8_t>(actNibble | (actNibble & 0x8 ? 0xF0 : 0));
+    }
+    return compareTensorsTyped(expUnpacked.data(), actUnpacked.data(), shape, ov::element::i4, absThreshold,
+                               relThreshold, topN);
+}
+
 }  // namespace
 
 TensorComparisonResult compareTensors(const ov::Tensor& expected, const ov::Tensor& actual, double absThreshold,
@@ -286,10 +320,19 @@ TensorComparisonResult compareTensors(const ov::Tensor& expected, const ov::Tens
     case ov::element::u64:
         return compareTensorsTyped(expected.data<const uint64_t>(), actual.data<const uint64_t>(), shape, elementType,
                                    absThreshold, relThreshold, topN);
+    case ov::element::u4:
+        return compareU4Tensors(expected, actual, shape, absThreshold, relThreshold, topN);
+    case ov::element::i4:
+        return compareI4Tensors(expected, actual, shape, absThreshold, relThreshold, topN);
     default:
         std::ostringstream msg;
         msg << "Unsupported element type for tensor comparison: " << elementType;
-        TensorComparisonResult fail{shape, elementType, ov::shape_size(shape), absThreshold, relThreshold};
+        TensorComparisonResult fail{};
+        fail.shape = shape;
+        fail.elementType = elementType;
+        fail.totalElements = ov::shape_size(shape);
+        fail.absThreshold = absThreshold;
+        fail.relThreshold = relThreshold;
         fail.errorMessage = msg.str();
         return fail;
     }

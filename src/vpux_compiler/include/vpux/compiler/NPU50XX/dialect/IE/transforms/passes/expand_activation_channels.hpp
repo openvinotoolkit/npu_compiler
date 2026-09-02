@@ -46,11 +46,9 @@ mlir::LogicalResult ReduceRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp origO
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
-        auto axes = getIntArrayAttr(this->getContext(), IE::extractAxes(origOp->getLoc(), origOp));
         return rewriter.create<ConcreteOp>(origOp.getLoc(), newOutputType, expandedInput,
-                                           /*axes*/ nullptr,
-                                           /*axes_value*/ axes, /*keep_dims*/ true, outputPaddingAttr,
-                                           inputPaddingAttr);
+                                           /*axes_value*/ origOp.getAxesValueAttr(), /*keep_dims*/ true,
+                                           outputPaddingAttr, inputPaddingAttr);
     };
 
     return IE::generalRewrite(origOp, rewriter, opCreator, IE::extractMeaningfulOutput, _log.nest());

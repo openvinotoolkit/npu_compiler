@@ -58,17 +58,10 @@ void verify_labels(std::set<std::string>& labels, config_map& config) {
         labels.erase("arch_type");
     }
     std::string arch_type = std::get<std::string>(config["arch_type"]);
-    const std::vector<std::string> supported_archs = {
-            "NPU27",
-            "NPU4",
-            "NPU5",
-    };
-    if (std::find(supported_archs.begin(), supported_archs.end(), arch_type) == supported_archs.end()) {
-        std::string supported;
-        for (const auto& a : supported_archs) {
-            supported += (supported.empty() ? "" : "/") + a;
-        }
-        throw std::logic_error{"Expected " + supported + " for arch type, got: " + arch_type};
+    if (arch_type != "NPU27"s && arch_type != "NPU4"s && arch_type != "NPU5"s) {
+        throw std::logic_error{"Expected NPU27/4/5"
+                               " for arch type, got: " +
+                               arch_type};
     }
 
     // Combination validity

@@ -114,9 +114,9 @@ void PropagateSparsityCompression::safeRunOnFunc() {
 
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(constOp.getType());
         const auto strides = outputType.getStrides();
-        const auto newOutputType = getMemRefType(outputType.getShape(), outputType.getElementType(),
-                                                 outputType.getDimsOrder(), outputType.getMemSpace(), strides,
-                                                 VPUIP::getSwizzlingSchemeAttr(outputType), sparsityCompressionAttr);
+        const auto newOutputType = getMemRefType(
+                outputType.getShape(), outputType.getElementType(), outputType.getDimsOrder(), outputType.getMemSpace(),
+                strides, getBounds(outputType), VPUIP::getSwizzlingSchemeAttr(outputType), sparsityCompressionAttr);
 
         constOp.getOutput().setType(newOutputType);
 

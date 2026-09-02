@@ -5,6 +5,8 @@
 
 #include "vpux/compiler/NPU40XX/pipeline_options.hpp"
 #include "vpux/compiler/pipelines/options_setup.hpp"
+#include "vpux/utils/ov/config.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 #include <gtest/gtest.h>
 
@@ -13,8 +15,8 @@ using namespace vpux;
 // Local test helper that mimics DefaultHWSetup40XX::setupOptionsImpl logic
 class TestDefaultHWSetup40XX : public OptionsSetupBase<TestDefaultHWSetup40XX, DefaultHWOptions40XX> {
 public:
-    static void setupOptionsImpl(DefaultHWOptions40XX& options, const intel_npu::Config& config) {
-        if (config.get<intel_npu::TURBO>()) {
+    static void setupOptionsImpl(DefaultHWOptions40XX& options, const vpux::OV::Config& config) {
+        if (config.get<vpux::OV::TURBO>()) {
             overwriteIfUnset(options.optimizationLevel, 3);
         }
         setupParamsAccordingToOptimizationLevel(options.optimizationLevel, options);
@@ -24,14 +26,14 @@ public:
 class OptionsSetupTurboTest : public ::testing::Test {
 public:
     void SetUp() override {
-        _optionDesc = std::make_shared<intel_npu::OptionsDesc>();
-        _optionDesc->add<intel_npu::TURBO>();
-        _config = intel_npu::Config(_optionDesc);
-        _config->update({{std::string(intel_npu::TURBO::key()), "YES"}});
+        _optionDesc = std::make_shared<vpux::OV::OptionsDesc>();
+        _optionDesc->add<vpux::OV::TURBO>();
+        _config = vpux::OV::Config(_optionDesc);
+        _config->update({{std::string(vpux::OV::TURBO::key()), "YES"}});
     }
 
-    std::shared_ptr<intel_npu::OptionsDesc> _optionDesc;
-    std::optional<intel_npu::Config> _config;
+    std::shared_ptr<vpux::OV::OptionsDesc> _optionDesc;
+    std::optional<vpux::OV::Config> _config;
 };
 
 TEST_F(OptionsSetupTurboTest, UserSetEnableReduceNumTilesForSmallModelsPassIsNotOverriddenByTurbo) {

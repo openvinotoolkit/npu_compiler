@@ -43,9 +43,10 @@ void vpux::VPU::arch40xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
     VPU::buildTilingPipeline(pm, VPU::TilingOptions(options), log);
 
     if (options.enableScfComputeOpsOutlining) {
-        VPU::buildScfComputeOpsOutliningPipeline(pm, options.loopUnrollFactor, options.enableProfiling,
-                                                 options.enableCascadedUnrolling, options.autoUnrollingMode,
-                                                 options.enableWeightsExtraction, log);
+        VPU::buildScfComputeOpsOutliningPipeline(
+                pm, options.loopUnrollFactor, options.enableProfiling, options.enableCascadedUnrolling,
+                options.enableBacktrackingBeyondResidualKernel, options.tailOverlapBacktrackMarginPercent,
+                options.autoUnrollingMode, options.enableWeightsExtraction, log);
     }
 
     auto& nestedPm = options.enableScfComputeOpsOutlining ? pm.nest<mlir::ModuleOp>() : pm;
@@ -61,6 +62,11 @@ void vpux::VPU::arch40xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
 
     nestedPm.addPass(VPU::createMakeDistributedCopiesPass(log));
     nestedPm.addPass(VPU::createAdjustDistributedTensorAroundOpsPass(log));
+
+    if (options.enableBoundedTensorsToDynamicDimsMask) {
+        // restore dynamic tensor representation after MC tiling
+        nestedPm.addPass(VPU::createDynamicDimsMaskToBoundedTensorsPass(log));
+    }
 }
 
 //
@@ -135,6 +141,11 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::createDetectInPlaceEltwisePass(log));
 
     pm.addPass(VPU::createCostModelAnalysisConstructPass(log));
+
+    if (options.enableShaveCodeGen) {
+        ShaveCodeGen::buildShaveCodeGenPipelineVPU(pm, log, options.enableShaveCodeGenTiling);
+    }
+
     if (options.enableSMPipeline) {
         VPU::buildSMPipeline(pm, vpux::MCAndTilingOptionsBase(options), log);
     } else {
@@ -154,15 +165,14 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     nestedPm.addPass(VPU::createMoveTensorOpsToCMXPass(log));
 
     if (options.enableSCFTiling) {
-        pm.addPass(VPU::createFullUnrollSCFLoopPass(log));
+        nestedPm.addPass(VPU::createWorkloadsForNCEOpsSCFPass(log));
+        nestedPm.addPass(VPU::createFullUnrollSCFLoopPass(log));
     }
     nestedPm.addPass(VPU::createSplitNCEOpsOntoWorkloadsPass(log));
     nestedPm.addPass(VPU::createCorrectNCEWorkloadsPass(log));
     nestedPm.addPass(VPU::createComputeNCEInputWorkloadsPass(log));
     nestedPm.addPass(VPU::createShiftOutputWorkloadsForHaloPass(log));
-    if (options.enableShaveCodeGen) {
-        ShaveCodeGen::buildShaveCodeGenPipelineVPU(nestedPm);
-    }
+
     nestedPm.addPass(mlir::createCanonicalizerPass(grc));
     nestedPm.addPass(createAdjustDynamicOpsBeforeBufferizationPass());
     nestedPm.addPass(VPU::createLegalizeDynamicShapeConcatForSWLayersPass(log));

@@ -30,13 +30,13 @@ def Bytecode_BufferCreateOp : Bytecode_VariadicOperandsInstructionOp<"buffer.cre
 
         Example:
         ```mlir
-        bytecode.buffer.create %dst, @i64_type shape(%size0, %size1) strides(%stride0, %stride1)
+        bytecode.buffer.create %dst, @type_section::@i64_type shape(%size0, %size1) strides(%stride0, %stride1)
         ```
     }];
 
     let arguments = (ins
         Bytecode_RegisterType:$dst,
-        FlatSymbolRefAttr:$elem_type,
+        SymbolRefAttr:$elem_type,
         Variadic<Bytecode_RegisterType>:$shape,
         Variadic<Bytecode_RegisterType>:$strides
     );
@@ -46,12 +46,18 @@ def Bytecode_BufferCreateOp : Bytecode_VariadicOperandsInstructionOp<"buffer.cre
     }];
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+        bool isDstOperand(::mlir::OpOperand& operand) {
+            return operand.get() == getDst();
+        }
+    }];
 }
 
 def Bytecode_BufferGetDimOp : Bytecode_ThreeOperandsInstructionBase<"buffer.get_dim", [], "1.0.0", "intel_npu::vm::OpCode::BUFFER_GET_DIM"> {
     let summary = "Get a dimension from a buffer's shape";
 
-    let opDescription = [{
+    let description = [{
         Read a shape dimension from an existing buffer.
 
         The `buffer` register contains the source buffer handle. The `dim_index` register selects
@@ -96,6 +102,12 @@ def Bytecode_BufferSubviewOp : Bytecode_VariadicOperandsInstructionOp<"buffer.su
     }];
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+        bool isDstOperand(::mlir::OpOperand& operand) {
+            return operand.get() == getDst();
+        }
+    }];
 }
 
 def Bytecode_BufferViewOp : Bytecode_VariadicOperandsInstructionOp<"buffer.view",
@@ -117,7 +129,7 @@ def Bytecode_BufferViewOp : Bytecode_VariadicOperandsInstructionOp<"buffer.view"
 
         Example:
         ```mlir
-        bytecode.buffer.view %dst, %src, @i64_type offset(%byteOff) shape(%size0, %size1) strides(%stride0, %stride1)
+        bytecode.buffer.view %dst, %src, @type_section::@i64_type offset(%byteOff) shape(%size0, %size1) strides(%stride0, %stride1)
         ```
     }];
 
@@ -125,7 +137,7 @@ def Bytecode_BufferViewOp : Bytecode_VariadicOperandsInstructionOp<"buffer.view"
         Bytecode_RegisterType:$dst,
         Bytecode_RegisterType:$src,
         Bytecode_RegisterType:$byte_offset,
-        FlatSymbolRefAttr:$elem_type,
+        SymbolRefAttr:$elem_type,
         Variadic<Bytecode_RegisterType>:$shape,
         Variadic<Bytecode_RegisterType>:$strides
     );
@@ -135,6 +147,12 @@ def Bytecode_BufferViewOp : Bytecode_VariadicOperandsInstructionOp<"buffer.view"
     }];
 
     let hasVerifier = 1;
+
+    let extraClassDeclaration = [{
+        bool isDstOperand(::mlir::OpOperand& operand) {
+            return operand.get() == getDst();
+        }
+    }];
 }
 
 def Bytecode_BufferStoreOp : Bytecode_VariadicOperandsInstructionOp<"buffer.store", [], "1.0.0", "intel_npu::vm::OpCode::BUFFER_STORE"> {
@@ -163,6 +181,37 @@ def Bytecode_BufferStoreOp : Bytecode_VariadicOperandsInstructionOp<"buffer.stor
 
     let assemblyFormat = [{
         $buffer `,` $value `indices` `(` $indices `)` attr-dict
+    }];
+
+    let hasVerifier = 1;
+}
+
+
+def Bytecode_BufferLoadOp : Bytecode_VariadicOperandsInstructionOp<"buffer.load", [], "1.1.0", "intel_npu::vm::OpCode::BUFFER_LOAD"> {
+    let summary = "Read a value from a buffer element";
+
+    let description = [{
+        Load a register value from an existing buffer at the given indices.
+
+        The `buffer` register contains the source buffer handle. The runtime copies `elemByteSize`
+        bytes from the addressed buffer element into the least-significant bytes of the destination
+        register. The `indices` operand group describes the element coordinate; the operand count
+        must match the runtime buffer rank.
+
+        Example:
+        ```mlir
+        bytecode.buffer.load %dst, %buffer indices(%i0, %i1)
+        ```
+    }];
+
+    let arguments = (ins
+        Bytecode_RegisterType:$dst,
+        Bytecode_RegisterType:$buffer,
+        Variadic<Bytecode_RegisterType>:$indices
+    );
+
+    let assemblyFormat = [{
+        $dst `,` $buffer `indices` `(` $indices `)` attr-dict
     }];
 
     let hasVerifier = 1;

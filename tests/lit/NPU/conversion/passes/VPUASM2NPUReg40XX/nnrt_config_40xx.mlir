@@ -31,7 +31,7 @@ module @Test {
 //CHECK: NPUReg40XX.NNrtConfig <{actShaveRt = @shave.runtime::@ActShaveRt, descriptor = #NPUReg40XX.VpuNNRTConfig<
 //CHECK:   VpuNNRTConfig {
 //CHECK:     NNRTCfg_reserved = UINT 0,
-//CHECK:     NNRTCfg_runtime_entry = UINT 0x1C0009E0,
+//CHECK:     NNRTCfg_runtime_entry = UINT 0x1C0009A0,
 //CHECK:     NNRTCfg_act_rt_window_base = UINT 0,
 //CHECK:     NNRTCfg_stack_0 = UINT 0,
 //CHECK:     NNRTCfg_stack_1 = UINT 0,
@@ -46,11 +46,11 @@ module @Test {
 //CHECK:     NNRTCfg_stack_10 = UINT 0,
 //CHECK:     NNRTCfg_stack_11 = UINT 0,
 //CHECK:     NNRTCfg_stack_size = UINT 0,
-//CHECK:     NNRTCfg_code_window_buffer_size = UINT 0x23A2,
+//CHECK:     NNRTCfg_deprecated1 = UINT 0,
 //CHECK:     NNRTCfg_perf_metrics_mask = UINT 0,
 //CHECK:     NNRTCfg_runtime_version = UINT 0x10009,
 //CHECK:     NNRTCfg_use_schedule_embedded_rt = UINT 1,
-//CHECK:     NNRTCfg_dpu_perf_mode = UINT 3,
+//CHECK:     NNRTCfg_deprecated3 = UINT 0,
 //CHECK:     NNRTCfg_pad_6 = UINT 0,
 //CHECK:     NNRTCfg_logAddrDmaHwp = UINT 0,
 //CHECK:     NNRTCfg_HwpCfgAddr = UINT 0,

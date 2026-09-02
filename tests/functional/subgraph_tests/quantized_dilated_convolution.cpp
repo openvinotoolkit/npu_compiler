@@ -114,9 +114,7 @@ class QuantizedDilatedConvSubGraphTest_NPU4000 : public QuantizedDilatedConvSubG
 
 TEST_P(QuantizedDilatedConvSubGraphTest_NPU4000, HW) {
     setDefaultHardwareMode();
-    // TODO: Investigate Compilation and accuracy failure E=211643. Disabling FuseOutstandingDequant
-    configuration["NPU_COMPILATION_MODE_PARAMS"] =
-            "enable-experimental-se-ptrs-operations=true fuse-outstanding-dequant=false";
+    configuration["NPU_COMPILATION_MODE_PARAMS"] = "enable-experimental-se-ptrs-operations=true";
     configuration[ov::intel_npu::tiles.name()] = 2;
     run(Platform::NPU4000);
 }

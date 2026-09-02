@@ -64,6 +64,9 @@ mlir::LogicalResult MaxPoolConverter::matchAndRewrite(IE::MaxPoolOp origOp, mlir
     if (inShape[Dims4D::Act::C] < VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
         return mlir::failure();
     }
+    if (origOp.getScale() != nullptr) {
+        return mlir::failure();
+    }
     if (inShape.size() != 4) {
         return mlir::failure();
     }
@@ -160,9 +163,9 @@ mlir::LogicalResult MaxPoolConverter::matchAndRewrite(IE::MaxPoolOp origOp, mlir
     const auto newKernel = getIntArrayAttr(ctx, SmallVector<int64_t>{kernel[1], kernel[0]});
     const auto newStrides = getIntArrayAttr(ctx, SmallVector<int64_t>{strides[1], strides[0]});
     auto maxpool = rewriter.create<IE::MaxPoolOp>(
-            origOp.getLoc(), reshapeInResult, newKernel, newStrides, origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(),
-            origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
-            origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            origOp.getLoc(), reshapeInResult, origOp.getScale(), newKernel, newStrides, origOp.getPadsBeginAttr(),
+            origOp.getPadsEndAttr(), origOp.getRoundingType(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+            origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
     // Reshape output back
     const SmallVector<int64_t> newOutputShape = {

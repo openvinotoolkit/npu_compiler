@@ -42,7 +42,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesEltwise) {
          %arg0: tensor<1x16x256x140xf16, {order = #NHWC}>,
          %arg1: tensor<1x16x256x140xf16, {order = #NHWC}>
  ) -> tensor<1x16x256x140xf16, {order = #NHWC}> {
-     %1 = VPU.NCE.Eltwise(%arg0, %arg1) {
+     %1 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
          is_inplace = true,
          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
          op_type = #VPU.eltwise_type<ADD>,
@@ -111,7 +111,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesConv) {
     %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [256, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1],
         tilingStrategy = [1, 1, 2, 1]
     } : tensor<1x32x64x64xf16, {order = #NHWC}>, tensor<256x32x3x3xf16, {order = #NHWC}>, tensor<256x1x1x4xsi32, {order = #NCHW}> -> tensor<1x256x64x64xf16, {order = #NHWC}>
@@ -178,7 +178,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesCTileConv) {
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1],
             tilingStrategy = [1, 2, 1, 1]
         } : tensor<1x256x14x14xf16, {order = #NHWC}>, tensor<512x256x3x3xf16, {order = #NHWC}>, tensor<512x1x1x4xsi32, {order = #NCHW}> -> tensor<1x512x14x14xf16, {order = #NHWC}>
@@ -318,7 +318,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesDWConv) {
          %arg1: tensor<32x16x1x1xf16, {order = #NHWC}>,
          %arg2: tensor<32x1x1x4xsi32>
  ) -> tensor<1x32x200x200xf16, {order = #NHWC}> {
-     %1 = VPU.NCE.DepthConvolution(%arg0, %arg1, %arg2) rawFilterShape [32, 1, 1, 1] {
+     %1 = VPU.NCE.DepthConvolution(%arg0, %arg1, %arg2) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
          pad = #VPU.Padding<
              left = 0 : i64,
              right = 0 : i64,
@@ -333,7 +333,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesDWConv) {
              lrelu_shift = 0 : i64,
              fp_prelu_alpha = 1.000000e+00 : f64
          >,
-         
+
          strides = [1, 1],
          tilingStrategy = [1, 2, 1, 1]
      } -> tensor<1x32x200x200xf16, {order = #NHWC}>
@@ -356,7 +356,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesDWConv) {
     const auto numTiles = 2;
 
     func.walk([&](VPU::NCEDepthConvolutionOp dwConv) {
-        auto tileShape = to_small_vector(getShape(dwConv.getResult()).raw());
+        auto tileShape = to_small_vector(getShape(dwConv.getOutput()).raw());
         tileShape[tileDim.ind()] /= numTiles;
         auto offset = SmallVector<int64_t>(tileShape.size(), 0);
         offset[tileDim.ind()] = tileShape[tileDim.ind()];

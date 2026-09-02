@@ -614,7 +614,15 @@ module @VerticalFusionOutlining {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat1T {
   config.Resources 1 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    builtin.module @ReservedMemory {
+      module @CMXMetadataReservedMemory {
+        config.MemoryResource 82944 bytes of @CMX_NN offset 15360
+      }
+      module @CMXStackFramesReservedMemory {
+        config.MemoryResource 15360 bytes of @CMX_NN offset 0
+      }
+    }
+    config.MemoryResource 1571840 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
@@ -723,7 +731,15 @@ module @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat1T {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat2T {
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    builtin.module @ReservedMemory {
+      module @CMXMetadataReservedMemory {
+        config.MemoryResource 82944 bytes of @CMX_NN offset 15360
+      }
+      module @CMXStackFramesReservedMemory {
+        config.MemoryResource 15360 bytes of @CMX_NN offset 0
+      }
+    }
+    config.MemoryResource 1571840 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }
@@ -820,7 +836,15 @@ module @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat2T {
 
 module @EnableWeightDeqauntEnsuranceBeforeStrategy {
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
-    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    builtin.module @ReservedMemory {
+      module @CMXMetadataReservedMemory {
+        config.MemoryResource 82944 bytes of @CMX_NN offset 15360
+      }
+      module @CMXStackFramesReservedMemory {
+        config.MemoryResource 15360 bytes of @CMX_NN offset 0
+      }
+    }
+    config.MemoryResource 1571840 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
     config.ExecutorResource 1 of @DPU
   }

@@ -203,12 +203,17 @@ bool isSingleValueBias(mlir::Value constInput) {
 }
 
 mlir::Value reshapeSingleValueConstant(mlir::PatternRewriter& rewriter, mlir::Location loc, int64_t numDims,
-                                       mlir::Value constInput) {
-    VPUX_THROW_UNLESS(isSingleValueBias(constInput), "Expext single value bias");
+                                       mlir::Value constInput, const DimsOrder& targetOrder) {
+    VPUX_THROW_UNLESS(isSingleValueBias(constInput), "Expect single value bias");
     auto ctx = rewriter.getContext();
     auto newConstShape = SmallVector<int64_t>(numDims, 1);
-    auto reshapeConst = rewriter.create<IE::ReshapeOp>(loc, constInput, getIntArrayAttr(ctx, newConstShape));
-    return reshapeConst;
+    const auto reshapeConst =
+            rewriter.createOrFold<IE::ReshapeOp>(loc, constInput, getIntArrayAttr(ctx, newConstShape));
+    if (DimsOrder::fromValue(reshapeConst) == targetOrder) {
+        return reshapeConst;
+    }
+
+    return rewriter.createOrFold<IE::ReorderOp>(appendLoc(loc, "reorder"), reshapeConst, targetOrder.toAffineMap(ctx));
 }
 
 //
@@ -327,7 +332,7 @@ mlir::LogicalResult SwapWithBias<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
     //
     // Single value bias is a special case:
     // 1.Can be swapped with ConcatOp
-    // 2.Always be order compatible with parent op
+    // 2.Can be reshaped and aligned to any parent input
     if (!mlir::isa<IE::AffineReshapeOp, IE::ReshapeOp, IE::TransposeOp>(parentOp)) {
         if (!(mlir::isa<IE::ConcatOp>(parentOp) && singleValueBias)) {
             _log.trace("[{0}] Only support AffineReshapeOp, ReshapeOp and TransposeOp, but got {1}",
@@ -362,9 +367,10 @@ mlir::LogicalResult SwapWithBias<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
         mlir::Value newConstant;
         const size_t operandId = operand.getOperandNumber();
         if (singleValueBias) {
-            auto oprandShape = getShape(operand.get()).raw();
-            newConstant = reshapeSingleValueConstant(rewriter, takeOpLoc(origOp, "reshape_in_{0}", operandId),
-                                                     oprandShape.size(), biasInput);
+            auto operandShape = getShape(operand.get()).raw();
+            newConstant =
+                    reshapeSingleValueConstant(rewriter, takeOpLoc(origOp, "reshape_in_{0}", operandId),
+                                               operandShape.size(), biasInput, DimsOrder::fromValue(operand.get()));
         } else {
             // TODO: E#68168 check the layout info as we did for Sigmod/Relu/Tanh
             newConstant = alignConstant(rewriter, parentOp, biasInput);
@@ -1211,9 +1217,9 @@ mlir::LogicalResult SwapGatherQuantizeCast::matchAndRewrite(IE::GatherOp origOp,
     auto outElemType = outputType.getElementType();
     auto newQuantizeCastOp =
             rewriter.create<IE::QuantizeCastOp>(quantizeCastOp->getLoc(), origOp.getInput(), outElemType);
-    auto newGatherOp = rewriter.create<IE::GatherOp>(origOp.getLoc(), newQuantizeCastOp.getOutput(),
-                                                     origOp.getIndices(), origOp.getAxis(), origOp.getAxisValueAttr(),
-                                                     origOp.getBatchDims(), origOp.getIndicesRankAttr());
+    auto newGatherOp =
+            rewriter.create<IE::GatherOp>(origOp.getLoc(), newQuantizeCastOp.getOutput(), origOp.getIndices(),
+                                          origOp.getAxisValue(), origOp.getBatchDims(), origOp.getIndicesRankAttr());
     rewriter.replaceOp(quantizeCastOp, newGatherOp.getOutput());
     return mlir::success();
 }

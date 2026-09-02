@@ -69,6 +69,7 @@ TEST_P(GatherElementsLayerTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(GatherElementsLayerTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     // TODO E####-159644

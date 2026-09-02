@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true num-of-dpu-groups=2" --output-pipeline-tiling %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true num-of-dpu-groups=2" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --output-pipeline-tiling %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -24,7 +24,7 @@ func.func @IncreaseNumTilesForNCEConv(%input: tensor<1x32x1088x480xf16, {order =
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1],
         tilingStrategy = [1, 1, 46, 1]
     } : tensor<1x32x1088x480xf16, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<32x32x3x3xf16, {order = #NHWC}>, sparsity_map=tensor<32x1x1x384xi1>, is_weights, #VPU.SparsityCompression<axis = 0 : i64, numElems = dense<72> : tensor<32xi64>, alignment = 16 : i64>>, tensor<32x1x1x4xsi32> -> tensor<1x32x1088x480xf16, {order = #NHWC}>
@@ -65,17 +65,17 @@ func.func @NotChangeTilingStrategyForVF(%input: tensor<1x32x135x240xf16, {order 
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
             } : tensor<1x32x135x240xf16, {order = #NHWC}>, tensor<128x32x3x3xf16, {order = #NHWC}>, tensor<128x1x1x4xsi32> -> tensor<1x128x135x240xf16, {order = #NHWC}>
         %conv1 = VPU.NCE.Convolution(%conv0, %arg4, %arg5) rawFilterShape [32, 128, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
             } : tensor<1x128x135x240xf16, {order = #NHWC}>, tensor<32x128x3x3xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x135x240xf16, {order = #NHWC}>
-        %add = VPU.NCE.Eltwise(%conv1, %arg1) {
+        %add = VPU.NCE.Eltwise(%conv1, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             is_inplace = true,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             op_type = #VPU.eltwise_type<ADD>,
@@ -117,7 +117,7 @@ func.func @TilingWithMinFragmentation(%input: tensor<1x256x184x240x!qElemType, {
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1],
         tilingStrategy = [1, 1, 13, 1]
     } : tensor<1x256x184x240x!qElemType, {order = #NHWC}>, tensor<128x256x3x3x!qElemType1, {order = #NHWC}>, tensor<128x1x1x4xsi32> -> tensor<1x128x184x240x!qElemType2, {order = #NHWC}>

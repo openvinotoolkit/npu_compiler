@@ -320,16 +320,18 @@ func.func @OptimizeGroupConvConcatWithBias(%arg0: tensor<1x16x144x144xf16>) -> (
 
 // -----
 
-// CHECK-LABEL: @OptimizeConvConcatWithBias
+// CHECK-LABEL: @OptimizeConvConcatWithBiasAndScale
 // CHECK-SAME:    [[INPUT:%.+]]: tensor<1x16x512x512xf16>
-func.func @OptimizeConvConcatWithBias(%arg0: tensor<1x16x512x512xf16>) -> (tensor<1x4x512x512xf16>) {
+func.func @OptimizeConvConcatWithBiasAndScale(%arg0: tensor<1x16x512x512xf16>) -> (tensor<1x4x512x512xf16>) {
     %cst = const.Declare tensor<3x16x1x1xf16> = dense<1.0> : tensor<3x16x1x1xf16>
     %cst_0 = const.Declare tensor<1x3x1x1xf16> = dense<1.0> : tensor<1x3x1x1xf16>
     %cst_1 = const.Declare tensor<1x16x1x1xf16> = dense<1.0> : tensor<1x16x1x1xf16>
     %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<1.0> : tensor<1x1x1x1xf16>
+    %cst_3 = const.Declare tensor<3x1x1x1xf32> = dense<2.0> : tensor<3x1x1x1xf32>
+    %cst_4 = const.Declare tensor<1x1x1x1xf32> = dense<2.0> : tensor<1x1x1x1xf32>
 
-    %0 = IE.Convolution(%arg0, %cst, %cst_0) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<3x16x1x1xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x512x512xf16>
-    %1 = IE.Convolution(%arg0, %cst_1, %cst_2) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<1x16x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x512x512xf16>
+    %0 = IE.Convolution(%arg0, %cst, %cst_0, %cst_3) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<3x16x1x1xf16>, tensor<1x3x1x1xf16>, tensor<3x1x1x1xf32> -> tensor<1x3x512x512xf16>
+    %1 = IE.Convolution(%arg0, %cst_1, %cst_2, %cst_4) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<1x16x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf32> -> tensor<1x1x512x512xf16>
     %2 = IE.Concat(%0, %1) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x512x512xf16>, tensor<1x1x512x512xf16> -> tensor<1x4x512x512xf16>
 
     return %2 : tensor<1x4x512x512xf16>
@@ -342,8 +344,12 @@ func.func @OptimizeConvConcatWithBias(%arg0: tensor<1x16x512x512xf16>) -> (tenso
     // CHECK-SAME:          #const.Concat
     // CHECK-SAME:          dense<1.000000e+00>
     // CHECK-SAME:          dense<1.000000e+00>
+    // CHECK-DAG:       [[SCALE:%.+]] = const.Declare tensor<4x1x1x1xf32>
+    // CHECK-SAME:          #const.Concat
+    // CHECK-SAME:          dense<2.000000e+00>
+    // CHECK-SAME:          dense<2.000000e+00>
 
-    // CHECK:           [[CONV:%.+]] = IE.Convolution([[INPUT]], [[WEIGHTS]], [[BIAS]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<4x16x1x1xf16>, tensor<1x4x1x1xf16> -> tensor<1x4x512x512xf16>
+    // CHECK:           [[CONV:%.+]] = IE.Convolution([[INPUT]], [[WEIGHTS]], [[BIAS]], [[SCALE]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<4x16x1x1xf16>, tensor<1x4x1x1xf16>, tensor<4x1x1x1xf32> -> tensor<1x4x512x512xf16>
     // CHECK:           return [[CONV]] : tensor<1x4x512x512xf16>
 }
 
@@ -372,15 +378,16 @@ func.func @OptimizeConvConcatWithoutBias(%arg0: tensor<1x16x512x512xf16>) -> (te
 
 // -----
 
-// CHECK-LABEL: @OptimizeConvConcatOneHasBias
+// CHECK-LABEL: @OptimizeConvConcatOneHasBiasAndScale
 // CHECK-SAME:    [[INPUT:%.+]]: tensor<1x16x512x512xf16>
-func.func @OptimizeConvConcatOneHasBias(%arg0: tensor<1x16x512x512xf16>) -> (tensor<1x4x512x512xf16>) {
+func.func @OptimizeConvConcatOneHasBiasAndScale(%arg0: tensor<1x16x512x512xf16>) -> (tensor<1x4x512x512xf16>) {
     %cst_0 = const.Declare tensor<3x16x1x1xf16> = dense<1.0> : tensor<3x16x1x1xf16>
     %cst_1 = const.Declare tensor<1x16x1x1xf16> = dense<1.0> : tensor<1x16x1x1xf16>
     %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<1.0> : tensor<1x1x1x1xf16>
+    %cst_3 = const.Declare tensor<1x1x1x1xf8E5M2> = dense<2.0> : tensor<1x1x1x1xf8E5M2>
 
     %0 = IE.Convolution(%arg0, %cst_0) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<3x16x1x1xf16> -> tensor<1x3x512x512xf16>
-    %1 = IE.Convolution(%arg0, %cst_1, %cst_2) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<1x16x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x512x512xf16>
+    %1 = IE.Convolution(%arg0, %cst_1, %cst_2, %cst_3) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<1x16x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf8E5M2> -> tensor<1x1x512x512xf16>
     %2 = IE.Concat(%0, %1) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x512x512xf16>, tensor<1x1x512x512xf16> -> tensor<1x4x512x512xf16>
 
     return %2 : tensor<1x4x512x512xf16>
@@ -391,9 +398,48 @@ func.func @OptimizeConvConcatOneHasBias(%arg0: tensor<1x16x512x512xf16>) -> (ten
     // CHECK-SAME:              dense<1.000000e+00>
     // CHECK-DAG:           [[BIAS:%.+]] = const.Declare tensor<1x4x1x1xf16>
     // CHECK-SAME:              #const.Concat
+    // CHECK-DAG:           [[SCALE:%.+]] = const.Declare tensor<4x1x1x1xf8E5M2>
+    // CHECK-SAME:              #const.Concat
+    // CHECK-SAME:              dense<1.000000e+00> : tensor<3x1x1x1xf8E5M2>
+    // CHECK-SAME:              dense<2.000000e+00> : tensor<1x1x1x1xf8E5M2>
 
-    // CHECK:               [[CONV:%.+]] = IE.Convolution([[INPUT]], [[WEIGHTS]], [[BIAS]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<4x16x1x1xf16>, tensor<1x4x1x1xf16> -> tensor<1x4x512x512xf16>
+    // CHECK:               [[CONV:%.+]] = IE.Convolution([[INPUT]], [[WEIGHTS]], [[BIAS]], [[SCALE]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<4x16x1x1xf16>, tensor<1x4x1x1xf16>, tensor<4x1x1x1xf8E5M2> -> tensor<1x4x512x512xf16>
     // CHECK:               return [[CONV]] : tensor<1x4x512x512xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @OptimizeConvConcatWithDiferentScaleType
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x16x512x512xf16>
+func.func @OptimizeConvConcatWithDiferentScaleType(%arg0: tensor<1x16x512x512xf16>) -> (tensor<1x4x512x512xf16>) {
+    %cst = const.Declare tensor<3x16x1x1xf16> = dense<1.0> : tensor<3x16x1x1xf16>
+    %cst_0 = const.Declare tensor<1x3x1x1xf16> = dense<1.0> : tensor<1x3x1x1xf16>
+    %cst_1 = const.Declare tensor<1x16x1x1xf16> = dense<1.0> : tensor<1x16x1x1xf16>
+    %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<1.0> : tensor<1x1x1x1xf16>
+    %cst_3 = const.Declare tensor<3x1x1x1xf16> = dense<2.0> : tensor<3x1x1x1xf16>
+    %cst_4 = const.Declare tensor<1x1x1x1xf32> = dense<2.0> : tensor<1x1x1x1xf32>
+
+    %0 = IE.Convolution(%arg0, %cst, %cst_0, %cst_3) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<3x16x1x1xf16>, tensor<1x3x1x1xf16>, tensor<3x1x1x1xf16> -> tensor<1x3x512x512xf16>
+    %1 = IE.Convolution(%arg0, %cst_1, %cst_2, %cst_4) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<1x16x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf32> -> tensor<1x1x512x512xf16>
+    %2 = IE.Concat(%0, %1) {static_offsets = [[0, 0, 0, 0], [0, 3, 0, 0]]} : tensor<1x3x512x512xf16>, tensor<1x1x512x512xf16> -> tensor<1x4x512x512xf16>
+
+    return %2 : tensor<1x4x512x512xf16>
+
+    // CHECK-DAG:       [[WEIGHTS:%.+]] = const.Declare tensor<4x16x1x1xf16>
+    // CHECK-SAME:          #const.Concat
+    // CHECK-SAME:          dense<1.000000e+00>
+    // CHECK-SAME:          dense<1.000000e+00>
+    // CHECK-DAG:       [[BIAS:%.+]] = const.Declare tensor<1x4x1x1xf16>
+    // CHECK-SAME:          #const.Concat
+    // CHECK-SAME:          dense<1.000000e+00>
+    // CHECK-SAME:          dense<1.000000e+00>
+    // CHECK-DAG:       [[SCALE:%.+]] = const.Declare tensor<4x1x1x1xf32>
+    // CHECK-SAME:          #const.Concat
+    // CHECK-SAME:          dense<2.000000e+00> : tensor<3x1x1x1xf16>, [#const.CastElemType<f32>]
+    // CHECK-SAME:          dense<2.000000e+00> : tensor<1x1x1x1xf32>
+
+    // CHECK:           [[CONV:%.+]] = IE.Convolution([[INPUT]], [[WEIGHTS]], [[BIAS]], [[SCALE]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16>, tensor<4x16x1x1xf16>, tensor<1x4x1x1xf16>, tensor<4x1x1x1xf32> -> tensor<1x4x512x512xf16>
+    // CHECK:           return [[CONV]] : tensor<1x4x512x512xf16>
 }
 
 // -----

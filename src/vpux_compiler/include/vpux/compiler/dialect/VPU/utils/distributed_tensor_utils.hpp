@@ -72,7 +72,8 @@ std::optional<SmallVector<int64_t>> getActivationTensorAlignment(VPU::ClusteredO
                                                                  int64_t numClusters,
                                                                  VPU::MultiClusterStrategy strategy,
                                                                  vpux::NDTypeInterface inputType = nullptr,
-                                                                 vpux::NDTypeInterface outputType = nullptr);
+                                                                 vpux::NDTypeInterface outputType = nullptr,
+                                                                 mlir::Value operand = nullptr);
 SmallVector<int64_t> getOutputTensorNumTiles(VPU::ClusteredOpInterface clusteredOp,
                                              int64_t numClustersAvailableForCompilation,
                                              VPU::MultiClusterStrategy strategy,
@@ -240,6 +241,38 @@ bool isSegmentedOverlappedAxisSameAsSliceAxis(ArrayRef<int64_t> numTiles, ArrayR
                                               ArrayRef<int64_t> sliceShape);
 
 bool isSegmentedLikeDistributionMode(vpux::NDTypeInterface sourceType, const VPU::DistributionInfo& sourceDistribution);
+
+/// Hard legality check for multi-cluster fusion. These constraints are non-adjustable:
+/// no MC strategy change can fix them, so fusion must be unconditionally rejected.
+/// Covers:
+///   - E#112803: sparse operands with true-overlapped distributions
+///   - E#92130: SW ops without DMA lowering paired with true-overlapped distributions
+///
+/// This is the ONLY MC compatibility helper that may be called from isLegalFusion.
+/// Distribution compatibility and eltwise segmented-like checks are NOT included here
+/// because those can be resolved by MC strategy alignment/adjustment.
+bool checkMCFusionHardLegality(VPU::DistributedTensorType producerDistrType,
+                               VPU::DistributedTensorType consumerDistrType, mlir::Operation* producerOp,
+                               mlir::Operation* consumerOp, mlir::Value consumerOperandValue);
+
+/// Current-state MC strategy compatibility check. Returns true when the producer and consumer
+/// distributions are already compatible without strategy adjustment. Includes:
+///   - all hard legality constraints (via checkMCFusionHardLegality)
+///   - areDistributionAttrsCompatible (distribution mode/numTiles match)
+///   - NCE eltwise segmented-like mismatch rejection (cost model accuracy guard)
+///
+/// This helper is appropriate for use in:
+///   - isMCStrategyAligned (default VF) — where failure falls through to adjustment
+///
+/// Do NOT call from isLegalFusion; use checkMCFusionHardLegality instead. Reason:
+/// isLegalFusion is a hard gate — rejection there permanently blocks fusion with no
+/// adjustment fallback. checkCurrentMCStrategyCompatibility includes soft checks
+/// (distribution-attrs compatibility, eltwise segmented-like guard) that the MC strategy
+/// adjustment path (adjustMCStrategyInMergedVF / findProducerStrategyForFusion) can resolve.
+/// Calling it from isLegalFusion would permanently reject pairs that are fixable by adjustment.
+bool checkCurrentMCStrategyCompatibility(VPU::DistributedTensorType producerDistrType,
+                                         VPU::DistributedTensorType consumerDistrType, mlir::Operation* producerOp,
+                                         mlir::Operation* consumerOp, mlir::Value consumerOperandValue);
 
 mlir::Type getCompactTypeFromDistributed(mlir::Type originalType);
 
@@ -451,6 +484,14 @@ mlir::LogicalResult isDistributedCastCompatible(T inDistributedType, T outDistri
 
     return mlir::success();
 }
+
+SmallVector<int64_t> getSubbyteAwareSegmentedDistributionAlignment(ShapeRef newShape, ArrayRef<Shape> perClusterShapes,
+                                                                   int64_t axis, ArrayRef<int64_t> alignment,
+                                                                   NDTypeInterface origType);
+
+std::optional<SmallVector<int64_t>> getSubbyteAwareSegmentedDistributionAlignment(
+        ShapeRef newShape, ArrayRef<int64_t> numTiles, int64_t numClusters, int64_t axis, ArrayRef<int64_t> alignment,
+        bool uniformSegments, NDTypeInterface origType);
 
 }  // namespace VPU
 }  // namespace vpux

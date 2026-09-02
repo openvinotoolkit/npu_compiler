@@ -12,10 +12,10 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/attention_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
 #include "vpux/compiler/dialect/IE/utils/transpose_op_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
-#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -33,19 +33,6 @@ namespace vpux::IE {
 using namespace vpux;
 
 namespace {
-
-// Legal Attention configurations: {qHeadSize, tSL, sSL}
-struct AttentionConfig {
-    int64_t qHeadSize;
-    int64_t tSL;
-    int64_t sSL;
-};
-
-static const SmallVector<AttentionConfig> LEGAL_ATTENTION_CONFIGS = {
-        // {qHeadSize, tSL, sSL}
-        {192, 225, 225}, {12, 3600, 3600}, {8, 300, 300},   {16, 577, 577},  {10, 1024, 1024}, {10, 1024, 77},
-        {20, 256, 256},  {20, 256, 77},    {6, 3072, 3072}, {6, 151, 151},   {12, 512, 512},   {16, 256, 256},
-        {1, 80, 826},    {6, 2752, 2752},  {6, 1886, 1886}, {20, 1500, 1500}};
 
 bool isLegalAttention(IE::AttentionOp op) {
     auto inputQ = op.getInputQ();
@@ -81,8 +68,11 @@ bool isLegalAttention(IE::AttentionOp op) {
     const auto tSL = shapeQ[rankQ - 2];
     const auto sSL = shapeK[rankK - 2];
 
+    // A sink-bearing attention stays fused only when the fused kernel working set fits in CMX;
+    // otherwise it falls back to decomposition. Both per-head (H == 1) and per-query 2D sinks
+    // (H == target sequence length) are handled by the fused kernel is2DSink path.
     if (op.getInputSink() != nullptr && tSL == 1024) {
-        return true;
+        return VPU::AttentionOp::isSupported(op);
     }
 
     const bool isGQA = (qHeadSize > kvHeadSize) && (kvHeadSize > 1);
@@ -94,11 +84,11 @@ bool isLegalAttention(IE::AttentionOp op) {
         return VPU::AttentionOp::isSupported(op);
     }
 
-    auto matches = [&](const AttentionConfig& config) {
+    auto matches = [&](const IE::AttentionConfig& config) {
         return (config.qHeadSize == qHeadSize) && (config.sSL == sSL) && (config.tSL == tSL);
     };
 
-    if (llvm::any_of(LEGAL_ATTENTION_CONFIGS, matches)) {
+    if (llvm::any_of(IE::LEGAL_ATTENTION_CONFIGS, matches)) {
         return true;
     }
 
@@ -373,9 +363,13 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
     mlir::Value keyVal = key;
     mlir::Value valueVal = value;
 
+    // True when Q's batch gets folded into channels below, moving Q/K/V/mask/bias/sink into
+    // the [1, qBatch*qHeads, ...] domain; the output must be reshaped back out of it (Step 6).
+    const bool qBatchFolded = (qHeads > kHeads && qHeads > vHeads) && (qBatch > 1);
+
     // Handle MQA/GQA: Prepare inputs when Q has more heads than K/V
     if (qHeads > kHeads && qHeads > vHeads) {
-        if (qBatch > 1) {
+        if (qBatchFolded) {
             queryVal = prepareAttentionInput(builder, loc, ctx, queryVal, qBatch, qHeads, qBatch * qHeads, "q",
                                              /*isQuery=*/true);
 
@@ -386,6 +380,17 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
                     attentionMask = builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_mask_gqa"), attentionMask,
                                                                   getIntArrayAttr(ctx, newMaskShape))
                                             .getOutput();
+                }
+            }
+
+            // Fold bias the same way: it shares Q's batch/head layout.
+            if (bias) {
+                const auto biasShape = mlir::cast<vpux::NDTypeInterface>(bias.getType()).getShape().raw();
+                if (biasShape.size() == 4 && biasShape[0] == qBatch) {
+                    SmallVector<int64_t> newBiasShape = {1, qBatch * biasShape[1], biasShape[2], biasShape[3]};
+                    bias = builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_bias_gqa"), bias,
+                                                         getIntArrayAttr(ctx, newBiasShape))
+                                   .getOutput();
                 }
             }
         }
@@ -495,6 +500,16 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
     }
 
     auto sink = origOp.getInputSink();
+    // Fold sink into the batch-concentrated domain too, same as mask/bias above.
+    if (sink && qBatchFolded) {
+        const auto sinkShapeRaw = mlir::cast<vpux::NDTypeInterface>(sink.getType()).getShape().raw();
+        if (sinkShapeRaw.size() == 4 && sinkShapeRaw[0] == qBatch) {
+            SmallVector<int64_t> newSinkShape = {1, qBatch * sinkShapeRaw[1], sinkShapeRaw[2], sinkShapeRaw[3]};
+            sink = builder.create<IE::ReshapeOp>(appendLoc(loc, "reshape_sink_gqa"), sink,
+                                                 getIntArrayAttr(ctx, newSinkShape))
+                           .getOutput();
+        }
+    }
     const auto preSinkShape = mlir::cast<vpux::NDTypeInterface>(attentionScores.getType()).getShape();
     const SmallVector<int64_t> preSinkSizes(preSinkShape.begin(), preSinkShape.end());
     if (sink) {
@@ -523,8 +538,9 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
     // Step 5: Apply Softmax on the last dimension
     const auto softmaxAxisAttr = getIntAttr(ctx, static_cast<int64_t>(rank) - 1);
     const auto maskAwareAttr = maskAware ? mlir::UnitAttr::get(ctx) : mlir::UnitAttr{};
+    const auto padSizeAttr = origOp.getPadSizeS().has_value() ? origOp.getPadSizeSAttr() : mlir::IntegerAttr{};
     auto softmaxOp = builder.create<IE::SoftMaxOp>(appendLoc(loc, "softmax"), attentionScores, softmaxAxisAttr,
-                                                   mlir::IntegerAttr{}, mlir::TypeAttr{}, maskAwareAttr);
+                                                   padSizeAttr, mlir::TypeAttr{}, maskAwareAttr);
     log.trace("Applied softmax with mask awareness: {0}", maskAware);
 
     mlir::Value softmaxResult = softmaxOp.getOutput();
@@ -546,7 +562,19 @@ void decomposeAttention(IE::AttentionOp origOp, Logger log, bool maskAware, bool
     mlir::Value outputMatMul = createMatMul(builder, loc, softmaxResult, valueVal, "output_matmul", &vTransposePeeled,
                                             &vSquareRebuildTranspose);
 
-    origOp.getOutput().replaceAllUsesWith(outputMatMul);
+    // Fold the output back out of the batch-into-channels domain; keep outputMatMul itself
+    // unchanged for the Step 7 V-preprocessing lookup below.
+    mlir::Value finalOutput = outputMatMul;
+    if (qBatchFolded) {
+        const auto origOutShape = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType()).getShape();
+        finalOutput =
+                builder.create<IE::ReshapeOp>(
+                               appendLoc(loc, "reshape_output_batch"), outputMatMul,
+                               getIntArrayAttr(ctx, SmallVector<int64_t>(origOutShape.begin(), origOutShape.end())))
+                        .getOutput();
+    }
+
+    origOp.getOutput().replaceAllUsesWith(finalOutput);
     origOp.erase();
 
     // Step 7: Move V preprocessing operations right before the MatMul that uses V.
@@ -703,13 +731,29 @@ static bool replaceMaskFp16MinWithInf(IE::AttentionOp op, Logger log) {
 
 class DecomposeAttentionPass final : public IE::impl::DecomposeAttentionBase<DecomposeAttentionPass> {
 public:
-    explicit DecomposeAttentionPass(Logger log) {
+    explicit DecomposeAttentionPass(bool forceAttentionDecomposition, Logger log)
+            : _forceAttentionDecomposition(forceAttentionDecomposition) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
+    mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
+
 private:
     void safeRunOnFunc() final;
+    bool _forceAttentionDecomposition;
 };
+
+mlir::LogicalResult DecomposeAttentionPass::initialize(mlir::MLIRContext* ctx) {
+    if (mlir::failed(Base::initialize(ctx))) {
+        return mlir::failure();
+    }
+
+    if (forceAttentionDecomposition.hasValue()) {
+        _forceAttentionDecomposition = forceAttentionDecomposition.getValue();
+    }
+
+    return mlir::success();
+}
 
 //
 // safeRunOnFunc
@@ -721,12 +765,12 @@ void DecomposeAttentionPass::safeRunOnFunc() {
     func.walk([&](IE::AttentionOp origOp) {
         const bool maskAware = replaceMaskFp16MinWithInf(origOp, _log);
 
-        const auto arch = config::getArch(origOp);
-        if (arch != config::ArchKind::NPU40XX && isLegalAttention(origOp)) {
+        // Legal Attention ops are kept as-is on platforms with native SDPA execution; when
+        // enabled, every Attention op is decomposed, with scale placement chosen by shape heuristics.
+        if (!_forceAttentionDecomposition && isLegalAttention(origOp)) {
             return;
         }
-        const bool forceScaleOnResult = (arch == config::ArchKind::NPU40XX);
-        decomposeAttention(origOp, _log, maskAware, forceScaleOnResult);
+        decomposeAttention(origOp, _log, maskAware, /*forceScaleOnResult=*/_forceAttentionDecomposition);
     });
 }
 
@@ -736,6 +780,6 @@ void DecomposeAttentionPass::safeRunOnFunc() {
 // createDecomposeAttentionPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::IE::createDecomposeAttentionPass(Logger log) {
-    return std::make_unique<DecomposeAttentionPass>(log);
+std::unique_ptr<mlir::Pass> vpux::IE::createDecomposeAttentionPass(bool forceAttentionDecomposition, Logger log) {
+    return std::make_unique<DecomposeAttentionPass>(forceAttentionDecomposition, log);
 }

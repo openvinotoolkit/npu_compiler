@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/utils/type_padding.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
@@ -52,6 +53,14 @@ bool vpux::VPU::NCEAveragePoolOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::
     return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(op), buffers).count() +
                    reservedMem.count() <=
            totalAvailableCMXSize;
+}
+
+//
+// ShapeInfoOpInterface
+//
+
+mlir::LogicalResult vpux::VPU::NCEAveragePoolOp::verifyShapeInfo() {
+    return vpux::VPU::verifyInputIs4D(getInput());
 }
 
 //
@@ -222,11 +231,28 @@ mlir::LogicalResult vpux::VPU::NCEAveragePoolOp::inferReturnTypes(
 vpux::InputTiling vpux::VPU::NCEAveragePoolOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger log) {
     const auto origInputShape = getBoundedShape(getInput());
     const auto origPadding = toPadInfo(getPad());
-
     auto inputTiling = vpux::backInferPoolTile(outputTile, origInputShape, getKernelSize(), getStrides(), origPadding);
+    auto nceOp = mlir::cast<VPU::NCEAveragePoolOp>(getOperation());
+    if (nceOp.getWeightTableScale()) {
+        inputTiling.tiles.push_back(
+                VPU::getScaleTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
+    }
+    if (nceOp.getWeightTableBias()) {
+        inputTiling.tiles.push_back(
+                VPU::getBiasTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
+    }
     VPUX_THROW_UNLESS(mlir::succeeded(checkAndAlignActInputTiling(
                               mlir::cast<VPU::NCEOpInterface>(*this->getOperation()), inputTiling, log)),
                       "Failed to get an aligned act input tiling");
+
+    if (getWeightTableScale() != nullptr) {
+        inputTiling.tiles.push_back(
+                VPU::getScaleTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
+    }
+    if (getWeightTableBias() != nullptr) {
+        inputTiling.tiles.push_back(
+                VPU::getBiasTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
+    }
 
     return inputTiling;
 }
@@ -288,6 +314,39 @@ bool VPU::NCEAveragePoolOp::isOperationSplitOverBatchCompatible(vpux::ShapeRef o
     return VPU::isOperationSplitOverBatchCompatible(getOperation(), outputShape);
 }
 
+bool VPU::NCEAveragePoolOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy,
+                                                SiblingOpsAnalysis& siblingsAnalysis, Byte reservedMem) {
+    const auto op = getOperation();
+    auto nceOp = mlir::cast<VPU::NCEAveragePoolOp>(op);
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(nceOp->getResult(0).getType());
+    auto numClusters = VPU::getOptimalNumClusters(nceOp, outputType.getShape(), strategy);
+    auto output = mlir::cast<vpux::NDTypeInterface>(nceOp.getOutput().getType());
+
+    const auto outputShape = output.getShape();
+    const auto outputChannels = outputShape[Dims4D::Act::C];
+
+    SmallVector<Byte> buffers = {
+            VPU::getTotalAllocSizeWithDistribution(
+                    getInput().getType(), getActivationDistributionAttrFromOp(nceOp, getInput(), getInput().getType(),
+                                                                              numClusters, strategy, siblingsAnalysis)),
+            VPU::getTotalAllocSizeWithDistribution(
+                    getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
+                                                                           strategy, siblingsAnalysis))};
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
+
+    if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, outputChannels))) {
+        VPUX_THROW("getWeightTableBuffers function failed");
+    }
+
+    auto totalAvailableCMXSize =
+            reservedMem.count() == 0 ? getTotalCMXSize(op).count() : getTotalCMXFragmentationAwareSize(op).count();
+
+    auto arch = config::getArch(op);
+    return vpux::VPU::calculateAlignedBuffersMemoryRequirement(arch, buffers).count() + reservedMem.count() <=
+           totalAvailableCMXSize;
+}
+
 bool VPU::NCEAveragePoolOp::doesLayerChangeOutputAlignmentFitIntoCMX(
         VPU::MultiClusterStrategy strategy, VPU::DistributedTypeInterface newDistributedTensorType) {
     auto nceOp = mlir::cast<NCEAveragePoolOp>(getOperation());
@@ -306,6 +365,12 @@ vpux::NDTypeInterface vpux::VPU::NCEAveragePoolOp::getDistributedTypeForOpOperan
     if (operand.get() == getInput()) {
         return VPU::getDistributedActivationTypeForOpOperand(clusteredOp, getInput(), strategy,
                                                              hasExplicitDistributedAttr, siblingsAnalysis);
+    } else if (operand.get() == getWeightTableScale()) {
+        return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, operand.get(), strategy,
+                                                          hasExplicitDistributedAttr, siblingsAnalysis);
+    } else if (operand.get() == getWeightTableBias()) {
+        return VPU::getDistributedWeightsTypeForOpOperand(clusteredOp, operand.get(), strategy,
+                                                          hasExplicitDistributedAttr, siblingsAnalysis);
     }
     VPUX_THROW("Failed to compute distributed type for op {0}", clusteredOp);
     return nullptr;

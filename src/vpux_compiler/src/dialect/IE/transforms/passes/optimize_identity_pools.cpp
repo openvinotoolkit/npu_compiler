@@ -262,7 +262,7 @@ mlir::LogicalResult FuseIdentityQuantizedAvgPool::matchAndRewrite(IE::AvgPoolOp 
 
     origOp.setClampAttr(parentPoolOp.getClampAttr());
     origOp.setPostOpAttr(parentPoolOp.getPostOpAttr());
-    origOp.setOperand(parentPoolOp.getInput());
+    origOp.setOperand(0, parentPoolOp.getInput());
     rewriter.eraseOp(parentPoolOp);
 
     return mlir::success();

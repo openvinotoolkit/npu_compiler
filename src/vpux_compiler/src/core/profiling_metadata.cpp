@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPUMI37XX/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/strided_dmas_utils.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/strings.hpp"
@@ -176,13 +177,15 @@ TaskBarriers getOpBarriers(const BarrierMap& virtBarriers, mlir::Operation* op) 
 }
 
 std::vector<uint32_t> getWorkloadIds(VPUIP::NCEClusterTaskOp dpuOp) {
-    std::set<uint32_t> workloadIdSet;
+    std::vector<uint32_t> workloadIds;
     for (auto variant : dpuOp.getVariants().getOps<VPUIP::DPUTaskOp>()) {
+        if (variant.getIsDummy()) {
+            continue;
+        }
         if (variant.getWorkloadId().has_value()) {
-            workloadIdSet.insert(variant.getWorkloadId().value());
+            workloadIds.push_back(variant.getWorkloadId().value());
         }
     }
-    std::vector<uint32_t> workloadIds(workloadIdSet.begin(), workloadIdSet.end());
     return workloadIds;
 }
 
@@ -326,20 +329,44 @@ FbVector<ProfilingFB::M2ITask> getM2iTasksOffset(flatbuffers::FlatBufferBuilder&
 FbVector<ProfilingFB::DPUTask> getDpuTasksOffset(flatbuffers::FlatBufferBuilder& builder,
                                                  const SmallVector<VPUIP::NCEClusterTaskOp>& dpuTasks,
                                                  const BarrierMap& barriers) {
+    // Build a map from split_id -> ordered NCEClusterTaskOps sharing that ID.
+    // Only the first op in each group carries profiling metadata; the rest are split chunks.
+    DenseMap<int64_t, SmallVector<VPUIP::NCEClusterTaskOp>> splitGroups;
+    for (auto dpuTask : dpuTasks) {
+        if (auto splitIdAttr = dpuTask.getSplitIdAttr()) {
+            splitGroups[splitIdAttr.getInt()].push_back(dpuTask);
+        }
+    }
+
     std::vector<flatbuffers::Offset<ProfilingFB::DPUTask>> dpuOffsets;
     for (auto dpuInvariant : dpuTasks) {
-        auto name = stringifyPrimaryLocationChecked(dpuInvariant->getLoc());
-
-        const auto [waitBarriers, updateBarriers] = getOpBarriers(barriers, dpuInvariant);
-        std::vector<uint32_t> workloadIds = getWorkloadIds(dpuInvariant);
-
-        // TableGen generate interface methods without const specifier, so can't be called from const DpuType&.
-        // In the same moment, coverity force to use const auto&
         auto profMeta = dpuInvariant.getProfilingMetadata();
-        VPUX_THROW_UNLESS(profMeta.has_value(), "Empty profiling metadata at '{0}'", dpuInvariant);
+        if (!profMeta.has_value()) {
+            // Split chunk without profiling metadata – accounted for via the first chunk's split group.
+            continue;
+        }
+
+        const auto name = stringifyPrimaryLocationChecked(dpuInvariant->getLoc());
+        const auto [waitBarriers, updateBarriers] = getOpBarriers(barriers, dpuInvariant);
 
         auto tensorInfo = extractTensorInfoFromOp(dpuInvariant);
         auto variantArray = extractVariantInfoFromOp(dpuInvariant);
+        auto workloadIds = getWorkloadIds(dpuInvariant);
+
+        // Append workload IDs and variant info from the remaining chunks of the same split group.
+        if (auto splitIdAttr = dpuInvariant.getSplitIdAttr()) {
+            const auto& group = splitGroups[splitIdAttr.getInt()];
+            // group[0] is dpuInvariant itself (the chunk carrying profiling metadata).
+            for (size_t i = 1; i < group.size(); ++i) {
+                auto sibling = group[i];
+                VPUX_THROW_WHEN(sibling.getProfilingMetadata().has_value(),
+                                "Unexpected profiling metadata on split chunk '{0}'", sibling);
+                auto moreWorkloadIds = getWorkloadIds(sibling);
+                workloadIds.insert(workloadIds.end(), moreWorkloadIds.begin(), moreWorkloadIds.end());
+                auto moreVariantInfo = extractVariantInfoFromOp(sibling);
+                variantArray.insert(variantArray.end(), moreVariantInfo.begin(), moreVariantInfo.end());
+            }
+        }
 
         dpuOffsets.push_back(createDPUTaskMeta(builder, profMeta.value(), name, waitBarriers, updateBarriers,
                                                workloadIds, tensorInfo, variantArray));
@@ -370,13 +397,14 @@ FbVector<ProfilingFB::SWTask> getSwTasksOffset(flatbuffers::FlatBufferBuilder& b
         const auto clusterSize = metadata.getClusterSize().getInt();
         const auto dataIndex = metadata.getDataIndex().getInt();
         const auto tileId = metadata.getTileId().getInt();
+        const auto fifoId = swTask.getListIndex();
         const auto clusterId = metadata.getClusterId().getInt();
         auto tensorInfo = extractTensorInfoFromOp(swTask);
         auto fbTypeInfo = CreateTensorInfo(builder, &tensorInfo);
 
         swTaskOffsets.push_back(ProfilingFB::CreateSWTaskDirect(builder, name.c_str(), &waitBarriers, &updateBarriers,
                                                                 swTaskType.c_str(), bufferId, bufferOffset, clusterSize,
-                                                                dataIndex, tileId, clusterId, fbTypeInfo));
+                                                                dataIndex, tileId, clusterId, fbTypeInfo, fifoId));
     }
     return builder.CreateVector(swTaskOffsets);
 }

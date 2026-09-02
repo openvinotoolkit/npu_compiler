@@ -68,8 +68,6 @@ public:
     void addCompiledElf(llvm::StringRef funcName, std::unique_ptr<uint8_t[]> binary, size_t size,
                         config::ArchKind archKind, bool overwrite = false);
 
-    static void loadElfData(mlir::ModuleOp module);
-
     static vpux::SmallString getSwKernelArchString(config::ArchKind archKind);
 
 private:

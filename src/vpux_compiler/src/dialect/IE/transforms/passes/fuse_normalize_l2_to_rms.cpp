@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/attributes_utils.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -52,11 +53,13 @@ Const::DeclareOp getMultiplyConstOperand(mlir::Operation* op) {
 
 mlir::FailureOr<int64_t> getReducedSize(ArrayRef<int64_t> reduceAxes, vpux::ShapeRef reduceInputShape) {
     int64_t reduceSize = 1;
-    for (const auto& axis : reduceAxes | indexed) {
-        if (axis.value() != (int64_t)(reduceInputShape.size() - reduceAxes.size() + axis.index())) {
+    const auto rank = checked_cast<int64_t>(reduceInputShape.size());
+    for (const auto& axis : reduceAxes) {
+        const auto normalizedAxis = axis < 0 ? axis + rank : axis;
+        if (normalizedAxis < 0 || normalizedAxis >= rank) {
             return mlir::failure();
         }
-        reduceSize *= reduceInputShape[Dim(axis.value())];
+        reduceSize *= reduceInputShape[Dim(normalizedAxis)];
     }
     return reduceSize;
 }
@@ -115,30 +118,26 @@ IE::RMSOp createRMSOp(mlir::OpBuilder& builder, mlir::Operation* headOp, mlir::V
 // Fuses to IE.RMSOp with gamma = scale / sqrt(reduceSize)
 
 void fuseNormalizeL2Pattern(IE::NormalizeL2Op normalizeL2Op, mlir::MLIRContext& ctx, vpux::Logger /*log*/) {
-    if (!normalizeL2Op.getAxesValue()) {
-        return;
-    }
-
     const auto epsMode = normalizeL2Op.getEpsMode();
     if (epsMode != IE::EpsMode::ADD) {
         return;
     }
 
-    const auto axes = parseIntArrayAttr<int64_t>(normalizeL2Op.getAxesValueAttr());
-    if (axes.empty()) {
+    const auto axes = Const::getConstOrArrAttrValue(normalizeL2Op.getAxes(), normalizeL2Op.getAxesValueAttr());
+    if (mlir::failed(axes) || axes->empty()) {
         return;
     }
 
     // Only fuse NormalizeL2 to RMS when reducing on the innermost dimension
     const auto inputRank = mlir::cast<vpux::NDTypeInterface>(normalizeL2Op.getData().getType()).getRank();
-    const int64_t normalizedAxis = axes[0] < 0 ? axes[0] + inputRank : axes[0];
-    const bool isInnermost = (axes.size() == 1) && (normalizedAxis == inputRank - 1);
+    const int64_t normalizedAxis = axes.value()[0] < 0 ? axes.value()[0] + inputRank : axes.value()[0];
+    const bool isInnermost = (axes->size() == 1) && (normalizedAxis == inputRank - 1);
     if (!isInnermost) {
         return;
     }
 
     auto inputShape = getShape(normalizeL2Op.getData());
-    auto reduceSizeResult = getReducedSize(axes, inputShape);
+    auto reduceSizeResult = getReducedSize(*axes, inputShape);
     if (mlir::failed(reduceSizeResult)) {
         return;
     }

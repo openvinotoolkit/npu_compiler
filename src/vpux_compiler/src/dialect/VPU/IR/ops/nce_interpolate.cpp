@@ -47,10 +47,11 @@ mlir::LogicalResult vpux::VPU::NCEInterpolateOp::inferReturnTypes(
     }
 
     auto inShape = getShape(op.getInput());
+    auto filterShape =
+            op.getWeights() != nullptr ? Shape(getShape(op.getWeights())) : Shape(op.getStaticRawFilterShape());
 
     const auto dataPaddingBelow = ov::CoordinateDiff({0, 0});
     const auto dataPaddingAbove = ov::CoordinateDiff({0, 0});
-    const auto filterShape = Shape(op.getStaticRawFilterShape());
     const auto KY = filterShape[Dims4D::Filter::KY];
     const auto KX = filterShape[Dims4D::Filter::KX];
 
@@ -169,10 +170,12 @@ TilingInfo vpux::VPU::NCEInterpolateOp::backInferTileInfo(const vpux::TileInfo& 
                 VPU::getDataPointerTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
     }
     if (nceOp.getWeightTableScale()) {
-        inputTiling.tiles.push_back(VPU::getScaleTableTile(this, outputTile));
+        inputTiling.tiles.push_back(
+                VPU::getScaleTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
     }
     if (nceOp.getWeightTableBias()) {
-        inputTiling.tiles.push_back(VPU::getBiasTableTile(this, outputTile));
+        inputTiling.tiles.push_back(
+                VPU::getBiasTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
     }
 
     return inputTiling;
@@ -323,6 +326,14 @@ bool vpux::VPU::NCEInterpolateOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::
     auto arch = config::getArch(op);
     return vpux::VPU::calculateAlignedBuffersMemoryRequirement(arch, buffers).count() + reservedMem.count() <=
            totalAvailableCMXSize;
+}
+
+//
+// ShapeInfoOpInterface
+//
+
+mlir::LogicalResult vpux::VPU::NCEInterpolateOp::verifyShapeInfo() {
+    return vpux::VPU::verifyInputIs4D(getInput());
 }
 
 //

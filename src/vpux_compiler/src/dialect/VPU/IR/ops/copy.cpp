@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
 
 #include "vpux/compiler/utils/error.hpp"
 
@@ -38,6 +39,113 @@ mlir::LogicalResult vpux::VPU::CopyOp::inferReturnTypes(mlir::MLIRContext* ctx, 
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();
+}
+
+bool vpux::VPU::areTypesCompatibleForCopy(mlir::TypeRange lhs, mlir::TypeRange rhs) {
+    constexpr IE::TypeComparisonMode elemComparisonModes = IE::TypeComparisonMode::ALLOW_DISTRIBUTED_OUTPUT;
+    constexpr bool checkDimsOrder = true;
+    constexpr bool checkMemSpace = true;
+    // Note: the below is mostly a copy-paste of vpux::areTypesCompatible()
+    // logic with slight variation in the way shape comparison is done.
+
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+
+    for (const auto p : zip(lhs, rhs)) {
+        auto lhsOrigType = std::get<0>(p);
+        auto rhsOrigType = std::get<1>(p);
+
+        if (lhsOrigType.getTypeID() != rhsOrigType.getTypeID()) {
+            if (IE::bitEnumContainsAny(elemComparisonModes, (IE::TypeComparisonMode::ALLOW_GROUPED_OUTPUT |
+                                                             IE::TypeComparisonMode::ALLOW_DISTRIBUTED_OUTPUT))) {
+                const auto oneIsGrouped = (mlir::isa<vpux::GroupedTypeInterface>(lhsOrigType) &&
+                                           !mlir::isa<vpux::GroupedTypeInterface>(rhsOrigType)) ||
+                                          (!mlir::isa<vpux::GroupedTypeInterface>(lhsOrigType) &&
+                                           mlir::isa<vpux::GroupedTypeInterface>(rhsOrigType));
+                const auto oneIsDistributed = (mlir::isa<vpux::VPU::DistributedTensorType>(lhsOrigType) &&
+                                               !mlir::isa<vpux::VPU::DistributedTensorType>(rhsOrigType)) ||
+                                              (!mlir::isa<vpux::VPU::DistributedTensorType>(lhsOrigType) &&
+                                               mlir::isa<vpux::VPU::DistributedTensorType>(rhsOrigType));
+
+                if (!oneIsGrouped && !oneIsDistributed) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+
+        auto lhsType = mlir::dyn_cast<NDTypeInterface>(lhsOrigType);
+        auto rhsType = mlir::dyn_cast<NDTypeInterface>(rhsOrigType);
+
+        if (lhsType == nullptr || rhsType == nullptr) {
+            return false;
+        }
+
+        if (lhsType.getShape() != rhsType.getShape()) {
+            // if static shapes do not match, check bounded shapes instead
+            const auto lhsBoundedShape = getBoundedShape(lhsType);
+            const auto rhsBoundedShape = getBoundedShape(rhsType);
+            if (lhsBoundedShape != rhsBoundedShape) {
+                return false;
+            }
+        }
+
+        if (lhsType.getElementType() != rhsType.getElementType()) {
+            if (IE::bitEnumContainsAny(elemComparisonModes, IE::TypeComparisonMode::STRICT_EQUAL)) {
+                return false;
+            }
+
+            const auto lhsQuantizedType = mlir::dyn_cast<mlir::quant::QuantizedType>(lhsType.getElementType());
+            const auto rhsQuantizedType = mlir::dyn_cast<mlir::quant::QuantizedType>(rhsType.getElementType());
+
+            if (lhsQuantizedType && rhsQuantizedType) {
+                if ((lhsQuantizedType.getExpressedType() != rhsQuantizedType.getExpressedType()) ||
+                    (lhsQuantizedType.getStorageType() != rhsQuantizedType.getStorageType())) {
+                    if (!IE::bitEnumContainsAny(elemComparisonModes, IE::TypeComparisonMode::ALLOW_DIFFERENT_QUANT)) {
+                        return false;
+                    }
+                }
+            } else if (!IE::bitEnumContainsAny(elemComparisonModes, IE::TypeComparisonMode::ALLOW_MIXED_PRECISION)) {
+                return false;
+            }
+        }
+
+        if (checkDimsOrder) {
+            const auto order1 = lhsType.getDimsOrder();
+            const auto order2 = rhsType.getDimsOrder();
+
+            if (order1 != order2) {
+                return false;
+            }
+        }
+
+        if (checkMemSpace) {
+            const auto memSpace1 = lhsType.getMemSpace();
+            const auto memSpace2 = rhsType.getMemSpace();
+
+            if (memSpace1 != memSpace2) {
+                // Allow different memory spaces only if both types are in DDR, since a null value also represents DDR
+                if (!(lhsType.getMemoryKind() == VPU::MemoryKind::DDR &&
+                      rhsType.getMemoryKind() == VPU::MemoryKind::DDR)) {
+                    return false;
+                }
+            }
+        }
+
+        const bool lhsIsBounded = mlir::isa<Core::BoundedTensorType>(lhsOrigType);
+        const bool rhsIsBounded = mlir::isa<Core::BoundedTensorType>(rhsOrigType);
+        if (lhsIsBounded && rhsIsBounded) {
+            auto lhsBoundedType = mlir::cast<Core::BoundedTensorType>(lhsOrigType);
+            auto rhsBoundedType = mlir::cast<Core::BoundedTensorType>(rhsOrigType);
+            if (lhsBoundedType.getBounds() != rhsBoundedType.getBounds()) {
+                return false;
+            }
+        }
+    }
+
+    return true;
 }
 
 //

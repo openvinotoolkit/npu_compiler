@@ -185,7 +185,7 @@ TEST(BumpRegionTest, DeallocateReclaimsBlockThatFillsChunkToTheEnd) {
 
 TEST(GrowingArenaTest, GrowsAcrossSlabsToFitWorkingSet) {
     // Initial slab holds one page; a second allocation forces a new slab.
-    GrowingArena<HostAllocator, BumpRegion<HostAllocator::alignment>, /*initialSlabBytes=*/kPage,
+    GrowingArena<HostAllocator, BumpRegion<HostAllocator::ALIGNMENT>, /*initialSlabBytes=*/kPage,
                  /*maxSlabBytes=*/4 * kPage>
             arena(HostAllocator{});
 
@@ -199,7 +199,7 @@ TEST(GrowingArenaTest, GrowsAcrossSlabsToFitWorkingSet) {
 TEST(GrowingArenaTest, FirstFitReusesAnEarlierSlabTail) {
     // A 3-page request leaves 1 page in slab 0; a 2-page request grows slab 1; a later 1-page request
     // must first-fit back into slab 0's tail rather than strand it.
-    GrowingArena<HostAllocator, BumpRegion<HostAllocator::alignment>, /*initialSlabBytes=*/4 * kPage,
+    GrowingArena<HostAllocator, BumpRegion<HostAllocator::ALIGNMENT>, /*initialSlabBytes=*/4 * kPage,
                  /*maxSlabBytes=*/8 * kPage>
             arena(HostAllocator{});
 
@@ -214,7 +214,7 @@ TEST(GrowingArenaTest, FirstFitReusesAnEarlierSlabTail) {
 }
 
 TEST(GrowingArenaTest, OversizeRequestGetsASlabLargeEnough) {
-    GrowingArena<HostAllocator, BumpRegion<HostAllocator::alignment>, /*initialSlabBytes=*/kPage,
+    GrowingArena<HostAllocator, BumpRegion<HostAllocator::ALIGNMENT>, /*initialSlabBytes=*/kPage,
                  /*maxSlabBytes=*/2 * kPage>
             arena(HostAllocator{});
 
@@ -226,7 +226,7 @@ TEST(GrowingArenaTest, OversizeRequestGetsASlabLargeEnough) {
 TEST(GrowingArenaTest, OversizeRequestWithUnalignedSizeStillSucceeds) {
     // An oversize request whose size is not alignment-aligned must still get a chunk big enough for its
     // aligned footprint: the arena rounds the chunk size up so the strict-fit sub-allocator accepts it.
-    GrowingArena<HostAllocator, BumpRegion<HostAllocator::alignment>, /*initialSlabBytes=*/kPage,
+    GrowingArena<HostAllocator, BumpRegion<HostAllocator::ALIGNMENT>, /*initialSlabBytes=*/kPage,
                  /*maxSlabBytes=*/2 * kPage>
             arena(HostAllocator{});
 
@@ -236,7 +236,7 @@ TEST(GrowingArenaTest, OversizeRequestWithUnalignedSizeStillSucceeds) {
 }
 
 TEST(GrowingArenaTest, RecycleRewindsAllSlabsAndKeepsThem) {
-    GrowingArena<HostAllocator, BumpRegion<HostAllocator::alignment>, /*initialSlabBytes=*/kPage,
+    GrowingArena<HostAllocator, BumpRegion<HostAllocator::ALIGNMENT>, /*initialSlabBytes=*/kPage,
                  /*maxSlabBytes=*/4 * kPage>
             arena(HostAllocator{});
 
@@ -256,7 +256,7 @@ TEST(GrowingArenaTest, RecycleRewindsAllSlabsAndKeepsThem) {
 TEST(GrowingArenaTest, AdaptsToPeakThenStopsAllocatingFromParent) {
     // Once the working set is reached, replaying it allocates nothing new from the parent.
     AllocCounters counters;
-    GrowingArena<CountingLeaf, BumpRegion<CountingLeaf::alignment>, /*initialSlabBytes=*/kPage,
+    GrowingArena<CountingLeaf, BumpRegion<CountingLeaf::ALIGNMENT>, /*initialSlabBytes=*/kPage,
                  /*maxSlabBytes=*/4 * kPage>
             arena(CountingLeaf{&counters});
 
@@ -281,7 +281,7 @@ TEST(GrowingArenaTest, AdaptsToPeakThenStopsAllocatingFromParent) {
 
 TEST(GrowingArenaTest, ReleaseFreesAllSlabsThenReallocatesFromParent) {
     AllocCounters counters;
-    GrowingArena<CountingLeaf, BumpRegion<CountingLeaf::alignment>, /*initialSlabBytes=*/kPage,
+    GrowingArena<CountingLeaf, BumpRegion<CountingLeaf::ALIGNMENT>, /*initialSlabBytes=*/kPage,
                  /*maxSlabBytes=*/4 * kPage>
             arena(CountingLeaf{&counters});
 
@@ -302,7 +302,7 @@ TEST(GrowingArenaTest, ReleaseFreesAllSlabsThenReallocatesFromParent) {
 TEST(GrowingArenaTest, HandsOutBlocksAlignedToBackingAlignment) {
     // Absolute alignment, not just relative spacing: the handed-out address is aligned only because the
     // backing aligns the chunk base. Odd request sizes would expose a regression in either layer.
-    constexpr size_t kAlign = HostAllocator::alignment;
+    constexpr size_t kAlign = HostAllocator::ALIGNMENT;
     GrowingArena<HostAllocator, BumpRegion<kAlign>, /*initialSlabBytes=*/kPage, /*maxSlabBytes=*/4 * kPage> arena(
             HostAllocator{});
 
@@ -315,7 +315,7 @@ TEST(GrowingArenaTest, HandsOutBlocksAlignedToBackingAlignment) {
 
 TEST(GrowingArenaTest, OwnsReportsMembershipAcrossSlabs) {
     // Single-page slabs force two of them, so owns() must span every slab rather than just the latest.
-    GrowingArena<HostAllocator, BumpRegion<HostAllocator::alignment>, /*initialSlabBytes=*/kPage,
+    GrowingArena<HostAllocator, BumpRegion<HostAllocator::ALIGNMENT>, /*initialSlabBytes=*/kPage,
                  /*maxSlabBytes=*/kPage>
             arena(HostAllocator{});
 

@@ -29,6 +29,7 @@ struct BarrierInfoMaps {
     BarrierMap taskWaitBarriers = {};
     SmallVector<size_t> syncTasksIds = {};
     std::map<VPURT::TaskQueueType, SmallVector<uint32_t>> taskQueueTypeMap = {};
+    SmallVector<std::pair<size_t, size_t>> wlmTaskDependencies = {};
 };
 
 class BarrierInfo;
@@ -155,6 +156,17 @@ public:
     void buildTaskQueueTypeMap();
 
     /**
+     * @brief Build the internal list of WLM task dependencies.
+     *
+     * WLM task dependencies are producer->consumer task edges that are specific to the WLM flow
+     * and are not represented at the barrier level nor by FIFO execution order
+     *
+     * @param considerEnqueueDmaDependency - when false, do not collect EnqueueDMA implied edges
+     *
+     */
+    void buildWlmTasksDependencies(bool considerEnqueueDmaDependency);
+
+    /**
      * @brief Remove all entries from task queue task map
      */
     void clearTaskQueueTypeMap();
@@ -163,7 +175,7 @@ public:
      * @brief build task control map for given task block
      *
      * @param blockIdx block index
-     * @param considerTaskFifoDependency
+     * @param considerNonBarrierTaskDependencies
      * @param ignoreOutOfBlockDependencies - when calculating task control map ignore out of block dependencies.
      * @return std::pair<SmallVector<llvm::BitVector>, size_t> representing
      * taskControlMap - a 2-d array suitable for use with controlPathExistsBetweenTasksInSameBlock()
@@ -173,7 +185,7 @@ public:
      *
      */
     std::pair<SmallVector<llvm::BitVector>, size_t> buildTaskControlMap(size_t blockIdx,
-                                                                        bool considerTaskFifoDependency = true,
+                                                                        bool considerNonBarrierTaskDependencies = true,
                                                                         bool ignoreOutOfBlockDependencies = false);
     virtual size_t getNumOfTasks() const;
     virtual size_t getNumOfTasks(vpux::config::ExecutorKind executorKind) const;
@@ -400,28 +412,48 @@ public:
     std::optional<size_t> getControlGraphSyncPointForBlock(size_t blockInd) const;
 
     /**
+     * @brief Append EnqueueDMA implied dependency edges to _wlmTaskDependencies.
+     * Inspects EnqueueDMA operations in the IR, resolving the per queue start task index to a global task index,
+     * Records an edge EnqueueDMA -> first enqueued task
+     */
+    void buildWlmTasksDependenciesFromEnqueueDma();
+
+    /**
+     * @brief Materialize the task to task dependency edges (see _wlmTaskDependencies) as temporary barriers.
+     * Only edges whose producer and consumer both fall within the given task range are materialized.
+     *
+     * @param blockStartInd - global index of the first task of the block (inclusive)
+     * @param blockEndInd - global index of the last task of the block (inclusive)
+     *
+     * @see removeTemporaryBarrierDependencies()
+     * @return Number of newly created connections between tasks (producers and consumers) and barriers
+     */
+    unsigned createBarrierDependenciesImpliedByWlm(size_t blockStartInd, size_t blockEndInd);
+
+    /**
      * @brief Create barrier representation of dependencies implied FIFOs execution order.
      * The newly created dependencies are stored internally and can be removed by calling
      * @param blockIdx - task block index for which the dependencies should be generated
      * @param executorKind - set of FIFO executors that should be taken into account. By default all FIFOs are
      * considered.
      *
-     * @see removeBarrierDependenciesImpliedByFIFO()
+     * @see removeTemporaryBarrierDependencies()
      *
      * @return Number of newly created connections between tasks (producers and consumers) and barriers
      */
     unsigned createBarrierDependenciesImpliedByFIFO(
             size_t blockIdx, std::optional<mlir::DenseSet<vpux::config::ExecutorKind>> executorKind = std::nullopt);
-
     /**
-     * @brief Remove barrier representation of dependencies implied FIFOs execution order created by
+     * @brief Remove the temporary barriers created to represent non-barrier task dependencies, covering both FIFO
+     * execution order and WLM/EnqueueDMA dependencies (all tracked in _temporaryBarrierDependencies).
      * @see createBarrierDependenciesImpliedByFIFO(size_t blockIdx)
-     *
+     * @see createBarrierDependenciesImpliedByWlm(size_t blockStartInd, size_t blockEndInd)
      * @return Number of removed connections between tasks (producers and consumers) and barriers
      */
-    unsigned removeBarrierDependenciesImpliedByFIFO();
+    unsigned removeTemporaryBarrierDependencies();
 
 private:
+    std::optional<size_t> addTemporaryBarrierDependence(size_t producerTaskInd, size_t consumerTaskInd);
     /**
      * @brief check if task group has update barrier required for fetching task descriptors from the subsequent
      * execution groups.
@@ -485,13 +517,22 @@ private:
     // indexOf(VPURT::TaskOp) 'updates' [ indexOf(VPURT::BarrierOpInterface)... ].
     SmallVector<TaskSet> _taskUpdateBarriers;
 
-    // If optimization is to be done taking into account FIFO dependencies, these dependencies are temporarily stored.
+    // Non-barrier task dependencies that are temporarily materialized as
+    // barriers during optimization and torn down afterwards. The distinction between their origins only matters when
+    // creating them, once materialized they are handled uniformly here.
     // The tuple contains barrier index and parent and child task indexes.
-    SmallVector<std::tuple<size_t, size_t, size_t>> _fifoDependencies;
+    SmallVector<std::tuple<size_t, size_t, size_t>> _temporaryBarrierDependencies;
 
     // Initialize below structure with buildTaskQueueTypeMap()
     // indexOf(VPURT::TaskQueueType) 'contains' [ indexOf(VPURT::TaskOp)... ].
     std::map<VPURT::TaskQueueType, llvm::BitVector> _taskQueueTypeMap;
+
+    // WLM task to task dependency edges (producer -> consumer) that are not represented at the barrier level or by
+    // FIFO order (e.g. EnqueueDMA -> first enqueued task, TODO: SHVwithDMA -> DMA).
+    // Populated by buildWlmTasksDependencies() and stored globally for the entire function using global task indexes
+    // (not per task block). createBarrierDependenciesImpliedByWlm() selects the subset belonging to a given block
+    //  when materializing temporary barriers.
+    SmallVector<std::pair<size_t, size_t>> _wlmTaskDependencies;
 };
 
 // BarrierInfoTest is a test class that inherits from BarrierInfo and provides additional methods and
@@ -502,6 +543,7 @@ public:
     explicit BarrierInfoTest(BarrierInfoMaps& barrierMaps);
     void initializeBarrierMaps(BarrierInfoMaps& barrierMaps);
     void setTaskQueueTypeMap(const std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& taskQueueMaps);
+    void setWlmTaskDependencies(const SmallVector<std::pair<size_t, size_t>>& wlmTaskDependencies);
     void setMaxVariantCountPerBarrier(size_t variantCount);
     size_t getNumOfTasks() const override;
     size_t getBarrierMaxSlotCount() const override;

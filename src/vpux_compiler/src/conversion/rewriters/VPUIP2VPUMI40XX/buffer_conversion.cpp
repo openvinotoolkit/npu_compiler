@@ -77,8 +77,8 @@ mlir::Value extractFromDistributedBuffer(mlir::OpBuilder builder, mlir::Value bu
 
         auto currMemLocation = mlir::cast<vpux::IndexedSymbolAttr>(compactType.getMemorySpace()).getLeafNameAttr();
         auto newMemSpace = vpux::IndexedSymbolAttr::get(currMemLocation, static_cast<size_t>(tileIndex));
-        auto memType = mlir::MemRefType::get(compactType.getShape(), compactType.getElementType(),
-                                             compactType.getLayout(), newMemSpace);
+        auto memType = mlir::cast<mlir::MemRefType>(
+                mlir::cast<vpux::NDTypeInterface>(compactType).changeMemSpace(newMemSpace));
         if (swizzlingKey.has_value()) {
             res = builder.create<VPURT::DeclareBufferOp>(buffer.getLoc(), memType, buffSec, tileIndex, byteOffset,
                                                          swizzlingKey.value());

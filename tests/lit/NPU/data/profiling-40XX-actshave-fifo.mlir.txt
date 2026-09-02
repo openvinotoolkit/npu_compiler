@@ -1,0 +1,254 @@
+//
+// Copyright (C) 2025-2026 Intel Corporation.
+// SPDX-License-Identifier: Apache-2.0
+//
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+#loc4 = loc("result.1")
+#loc6 = loc("main")
+#loc7 = loc("profiling_result")
+#loc39 = loc(fused<{name = "result.1", type = "Parameter"}>[#loc4])
+#loc41 = loc(fused<{name = "main", type = "Func"}>[#loc6])
+#loc56 = loc(fused[#loc41, #loc7])
+module @"resnet-320-pytorch" attributes {config.compilationMode = #config.compilation_mode<DefaultHW>, config.platform = #config.platform<NPU4000>, config.revisionID = #config.revision_id<REVISION_NONE>} {
+  VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096] loc(#loc1)
+  module @VPU.SW {
+    func.func nested @builtin_Convert(memref<*xf16, [@CMX_NN, 0]>, memref<*xui8, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert", VPU.kernel_name = "convert", VPU.task_type = @COMPUTE} loc(#loc1)
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"} loc(#loc1)
+  } loc(#loc1)
+  config.PipelineOptions @Options {
+    config.Option @config.FragmentationAvoidRatioPipeliningLargeWeights : 4.500000e-01 : f32 loc(#loc1)
+    config.Option @config.UseDedicatedFifoPerShaveEngine : true loc(#loc1)
+    config.Option @config.BarrierMaxVariantSum : 64 : ui64 loc(#loc1)
+    config.Option @config.BarrierMaxVariantCount : 128 : ui64 loc(#loc1)
+    config.Option @config.DpuFIFOAddrs : [788529152, 788529184, 788529216, 788529248, 788529280, 788529312] loc(#loc1)
+    config.Option @config.ShvFIFOAddrs : [788578304, 788578336, 788578368, 788578400, 788578432, 788578464, 788578496, 788578528, 788578560, 788578592, 788578624, 788578656] loc(#loc1)
+    config.Option @config.BarrierFIFOAddr : 788594688 : ui64 loc(#loc1)
+    config.Option @config.BarrierFIFODepth : 4 : ui64 loc(#loc1)
+    config.Option @config.MetadataMaxVariantCount : 128 : ui64 loc(#loc1)
+    config.Option @config.MetadataMaxInvariantCount : 64 : ui64 loc(#loc1)
+    config.Option @config.MetadataMaxKernelInvocationCount : 64 : ui64 loc(#loc1)
+    config.Option @config.MetadataMaxKernelRangeCount : 64 : ui64 loc(#loc1)
+    config.Option @config.MetadataMaxMediaCount : 4 : ui64 loc(#loc1)
+    config.Option @config.AutoPaddingODU : false loc(#loc1)
+    config.Option @config.AutoPaddingIDU : false loc(#loc1)
+    config.Option @config.AsymmetricPerTensorZP : false loc(#loc1)
+    config.Option @config.AsymmetricPerChannelZP : false loc(#loc1)
+    config.Option @config.ReduceSupported : false loc(#loc1)
+    config.Option @config.FP16CompressedConv : false loc(#loc1)
+    config.Option @config.EnableVPUNNPreSplit : false loc(#loc1)
+    config.Option @config.EnableSEPtrsOperations : true loc(#loc1)
+    config.Option @config.EnableExperimentalSEPtrsOperations : false loc(#loc1)
+    config.Option @config.EnableQDQOptimizationAggressive : false loc(#loc1)
+    config.Option @config.EnableAdaptiveStripping : true loc(#loc1)
+    config.Option @config.EnableExtraStaticShapeOps : true loc(#loc1)
+    config.Option @config.WeightsTableReuseMode : 2 : ui64 loc(#loc1)
+    config.Option @config.EnableProfiling : true loc(#loc1)
+    config.Option @config.EnableWeightsDynamicDequantization : false loc(#loc1)
+    config.Option @config.SprLUTEnabled : false loc(#loc1)
+    config.Option @config.EnableDCIM : true loc(#loc1)
+  } loc(#loc1)
+  config.Resources {activity_factor = 4.0147753175904328E-4 : f64} 1 of @NCE at 1.850000e+03 MHz {
+    builtin.module @ReservedMemory {
+      module @DummySWKernelsForInstructionPrefetchReservedMemory {
+        config.MemoryResource 8 bytes of @CMX_NN offset 1473016 loc(#loc1)
+      } loc(#loc1)
+      module @DmaProfilingReservedMemory {
+        config.MemoryResource 512 bytes of @CMX_NN offset 1473024 loc(#loc1)
+      } loc(#loc1)
+    } loc(#loc1)
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64} loc(#loc1)
+    config.ExecutorResource 2 of @SHAVE_ACT loc(#loc1)
+    config.ExecutorResource 1 of @DPU loc(#loc1)
+  } loc(#loc37)
+  config.Resources 1 of @global {
+    builtin.module @ReservedMemory {
+      module @DmaProfilingReservedMemory {
+        config.MemoryResource 4096 bytes of @DDR offset 0 loc(#loc1)
+      } loc(#loc1)
+    } loc(#loc1)
+    config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64} loc(#loc1)
+    config.ExecutorResource 1 of @M2I loc(#loc1)
+    config.ExecutorResource 1 of @DMA_NN loc(#loc1)
+  } loc(#loc38)
+  net.NetworkInfo {inferenceTiming = 16514 : i64} entryPoint : @main inputsInfo : {
+    DataInfo "result.1" tensorNames = ["result.1"] : tensor<1x4x2x2xf16> loc(#loc39)
+  } outputsInfo : {
+    DataInfo "Conv_0" friendlyName = "495/sink_port_0" tensorNames = ["Conv_0"] : tensor<1x4x1x1xui8> loc(#loc40)
+  } profilingOutputsInfo : {
+    DataInfo "profilingOutput" {
+      VPUIP.ProfilingSection type 1 : 64 bytes from 0 loc(#loc1)
+      VPUIP.ProfilingSection type 3 : 32 bytes from 64 loc(#loc1)
+      VPUIP.ProfilingSection type 6 : 512 bytes from 128 loc(#loc1)
+      VPUIP.ProfilingSection type 5 : 64 bytes from 640 loc(#loc1)
+    } : tensor<176xui32> loc(#loc1)
+  } loc(#loc1)
+  func.func @main(%arg0: memref<1x4x2x2xf16, @DDR> loc(fused<{name = "result.1", type = "Parameter"}>[#loc4]), %arg1: memref<1x4x1x1xui8, @DDR> loc(fused<{name = "main", type = "Func"}>[#loc6]), %arg2: memref<176xui32> loc(fused[#loc41, #loc7])) -> (memref<1x4x1x1xui8, @DDR>, memref<176xui32>) {
+    %cst = const.Declare memref<16x4x2x2xf16, #NHWC> = dense_resource<vpux_ow_0> : tensor<4x4x2x2xf16>, [#const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [12, 0, 0, 0]>] loc(#loc1)
+    %cst_0 = const.Declare memref<16x1x1x4xsi32> = dense<[[[[0, 0, 1065353216, 0]]], [[[32, 0, 1065353216, 0]]], [[[64, 0, 1065353216, 0]]], [[[96, 0, 1065353216, 0]]], [[[128, 0, 1065353216, 0]]], [[[160, 0, 1065353216, 0]]], [[[192, 0, 1065353216, 0]]], [[[224, 0, 1065353216, 0]]], [[[256, 0, 1065353216, 0]]], [[[288, 0, 1065353216, 0]]], [[[320, 0, 1065353216, 0]]], [[[352, 0, 1065353216, 0]]], [[[384, 0, 1065353216, 0]]], [[[416, 0, 1065353216, 0]]], [[[448, 0, 1065353216, 0]]], [[[480, 0, 1065353216, 0]]]]> : tensor<16x1x1x4xsi32>, [#const.RelocateWeightsTable<weightsPtr=[576], sparsityPtr=16777215 : i64, offsets=[0], weightsTableSize=256 : i64, weightsElemBitSize=16 : i64, channelOffset=0 : i64, originalOC=0 : i64>] loc(#loc1)
+    %cst_1 = const.Declare memref<1x4x2x14xf16> = dense<0.000000e+00> : tensor<112xf16>, [#const.Reshape<[1, 4, 2, 14]>] loc(#loc1)
+    %0 = VPURT.ConfigureBarrier<8> <{isStartBarrier}> -> !VPURT.Barrier loc(#loc8)
+    %1 = VPURT.ConfigureBarrier<7>  -> !VPURT.Barrier loc(#loc42)
+    %2 = VPURT.ConfigureBarrier<6>  -> !VPURT.Barrier loc(#loc44)
+    %3 = VPURT.ConfigureBarrier<5>  -> !VPURT.Barrier loc(#loc43)
+    %4 = VPURT.ConfigureBarrier<4>  -> !VPURT.Barrier loc(#loc45)
+    %5 = VPURT.ConfigureBarrier<3>  -> !VPURT.Barrier loc(#loc57)
+    %6 = VPURT.ConfigureBarrier<2>  -> !VPURT.Barrier loc(#loc58)
+    %7 = VPURT.ConfigureBarrier<1>  -> !VPURT.Barrier loc(#loc19)
+    %8 = VPURT.ConfigureBarrier<0> <{isFinalBarrier}> -> !VPURT.Barrier loc(#loc20)
+    %9 = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR> loc(#loc1)
+    %10 = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR> loc(#loc1)
+    %11 = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR> loc(#loc1)
+    %12 = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR> loc(#loc1)
+    %13 = VPURT.DeclareBuffer <DDR> <64> -> memref<448xui8, @DDR> loc(#loc21)
+    %14 = VPURT.DeclareBuffer <ProfilingOutput> [0] <192> -> memref<448xui8> loc(#loc19)
+    %15 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x4x2x2xf16, @DDR> loc(#loc39)
+    %16 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x4x1x1xui8, @DDR> loc(#loc41)
+    %17 = VPURT.DeclareBuffer <ProfilingOutput> [0] <0> -> memref<8xui64> loc(#loc59)
+    %18 = VPURT.DeclareBuffer <ProfilingOutput> [0] <64> -> memref<8xui32> loc(#loc60)
+    %19 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<8xui32, [@CMX_NN, 0]> loc(#loc24)
+    %20 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<8xui64, [@CMX_NN, 0]> loc(#loc25)
+    %21 = VPURT.DeclareBuffer <CMX_NN> [0] <320> -> memref<1x16x4x2xf16, #NWCH, [@CMX_NN, 0]> loc(#loc44)
+    %22 = VPURT.DeclareBuffer <CMX_NN> [0] <64> -> memref<1x4x2x2xf16, #NHWC, [@CMX_NN, 0]> loc(#loc48)
+    %23 = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<16x4x2x2xf16, #NHWC, [@CMX_NN, 0]> loc(#loc49)
+    %24 = VPURT.DeclareBuffer <CMX_NN> [0] <1088> -> memref<16x1x1x4xsi32, [@CMX_NN, 0]> loc(#loc43)
+    %25 = VPURT.DeclareBuffer <CMX_NN> [0] <128> -> memref<1x16x1x1xf16, #NHWC, [@CMX_NN, 0]> loc(#loc45)
+    %26 = VPURT.DeclareBuffer <CMX_NN> [0] <64> -> memref<1x4x1x1xf16, #NHWC, [@CMX_NN, 0]> loc(#loc57)
+    %27 = VPURT.DeclareBuffer <CMX_NN> [0] <128> -> memref<1x4x1x1xui8, #NHWC, [@CMX_NN, 0]> loc(#loc58)
+    %28 = VPURT.DeclareBuffer <CMX_NN> [0] <64> -> memref<1x4x2x2xf16, {order = #NCHW, strides = [128, 32, 16, 1]}, [@CMX_NN, 0]> loc(#loc50)
+    %29 = VPURT.DeclareBuffer <CMX_NN> [0] <68> -> memref<1x4x2x14xf16, {order = #NCHW, strides = [128, 32, 16, 1]}, [@CMX_NN, 0]> loc(#loc42)
+    %30 = VPURT.DeclareBuffer <CMX_NN> [0] <64> -> memref<1x16x4x2xf16, #NHWC, [@CMX_NN, 0]> loc(#loc44)
+    %31 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<4xui64, [@CMX_NN, 0]> loc(#loc27)
+    %32 = VPURT.DeclareBuffer <CMX_NN> [0] <320> -> memref<1x4x2x2xf16, {order = #NHWC, strides = [128, 1, 64, 4]}, [@CMX_NN, 0]> loc(#loc51)
+    %33 = VPURT.DeclareBuffer <CMX_NN> [0] <576> -> memref<16x16x2x2xf16, #NHWC, [@CMX_NN, 0]> loc(#loc45)
+    %34 = VPURT.DeclareBuffer <CMX_NN> [0] <64> -> memref<1x16x2x2xf16, #NHWC, [@CMX_NN, 0]> loc(#loc45)
+    %35 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<4xui64, [@CMX_NN, 0]> loc(#loc27)
+    %36 = VPURT.DeclareBuffer <CMX_NN> [0] <128> -> memref<1x4x1x1xf16, {order = #NHWC, strides = [16, 1, 16, 16]}, [@CMX_NN, 0]> loc(#loc52)
+    %37 = VPURT.DeclareBuffer <CMX_NN> [0] <128> -> memref<1x4x1x1xui8, [@CMX_NN, 0]> loc(#loc58)
+    VPURT.Task  {
+      %38 = VPUIP.FetchDMA {port = 0 : i64} inputs(%11 : memref<0x0x0x0xi32, @DDR>) outputs(%12 : memref<0x0x0x0xi32, @DDR>) fetch_dma(<<DPU>, tile = 0 : i64, list = 0 : i64, fetchType = <DescriptorGroup>, group = 0 : i64>) -> memref<0x0x0x0xi32, @DDR> loc(#loc30)
+    } loc(#loc30)
+    VPURT.Task  {
+      %38 = VPUIP.FetchDMA {is_out_of_order, port = 0 : i64} inputs(%11 : memref<0x0x0x0xi32, @DDR>) outputs(%12 : memref<0x0x0x0xi32, @DDR>) fetch_dma(<<SHAVE_ACT>, tile = 0 : i64, list = 0 : i64, fetchType = <DescriptorGroup>, group = 0 : i64>) -> memref<0x0x0x0xi32, @DDR> loc(#loc30)
+    } loc(#loc30)
+    VPURT.Task updates(%0 : !VPURT.Barrier)  {
+      %38 = VPUIP.SyncDMA <{is_out_of_order, port = 0 : i64}> inputs(%9 : memref<0x0x0x0xi32, @DDR>) outputs(%10 : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR> loc(#loc31)
+    } loc(#loc31)
+    VPURT.Task waits(%0 : !VPURT.Barrier)  {
+      %38 = VPUIP.NNDMA <{dma_hwp_id = 1 : si32, is_out_of_order, port = 0 : i64, profilingMetadata = #VPUIP.DmaProfilingMetadataAttr<dataIndex = 1 : i64>}> inputs(%15 : memref<1x4x2x2xf16, @DDR>) outputs(%28 : memref<1x4x2x2xf16, {order = #NCHW, strides = [128, 32, 16, 1]}, [@CMX_NN, 0]>) -> memref<1x4x2x2xf16, {order = #NCHW, strides = [128, 32, 16, 1]}, [@CMX_NN, 0]> loc(#loc50)
+    } loc(#loc50)
+    VPURT.Task updates(%1 : !VPURT.Barrier)  {
+      %38 = VPUIP.NNDMA <{dma_hwp_id = 2 : si32, is_out_of_order, port = 0 : i64, profilingMetadata = #VPUIP.DmaProfilingMetadataAttr<dataIndex = 2 : i64>}> inputs(%cst_1 : memref<1x4x2x14xf16>) outputs(%29 : memref<1x4x2x14xf16, {order = #NCHW, strides = [128, 32, 16, 1]}, [@CMX_NN, 0]>) -> memref<1x4x2x14xf16, {order = #NCHW, strides = [128, 32, 16, 1]}, [@CMX_NN, 0]> loc(#loc42)
+    } loc(#loc42)
+    VPURT.Task  {
+      %38 = VPUIP.NNDMA <{dma_hwp_id = 3 : si32, is_out_of_order, port = 0 : i64, profilingMetadata = #VPUIP.DmaProfilingMetadataAttr<dataIndex = 3 : i64>}> inputs(%cst : memref<16x4x2x2xf16, #NHWC>) outputs(%23 : memref<16x4x2x2xf16, #NHWC, [@CMX_NN, 0]>) -> memref<16x4x2x2xf16, #NHWC, [@CMX_NN, 0]> loc(#loc49)
+    } loc(#loc49)
+    VPURT.Task updates(%3 : !VPURT.Barrier)  {
+      %38 = VPUIP.NNDMA <{dma_hwp_id = 5 : si32, is_out_of_order, port = 0 : i64, profilingMetadata = #VPUIP.DmaProfilingMetadataAttr<dataIndex = 5 : i64>}> inputs(%cst_0 : memref<16x1x1x4xsi32>) outputs(%24 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<16x1x1x4xsi32, [@CMX_NN, 0]> loc(#loc43)
+    } loc(#loc43)
+    VPURT.Task waits(%1 : !VPURT.Barrier) updates(%2 : !VPURT.Barrier) enqueueTarget(%0 : !VPURT.Barrier) {
+      %38:2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 1, 0, 0, 0>} <{is_permute_quantize, is_superdense, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, profilingMetadata = #VPUIP.DpuProfilingMetadataAttr<bufferId = 0 : i64, taskId = 1 : i64, maxVariants = 1 : i64, numVariants = 1 : i64, clusterId = 0 : i64>, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%30 : memref<1x16x4x2xf16, #NHWC, [@CMX_NN, 0]>) weights(%30 : memref<1x16x4x2xf16, #NHWC, [@CMX_NN, 0]>) parent_input(%30 : memref<1x16x4x2xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%21 : memref<1x16x4x2xf16, #NWCH, [@CMX_NN, 0]>) outputs(%21 : memref<1x16x4x2xf16, #NWCH, [@CMX_NN, 0]>) profiling_data(%31 : memref<4xui64, [@CMX_NN, 0]>) -> memref<1x16x4x2xf16, #NWCH, [@CMX_NN, 0]>, memref<4xui64, [@CMX_NN, 0]> variants : {
+        DPUTask {inEnd = [1, 3, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [1, 3, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, workload_id = 0 : i64} loc(#loc44)
+      } PPE : {
+        PPETask {ppe = #VPU.PPEInt<mode = <ADD>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [5.000000e-01], fp_prelu_alpha = 1.000000e+00 : f64>} loc(#loc44)
+      } loc(#loc53)
+    } loc(#loc44)
+    VPURT.Task waits(%2 : !VPURT.Barrier) updates(%3 : !VPURT.Barrier)  {
+      %38 = VPUIP.NNDMA <{dma_hwp_id = 4 : si32, port = 0 : i64, profilingMetadata = #VPUIP.DmaProfilingMetadataAttr<dataIndex = 4 : i64>}> inputs(%32 : memref<1x4x2x2xf16, {order = #NHWC, strides = [128, 1, 64, 4]}, [@CMX_NN, 0]>) outputs(%22 : memref<1x4x2x2xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x4x2x2xf16, #NHWC, [@CMX_NN, 0]> loc(#loc48)
+    } loc(#loc48)
+    VPURT.Task waits(%3 : !VPURT.Barrier) updates(%4 : !VPURT.Barrier) enqueueTarget(%0 : !VPURT.Barrier) {
+      %38:2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 1, 0, 0, 0>} <{cm_sp_pattern = 15 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [2, 2], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, profilingMetadata = #VPUIP.DpuProfilingMetadataAttr<bufferId = 0 : i64, taskId = 2 : i64, maxVariants = 1 : i64, numVariants = 1 : i64, clusterId = 0 : i64>, task_type = #VPUIP.nce_task_type<CONV>}> input(%34 : memref<1x16x2x2xf16, #NHWC, [@CMX_NN, 0]>) weights(%33 : memref<16x16x2x2xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%24 : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%34 : memref<1x16x2x2xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%25 : memref<1x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%25 : memref<1x16x1x1xf16, #NHWC, [@CMX_NN, 0]>) profiling_data(%35 : memref<4xui64, [@CMX_NN, 0]>) -> memref<1x16x1x1xf16, #NHWC, [@CMX_NN, 0]>, memref<4xui64, [@CMX_NN, 0]> variants : {
+        DPUTask {inEnd = [1, 1, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [0, 0, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, workload_id = 1 : i64} loc(#loc45)
+      } PPE : {
+        PPETask {ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>} loc(#loc45)
+      } loc(#loc54)
+    } loc(#loc45)
+    VPURT.Task waits(%4 : !VPURT.Barrier)  {
+      %38 = VPUIP.NNDMA <{port = 0 : i64, profiling_buffer_mgmt}> inputs(%20 : memref<8xui64, [@CMX_NN, 0]>) outputs(%17 : memref<8xui64>) -> memref<8xui64> loc(#loc33)
+    } loc(#loc33)
+    VPURT.Task updates(%5 : !VPURT.Barrier)  {
+      %38 = VPUIP.NNDMA <{dma_hwp_id = 6 : si32, port = 0 : i64, profilingMetadata = #VPUIP.DmaProfilingMetadataAttr<dataIndex = 6 : i64>}> inputs(%36 : memref<1x4x1x1xf16, {order = #NHWC, strides = [16, 1, 16, 16]}, [@CMX_NN, 0]>) outputs(%26 : memref<1x4x1x1xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x4x1x1xf16, #NHWC, [@CMX_NN, 0]> loc(#loc57)
+    } loc(#loc57)
+    VPURT.Task waits(%5 : !VPURT.Barrier) updates(%6 : !VPURT.Barrier) enqueueTarget(%0 : !VPURT.Barrier) {
+      %results, %profiling_output = VPUIP.SW.Kernel {listIndex = 0 : i64, profilingMetadata = #VPUIP.SwProfilingMetadataAttr<bufferId = 0 : i64, bufferOffset = 0 : i64, clusterSize = 1 : i64, dataIndex = 0 : i64, tileId = 0 : i64, clusterId = 0 : i64>, resultSegmentSizes = array<i32: 1, 0, 1>} @VPU.SW::@builtin_Convert inputs(%26 as %arg3: memref<1x4x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%27 as %arg4: memref<1x4x1x1xui8, #NHWC, [@CMX_NN, 0]>) profiling_data(%19 : memref<8xui32, [@CMX_NN, 0]>) on tile 0 -> (memref<1x4x1x1xui8, #NHWC, [@CMX_NN, 0]>, memref<8xui32, [@CMX_NN, 0]>){
+        VPUIP.SW.Kernel.run(%arg3, %arg4) : memref<1x4x1x1xf16, #NHWC, [@CMX_NN, 0]>, memref<1x4x1x1xui8, #NHWC, [@CMX_NN, 0]> loc(#loc1)
+      } loc(#loc61)
+    } loc(#loc58)
+    VPURT.Task waits(%6 : !VPURT.Barrier)  {
+      %38 = VPUIP.NNDMA <{port = 0 : i64, profiling_buffer_mgmt}> inputs(%19 : memref<8xui32, [@CMX_NN, 0]>) outputs(%18 : memref<8xui32>) -> memref<8xui32> loc(#loc34)
+    } loc(#loc34)
+    VPURT.Task updates(%7 : !VPURT.Barrier)  {
+      %38 = VPUIP.NNDMA <{dma_hwp_id = 7 : si32, port = 0 : i64, profilingMetadata = #VPUIP.DmaProfilingMetadataAttr<dataIndex = 7 : i64>}> inputs(%37 : memref<1x4x1x1xui8, [@CMX_NN, 0]>) outputs(%16 : memref<1x4x1x1xui8, @DDR>) -> memref<1x4x1x1xui8, @DDR> loc(#loc40)
+    } loc(#loc40)
+    VPURT.Task waits(%7 : !VPURT.Barrier) updates(%8 : !VPURT.Barrier)  {
+      %38 = VPUIP.NNDMA <{port = 0 : i64, profiling_buffer_mgmt}> inputs(%13 : memref<448xui8, @DDR>) outputs(%14 : memref<448xui8>) -> memref<448xui8> loc(#loc19)
+    } loc(#loc19)
+    return %arg1, %arg2 : memref<1x4x1x1xui8, @DDR>, memref<176xui32> loc(#loc55)
+  } loc(#loc41)
+} loc(#loc36)
+#loc = loc("module")
+#loc1 = loc(unknown)
+#loc2 = loc("_tile_resources")
+#loc3 = loc("_global_resources")
+#loc5 = loc("495/sink_port_0")
+#loc8 = loc("start_barrier")
+#loc9 = loc("Convolution_6")
+#loc10 = loc("reorder_in_0")
+#loc11 = loc("PermuteQuantize")
+#loc12 = loc("_expand_input")
+#loc13 = loc("_expand_copy_3_14")
+#loc14 = loc("expand_act_channels")
+#loc15 = loc("input-2-CMX")
+#loc16 = loc("Conv_0")
+#loc17 = loc("Convert_11")
+#loc18 = loc("input-0-CMX")
+#loc19 = loc("dma_ProfilingDDR2DDR")
+#loc20 = loc("finishing_barrier")
+#loc21 = loc("dmaHwpBase_slice")
+#loc22 = loc("profiling_dpu")
+#loc23 = loc("profiling_actshave")
+#loc24 = loc("1_actProfilingSubviewBuffer_0")
+#loc25 = loc("1_dpuProfilingSubviewBuffer_0")
+#loc26 = loc("input-1-CMX")
+#loc27 = loc("dpuProfilingSubview")
+#loc28 = loc("_slice_output")
+#loc29 = loc("slice_out")
+#loc30 = loc("fetch_dma")
+#loc31 = loc("start_barrier_sync_dma")
+#loc32 = loc("cluster_0")
+#loc33 = loc("dpuProfilingCMX2DDR0")
+#loc34 = loc("actshaveProfilingCMX2DDR0")
+#loc35 = loc("output")
+#loc36 = loc(fused<{name = "module", type = "Module"}>[#loc])
+#loc37 = loc(fused<{name = "module", type = "Module"}>[#loc, #loc2])
+#loc38 = loc(fused<{name = "module", type = "Module"}>[#loc, #loc3])
+#loc40 = loc(fused<{name = "495/sink_port_0", type = "Result"}>[#loc5])
+#loc42 = loc(fused<{name = "Convolution_6", type = "Convolution"}>[#loc9, #loc10, #loc11, #loc12, #loc13])
+#loc43 = loc(fused<{name = "Convolution_6", type = "Convolution"}>[#loc9, #loc14, #loc15])
+#loc44 = loc(fused<{name = "Convolution_6", type = "Convolution"}>[#loc9, #loc10, #loc11])
+#loc45 = loc(fused<{name = "Convolution_6", type = "Convolution"}>[#loc9, #loc14])
+#loc46 = loc(fused<{name = "Conv_0", type = "Convert"}>[#loc16])
+#loc47 = loc(fused<{name = "Convert_11", type = "Convert"}>[#loc17])
+#loc48 = loc(fused<{name = "Convolution_6", type = "Convolution"}>[#loc9, #loc14, #loc18])
+#loc49 = loc(fused<{name = "Convolution_6", type = "Convolution"}>[#loc9, #loc14, #loc26])
+#loc50 = loc(fused<{name = "Convolution_6", type = "Convolution"}>[#loc9, #loc10, #loc11, #loc12])
+#loc51 = loc(fused<{name = "Convolution_6", type = "Convolution"}>[#loc9, #loc10, #loc11, #loc28])
+#loc52 = loc(fused<{name = "Convolution_6", type = "Convolution"}>[#loc9, #loc29])
+#loc53 = loc(fused<{name = "Convolution_6", type = "Convolution"}>[#loc9, #loc10, #loc11, #loc32])
+#loc54 = loc(fused<{name = "Convolution_6", type = "Convolution"}>[#loc9, #loc14, #loc32])
+#loc55 = loc(fused<{name = "output", type = "Output"}>[#loc35])
+#loc57 = loc(fused[#loc46, #loc47, #loc18])
+#loc58 = loc(fused[#loc46, #loc47])
+#loc59 = loc(fused[#loc41, #loc22])
+#loc60 = loc(fused[#loc41, #loc23])
+#loc61 = loc(fused[#loc46, #loc47, #loc32])
+
+{-#
+  dialect_resources: {
+    builtin: {
+      vpux_ow_0: "0x100000000000003C0040004200440045004600470048804800498049004A804A004B804B004C404C804CC04C004D404D804DC04D004E404E804EC04E004F404F804FC04F00502050405060508050A050C050E05000512051405160518051A051C051E05100522052405260528052A052C052E05200532053405360538053A053C053E053"
+    }
+  }
+#-}

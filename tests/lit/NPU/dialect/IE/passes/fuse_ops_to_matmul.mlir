@@ -18,7 +18,7 @@ func.func @PropagateTransposeThroughMulAndReduce(%arg0: tensor<1x4x256x64x64xf16
   %mul = IE.Multiply(%r0, %r1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } : tensor<1x4x64x256x1x64xf16>, tensor<1x4x64x256x128x1xf16> -> tensor<1x4x64x256x128x64xf16>
   %reduce = IE.ReduceSum(%mul) {axes_value = [3]} : tensor<1x4x64x256x128x64xf16> -> tensor<1x4x64x128x64xf16>
   return %reduce : tensor<1x4x64x128x64xf16>
-  
+
   // CHECK: [[RESH0:%.+]] = IE.AffineReshape([[ARG0]])
   // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [2], [3, 4], [5]], shape_value = [1, 4, 256, 64, 1, 64]} : tensor<1x4x256x64x64xf16> -> tensor<1x4x256x64x1x64xf16>
   // CHECK: [[RESH1:%.+]] = IE.AffineReshape([[ARG1]])
@@ -91,7 +91,7 @@ func.func @NotPropagateTransposeThroughMulAndReduceDueToDimsChanged(%arg0: tenso
   %mul = IE.Multiply(%r0, %r1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } : tensor<1x4x64x1x256x1x64xf16>, tensor<1x4x64x256x1x128x1xf16> -> tensor<1x4x64x256x256x128x64xf16>
   %reduce = IE.ReduceSum(%mul) {axes_value = [3]} : tensor<1x4x64x256x256x128x64xf16> -> tensor<1x4x64x256x128x64xf16>
   return %reduce : tensor<1x4x64x256x128x64xf16>
-  
+
   // CHECK: [[TRANS0:%.+]] = IE.Transpose([[ARG0]])
   // CHECK: [[RESH0:%.+]] = IE.AffineReshape([[TRANS0]])
   // CHECK: [[TRANS1:%.+]] = IE.Transpose([[ARG1]])

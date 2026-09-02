@@ -6,6 +6,8 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --one-shot-bufferize-VPU-to-VPUIP %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
+// CHECK: func.func nested @cache_prefetch() attributes {VPU.task_type = @CACHE_PREFETCH}
+
 // CHECK-LABEL:  func.func @StridedSliceLevel3StrideToSWKernel
 // CHECK-SAME:      ([[ARG:%.+]]: memref<3x40x40x15xf16>)
 func.func @StridedSliceLevel3StrideToSWKernel(%input: tensor<3x40x40x15xf16>) -> tensor<3x30x30x4xf16> {
@@ -32,6 +34,8 @@ func.func @StridedSliceLevel3StrideToSWKernel(%input: tensor<3x40x40x15xf16>) ->
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK: func.func nested @cache_prefetch() attributes {VPU.task_type = @CACHE_PREFETCH}
 
 config.Resources 3 of @NCE at 2.100000e+03 MHz {
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}

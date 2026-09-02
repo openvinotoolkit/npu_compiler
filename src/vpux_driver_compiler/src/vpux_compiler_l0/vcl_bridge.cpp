@@ -10,12 +10,12 @@
 
 #include "npu_driver_compiler.h"
 
-#include "intel_npu/config/options.hpp"
 #include "vcl_compiler.hpp"
 #include "vcl_executable.hpp"
 #include "vcl_profiling.hpp"
 #include "vcl_query_network.hpp"
 #include "vpux/utils/ov/config.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 #include <algorithm>
 #include <cstdlib>
@@ -56,24 +56,16 @@ private:
 // outside of the extern "C" block to allow C++ templates
 template <typename Allocator>
 vcl_result_t allocatedExecutableCreate(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc, Allocator* allocator,
-                                       uint8_t** blob, uint64_t* size, uint8_t** compatibilityReqBuffer = nullptr,
-                                       uint64_t* compatibilityReqSize = nullptr,
-                                       vcl_executable_handle_t* executable = nullptr) {
+                                       uint8_t** blob, uint64_t* size, vcl_executable_handle_t* executable = nullptr) {
     if (executable != nullptr) {
         *executable = nullptr;
     }
     if (!compiler || !allocator || !blob || !size || !desc.modelIRData) {
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
     }
-    if (!compatibilityReqBuffer != !compatibilityReqSize) {
-        // Both compatibilityReqBuffer and compatibilityReqSize should be provided together
-        return VCL_RESULT_ERROR_INVALID_ARGUMENT;
-    }
 
     *blob = nullptr;
     *size = 0;
-    uint8_t* compatibilityReqBufferResult = nullptr;
-    uint64_t compatibilityReqSizeResult = 0;
 
     VPUXDriverCompiler::VPUXCompilerL0* pCompiler = reinterpret_cast<VPUXDriverCompiler::VPUXCompilerL0*>(compiler);
     auto& vclLogger = pCompiler->getLogger();
@@ -82,19 +74,9 @@ vcl_result_t allocatedExecutableCreate(vcl_compiler_handle_t compiler, vcl_execu
         // NetworkMetadata is part of the result, but unused in VCL
         // it'd just get destroyed at function call here
         VCLBlobAllocator vclAllocator{allocator};
-        const auto allocateCompatibilityString =
-                (compatibilityReqBuffer != nullptr) && (compatibilityReqSize != nullptr);
-        auto result = pCompiler->importNetwork(desc, vclAllocator, allocateCompatibilityString);
+        auto result = pCompiler->importNetwork(desc, vclAllocator);
         *blob = result.compiledNetwork.ptr;
         *size = result.compiledNetwork.size;
-        compatibilityReqBufferResult = result.compatibilityString.ptr;
-        compatibilityReqSizeResult = result.compatibilityString.size;
-        if (compatibilityReqBuffer) {
-            *compatibilityReqBuffer = compatibilityReqBufferResult;
-        }
-        if (compatibilityReqSize) {
-            *compatibilityReqSize = compatibilityReqSizeResult;
-        }
         if (executable != nullptr) {
             *executable = reinterpret_cast<vcl_executable_handle_t>(new (
                     std::nothrow) VPUXDriverCompiler::VPUXExecutableL0(result.metadata.compatibilityString, vclLogger));
@@ -113,7 +95,11 @@ vcl_result_t allocatedExecutableCreate(vcl_compiler_handle_t compiler, vcl_execu
 }
 
 vcl_result_t allocatedExecutableCreateWSOneShot(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
-                                                vcl_allocator2_t* allocator) {
+                                                vcl_allocator2_t* allocator,
+                                                vcl_executable_handle_t* executable = nullptr) {
+    if (executable != nullptr) {
+        *executable = nullptr;
+    }
     if (!compiler || !allocator || !desc.modelIRData) {
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
     }
@@ -128,6 +114,15 @@ vcl_result_t allocatedExecutableCreateWSOneShot(vcl_compiler_handle_t compiler, 
         auto result = pCompiler->importNetworkWSOneShot(desc, vclAllocator);
         if (result.empty()) {
             vclLogger->warning("Compiler successfully returned but the blob list is empty!");
+        } else if (executable != nullptr) {
+            // WS one-shot results contain Init schedules first and the Main schedule last.
+            // The compatibility string is expected to be identical for all schedules.
+            *executable =
+                    reinterpret_cast<vcl_executable_handle_t>(new (std::nothrow) VPUXDriverCompiler::VPUXExecutableL0(
+                            result.back()->metadata.compatibilityString, vclLogger));
+            if (*executable == nullptr) {
+                return VCL_RESULT_ERROR_OUT_OF_MEMORY;
+            }
         }
     } catch (const InvalidIrError& error) {
         vclLogger->outputError(error.what());
@@ -163,12 +158,14 @@ std::optional<LogLevel> getLogLevel(vcl_log_level_t level) {
 }
 
 std::optional<LogLevel> getLogLevelFromEnv(VPUXDriverCompiler::VCLLogger& log) {
-    const auto envVar = intel_npu::LOG_LEVEL::envVar();
+    const auto envVar = vpux::OV::LOG_LEVEL::envVar();
     assert(!envVar.empty());
     if (const auto logLevelEnv = std::getenv(envVar.data())) {
         try {
-            auto ovlogLevel = intel_npu::LOG_LEVEL::parse(logLevelEnv);
-            return vpux::getLogLevel(ovlogLevel);
+            ov::log::Level level;
+            VPUX_THROW_UNLESS(std::stringstream{logLevelEnv} >> level, "Invalid value '{0}' for ov::log::level",
+                              logLevelEnv);
+            return vpux::getLogLevel(level);
         } catch (const std::runtime_error&) {
             log.warning("Failed to parse {0}", envVar);
         }
@@ -360,18 +357,10 @@ DLLEXPORT vcl_result_t vclExecutableCreate(vcl_compiler_handle_t compiler, vcl_e
     return ret;
 }
 
-DLLEXPORT vcl_result_t vclAllocatedExecutableCreate3(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
-                                                     vcl_allocator2_t* allocator, uint8_t** blobBuffer,
-                                                     uint64_t* blobSize, uint8_t** compatibilityReqBuffer,
-                                                     uint64_t* compatibilityReqSize) {
-    return allocatedExecutableCreate(compiler, desc, allocator, blobBuffer, blobSize, compatibilityReqBuffer,
-                                     compatibilityReqSize);
-}
-
 DLLEXPORT vcl_result_t vclAllocatedExecutableCreate4(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
                                                      vcl_allocator2_t* allocator, uint8_t** blobBuffer,
                                                      uint64_t* blobSize, vcl_executable_handle_t* executable) {
-    return allocatedExecutableCreate(compiler, desc, allocator, blobBuffer, blobSize, nullptr, nullptr, executable);
+    return allocatedExecutableCreate(compiler, desc, allocator, blobBuffer, blobSize, executable);
 }
 
 DLLEXPORT vcl_result_t vclAllocatedExecutableCreate2(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
@@ -387,6 +376,16 @@ DLLEXPORT vcl_result_t vclAllocatedExecutableCreate(vcl_compiler_handle_t compil
 DLLEXPORT vcl_result_t vclAllocatedExecutableCreateWSOneShot(vcl_compiler_handle_t compiler, vcl_executable_desc_t desc,
                                                              vcl_allocator2_t* allocator) {
     return allocatedExecutableCreateWSOneShot(compiler, desc, allocator);
+}
+
+DLLEXPORT vcl_result_t VCL_APICALL vclAllocatedExecutableCreateWSOneShot2(vcl_compiler_handle_t compiler,
+                                                                          vcl_executable_desc_t desc,
+                                                                          vcl_allocator2_t* allocator,
+                                                                          vcl_executable_handle_t* executable) {
+    if (executable == nullptr) {
+        return VCL_RESULT_ERROR_INVALID_ARGUMENT;
+    }
+    return allocatedExecutableCreateWSOneShot(compiler, desc, allocator, executable);
 }
 
 DLLEXPORT vcl_result_t vclExecutableGetSerializableBlob(vcl_executable_handle_t executable, uint8_t* blobBuffer,

@@ -12,12 +12,14 @@
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters.hpp"
+#include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_infer.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_quantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
@@ -33,53 +35,6 @@ namespace vpux::IE {
 using namespace vpux;
 
 namespace {
-
-bool doesVectorContainSubVector(ArrayRef<int64_t> vec, ArrayRef<int64_t> subVec) {
-    return std::search(vec.begin(), vec.end(), subVec.begin(), subVec.end()) != vec.end();
-}
-
-bool areReshapedAxesPermutedIntegratedly(const SmallVector<SmallVector<int64_t>>& dimMapping,
-                                         ArrayRef<int64_t> permAxis, const DimsOrder& permInOrder,
-                                         vpux::MemShapeRef memShapeRef) {
-    SmallVector<SmallVector<int64_t>> splitAxesVec;
-
-    for (size_t inIdx = 0; inIdx < dimMapping.size(); inIdx++) {
-        auto mappedDim = dimMapping[inIdx];
-        SmallVector<int64_t> splitAxes;
-        // mappedDim.size() > 1 indicates a split of input axis
-        if (mappedDim.size() > 1) {
-            for (size_t mapId = 0; mapId < mappedDim.size(); mapId++) {
-                size_t outIdx = mappedDim[mapId];
-                auto memDim = permInOrder.toMemDim(Dim(outIdx));
-                splitAxes.push_back(memDim.ind());
-            }
-            splitAxesVec.push_back(splitAxes);
-        }
-    }
-
-    if (splitAxesVec.empty()) {
-        return true;
-    }
-
-    const auto nonTrivialMemDimPredicate = [&](const int64_t memDim) -> bool {
-        return memShapeRef[MemDim(memDim)] > 1;
-    };
-
-    for (auto& splitAxes : splitAxesVec) {
-        auto splitAxesRef = ArrayRef(splitAxes);
-        const auto nonTrivialMemDims =
-                std::count_if(splitAxesRef.begin(), splitAxesRef.end(), nonTrivialMemDimPredicate);
-        // Allow the propagation if the data on split axes are moved as a whole.
-        // Below cases can meet this requirement.
-        // 1.Permutation does not break split axes.
-        // 2.Split axes have no more than one non-trivial memDim, it's allowed to break split axes.
-        if (!doesVectorContainSubVector(permAxis, splitAxesRef) && (nonTrivialMemDims > 1)) {
-            return false;
-        }
-    }
-
-    return true;
-}
 
 SmallVector<int64_t> deduceInAxis(SmallVector<SmallVector<int64_t>> dimMapping, int64_t outAxis) {
     SmallVector<int64_t> inAxis;
@@ -968,6 +923,171 @@ mlir::Operation* MoveMemPermuteThroughOp<ConcreteOp>::createNewPermuteOp(mlir::O
 }
 
 //
+// MoveMemPermuteThroughUpsampling
+//
+// Catch the pattern:
+//
+//      IE.Upsampling
+//            |
+//      IE.MemPermute
+//
+// And rewrite it to:
+//
+//      IE.MemPermute
+//            |
+//      IE.Upsampling
+//            |
+//     [IE.PermuteCast]
+//
+// The rewrite fires only when the swap turns the lowered Upsampling DMA from strided to
+// non-strided. UpsamplingDMA writes its growth (factor>1) along the source axes; if a
+// growth axis sits at or inside the innermost non-trivial memory dimension, the DMA must
+// stride between rows/planes. Permuting the growth axis to an outer memory position
+// removes that stride.
+
+class MoveMemPermuteThroughUpsampling final : public MoveThroughOpBase<IE::UpsamplingOp> {
+public:
+    MoveMemPermuteThroughUpsampling(mlir::MLIRContext* ctx, Logger log, mlir::PatternBenefit benefit = 1)
+            : MoveThroughOpBase<IE::UpsamplingOp>(ctx, benefit, log), _log(log) {
+    }
+
+    bool checkMemPermutePattern(mlir::Operation* permuteOp, mlir::PatternRewriter& rewriter) const override;
+
+    mlir::AffineMap getPermutationMap(mlir::Operation* permuteOp) const override;
+
+    mlir::Operation* createNewPermuteOp(mlir::Operation* permuteOp, mlir::Value newInput, mlir::AffineMap dstOrder,
+                                        mlir::PatternRewriter& rewriter) const override;
+
+private:
+    Logger _log;
+};
+
+namespace {
+// Returns true iff any upsampling growth axis (factor>1) sits at the innermost
+// non-trivial memory dimension under `order`. That is the condition for the lowered
+// UpsamplingDMA to require strided writes.
+bool isUpsamplingGrowthOnInnerMemDim(ShapeRef logicalShape, DimsOrder order, ArrayRef<int64_t> factor) {
+    // factor is laid out as [W, H, C] (matches UpsamplingOp::upsampling_factor).
+    // Map each factor entry back to its logical Dim.
+    const SmallVector<Dim> factorAxes = {Dims4D::Act::W, Dims4D::Act::H, Dims4D::Act::C};
+    VPUX_THROW_UNLESS(factor.size() == factorAxes.size(), "Upsampling factor must have 3 entries, got {0}",
+                      factor.size());
+
+    const auto memShape = order.toMemoryOrder(logicalShape);
+    int64_t innermostNonTrivial = -1;
+    for (int64_t pos = checked_cast<int64_t>(memShape.size()) - 1; pos >= 0; --pos) {
+        if (memShape[MemDim(pos)] != 1) {
+            innermostNonTrivial = pos;
+            break;
+        }
+    }
+    if (innermostNonTrivial < 0) {
+        return false;
+    }
+
+    for (auto idx : irange(factor.size())) {
+        const auto axis = factorAxes[idx];
+        if (factor[idx] <= 1 || logicalShape[axis] == 1) {
+            continue;
+        }
+        const auto memPos = order.toMemDim(axis).ind();
+        if (memPos == innermostNonTrivial) {
+            return true;
+        }
+    }
+    return false;
+}
+
+mlir::AffineMap getMemPermFromPermuteOp(mlir::Operation* op) {
+    if (auto memPermuteOp = mlir::dyn_cast_if_present<IE::MemPermuteOp>(op); memPermuteOp != nullptr) {
+        return memPermuteOp.getMemPerm();
+    }
+    if (auto permuteQuantizeOp = mlir::dyn_cast_if_present<IE::PermuteQuantizeOp>(op); permuteQuantizeOp != nullptr) {
+        return permuteQuantizeOp.getMemPerm();
+    }
+    VPUX_THROW("Not a permute operation");
+}
+
+bool isPlainPermuteQuantizeStrict(IE::PermuteQuantizeOp pq) {
+    if (pq == nullptr) {
+        return false;
+    }
+    const auto padStart = parseIntArrayAttr<int64_t>(pq.getPadsBegin());
+    const auto padEnd = parseIntArrayAttr<int64_t>(pq.getPadsEnd());
+    const auto nonZero = [](auto p) {
+        return p > 0;
+    };
+    if (llvm::any_of(padStart, nonZero) || llvm::any_of(padEnd, nonZero)) {
+        return false;
+    }
+    const auto inElemType = mlir::cast<vpux::NDTypeInterface>(pq.getInput().getType()).getElementType();
+    const auto outElemType = mlir::cast<vpux::NDTypeInterface>(pq.getOutput().getType()).getElementType();
+    if (mlir::isa<mlir::quant::QuantizedType>(outElemType)) {
+        return false;
+    }
+    return inElemType == outElemType;
+}
+
+}  // namespace
+
+bool MoveMemPermuteThroughUpsampling::checkMemPermutePattern(mlir::Operation* permuteOp, mlir::PatternRewriter&) const {
+    if (!mlir::isa_and_present<IE::MemPermuteOp, IE::PermuteQuantizeOp>(permuteOp)) {
+        return false;
+    }
+
+    if (!MoveThroughOpBase<IE::UpsamplingOp>::genericCheck(permuteOp)) {
+        return false;
+    }
+
+    if (auto pq = mlir::dyn_cast_if_present<IE::PermuteQuantizeOp>(permuteOp); pq != nullptr) {
+        if (!isPlainPermuteQuantizeStrict(pq)) {
+            return false;
+        }
+    }
+
+    auto upsamplingOp = mlir::dyn_cast<IE::UpsamplingOp>(permuteOp->getOperand(0).getDefiningOp());
+    VPUX_THROW_WHEN(upsamplingOp == nullptr, "Not an UpsamplingOp");
+    const auto factor = parseIntArrayAttr<int64_t>(upsamplingOp.getUpsamplingFactor());
+    const auto inLogicalShape = getShape(upsamplingOp.getInput());
+    const auto srcOrder = DimsOrder::fromValue(upsamplingOp.getInput());
+
+    // Compute the layout the Upsampling input would have after the swap.
+    auto* ctx = permuteOp->getContext();
+    const auto memPerm = getMemPermFromPermuteOp(permuteOp);
+    const auto newOrder = DimsOrder::fromAffineMap(memPerm.compose(srcOrder.toAffineMap(ctx)));
+
+    const bool stridedBefore = isUpsamplingGrowthOnInnerMemDim(inLogicalShape, srcOrder, factor);
+    const bool stridedAfter = isUpsamplingGrowthOnInnerMemDim(inLogicalShape, newOrder, factor);
+    if (!stridedBefore || stridedAfter) {
+        return false;
+    }
+
+    _log.trace("[MoveMemPermuteThroughUpsampling] gate passed: srcOrder {0} -> newOrder {1}, factor {2}", srcOrder,
+               newOrder, factor);
+    return true;
+}
+
+mlir::AffineMap MoveMemPermuteThroughUpsampling::getPermutationMap(mlir::Operation* permuteOp) const {
+    return getMemPermFromPermuteOp(permuteOp);
+}
+
+mlir::Operation* MoveMemPermuteThroughUpsampling::createNewPermuteOp(mlir::Operation* permuteOp, mlir::Value newInput,
+                                                                     mlir::AffineMap dstOrder,
+                                                                     mlir::PatternRewriter& rewriter) const {
+    if (auto memPermuteOp = mlir::dyn_cast_if_present<IE::MemPermuteOp>(permuteOp); memPermuteOp != nullptr) {
+        return rewriter.create<IE::MemPermuteOp>(appendLoc(memPermuteOp.getLoc(), "swap"), newInput, dstOrder,
+                                                 memPermuteOp.getMemPerm());
+    }
+    if (auto pqOp = mlir::dyn_cast_if_present<IE::PermuteQuantizeOp>(permuteOp); pqOp != nullptr) {
+        const auto dstOrderAttr = mlir::AffineMapAttr::get(dstOrder);
+        return rewriter.create<IE::PermuteQuantizeOp>(appendLoc(pqOp.getLoc(), "swap"), newInput, dstOrderAttr,
+                                                      pqOp.getMemPermAttr(), pqOp.getDstElemTypeAttr(),
+                                                      pqOp.getPadsBeginAttr(), pqOp.getPadsEndAttr());
+    }
+    VPUX_THROW("Not a permute operation to create");
+}
+
+//
 // MovePermuteQuantizeThroughOp
 //
 
@@ -1047,6 +1167,268 @@ mlir::Operation* MovePermuteQuantizeThroughOp<ConcreteOp>::createNewPermuteOp(ml
             permuteQuantizeOp->getLoc(), newInput, permuteQuantizeOp.getDstOrderAttr(),
             permuteQuantizeOp.getMemPermAttr(), permuteQuantizeOp.getDstElemTypeAttr(),
             permuteQuantizeOp.getPadsBeginAttr(), permuteQuantizeOp.getPadsEndAttr());
+}
+
+//
+// PropagatePermuteThroughConcatSlice
+//
+// Closed-form rewriter for the pattern:
+//
+//     Concat
+//      ├── Slice ── MemPermute / PermuteQuantize
+//      ├── Slice ── MemPermute / PermuteQuantize
+//      └── ...
+//
+// To:
+//
+//     each Concat input ── MemPermute
+//                            |
+//                          new Concat ── Slice ── PermuteCast (per original permute user)
+//
+// Match conditions (strict, single-shot rewrite — every gate must pass):
+//   1. The ConcatOp is not per-axis quantized.
+//   2. The ConcatOp has exactly one unique non-const operand (others must be Const::DeclareOp).
+//   3. All ConcatOp users are SliceOps; each Slice has exactly one user, which is either
+//      a MemPermute or a "plain" PermuteQuantize (pad==0, non-quantized output,
+//      dstElemType == inputElemType — fully equivalent to a MemPermute).
+//   4. At least one permute user must be a MemPermute.
+//   5. All Slices slice along the same single axis.
+//   6. Sum of slice sizes along that axis > Concat output size on that axis (otherwise
+//      lifting the permute would touch more data than the original sliced reads).
+//   7. All permute users share the same memPerm and dstOrder.
+//   8. Every permute user is a pure reorder (input and output logical shapes are equal),
+//      so the original Slice's logical-dim offsets/sizes remain valid after the lift.
+//   9. The permute is non-trivial.
+//  10. The Slice DMA must transition from strided to non-strided after the lift
+//      (otherwise the rewrite would pessimize the slice DMA).
+//  11. No Concat-input DMA regresses from non-strided to strided after the lift.
+//
+
+class PropagatePermuteThroughConcatSlice final : public mlir::OpRewritePattern<IE::SliceOp> {
+public:
+    PropagatePermuteThroughConcatSlice(mlir::MLIRContext* ctx, Logger log, mlir::PatternBenefit benefit = 1)
+            : mlir::OpRewritePattern<IE::SliceOp>(ctx, benefit), _log(log) {
+        this->setDebugName("PropagatePermuteThroughConcatSlice");
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(IE::SliceOp sliceOp, mlir::PatternRewriter& rewriter) const final;
+
+    Logger _log;
+};
+
+mlir::LogicalResult PropagatePermuteThroughConcatSlice::matchAndRewrite(IE::SliceOp rootSliceOp,
+                                                                        mlir::PatternRewriter& rewriter) const {
+    auto concatOp = rootSliceOp.getInput().getDefiningOp<IE::ConcatOp>();
+    if (concatOp == nullptr) {
+        return mlir::failure();
+    }
+
+    // Per-axis quantized element types are excluded (mirroring MoveThroughOpBase::genericCheck).
+    const auto concatInElemType = mlir::cast<vpux::NDTypeInterface>(concatOp->getOperand(0).getType()).getElementType();
+    const auto concatOutElemType = mlir::cast<vpux::NDTypeInterface>(concatOp.getOutput().getType()).getElementType();
+    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(concatInElemType) ||
+        mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(concatOutElemType)) {
+        return mlir::failure();
+    }
+
+    llvm::SmallPtrSet<mlir::Value, 4> uniqueNonConst;
+    for (auto operand : concatOp->getOperands()) {
+        if (!mlir::isa_and_nonnull<Const::DeclareOp>(operand.getDefiningOp())) {
+            uniqueNonConst.insert(operand);
+        }
+    }
+    if (uniqueNonConst.size() != 1) {
+        return mlir::failure();
+    }
+
+    auto concatUsers = llvm::to_vector(concatOp.getOutput().getUsers());
+    if (concatUsers.empty()) {
+        return mlir::failure();
+    }
+
+    SmallVector<IE::SliceOp> slices;
+    SmallVector<mlir::Operation*> permuteUsers;
+    slices.reserve(concatUsers.size());
+    permuteUsers.reserve(concatUsers.size());
+
+    // All slices must slice along the same single axis.
+    int64_t commonSliceAxis = -1;
+    int64_t totalSliceSize = 0;
+
+    for (auto* user : concatUsers) {
+        auto slice = mlir::dyn_cast<IE::SliceOp>(user);
+        if (slice == nullptr) {
+            return mlir::failure();
+        }
+        if (!slice->hasOneUse()) {
+            return mlir::failure();
+        }
+        auto sliceAxes = getSliceAxes(slice);
+        if (sliceAxes.size() != 1) {
+            return mlir::failure();
+        }
+        if (commonSliceAxis == -1) {
+            commonSliceAxis = sliceAxes.front();
+        } else if (commonSliceAxis != static_cast<int64_t>(sliceAxes.front())) {
+            return mlir::failure();
+        }
+        const auto sliceShape = getShape(slice.getResult()).raw();
+        totalSliceSize += sliceShape[commonSliceAxis];
+
+        auto* sliceUser = *slice.getResult().getUsers().begin();
+        if (auto pq = mlir::dyn_cast<IE::PermuteQuantizeOp>(sliceUser)) {
+            if (!isPlainPermuteQuantizeStrict(pq)) {
+                return mlir::failure();
+            }
+        } else if (!mlir::isa<IE::MemPermuteOp>(sliceUser)) {
+            return mlir::failure();
+        }
+
+        slices.push_back(slice);
+        permuteUsers.push_back(sliceUser);
+    }
+
+    if (commonSliceAxis < 0) {
+        return mlir::failure();
+    }
+
+    // Require at least one MemPermute user; skip patterns where every user is PermuteQuantize.
+    const bool hasMemPermuteUser = llvm::any_of(permuteUsers, [](mlir::Operation* op) {
+        return mlir::isa<IE::MemPermuteOp>(op);
+    });
+    if (!hasMemPermuteUser) {
+        return mlir::failure();
+    }
+
+    // Propagation is only beneficial when the total slice size along the slice axis is
+    // greater than the Concat's size on that axis (slices have overlapping/repeated reads).
+    // Otherwise the Permute would touch more data after propagation than before — a net loss.
+    const auto concatAxisSize = getShape(concatOp.getOutput()).raw()[commonSliceAxis];
+    if (totalSliceSize <= concatAxisSize) {
+        return mlir::failure();
+    }
+
+    // All permute users must share the same memPerm and dstOrder.
+    auto getMemPerm = [](mlir::Operation* op) {
+        if (auto mp = mlir::dyn_cast<IE::MemPermuteOp>(op)) {
+            return mp.getMemPerm();
+        }
+        return mlir::cast<IE::PermuteQuantizeOp>(op).getMemPerm();
+    };
+    auto getDstOrder = [](mlir::Operation* op) {
+        if (auto mp = mlir::dyn_cast<IE::MemPermuteOp>(op)) {
+            return mp.getDstOrder();
+        }
+        return mlir::cast<IE::PermuteQuantizeOp>(op).getDstOrder();
+    };
+
+    const auto memPerm = getMemPerm(permuteUsers.front());
+    const auto dstOrder = getDstOrder(permuteUsers.front());
+    for (auto* user : permuteUsers) {
+        if (getMemPerm(user) != memPerm || getDstOrder(user) != dstOrder) {
+            return mlir::failure();
+        }
+        if (getShape(user->getOperand(0)) != getShape(user->getResult(0))) {
+            return mlir::failure();
+        }
+    }
+
+    // Skip a trivial permute (would be a no-op rewrite that may loop the pattern).
+    const auto concatType = mlir::cast<vpux::NDTypeInterface>(concatOp.getOutput().getType());
+    const auto concatMemShape = concatType.getMemShape();
+    if (isTrivialPermute(concatMemShape, memPerm)) {
+        return mlir::failure();
+    }
+
+    auto* ctx = rewriter.getContext();
+    const auto inOrder = DimsOrder::fromValue(concatOp->getOperand(0));
+    const auto perm = memPerm.compose(inOrder.toAffineMap(ctx));
+    const auto outOrder = DimsOrder::fromAffineMap(perm);
+
+    // DMA-friendliness gate: only fire when the rewrite turns a strided Slice DMA into a
+    // non-strided one. A Slice (or Concat input write) along memory position p is non-
+    // strided iff every memory dim before p has size 1.
+    auto isNonStridedAt = [](MemShapeRef memShape, size_t memPos) {
+        for (size_t i = 0; i < memPos; ++i) {
+            if (memShape[MemDim(i)] != 1) {
+                return false;
+            }
+        }
+        return true;
+    };
+    const auto inOrderConcat = concatType.getDimsOrder();
+    const auto outConcatMemShape = concatType.changeDimsOrder(outOrder).getMemShape();
+    const auto sliceMemPosBefore = inOrderConcat.dimPos(Dim(commonSliceAxis));
+    const auto sliceMemPosAfter = outOrder.dimPos(Dim(commonSliceAxis));
+    const bool stridedBefore = !isNonStridedAt(concatMemShape, sliceMemPosBefore);
+    const bool nonStridedAfter = isNonStridedAt(outConcatMemShape, sliceMemPosAfter);
+    if (!stridedBefore || !nonStridedAfter) {
+        return mlir::failure();
+    }
+
+    // Concat-input DMA gate: every concat-input write that was non-strided before the
+    // rewrite must remain non-strided after. The rewrite changes the Concat output layout
+    // from inOrderConcat to outOrder, which can shift concat-axis memory positions and
+    // pessimize the per-input writes. Reject the rewrite if any concat axis would regress.
+    for (const auto axis : IE::getConcatAxes(concatOp)) {
+        const auto memPosBefore = inOrderConcat.dimPos(Dim(axis));
+        const auto memPosAfter = outOrder.dimPos(Dim(axis));
+        if (isNonStridedAt(concatMemShape, memPosBefore) && !isNonStridedAt(outConcatMemShape, memPosAfter)) {
+            return mlir::failure();
+        }
+    }
+
+    _log.trace("PropagatePermuteThroughConcatSlice: matched Concat at {0} with {1} slices", concatOp->getLoc(),
+               slices.size());
+
+    rewriter.setInsertionPoint(concatOp);
+    // Rewrite: per-input MemPermute -> new Concat -> per-slice Slice -> PermuteCast.
+    SmallVector<mlir::Value> newInputs;
+    newInputs.reserve(concatOp->getNumOperands());
+    DenseMap<mlir::Value, mlir::Value> operandsMap;
+    for (auto& opOperand : concatOp->getOpOperands()) {
+        auto input = opOperand.get();
+        auto it = operandsMap.find(input);
+        if (it != operandsMap.end()) {
+            newInputs.push_back(it->second);
+            continue;
+        }
+
+        auto newPermute = rewriter.create<IE::MemPermuteOp>(
+                takeOpLoc(concatOp, "input_permute_{0}", opOperand.getOperandNumber()), input,
+                outOrder.toAffineMap(ctx), memPerm);
+        operandsMap.insert({input, newPermute.getResult()});
+        newInputs.push_back(newPermute.getResult());
+    }
+
+    mlir::IRMapping mapper;
+    mapper.map(concatOp->getOperands(), newInputs);
+    auto* newConcatOp = rewriter.clone(*concatOp.getOperation(), mapper);
+    auto newConcatOut = newConcatOp->getResult(0);
+    rewriter.modifyOpInPlace(newConcatOp, [&] {
+        newConcatOut.setType(concatType.changeDimsOrder(outOrder));
+    });
+
+    for (auto&& [origSlice, permuteUser] : llvm::zip(slices, permuteUsers)) {
+        const auto origSliceType = mlir::cast<vpux::NDTypeInterface>(origSlice.getResult().getType());
+        const auto newSliceType = origSliceType.changeDimsOrder(outOrder);
+        rewriter.setInsertionPoint(origSlice);
+        auto newSlice = rewriter.create<IE::SliceOp>(origSlice->getLoc(), newSliceType, newConcatOut,
+                                                     origSlice.getStaticOffsetsAttr(), origSlice.getStaticSizesAttr());
+
+        const auto origPermResultType = permuteUser->getResult(0).getType();
+        const auto origPermOrder = mlir::cast<vpux::NDTypeInterface>(origPermResultType).getDimsOrder();
+        auto permuteCast = rewriter.createOrFold<IE::PermuteCastOp>(
+                permuteUser->getLoc(), newSlice.getResult(), origPermOrder.toAffineMap(ctx),
+                mlir::AffineMap::getMultiDimIdentityMap(outOrder.numDims(), ctx));
+
+        rewriter.replaceOp(permuteUser, permuteCast);
+        rewriter.eraseOp(origSlice);
+    }
+
+    rewriter.eraseOp(concatOp);
+    return mlir::success();
 }
 
 //
@@ -1289,8 +1671,12 @@ void PropagateMemPermuteBeforeOpPass::safeRunOnFunc() {
     patterns.add<MoveMemPermuteThroughOp<IE::StridedSliceOp>>(&ctx, _log);
     patterns.add<MoveMemPermuteThroughOp<IE::MultiplyOp>>(&ctx, _log);
     patterns.add<MovePermuteQuantizeThroughOp<IE::MultiplyOp>>(&ctx, _log);
+    // Higher benefit so the closed Concat→Slice→Permute pattern is rewritten atomically before
+    // per-Slice MoveMemPermuteThroughOp<Slice> can split it up.
+    patterns.add<PropagatePermuteThroughConcatSlice>(&ctx, _log, vpux::benefitMid);
     patterns.add<MoveThroughShapeCast>(&ctx, _log);
     patterns.add<MoveMemPermuteThroughReshape>(&ctx, _log);
+    patterns.add<MoveMemPermuteThroughUpsampling>(&ctx, _log);
     IE::ReshapeOp::getCanonicalizationPatterns(patterns, &ctx);
     IE::MemPermuteOp::getCanonicalizationPatterns(patterns, &ctx);
 
@@ -1330,9 +1716,16 @@ void vpux::IE::registerPropagateMemPermuteBeforeOpRewriters(RewriterRegistry& re
                                                                            benefitLevels[index]);
         registry.registerRewriter<MovePermuteQuantizeThroughOp<IE::MultiplyOp>>(
                 "move-permute-quantize-through-op-multiply", log, benefitLevels[index]);
+        // Higher benefit so the closed Concat→Slice→Permute pattern is rewritten atomically before
+        // per-Slice MoveMemPermuteThroughOp can split it up.
+        registry.registerRewriter<PropagatePermuteThroughConcatSlice>(
+                "propagate-permute-through-concat-slice", log,
+                mlir::PatternBenefit(benefitLevels[index].getBenefit() + 1));
         registry.registerRewriter<MoveThroughShapeCast>("move-through-shape-cast", log, benefitLevels[index]);
         registry.registerRewriter<MoveMemPermuteThroughReshape>("move-mem-permute-through-reshape", log,
                                                                 benefitLevels[index]);
+        registry.registerRewriter<MoveMemPermuteThroughUpsampling>("move-mem-permute-through-op-upsampling", log,
+                                                                   benefitLevels[index]);
         // Manually invoking these rewriter despite canonicalizer handling it. This is required for dynamic rewriter
         // implementation
         IE::registerReshapeOpRewriters(registry, benefitLevels, index);

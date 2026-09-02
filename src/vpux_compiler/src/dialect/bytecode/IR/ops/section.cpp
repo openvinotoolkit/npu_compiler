@@ -71,32 +71,40 @@ size_t bytecode::FuncOp::getBinarySize() {
     return size;
 }
 
-mlir::LogicalResult bytecode::FuncOp::verifySymbolUses(mlir::SymbolTableCollection&) {
-    auto typeRefName = getFunctionTypeRef();
-    auto moduleOp = getOperation()->getParentOfType<mlir::ModuleOp>();
-    if (!moduleOp) {
+mlir::LogicalResult bytecode::FuncOp::verifySymbolUses(mlir::SymbolTableCollection& symbolTables) {
+    auto module = getOperation()->getParentOfType<mlir::ModuleOp>();
+    if (!module) {
         return emitOpError("expected to be inside a module");
     }
 
-    // Enforce exactly one type section
-    auto typeSectionOps = moduleOp.getOps<bytecode::TypeSectionOp>();
-    auto numTypeSections = std::distance(typeSectionOps.begin(), typeSectionOps.end());
-    if (numTypeSections != 1) {
-        return emitOpError("expected exactly one TypeSectionOp in the module, but found ") << numTypeSections;
+    // Verify the function name reference resolves to a StringOp
+    auto funcNameAttr = getFuncNameAttr();
+    auto* funcNameResolved = symbolTables.lookupSymbolIn(module, funcNameAttr);
+    if (!funcNameResolved) {
+        return emitOpError() << "references undefined symbol " << funcNameAttr;
     }
-    auto typeSection = *typeSectionOps.begin();
+    if (!mlir::isa<bytecode::StringOp>(funcNameResolved) ||
+        funcNameResolved->getParentOfType<bytecode::StringSectionOp>() == nullptr) {
+        return emitOpError() << "function name reference " << funcNameAttr
+                             << " does not resolve to a StringOp in the string section";
+    }
 
-    // Verify the referenced type exists and is a function type
-    for (auto typeOp : typeSection.getContent().getOps<bytecode::TypeOp>()) {
-        if (typeOp.getSymName() == typeRefName) {
-            if (!mlir::isa<bytecode::FunctionTypeAttr>(typeOp.getValue())) {
-                return emitOpError("function type reference '@")
-                       << typeRefName << "' resolves to a non-function type in the type section";
-            }
-            return mlir::success();
-        }
+    // Verify the function type reference resolves to a TypeOp with a FunctionTypeAttr
+    auto functionTypeRefAttr = getFunctionTypeRefAttr();
+    auto* typeResolved = symbolTables.lookupSymbolIn(module, functionTypeRefAttr);
+    if (!typeResolved) {
+        return emitOpError() << "references undefined symbol " << functionTypeRefAttr;
     }
-    return emitOpError("function type reference '@") << typeRefName << "' could not be resolved in the type section";
+    auto typeOp = mlir::dyn_cast<bytecode::TypeOp>(typeResolved);
+    if (!typeOp || typeOp->getParentOfType<bytecode::TypeSectionOp>() == nullptr) {
+        return emitOpError() << "function type reference " << functionTypeRefAttr
+                             << " does not resolve to a TypeOp in the type section";
+    }
+    if (!mlir::isa<bytecode::FunctionTypeAttr>(typeOp.getValue())) {
+        return emitOpError("function type reference '")
+               << functionTypeRefAttr << "' resolves to a non-function type in the type section";
+    }
+    return mlir::success();
 }
 
 void bytecode::ConstantSectionOp::serialize(vpux::bytecode::BytecodeWriter& writer) {

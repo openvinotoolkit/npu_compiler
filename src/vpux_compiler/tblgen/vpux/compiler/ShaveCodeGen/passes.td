@@ -20,15 +20,30 @@ def OutlineCodeGenCapsules : PassBase<"outline-codegen-capsules", "vpux::ModuleP
     let summary = "Outline the CodeGenCapsules contents to external functions";
 
     let description = [{
-        The pass outlines the Shave-directed CodeGenCapsules to external functions.
-        In place of the capsules, it introduces VPU::GenericSwLayer ops that now represent calls to the shave functions.
+        Outlines the bodies of IE::CodeGenCapsule ops into generated software functions and
+        replaces each capsule with a VPU::GenericSwLayer op that calls the outlined function.
+
+        Tileable capsules produce two outlined functions: a kernel function that computes one
+        tile of the output, and a slice-info function that maps an iteration-space position to
+        concrete input slice offsets and sizes. Tiling metadata referencing both functions is
+        attached to the resulting GenericSwLayer op, enabling tiling.
+        Non-tileable capsules are outlined as plain single-invocation kernels.
     }];
 
     let constructor = "vpux::ShaveCodeGen::createOutlineCodeGenCapsulesPass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect",
+        "vpux::Shave::ShaveDialect",
         "mlir::func::FuncDialect"
+    ];
+
+    let options = [
+        Option<
+            "forceUnroll", "force-unroll",
+            "bool", "false",
+            "Force full unrolling of tiled capsules. For testing purposes only."
+        >
     ];
 }
 
@@ -296,6 +311,53 @@ def ParametricCapsuleTiling : PassBase<"scg-parametric-capsule-tiling", "vpux::F
         "mlir::scf::SCFDialect",
         "mlir::arith::ArithDialect",
         "mlir::affine::AffineDialect"
+    ];
+}
+
+//
+// WrapInKernelRegion
+//
+
+def WrapInKernelRegion : PassBase<"wrap-in-kernel-region", "vpux::FunctionPass"> {
+    let summary = "Wraps contents of CodeGenCapsules in Shave.KernelRegion ops";
+
+    let description = [{
+        Wraps the contents of IE::CodeGenCapsule in Shave.KernelRegion ops such that each
+        kernel region contains either non-tileable IR or tileable IR in a form that is
+        compatible with outlining: a single scf.for op, tensor.empty() ops for the results
+        and constants.
+    }];
+
+    let constructor = "vpux::ShaveCodeGen::createWrapInKernelRegionPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect",
+        "vpux::Shave::ShaveDialect"
+    ];
+}
+
+//
+// SplitCodeGenCapsules
+//
+
+def SplitCodeGenCapsules : PassBase<"split-codegen-capsules", "vpux::FunctionPass"> {
+    let summary = "Splits a CodeGenCapsule into one capsule per KernelRegion op";
+
+    let description = [{
+        Replaces each IE::CodeGenCapsule with a sequence of smaller IE::CodeGenCapsules,
+        one per Shave::KernelRegionOp found at the capsule top level. The KernelRegionOp
+        wrappers are removed and the contained ops become the body of the new capsule.
+        This pass is intended to run after WrapInKernelRegion, which partitions the
+        capsule contents into KernelRegionOps ready for outlining.
+    }];
+
+    let constructor = "vpux::ShaveCodeGen::createSplitCodeGenCapsulesPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect",
+        "vpux::Shave::ShaveDialect",
+        "mlir::tensor::TensorDialect",
+        "mlir::arith::ArithDialect"
     ];
 }
 

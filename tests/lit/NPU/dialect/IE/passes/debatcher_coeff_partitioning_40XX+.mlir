@@ -24,6 +24,13 @@ func.func @SingleInputSingleOutputBatched(%arg: tensor<6x3x62x62xf32>) -> tensor
     // CHECK: return [[CASTED_CONST]] : tensor<6x48x60x57xf32>
 }
 
+net.NetworkInfo entryPoint : @SingleInputSingleOutputBatched inputsInfo : {
+    DataInfo "input0" : tensor<6x3x62x62xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<6x48x60x57xf32>
+}
+
+
 // -----
 
 // CHECK-LABEL: @MultipleInputSingleOutputBatched
@@ -56,4 +63,11 @@ func.func @MultipleInputSingleOutputBatched(%arg0: tensor<6x3x62x62xf32>, %arg1:
         // CHECK: [[SOFTM_RES1:%.+]] = IE.SoftMax([[ADD_RES]]) {axisInd = 1 : i64} : tensor<2x48x60x57xf32> -> tensor<2x48x60x57xf32>
         // CHECK: [[CASTED_RES:%.+]] = builtin.unrealized_conversion_cast [[SOFTM_RES1]] : tensor<2x48x60x57xf32> to tensor<6x48x60x57xf32>
         // CHECK: return [[CASTED_RES]] : tensor<6x48x60x57xf32>
+}
+
+net.NetworkInfo entryPoint : @MultipleInputSingleOutputBatched inputsInfo : {
+    DataInfo "input0" : tensor<6x3x62x62xf32>
+    DataInfo "input1" : tensor<6x48x60x57xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<6x48x60x57xf32>
 }

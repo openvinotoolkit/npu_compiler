@@ -111,9 +111,8 @@ func.func @FuseSoftMaxAffineReshapeConvert(%arg0: tensor<1x16800x1x2xf32>) -> te
 
     // CHECK: [[CONVERT:%.+]] = IE.Convert([[ARG0]]) {dstElemType = f16} : tensor<1x16800x1x2xf32> -> tensor<1x16800x1x2xf16>
     // CHECK: [[SOFTMAX:%.+]] = IE.SoftMax([[CONVERT]]) {axisInd = 3 : i64, dstElemType = f32} : tensor<1x16800x1x2xf16> -> tensor<1x16800x1x2xf32>
-    // CHECK: [[AFFINERESHAPE:%.+]] = IE.AffineReshape([[SOFTMAX]]) {dim_mapping = {{\[}}[0, 1], [2], [2], [3]{{\]}}, shape_value = [1, 1, 16800, 2]} : tensor<1x16800x1x2xf32> -> tensor<1x1x16800x2xf32>
-    // CHECK: [[AFFINERESHAPE2:%.+]] = IE.AffineReshape([[AFFINERESHAPE]]) {dim_mapping = {{\[}}[0], [0], [1], [2]{{\]}}, shape_value = [1, 16800, 2]} : tensor<1x1x16800x2xf32> -> tensor<1x16800x2xf32>
-    // CHECK: return [[AFFINERESHAPE2]] : tensor<1x16800x2xf32>
+    // CHECK: [[AFFINERESHAPE:%.+]] = IE.AffineReshape([[SOFTMAX]]) {dim_mapping = {{\[}}[0], [1], [1], [2]{{\]}}, shape_value = [1, 16800, 2]} : tensor<1x16800x1x2xf32> -> tensor<1x16800x2xf32>
+    // CHECK: return [[AFFINERESHAPE]] : tensor<1x16800x2xf32>
 }
 
 // -----
@@ -137,9 +136,8 @@ func.func @FuseSoftMaxPermuteCastAffineReshapeConvert(%arg0: tensor<1x2x1x1xf32,
     // CHECK: [[CONVERT:%.+]] = IE.Convert([[ARG0]]) {dstElemType = f16} : tensor<1x2x1x1xf32, {order = #NHWC}> -> tensor<1x2x1x1xf16, {order = #NHWC}>
     // CHECK: [[SOFTMAX:%.+]] = IE.SoftMax([[CONVERT]]) {axisInd = 1 : i64, dstElemType = f32} : tensor<1x2x1x1xf16, {order = #NHWC}> -> tensor<1x2x1x1xf32, {order = #NHWC}>
     // CHECK: [[PERMUTECAST:%.+]] = IE.PermuteCast([[SOFTMAX]]) {dst_order = #NCHW, mem_perm = #NWHC} : tensor<1x2x1x1xf32, {order = #NHWC}> -> tensor<1x2x1x1xf32>
-    // CHECK: [[AFFINERESHAPE1:%.+]] = IE.AffineReshape([[PERMUTECAST]]) {dim_mapping = {{\[}}{{\[}}0, 1, 2{{\]}}, {{\[}}3{{\]}}, {{\[}}3{{\]}}, {{\[}}3{{\]}}{{\]}}, shape_value = {{\[}}1, 1, 1, 2{{\]}}} : tensor<1x2x1x1xf32> -> tensor<1x1x1x2xf32>
-    // CHECK: [[AFFINERESHAPE2:%.+]] = IE.AffineReshape([[AFFINERESHAPE1]]) {dim_mapping = {{\[}}{{\[}}0{{\]}}, {{\[}}0{{\]}}, {{\[}}0{{\]}}, {{\[}}1{{\]}}{{\]}}, shape_value = {{\[}}1, 2{{\]}}} : tensor<1x1x1x2xf32> -> tensor<1x2xf32>
-    // CHECK: return [[AFFINERESHAPE2]] : tensor<1x2xf32>
+    // CHECK: [[AFFINERESHAPE1:%.+]] = IE.AffineReshape([[PERMUTECAST]]) {dim_mapping = {{\[}}[0], [1], [1], [1]{{\]}}, shape_value = [1, 2]} : tensor<1x2x1x1xf32> -> tensor<1x2xf32>
+    // CHECK: return [[AFFINERESHAPE1]] : tensor<1x2xf32>
 }
 
 // -----
@@ -165,9 +163,8 @@ func.func @FuseSoftMaxSlicePermuteCastAffineReshapeConvert(%arg0: tensor<1x1008x
     // CHECK: [[SOFTMAX:%.+]] = IE.SoftMax([[CONVERT]]) {axisInd = 1 : i64, dstElemType = f32, padSize = 8 : i64} : tensor<1x1008x1x1xf16, {order = #NHWC}> -> tensor<1x1008x1x1xf32, {order = #NHWC}>
     // CHECK: [[SLICE:%.+]] = IE.Slice [[SOFTMAX]] [0, 0, 0, 0] [1, 1000, 1, 1] : tensor<1x1008x1x1xf32, {order = #NHWC}> to tensor<1x1000x1x1xf32, {order = #NHWC}>
     // CHECK: [[PERMUTECAST:%.+]] = IE.PermuteCast([[SLICE]]) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<1x1000x1x1xf32, {order = #NHWC}> -> tensor<1x1000x1x1xf32>
-    // CHECK: [[AFFINERESHAPE:%.+]] = IE.AffineReshape([[PERMUTECAST]]) {dim_mapping = {{\[}}[0, 1, 2], [3], [3], [3]{{\]}}, shape_value = [1, 1, 1, 1000]} : tensor<1x1000x1x1xf32> -> tensor<1x1x1x1000xf32>
-    // CHECK: [[AFFINERESHAPE2:%.+]] = IE.AffineReshape([[AFFINERESHAPE]]) {dim_mapping = {{\[}}[0], [0], [0], [1]{{\]}}, shape_value = [1, 1000]} : tensor<1x1x1x1000xf32> -> tensor<1x1000xf32>
-    // CHECK: return [[AFFINERESHAPE2]] : tensor<1x1000xf32>
+    // CHECK: [[AFFINERESHAPE:%.+]] = IE.AffineReshape([[PERMUTECAST]]) {dim_mapping = {{\[}}[0], [1], [1], [1]{{\]}}, shape_value = [1, 1000]} : tensor<1x1000x1x1xf32> -> tensor<1x1000xf32>
+    // CHECK: return [[AFFINERESHAPE]] : tensor<1x1000xf32>
 }
 
 // -----
@@ -193,9 +190,8 @@ func.func @FuseSoftMaxSliceAffineReshapePermuteCastConvert(%arg0: tensor<1x32640
     // CHECK: [[SLICE:%.+]] = IE.Slice [[SOFTMAX]] [0, 0, 0, 0] [1, 32632, 250, 4] : tensor<1x32640x250x4xf32, {order = #NHWC}> to tensor<1x32632x250x4xf32, {order = #NHWC}>
     // CHECK: [[AFFINERESHAPE1:%.+]] = IE.AffineReshape([[SLICE]]) {dim_mapping = {{\[}}[0], [1], [2], [2, 3]{{\]}}, shape_value = [1, 32632, 1000, 1]} : tensor<1x32632x250x4xf32, {order = #NHWC}> -> tensor<1x32632x1000x1xf32, {order = #NHWC}>
     // CHECK: [[PERMUTECAST:%.+]] = IE.PermuteCast([[AFFINERESHAPE1]]) {dst_order = #NCHW, mem_perm = #map} : tensor<1x32632x1000x1xf32, {order = #NHWC}> -> tensor<1000x1x1x32632xf32>
-    // CHECK: [[AFFINERESHAPE2:%.+]] = IE.AffineReshape([[PERMUTECAST]]) {dim_mapping = {{\[}}[0], [1], [2], [3]{{\]}}, shape_value = [1000, 1, 32632, 1]} : tensor<1000x1x1x32632xf32> -> tensor<1000x1x32632x1xf32>
-    // CHECK: [[AFFINERESHAPE3:%.+]] = IE.AffineReshape([[AFFINERESHAPE2]]) {dim_mapping = {{\[}}[0], [1], [2], [2]{{\]}}, shape_value = [1000, 1, 32632]} : tensor<1000x1x32632x1xf32> -> tensor<1000x1x32632xf32>
-    // CHECK: return [[AFFINERESHAPE3]] : tensor<1000x1x32632xf32>
+    // CHECK: [[AFFINERESHAPE2:%.+]] = IE.AffineReshape([[PERMUTECAST]]) {dim_mapping = {{\[}}[0], [1], [1], [2]{{\]}}, shape_value = [1000, 1, 32632]} : tensor<1000x1x1x32632xf32> -> tensor<1000x1x32632xf32>
+    // CHECK: return [[AFFINERESHAPE2]] : tensor<1000x1x32632xf32>
 }
 
 // -----

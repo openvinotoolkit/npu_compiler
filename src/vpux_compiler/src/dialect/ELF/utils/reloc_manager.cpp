@@ -84,7 +84,7 @@ void createRelocation(mlir::Operation* op, ELF::CreateRelocationSectionOp relocS
     // here we set the actual offset from the beginning of the final ELF file
     if (isOffsetRelative) {
         auto baseBinarySizeOp = mlir::cast<ELF::BinarySizeOpInterface>(op);
-        offset += baseBinarySizeOp.getMemoryOffset();
+        offset += baseBinarySizeOp.getMemoryOffset().value_or(0);
     }
 
     relocBuilder.create<ELF::RelocOp>(relocSection.getLoc(), offset, symbol, relocType, addend, description);

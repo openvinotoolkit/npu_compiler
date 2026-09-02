@@ -153,10 +153,11 @@ mlir::LogicalResult ConvertMatMulToConvPass::MatMulOpConverter::matchAndRewrite(
 
     const auto outShape = getShape(matmulOp.getOutput());
     const auto outShapeAttr = getIntArrayAttr(ctx, outShape);
+    const auto matmulOpName = matmulOp->getName();
     auto outputReshape = rewriter.replaceOpWithNewOp<IE::ReshapeOp>(matmulOp, convOp, outShapeAttr);
     extendOpLoc(outputReshape, "output_reshape");
 
-    _log.trace("Replace {0} success", matmulOp->getName());
+    _log.trace("Replace {0} success", matmulOpName);
     return mlir::success();
 }
 

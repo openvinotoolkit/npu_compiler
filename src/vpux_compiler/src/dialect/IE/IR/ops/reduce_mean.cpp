@@ -12,14 +12,14 @@
 using namespace vpux;
 
 void IE::ReduceMeanOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Type outputType,
-                             mlir::Value input, mlir::Value axes, mlir::ArrayAttr axesValue, mlir::UnitAttr keepDims) {
-    return build(odsBuilder, odsState, outputType, input, axes, axesValue, keepDims, /*outputPadding=*/nullptr,
+                             mlir::Value input, mlir::ArrayAttr axesValue, mlir::UnitAttr keepDims) {
+    return build(odsBuilder, odsState, outputType, input, axesValue, keepDims, /*outputPadding=*/nullptr,
                  /*inputPadding=*/nullptr);
 }
 
 void IE::ReduceMeanOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Value input,
-                             mlir::Value axes, mlir::ArrayAttr axesValue, mlir::UnitAttr keepDims) {
-    return build(odsBuilder, odsState, input, axes, axesValue, keepDims, /*outputPadding=*/nullptr,
+                             mlir::ArrayAttr axesValue, mlir::UnitAttr keepDims) {
+    return build(odsBuilder, odsState, input, axesValue, keepDims, /*outputPadding=*/nullptr,
                  /*inputPadding=*/nullptr);
 }
 
@@ -33,17 +33,10 @@ mlir::LogicalResult vpux::IE::ReduceMeanOp::inferReturnTypeComponents(
     if (mlir::failed(reduceMean.verify(loc))) {
         return mlir::failure();
     }
-    if (reduceMean.getAxes() != nullptr && reduceMean.getAxesValue().has_value()) {
-        return errorAt(loc, "Ambiguous axes representation");
-    } else if (reduceMean.getAxes() == nullptr && !reduceMean.getAxesValue().has_value()) {
-        return errorAt(loc, "Axes was not provided properly");
-    }
 
     const auto input = reduceMean.getInput();
     const auto keepDims = reduceMean.getKeepDims();
-
-    auto axesValue = IE::extractAxes(loc, reduceMean);
-
+    auto axesValue = parseIntArrayAttr<int64_t>(reduceMean.getAxesValue());
     return IE::inferReduceReturnTypeComponents(loc, input, keepDims, axesValue, inferredReturnShapes,
                                                reduceMean.getInputPaddingAttr(), reduceMean.getOutputPaddingAttr());
 }
@@ -95,9 +88,4 @@ mlir::OpFoldResult vpux::IE::ReduceMeanOp::fold(FoldAdaptor) {
     }
 
     return nullptr;
-}
-
-void vpux::IE::ReduceMeanOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns,
-                                                         mlir::MLIRContext* context) {
-    patterns.add<ConvertConstToAttr<vpux::IE::ReduceMeanOp>>(context);
 }

@@ -31,13 +31,13 @@ enum class IRPrintingOrder {
 
 class DeveloperConfig final {
 public:
-    explicit DeveloperConfig(Logger log);
+    DeveloperConfig(Logger log, mlir::MLIRContext* ctx, const vpux::OV::Config& config);
     DeveloperConfig(const DeveloperConfig& other) = delete;
     DeveloperConfig& operator=(const DeveloperConfig& other) = delete;
     ~DeveloperConfig();
 
     void setup(mlir::DefaultTimingManager& tm) const;
-    void setup(mlir::PassManager& pm, const intel_npu::Config& config, bool isSubPipeline = false) const;
+    void setup(mlir::PassManager& pm, const vpux::OV::Config& config, bool isSubPipeline = false) const;
     void dump(mlir::PassManager& pm) const;
 
     bool useSharedConstants() const {

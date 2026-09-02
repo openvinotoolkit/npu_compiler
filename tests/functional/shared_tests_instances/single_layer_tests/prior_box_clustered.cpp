@@ -30,6 +30,7 @@ TEST_P(PriorBoxClusteredLayerTestCommon, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(PriorBoxClusteredLayerTestCommon, NPU5020_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);

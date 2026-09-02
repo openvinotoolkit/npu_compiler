@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -13,10 +12,13 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/shape_utils.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -481,8 +483,18 @@ mlir::LogicalResult ReshapeConvInput<ConcreteOp>::matchAndRewrite(ConcreteOp con
     // Skip this override when convOp is connected to a SoftMaxOp, as the reshape breaks or
     // degrades vertical fusion efficiency (E#210093).
     if (_preferredSpatialAlignment > VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT) {
-        const auto isConnectedToSoftmaxUser = [](mlir::Operation* op) {
-            // Walk through view-like op chains to find a SoftMaxOp consumer.
+        const auto arch = vpux::config::getArch(convOp);
+        const auto isConnectedToSoftmaxUser = [arch](mlir::Operation* op) {
+            // Determines whether a user op should be walked through when searching for a
+            // downstream SoftMaxOp.
+            const auto isTransparentForSoftmaxSearch = [arch](mlir::Operation* user) {
+                if (IE::isPureViewOp(user) || mlir::isa<IE::AddOp>(user)) {
+                    return true;
+                }
+                (void)arch;
+                return false;
+            };
+
             llvm::SmallPtrSet<mlir::Operation*, 16> visited;
             SmallVector<mlir::Operation*> worklist(op->getUsers().begin(), op->getUsers().end());
             while (!worklist.empty()) {
@@ -493,8 +505,7 @@ mlir::LogicalResult ReshapeConvInput<ConcreteOp>::matchAndRewrite(ConcreteOp con
                 if (mlir::isa<IE::SoftMaxOp>(user)) {
                     return true;
                 }
-                // Look through AddOp for the attention pattern: MatMul -> Add -> SoftMax
-                if (IE::isPureViewOp(user) || mlir::isa<IE::AddOp>(user)) {
+                if (isTransparentForSoftmaxSearch(user)) {
                     worklist.append(user->getUsers().begin(), user->getUsers().end());
                 }
             }
@@ -664,6 +675,521 @@ mlir::LogicalResult ReshapeConvInput<ConcreteOp>::matchAndRewrite(ConcreteOp con
 }
 
 //
+// ReshapeConv1DInputWithHalo
+//
+// Rewrite a 1D convolution [1,C,1,L] / [OC,C,1,K] (or the H-major variant) into a 2D
+// conv [1,C,numRows,L_row+K-1] with stride 1, pads = 0, by slicing numRows overlapping
+// length-(L_row+K-1) windows and concatenating them along H. The K-1 row-boundary halo
+// keeps the rewrite bit-exact while the kernel still slides along W.
+//
+// Motivation: the DPU MPE grid is 16x16 with an NTHW 16/2 stencil. Activation H=1 leaves
+// 15 of 16 MPE rows idle (~16x MAC underuse). Folding L into numRows rows recovers MPE
+// utilization for vocoder-style 1D Conv chains.
+
+template <typename ConcreteOp>
+class ReshapeConv1DInputWithHalo final : public mlir::OpRewritePattern<ConcreteOp> {
+public:
+    ReshapeConv1DInputWithHalo(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<ConcreteOp>(ctx), _log(log) {
+        this->setDebugName("ReshapeConv1DInputWithHalo");
+    }
+
+    mlir::LogicalResult matchAndRewrite(ConcreteOp convOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+namespace {
+
+// Pick the largest numRows in [mpeAlignment, numDPU * mpeAlignment] that divides outLen
+// and keeps L_row >= max(kernel, mpeAlignment). Bias toward larger numRows so the
+// multi-cluster tiler has more SOH headroom.
+//
+// Skip layers below ~500 MMACs or with small inC*outC: those are DMA-bound, and the
+// added Concat of numRows overlapping windows costs more than the MPE-utilisation win.
+// Caller passes the kernel's per-group IC and activation's full OC, so the MAC formula
+// works for both plain Conv and GroupConv.
+int64_t findRowCount(int64_t outLen, int64_t kernel, int64_t inC, int64_t outC, int64_t mpeAlignment, int64_t numDPU) {
+    constexpr int64_t kMinMACsForRewrite = 500'000'000;
+    constexpr int64_t kMinChannelProduct = 64 * 64;
+
+    if (inC * outC * outLen * kernel < kMinMACsForRewrite) {
+        return 1;
+    }
+    if (inC * outC < kMinChannelProduct) {
+        return 1;
+    }
+
+    const int64_t step = VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT;
+    const int64_t minNumRows = mpeAlignment;
+    const int64_t maxNumRows = std::max<int64_t>(numDPU, 1) * mpeAlignment;
+
+    const int64_t minLRow = std::max<int64_t>(kernel, mpeAlignment);
+    if (outLen < minLRow) {
+        return 1;
+    }
+
+    const int64_t maxByLRow = outLen / minLRow;
+    int64_t numRowsUpper = std::min<int64_t>(maxByLRow, maxNumRows);
+    numRowsUpper = (numRowsUpper / step) * step;
+
+    for (int64_t numRows = numRowsUpper; numRows >= minNumRows; numRows -= step) {
+        if (outLen % numRows == 0) {
+            return numRows;
+        }
+    }
+    return 1;
+}
+
+mlir::Value buildPadOp(mlir::PatternRewriter& rewriter, mlir::Location loc, mlir::Value input, Dim axis,
+                       int64_t padBegin, int64_t padEnd) {
+    if (padBegin == 0 && padEnd == 0) {
+        return input;
+    }
+
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+
+    auto makeZeroConst = [&](int64_t padSize, StringRef nameSuffix) -> mlir::Value {
+        SmallVector<int64_t> constShape = to_small_vector(inputType.getShape());
+        constShape[axis.ind()] = padSize;
+        // changeShape inherits DimsOrder/encoding/memSpace; building a fresh RankedTensorType
+        // would drop them and trigger a layout mismatch in the following IE.Concat.
+        auto constType = mlir::cast<mlir::RankedTensorType>(inputType.changeShape(ShapeRef(constShape)));
+        return Const::createZerosConst(rewriter, appendLoc(loc, nameSuffix), constType);
+    };
+
+    SmallVector<mlir::Value> concatInputs;
+    if (padBegin > 0) {
+        concatInputs.push_back(makeZeroConst(padBegin, "pad_begin"));
+    }
+    concatInputs.push_back(input);
+    if (padEnd > 0) {
+        concatInputs.push_back(makeZeroConst(padEnd, "pad_end"));
+    }
+    return rewriter.create<IE::ConcatOp>(loc, concatInputs, axis.ind()).getOutput();
+}
+
+// AffineReshape dim mapping that flattens the [N,C,numRows,L_row] row form back to a 1D
+// activation: intoW yields [N,C,1,numRows*L_row], otherwise [N,C,numRows*L_row,1].
+SmallVector<SmallVector<int64_t>> getRowMergeMapping(bool intoW) {
+    if (intoW) {
+        return {{Dims4D::Act::N.ind()},
+                {Dims4D::Act::C.ind()},
+                {Dims4D::Act::H.ind(), Dims4D::Act::W.ind()},
+                {Dims4D::Act::W.ind()}};
+    }
+    return {{Dims4D::Act::N.ind()},
+            {Dims4D::Act::C.ind()},
+            {Dims4D::Act::H.ind()},
+            {Dims4D::Act::H.ind(), Dims4D::Act::W.ind()}};
+}
+
+// A 1D-shaped conv keeps exactly one non-singleton spatial axis and carries the kernel extent on that same axis.
+struct Conv1DLayout {
+    bool longAxisIsW;
+    Dim longDim;
+    int64_t kernelLong;
+    int64_t inLen;
+    int64_t outLen;
+};
+
+std::optional<Conv1DLayout> getConv1DLayout(ShapeRef inputShape, ShapeRef filterShape, ShapeRef outputShape) {
+    const int64_t inH = inputShape[Dims4D::Act::H];
+    const int64_t inW = inputShape[Dims4D::Act::W];
+    const int64_t outH = outputShape[Dims4D::Act::H];
+    const int64_t outW = outputShape[Dims4D::Act::W];
+    const int64_t kY = filterShape[Dims4D::Filter::KY];
+    const int64_t kX = filterShape[Dims4D::Filter::KX];
+
+    // Two layouts in the wild:
+    //   layoutW: input [1,C,1,L], kernel [OC,C,1,K]
+    //   layoutH: input [1,C,L,1], kernel [OC,C,K,1]
+    if (inH == 1 && inW > 1 && kY == 1 && kX > 1 && outH == 1 && outW > 1) {
+        return Conv1DLayout{/*longAxisIsW=*/true, Dims4D::Act::W, kX, inW, outW};
+    }
+    if (inW == 1 && inH > 1 && kX == 1 && kY > 1 && outW == 1 && outH > 1) {
+        return Conv1DLayout{/*longAxisIsW=*/false, Dims4D::Act::H, kY, inH, outH};
+    }
+    return std::nullopt;
+}
+
+// Preconditions shared by both halo rewrites: 4D operands, an element type the extra
+// Concat/AffineReshape plumbing can carry through unchanged, and no explicit padding attrs.
+template <typename ConcreteOp>
+mlir::LogicalResult checkHaloOperands(ConcreteOp convOp, mlir::PatternRewriter& rewriter, Logger log) {
+    if (getShape(convOp.getInput()).size() != 4 || getShape(convOp.getFilter()).size() != 4) {
+        return matchFailed(log, rewriter, convOp, "Expected 4D input and filter");
+    }
+
+    const auto inElemType = mlir::cast<vpux::NDTypeInterface>(convOp.getInput().getType()).getElementType();
+    if (inElemType.isBF16() || mlir::isa_and_present<mlir::quant::UniformQuantizedPerAxisType>(inElemType)) {
+        return matchFailed(log, rewriter, convOp, "Element type {0} not supported", inElemType);
+    }
+
+    if (convOp.getOutputPaddingAttr() != nullptr || convOp.getInputPaddingAttr() != nullptr) {
+        return matchFailed(log, rewriter, convOp, "output_padding / input_padding not supported");
+    }
+    return mlir::success();
+}
+
+// Slice numRows windows of windowLen elements, spaced step apart along the long axis, and
+// concat them along H. layoutH windows are singleton-swapped from [N,C,windowLen,1] to
+// [N,C,1,windowLen] first, so after the concat H always indexes rows and the kernel always
+// slides along W.
+mlir::Value buildRowWindowsConcat(mlir::PatternRewriter& rewriter, mlir::Location loc, mlir::Value paddedInput,
+                                  const Conv1DLayout& layout, int64_t numRows, int64_t step, int64_t windowLen) {
+    auto* ctx = rewriter.getContext();
+    const auto paddedShape = getShape(paddedInput);
+    const auto inN = paddedShape[Dims4D::Act::N];
+    const auto inC = paddedShape[Dims4D::Act::C];
+
+    const auto windowShapeAttr = getIntArrayAttr(ctx, SmallVector<int64_t>{inN, inC, 1, windowLen});
+    const auto windowMappingAttr = getIntArrayOfArray(ctx, getRowMergeMapping(/*intoW=*/true));
+
+    SmallVector<mlir::Value> windows;
+    windows.reserve(numRows);
+    for (int64_t h = 0; h < numRows; ++h) {
+        SmallVector<int64_t> offsets{0, 0, 0, 0};
+        SmallVector<int64_t> sizes{inN, inC, 1, 1};
+        offsets[layout.longDim.ind()] = h * step;
+        sizes[layout.longDim.ind()] = windowLen;
+        mlir::Value window = rewriter.create<IE::SliceOp>(appendLoc(loc, "halo_slice_{0}", h), paddedInput,
+                                                          getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes))
+                                     .getResult();
+        if (!layout.longAxisIsW) {
+            window = rewriter.createOrFold<IE::AffineReshapeOp>(appendLoc(loc, "halo_reshape_{0}", h), window,
+                                                                windowMappingAttr, windowShapeAttr);
+        }
+        windows.push_back(window);
+    }
+    return rewriter.create<IE::ConcatOp>(appendLoc(loc, "halo_concat"), windows, Dims4D::Act::H.ind()).getOutput();
+}
+
+// layoutH only: singleton-swap the kernel from [OC,C,K,1] to [OC,C,1,K] so it matches the
+// row layout produced by buildRowWindowsConcat.
+mlir::Value reshapeFilterToRowLayout(mlir::PatternRewriter& rewriter, mlir::Location loc, mlir::Value filter) {
+    auto* ctx = rewriter.getContext();
+    const auto filterShape = getShape(filter);
+    const SmallVector<int64_t> newShape{filterShape[Dims4D::Filter::OC], filterShape[Dims4D::Filter::IC], 1,
+                                        filterShape[Dims4D::Filter::KY]};
+    const SmallVector<SmallVector<int64_t>> dimMapping{{Dims4D::Filter::OC.ind()},
+                                                       {Dims4D::Filter::IC.ind()},
+                                                       {Dims4D::Filter::KY.ind(), Dims4D::Filter::KX.ind()},
+                                                       {Dims4D::Filter::KX.ind()}};
+    return rewriter.createOrFold<IE::AffineReshapeOp>(appendLoc(loc, "halo_filter_reshape"), filter,
+                                                      getIntArrayOfArray(ctx, dimMapping),
+                                                      getIntArrayAttr(ctx, newShape));
+}
+
+}  // namespace
+
+template <typename ConcreteOp>
+mlir::LogicalResult ReshapeConv1DInputWithHalo<ConcreteOp>::matchAndRewrite(ConcreteOp convOp,
+                                                                            mlir::PatternRewriter& rewriter) const {
+    auto nestedLog = _log.nest();
+
+    const auto inputShape = getShape(convOp.getInput());
+    const auto filterShape = getShape(convOp.getFilter());
+    const auto outputShape = getShape(convOp.getOutput());
+
+    if (mlir::failed(checkHaloOperands(convOp, rewriter, nestedLog))) {
+        return mlir::failure();
+    }
+
+    const auto layout = getConv1DLayout(inputShape, filterShape, outputShape);
+    if (!layout.has_value()) {
+        return matchFailed(nestedLog, rewriter, convOp,
+                           "Not a 1D-shaped conv (need exactly one of H/W == 1 with K>1 along the other)");
+    }
+    const bool longAxisIsW = layout->longAxisIsW;
+    const Dim longDim = layout->longDim;
+    const int64_t kernelLong = layout->kernelLong;
+    const int64_t inLen = layout->inLen;
+    const int64_t outLen = layout->outLen;
+
+    const auto strides = parseIntArrayAttr<int64_t>(convOp.getStrides());
+    const auto dilations = parseIntArrayAttr<int64_t>(convOp.getDilations());
+    if (strides.size() != 2 || strides[0] != 1 || strides[1] != 1) {
+        return matchFailed(nestedLog, rewriter, convOp, "Require strides == [1, 1]");
+    }
+    if (dilations.size() != 2 || dilations[0] != 1 || dilations[1] != 1) {
+        return matchFailed(nestedLog, rewriter, convOp, "Require dilations == [1, 1]");
+    }
+
+    const auto padsBegin = parseIntArrayAttr<int64_t>(convOp.getPadsBegin());
+    const auto padsEnd = parseIntArrayAttr<int64_t>(convOp.getPadsEnd());
+    if (padsBegin.size() != 2 || padsEnd.size() != 2) {
+        return matchFailed(nestedLog, rewriter, convOp, "Unexpected pad rank");
+    }
+    // IE pad attribute layout is [padsY, padsX].
+    const int64_t padShortBegin = longAxisIsW ? padsBegin[0] : padsBegin[1];
+    const int64_t padShortEnd = longAxisIsW ? padsEnd[0] : padsEnd[1];
+    const int64_t padLongBegin = longAxisIsW ? padsBegin[1] : padsBegin[0];
+    const int64_t padLongEnd = longAxisIsW ? padsEnd[1] : padsEnd[0];
+    if (padShortBegin != 0 || padShortEnd != 0) {
+        return matchFailed(nestedLog, rewriter, convOp, "Require pads on the singleton axis to be 0");
+    }
+    if (outLen != inLen + padLongBegin + padLongEnd - kernelLong + 1) {
+        return matchFailed(nestedLog, rewriter, convOp, "Output length doesn't match explicit pad arithmetic");
+    }
+
+    const auto inElemType = mlir::cast<vpux::NDTypeInterface>(convOp.getInput().getType()).getElementType();
+    const int64_t mpeAlignment = VPU::NCEInvariant::getAlignment(inElemType);
+    const int64_t numDPU = config::getTotalNumOfEngines(convOp, config::ExecutorKind::DPU);
+    const int64_t numRows = findRowCount(outLen, kernelLong, filterShape[Dims4D::Filter::IC],
+                                         outputShape[Dims4D::Act::C], mpeAlignment, numDPU);
+    if (numRows <= 1) {
+        return matchFailed(nestedLog, rewriter, convOp, "No beneficial row count for out_len {0}, K {1}", outLen,
+                           kernelLong);
+    }
+    const int64_t lRow = outLen / numRows;
+
+    nestedLog.trace("Rewriting 1D conv {0} (long={1}) with K={2}, L_out={3}, numRows={4}, L_row={5}", convOp->getLoc(),
+                    longAxisIsW ? "W" : "H", kernelLong, outLen, numRows, lRow);
+
+    auto* ctx = convOp->getContext();
+    const auto origLoc = convOp->getLoc();
+
+    // Step 1: absorb the conv's pads into a Pad-via-Concat along the long axis.
+    auto paddedInput =
+            buildPadOp(rewriter, appendLoc(origLoc, "halo_pad"), convOp.getInput(), longDim, padLongBegin, padLongEnd);
+
+    // Step 2: numRows overlapping length-(L_row+K-1) windows, concatenated into rows.
+    auto rowsInput = buildRowWindowsConcat(rewriter, origLoc, paddedInput, *layout, numRows, /*step=*/lRow,
+                                           /*windowLen=*/lRow + kernelLong - 1);
+    mlir::Value newFilter =
+            longAxisIsW ? convOp.getFilter() : reshapeFilterToRowLayout(rewriter, origLoc, convOp.getFilter());
+
+    // Step 3: rebuild the conv with pads = 0; output is [N,OC,numRows,L_row].
+    auto zeroPads = getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0});
+    Shape newOutputShape{outputShape[Dims4D::Act::N], outputShape[Dims4D::Act::C], numRows, lRow};
+    auto origOutType = mlir::cast<vpux::NDTypeInterface>(convOp.getOutput().getType());
+    auto newOutType = origOutType.changeShape(newOutputShape);
+
+    auto newConvOp = mlir::cast<ConcreteOp>(rewriter.clone(*convOp.getOperation()));
+    rewriter.modifyOpInPlace(newConvOp, [&]() {
+        newConvOp->setOperand(0, rowsInput);
+        newConvOp->setOperand(1, newFilter);
+        newConvOp->setAttr(convOp.getPadsBeginAttrName(), zeroPads);
+        newConvOp->setAttr(convOp.getPadsEndAttrName(), zeroPads);
+        newConvOp.getOutput().setType(mlir::cast<mlir::RankedTensorType>(newOutType));
+        newConvOp->setLoc(appendLoc(origLoc, "halo_conv"));
+    });
+
+    // Step 4: collapse [N,OC,numRows,L_row] back to the original output shape.
+    const auto outShapeAttr = getIntArrayAttr(ctx, outputShape.raw());
+    rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(
+            convOp, newConvOp.getOutput(), getIntArrayOfArray(ctx, getRowMergeMapping(longAxisIsW)), outShapeAttr);
+
+    _log.trace("Successfully rewrote 1D conv at {0} into 2D form with halo (numRows={1}, layout={2})", origLoc, numRows,
+               longAxisIsW ? "W" : "H");
+    return mlir::success();
+}
+
+//
+// ReshapeTransposedConv1DInputWithHalo
+//
+// A forward conv only *reads* a halo, so its per-row outputs stay disjoint. A strided
+// transposed conv *scatters* each input sample over a K-wide output window, so the roles
+// flip: each row reads a wider input window and keeps only the output range it owns, which
+// is still disjoint across rows (no overlap-add).
+//
+// Index derivation (long axis, K = q*S with S = stride, haloPad = q - 1, row length m;
+// K % S == 0 is required so all row windows have the same size):
+//   - Row h owns output [h*lRow, (h+1)*lRow), lRow = S*m, fed by the window
+//     paddedInput[h*m : h*m + m + haloPad) of the haloPad-padded (both sides) input.
+//   - That window's local output is lRow + 2*S*haloPad wide; row h keeps the middle
+//     [S*haloPad, S*haloPad + lRow) slice.
+//   - numRows must divide L_in + haloPad. L_out = (L_in - 1)*S + K rarely factors nicely
+//     (L_in=40960 -> 4 * 40961, prime), so the input may be zero-extended first and the
+//     resulting output tail sliced off.
+
+namespace {
+
+struct TransposedConvRowPlan {
+    int64_t expandBy;
+    int64_t numRows;
+};
+
+// Smallest zero-expansion of the input that lets the row plan divide evenly, preferring
+// the largest row count for SOH headroom.
+std::optional<TransposedConvRowPlan> findTransposedConvRowPlan(int64_t inLen, int64_t stride, int64_t kernel,
+                                                               int64_t mpeAlignment, int64_t numDPU) {
+    const int64_t haloPad = kernel / stride - 1;
+    const int64_t minNumRows = mpeAlignment;
+    const int64_t maxNumRows = std::max<int64_t>(numDPU, 1) * mpeAlignment;
+    const int64_t minLRow = std::max<int64_t>(kernel, mpeAlignment);
+
+    constexpr int64_t kMaxExpand = 4096;
+    for (int64_t expandBy = 0; expandBy < kMaxExpand; ++expandBy) {
+        const int64_t lTotal = inLen + expandBy + haloPad;
+        for (int64_t numRows = maxNumRows; numRows >= minNumRows; --numRows) {
+            const int64_t m = lTotal / numRows;
+            if (lTotal % numRows == 0 && m * stride >= minLRow) {
+                return TransposedConvRowPlan{expandBy, numRows};
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+}  // namespace
+
+class ReshapeTransposedConv1DInputWithHalo final : public mlir::OpRewritePattern<IE::TransposedConvolutionOp> {
+public:
+    ReshapeTransposedConv1DInputWithHalo(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::TransposedConvolutionOp>(ctx), _log(log) {
+        setDebugName("ReshapeTransposedConv1DInputWithHalo");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::TransposedConvolutionOp convOp,
+                                        mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult ReshapeTransposedConv1DInputWithHalo::matchAndRewrite(IE::TransposedConvolutionOp convOp,
+                                                                          mlir::PatternRewriter& rewriter) const {
+    auto nestedLog = _log.nest();
+
+    const auto inputShape = getShape(convOp.getInput());
+    const auto filterShape = getShape(convOp.getFilter());
+    const auto outputShape = getShape(convOp.getOutput());
+
+    if (mlir::failed(checkHaloOperands(convOp, rewriter, nestedLog))) {
+        return mlir::failure();
+    }
+    if (convOp.getOutputShape() != nullptr) {
+        return matchFailed(nestedLog, rewriter, convOp, "Explicit output_shape operand is not supported");
+    }
+
+    const auto layout = getConv1DLayout(inputShape, filterShape, outputShape);
+    if (!layout.has_value()) {
+        return matchFailed(nestedLog, rewriter, convOp,
+                           "Not a 1D-shaped transposed conv (need exactly one of H/W == 1 with K>1 along the other)");
+    }
+    const bool longAxisIsW = layout->longAxisIsW;
+    const Dim longDim = layout->longDim;
+    const int64_t kernelLong = layout->kernelLong;
+    const int64_t inLen = layout->inLen;
+
+    const auto strides = parseIntArrayAttr<int64_t>(convOp.getStrides());
+    const auto dilations = parseIntArrayAttr<int64_t>(convOp.getDilations());
+    if (strides.size() != 2 || dilations.size() != 2 || dilations[0] != 1 || dilations[1] != 1) {
+        return matchFailed(nestedLog, rewriter, convOp, "Require rank-2 strides and dilations == [1, 1]");
+    }
+    const int64_t strideLong = longAxisIsW ? strides[Dims4D::Strides::X.ind()] : strides[Dims4D::Strides::Y.ind()];
+    if (strideLong <= 0 || kernelLong % strideLong != 0) {
+        return matchFailed(nestedLog, rewriter, convOp, "Require kernel to be a multiple of the long-axis stride");
+    }
+
+    const auto isZero = [](int64_t val) {
+        return val == 0;
+    };
+    if (!llvm::all_of(parseIntArrayAttr<int64_t>(convOp.getPadsBegin()), isZero) ||
+        !llvm::all_of(parseIntArrayAttr<int64_t>(convOp.getPadsEnd()), isZero) ||
+        !llvm::all_of(parseIntArrayAttr<int64_t>(convOp.getSpatialOutputPadding()), isZero)) {
+        return matchFailed(nestedLog, rewriter, convOp, "Non-zero padding is not supported");
+    }
+
+    const auto inElemType = mlir::cast<vpux::NDTypeInterface>(convOp.getInput().getType()).getElementType();
+    const int64_t mpeAlignment = VPU::NCEInvariant::getAlignment(inElemType);
+    const int64_t numDPU = config::getTotalNumOfEngines(convOp, config::ExecutorKind::DPU);
+    const auto plan = findTransposedConvRowPlan(inLen, strideLong, kernelLong, mpeAlignment, numDPU);
+    if (!plan.has_value()) {
+        return matchFailed(nestedLog, rewriter, convOp, "No beneficial row count for in_len {0}, K {1}, stride {2}",
+                           inLen, kernelLong, strideLong);
+    }
+    const int64_t expandBy = plan->expandBy;
+    const int64_t numRows = plan->numRows;
+
+    const int64_t haloPad = kernelLong / strideLong - 1;
+    const int64_t inLenExp = inLen + expandBy;
+    const int64_t lTotal = inLenExp + haloPad;
+    const int64_t m = lTotal / numRows;
+    const int64_t lRow = m * strideLong;
+    const int64_t windowLongIn = m + haloPad;
+    const int64_t localOutW = lRow + 2 * strideLong * haloPad;
+
+    VPUX_THROW_UNLESS(numRows * lRow == (inLenExp - 1) * strideLong + kernelLong,
+                      "Row-plan arithmetic mismatch for transposed conv halo rewrite");
+
+    nestedLog.trace("Rewriting 1D transposed conv {0} (long={1}) with K={2}, S={3}, L_in={4}, expandBy={5}, "
+                    "numRows={6}, L_row={7}",
+                    convOp->getLoc(), longAxisIsW ? "W" : "H", kernelLong, strideLong, inLen, expandBy, numRows, lRow);
+
+    auto* ctx = convOp->getContext();
+    const auto origLoc = convOp->getLoc();
+
+    // Step 1: one Pad-via-Concat providing both the symmetric read halo that keeps every
+    // row window in-bounds and the `expandBy` zero tail (see the doc comment).
+    auto paddedInput = buildPadOp(rewriter, appendLoc(origLoc, "halo_pad"), convOp.getInput(), longDim, haloPad,
+                                  haloPad + expandBy);
+
+    // Step 2: numRows overlapping length-windowLongIn windows, concatenated into rows.
+    auto rowsInput = buildRowWindowsConcat(rewriter, origLoc, paddedInput, *layout, numRows, /*step=*/m,
+                                           /*windowLen=*/windowLongIn);
+    mlir::Value newFilter =
+            longAxisIsW ? convOp.getFilter() : reshapeFilterToRowLayout(rewriter, origLoc, convOp.getFilter());
+
+    // Step 3: rebuild the transposed conv with pads = 0. After the concat the batched-row
+    // axis is always H (independent rows, stride 1) and the long axis is always W (real
+    // stride), regardless of the original op's layout.
+    auto newStrides = getIntArrayAttr(ctx, SmallVector<int64_t>{1, strideLong});
+    auto zeroPads = getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0});
+
+    auto origOutType = mlir::cast<vpux::NDTypeInterface>(convOp.getOutput().getType());
+    Shape localOutShape{outputShape[Dims4D::Act::N], outputShape[Dims4D::Act::C], numRows, localOutW};
+    auto localOutType = origOutType.changeShape(localOutShape);
+
+    auto newConvOp = mlir::cast<IE::TransposedConvolutionOp>(rewriter.clone(*convOp.getOperation()));
+    rewriter.modifyOpInPlace(newConvOp, [&]() {
+        newConvOp->setOperand(0, rowsInput);
+        newConvOp->setOperand(1, newFilter);
+        newConvOp->setAttr(convOp.getStridesAttrName(), newStrides);
+        newConvOp->setAttr(convOp.getPadsBeginAttrName(), zeroPads);
+        newConvOp->setAttr(convOp.getPadsEndAttrName(), zeroPads);
+        newConvOp.getOutput().setType(mlir::cast<mlir::RankedTensorType>(localOutType));
+        newConvOp->setLoc(appendLoc(origLoc, "halo_conv"));
+    });
+
+    // Step 4: keep the valid [S*haloPad, S*haloPad+L_row) sub-range of every row's local
+    // output; the elements around it are partial sums owned by the neighbouring rows.
+    SmallVector<int64_t> validOffsets{0, 0, 0, 0};
+    SmallVector<int64_t> validSizes{outputShape[Dims4D::Act::N], outputShape[Dims4D::Act::C], numRows, lRow};
+    validOffsets[Dims4D::Act::W.ind()] = strideLong * haloPad;
+    auto validSliceOp =
+            rewriter.create<IE::SliceOp>(appendLoc(origLoc, "halo_valid_slice"), newConvOp.getOutput(),
+                                         getIntArrayAttr(ctx, validOffsets), getIntArrayAttr(ctx, validSizes));
+
+    // Step 5: collapse [N,OC,numRows,L_row] into the flat (possibly expand-lengthened)
+    // long-axis form.
+    SmallVector<int64_t> flatOutShapeVec{outputShape[Dims4D::Act::N], outputShape[Dims4D::Act::C], 1, 1};
+    flatOutShapeVec[longDim.ind()] = numRows * lRow;
+    mlir::Value flatOut = rewriter.createOrFold<IE::AffineReshapeOp>(
+            appendLoc(origLoc, "halo_flat"), validSliceOp.getResult(),
+            getIntArrayOfArray(ctx, getRowMergeMapping(longAxisIsW)), getIntArrayAttr(ctx, flatOutShapeVec));
+
+    // Step 6: drop the trailing S*expandBy elements produced by the zero tail of step 1 to
+    // land exactly on the original output shape.
+    mlir::Value finalOut = flatOut;
+    if (expandBy > 0) {
+        const SmallVector<int64_t> finalOffsets{0, 0, 0, 0};
+        finalOut = rewriter.create<IE::SliceOp>(appendLoc(origLoc, "halo_final_slice"), flatOut,
+                                                getIntArrayAttr(ctx, finalOffsets),
+                                                getIntArrayAttr(ctx, outputShape.raw()))
+                           .getResult();
+    }
+
+    rewriter.replaceOp(convOp, finalOut);
+
+    nestedLog.trace("Successfully rewrote 1D transposed conv at {0} into 2D form with halo (numRows={1}, layout={2})",
+                    origLoc, numRows, longAxisIsW ? "W" : "H");
+    return mlir::success();
+}
+
+//
 // ReshapeExpandDWConvInput
 //
 
@@ -786,7 +1312,7 @@ mlir::LogicalResult ReshapeExpandDWConvInput::matchAndRewrite(IE::GroupConvoluti
             // e.g., from [1x512] to [1x1x1x512]
             auto reshapeAttr = mlir::cast<vpux::Const::ReshapeAttr>(attr);
             auto reshapeShape = Shape(parseIntArrayAttr<int64_t>(reshapeAttr.getShape()));
-            if (vpux::IE::isNotDimExpansionReshape(realDataShape, reshapeShape) &&
+            if (vpux::isNotDimExpansionReshape(realDataShape, reshapeShape) &&
                 vpux::IE::isNotDimShrinkReshape(realDataShape, reshapeShape)) {
                 continue;
             }
@@ -851,31 +1377,19 @@ mlir::LogicalResult ReshapeExpandDWConvInput::matchAndRewrite(IE::GroupConvoluti
 class AdjustConvolutionInputShapePass final :
         public IE::impl::AdjustConvolutionInputShapeBase<AdjustConvolutionInputShapePass> {
 public:
-    explicit AdjustConvolutionInputShapePass(int64_t spatialAlignment, Logger log)
-            : _preferredSpatialAlignment(spatialAlignment) {
+    explicit AdjustConvolutionInputShapePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-    int64_t _preferredSpatialAlignment;
 };
 
 void AdjustConvolutionInputShapePass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
 
-    // Allow CLI override (LIT tests) via the TableGen-generated option.
-    int64_t spatialAlignment =
-            preferredSpatialAlignment.hasValue() ? preferredSpatialAlignment.getValue() : _preferredSpatialAlignment;
-
-    // W=8 alignment is only enabled for NPU5010; other platforms fall back to the default.
-    if (!preferredSpatialAlignment.hasValue() && spatialAlignment > VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT) {
-        const auto platform = config::getPlatform(func);
-        if (platform != config::Platform::NPU5010) {
-            spatialAlignment = VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT;
-        }
-    }
+    const auto spatialAlignment = config::getPreferredSpatialAlignment(func);
 
     mlir::RewritePatternSet patterns(&ctx);
 
@@ -893,9 +1407,18 @@ void AdjustConvolutionInputShapePass::safeRunOnFunc() {
     patterns.add<ReshapeSingleConstDWConvInput>(&ctx, _log);
     patterns.add<ReshapeAddInput>(&ctx, _log);
 
-    // Adust between C and H/W like [1, C, H, W] -> [1, C*4, H, W/4]
+    // Adjust between C and H/W like [1, C, H, W] -> [1, C*4, H, W/4]
     // Also need stride[H] > 1
     patterns.add<ReshapeExpandDWConvInput>(&ctx, _log);
+
+    // Convert true 1D conv (K>1, one spatial dim == 1) into 2D form with explicit row halo
+    // so the DPU MPE grid is fully utilised. ReshapeConvInput handles the disjoint 1x1-kernel case,
+    // so the two patterns never compete.
+    patterns.add<ReshapeConv1DInputWithHalo<IE::ConvolutionOp>>(&ctx, _log);
+    patterns.add<ReshapeConv1DInputWithHalo<IE::GroupConvolutionOp>>(&ctx, _log);
+    // TransposedConvolution needs its own halo variant because a strided transposed conv
+    // mirrors the read/write halo roles of a forward conv.
+    patterns.add<ReshapeTransposedConv1DInputWithHalo>(&ctx, _log);
 
     collectOpsAndApplyPatterns(func, std::move(patterns));
 }
@@ -905,7 +1428,6 @@ void AdjustConvolutionInputShapePass::safeRunOnFunc() {
 // createAdjustConvolutionInputShapePass
 //
 
-std::unique_ptr<mlir::Pass> vpux::IE::createAdjustConvolutionInputShapePass(int64_t preferredSpatialAlignment,
-                                                                            Logger log) {
-    return std::make_unique<AdjustConvolutionInputShapePass>(preferredSpatialAlignment, log);
+std::unique_ptr<mlir::Pass> vpux::IE::createAdjustConvolutionInputShapePass(Logger log) {
+    return std::make_unique<AdjustConvolutionInputShapePass>(log);
 }

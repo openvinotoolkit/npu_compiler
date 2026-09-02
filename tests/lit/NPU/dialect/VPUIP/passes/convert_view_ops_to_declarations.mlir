@@ -927,3 +927,34 @@ func.func @NestedSubViewAndReshape(%arg0: memref<2x64x256xf16, @DDR>,
 
     return %arg1 : memref<1x32x4x64xf16, @DDR>
 }
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16, 0.094488208843365229>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+net.NetworkInfo entryPoint :  @StridedTensorSimpleTilingOutput inputsInfo : {
+    DataInfo "Input_1" : tensor<1x256x2x256xsi8>
+} outputsInfo : {
+    DataInfo "Outputs_1" : tensor<1x256x2x256xsi8> {dynamicStrides}
+}
+
+// CHECK-LABEL: @StridedTensorSimpleTilingOutput
+func.func @StridedTensorSimpleTilingOutput(%arg0: memref<1x256x2x256xsi8, @DDR>, %arg1: memref<1x256x2x256xsi8, @DDR>) -> memref<1x256x2x256xsi8, @DDR> {
+    %0 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x256x2x256xsi8, @DDR>
+    %1 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x256x2x256xsi8, @DDR>
+    %2 = VPUIP.QuantizeCast inputs(%1 : memref<1x256x2x256xsi8, @DDR>) -> memref<1x256x2x256x!qElemType, @DDR>
+    // CHECK: VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x256x2x256x!qElemType, @DDR>
+    %3 = VPUIP.PermuteCast {dst_order = #NCHW, mem_perm = #NCHW} inputs(%2 : memref<1x256x2x256x!qElemType, @DDR>) -> memref<1x256x256x2x!qElemType, {order = #NHWC}, @DDR>
+    // CHECK: VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x256x256x2x!qElemType, {order = #NHWC}, @DDR>
+    %4 = VPUIP.SubView %3 [0, 0, 0, 0] [1, 256, 128, 2] : memref<1x256x256x2x!qElemType, {order = #NHWC}, @DDR> to memref<1x256x128x2x!qElemType, {order = #NHWC, strides = [131072, 1, 512, 256]}, @DDR>
+    // CHECK: VPURT.DeclareBuffer <NetworkOutput> [0] <0> {offsets = [0, 0, 0, 0]} -> memref<1x256x128x2x!qElemType, {order = #NHWC, strides = [131072, 1, 512, 256]}, @DDR>
+    %5 = VPUIP.QuantizeCast inputs(%1 : memref<1x256x2x256xsi8, @DDR>) -> memref<1x256x2x256x!qElemType, @DDR>
+    // CHECK: VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x256x2x256x!qElemType, @DDR>
+    %6 = VPUIP.PermuteCast {dst_order = #NCHW, mem_perm = #NCHW} inputs(%5 : memref<1x256x2x256x!qElemType, @DDR>) -> memref<1x256x256x2x!qElemType, {order = #NHWC}, @DDR>
+    // CHECK: VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x256x256x2x!qElemType, {order = #NHWC}, @DDR>
+    %7 = VPUIP.SubView %6 [0, 0, 128, 0] [1, 256, 128, 2] : memref<1x256x256x2x!qElemType, {order = #NHWC}, @DDR> to memref<1x256x128x2x!qElemType, {order = #NHWC, strides = [131072, 1, 512, 256]}, @DDR>
+    // CHECK: VPURT.DeclareBuffer <NetworkOutput> [0] <65536> {offsets = [0, 0, 128, 0]} -> memref<1x256x128x2x!qElemType, {order = #NHWC, strides = [131072, 1, 512, 256]}, @DDR>
+    return %arg1 : memref<1x256x2x256xsi8, @DDR>
+}

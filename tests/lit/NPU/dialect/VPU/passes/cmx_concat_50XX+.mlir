@@ -82,7 +82,7 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUserFpPPE(%arg0: tensor<1x64x36x36xf
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEFp<mode = <LPRELU>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64,
                     scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e-01], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
-                
+
                 strides = [1, 1],
                 output_padding = [0, 8, 0, 0]
             } : !Distributed, !Distributed2 -> !Distributed
@@ -90,11 +90,11 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUserFpPPE(%arg0: tensor<1x64x36x36xf
 
     // Input 2 of Concat
     %5 = VPU.Copy(%dwConvWeights) {out_mem_space = @CMX_NN} : tensor<64x16x1x1xf16, {order = #NHWC}> -> !Distributed4
-    %6 = VPU.NCE.DepthConvolution(%3, %5) rawFilterShape [64, 1, 3, 3] {
+    %6 = VPU.NCE.DepthConvolution(%3, %5) rawFilterShape [64, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                 ppe = #VPU.PPEFp<mode = <LPRELU>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64,
                     scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e-01], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
-                
+
                 strides = [1, 1]
             } -> !Distributed
     %7 = VPU.Copy(%6) : !Distributed -> tensor<1x64x36x36xf16, {order = #NHWC}>
@@ -186,7 +186,7 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUserFpPPE(%arg0: tensor<1x64x36x36xf
     // CHECK-SAME:                  clamp_high = 3.4028234663852886E+38 : f64,
     // CHECK-SAME:                  scale = 1.000000e+00 : f64,
     // CHECK-SAME:                  prelu_alpha = [1.000000e-01], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
-    // CHECK-SAME:              strides = [1, 1]}
+    // CHECK-SAME:              resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1]}
     // CHECK-SAME:                      -> !VPU.DistributedTensor<
     // CHECK-SAME:                          1x64x36x36xf16, #NHWC, @CMX_NN, {
     // CHECK-SAME:                          mode = "OVERLAPPED", num_tiles = [1, 1, 6, 1], num_clusters = 6 : i64, uniform_distributed_segments,
@@ -295,7 +295,7 @@ module @CannotInsertDummyNCEOpDueToAlignedChannels {
                     %conv_input: tensor<1x16x67x67xf16, {order = #NHWC}>, %conv_weights: tensor<8x16x4x4xf16, {order = #NHWC}>,
                     %conv2_weights: tensor<96x16x1x1xf16, {order = #NHWC}>)
             -> (!DistTypeEltwise, !DistTypeConv2) {
-        %nce_eltwise = VPU.NCE.Eltwise(%eltwise_input1, %eltwise_input2) {
+        %nce_eltwise = VPU.NCE.Eltwise(%eltwise_input1, %eltwise_input2) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             input_padding = [0, 8, 0, 0], op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>
         } -> !DistTypeEltwise
         %nce_eltwise_copy = VPU.Copy(%nce_eltwise) : !DistTypeEltwise -> tensor<1x8x64x64xf16, {order = #NHWC}>
@@ -381,7 +381,7 @@ module @CannotInsertDummyNCEOpDueToAlignedChannelsWithNonDistType {
     // CHECK-SAME:  [[CONV2_WEIGHTS:%.+]]: tensor<96x16x1x1xf16, {order = #NHWC}>
     func.func @main(%eltwise_input1: tensor<1x16x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, %eltwise_input2: tensor<1x16x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, %conv1_input: !ConvInputDDRType, %conv1_weights: !ConvWeightsDDRType, %conv2_weights: tensor<96x16x1x1xf16, {order = #NHWC}>)
                     -> (tensor<1x8x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x96x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>) {
-        %elt1 = VPU.NCE.Eltwise(%eltwise_input1, %eltwise_input2) {input_padding = [0, 8, 0, 0], op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>}
+        %elt1 = VPU.NCE.Eltwise(%eltwise_input1, %eltwise_input2) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, input_padding = [0, 8, 0, 0], op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>}
 		       -> tensor<1x8x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
         %elt1_copy = VPU.Copy(%elt1) : tensor<1x8x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> -> tensor<1x8x32x32xf16, {order = #NHWC}>
 

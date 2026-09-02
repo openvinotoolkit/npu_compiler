@@ -80,8 +80,10 @@ std::unique_ptr<mlir::Pass> createConvertAffine2LLVMPass(Logger log = Logger::gl
 // ShaveCodeGen specific passes included in DefaultHW and ReferenceSW
 //
 
-void buildShaveCodeGenPipelineIE(mlir::OpPassManager& pm, Logger log = Logger::global());
-void buildShaveCodeGenPipelineVPU(mlir::OpPassManager& pm, Logger log = Logger::global());
+void buildShaveCodeGenPipelineIE(mlir::OpPassManager& pm, Logger log = Logger::global(),
+                                 bool enableShaveCodeGenTiling = false);
+void buildShaveCodeGenPipelineVPU(mlir::OpPassManager& pm, Logger log = Logger::global(),
+                                  bool enableShaveCodeGenTiling = false);
 void buildShaveCodeGenPipelineVPUIP(mlir::OpPassManager& pm, Logger log = Logger::global());
 }  // namespace ShaveCodeGen
 

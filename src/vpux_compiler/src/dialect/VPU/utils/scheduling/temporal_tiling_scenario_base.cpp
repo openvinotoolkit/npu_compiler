@@ -27,7 +27,7 @@ bool TemporalTilingScenarioBase::satisfyMemoryConstraintBase(mlir::Operation* op
                                                              size_t minTileCount) const {
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
     const auto outputShape = getBoundedShape(outputType);
-    auto tiles = fillDividedTiles(op, nTilesOnDim, outputShape);
+    auto tiles = fillDividedTiles(op, nTilesOnDim, outputShape, /*efficientWorkloadAlign=*/true);
 
     if (mlir::failed(tiles)) {
         return false;

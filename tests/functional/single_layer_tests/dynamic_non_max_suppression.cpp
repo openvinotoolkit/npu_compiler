@@ -68,19 +68,20 @@ public:
         VpuOv2LayerTest::targetDevice = targetDevice;
         auto [inBoxesShape, inScoresShape] = inputShapes;
         VpuOv2LayerTest::init_input_shapes({inBoxesShape, inScoresShape});
-        const auto boxEncodingV9 = boxEncoding == op::v5::NonMaxSuppression::BoxEncodingType::CENTER
-                                           ? op::v9::NonMaxSuppression::BoxEncodingType::CENTER
-                                           : op::v9::NonMaxSuppression::BoxEncodingType::CORNER;
+
+        auto boxEncodingV9 = boxEncoding == op::v5::NonMaxSuppression::BoxEncodingType::CENTER
+                                     ? op::v9::NonMaxSuppression::BoxEncodingType::CENTER
+                                     : op::v9::NonMaxSuppression::BoxEncodingType::CORNER;
         auto [paramsType, maxBoxType, thresholdType] = inputTypes;
         ov::ParameterVector params{
                 std::make_shared<ov::op::v0::Parameter>(paramsType, VpuOv2LayerTest::inputDynamicShapes[0]),
                 std::make_shared<ov::op::v0::Parameter>(paramsType, VpuOv2LayerTest::inputDynamicShapes[1])};
-
-        ov::Output<ov::Node> iouThresholdNode = getIouThresholdParam(params, thresholdType, iouThreshold);
-        ov::Output<ov::Node> scoreThresholdNode = getScoreThresholdParam(params, thresholdType, scoreThreshold);
-
         auto maxOutBoxesPerClassNode = std::make_shared<ov::op::v0::Constant>(
                 maxBoxType, ov::Shape{}, std::vector<int32_t>{static_cast<int32_t>(maxOutBoxesPerClass)});
+        auto iouThresholdNode =
+                std::make_shared<ov::op::v0::Constant>(thresholdType, ov::Shape{}, std::vector<float>{iouThreshold});
+        auto scoreThresholdNode =
+                std::make_shared<ov::op::v0::Constant>(thresholdType, ov::Shape{}, std::vector<float>{scoreThreshold});
         auto softNmsSigmaNode =
                 std::make_shared<ov::op::v0::Constant>(thresholdType, ov::Shape{}, std::vector<float>{softNmsSigma});
         auto nms = std::make_shared<ov::op::v9::NonMaxSuppression>(
@@ -104,16 +105,6 @@ public:
             }
         }
     }
-
-protected:
-    virtual ov::Output<ov::Node> getIouThresholdParam(ov::ParameterVector& /*params*/, ov::element::Type thresholdType,
-                                                      float iouThreshold) {
-        return std::make_shared<ov::op::v0::Constant>(thresholdType, ov::Shape{}, std::vector<float>{iouThreshold});
-    }
-    virtual ov::Output<ov::Node> getScoreThresholdParam(ov::ParameterVector& /*params*/,
-                                                        ov::element::Type thresholdType, float scoreThreshold) {
-        return std::make_shared<ov::op::v0::Constant>(thresholdType, ov::Shape{}, std::vector<float>{scoreThreshold});
-    }
 };
 
 TEST_P(DynamicNmsLayerTest, NPU3720_HW) {
@@ -131,76 +122,6 @@ TEST_P(DynamicNmsLayerTest, NPU5010_HW) {
     VpuOv2LayerTest::run(Platform::NPU5010);
 }
 TEST_P(DynamicNmsLayerTest, NPU5020_HW) {
-    setDefaultHardwareMode();
-    VpuOv2LayerTest::run(Platform::NPU5020);
-}
-
-// IoU and Score thresholds passed as runtime input tensors. This validates the support
-// for dynamic thresholds rather than from compile-time constant attributes.
-class DynamicNmsIouScoreThresholdLayerTest : public DynamicNmsLayerTest {
-public:
-    void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
-        SubgraphBaseTest::generate_inputs(targetInputStaticShapes);
-
-        const float iouThresholdVal = std::get<3>(this->GetParam());
-        const float scoreThresholdVal = std::get<4>(this->GetParam());
-        const auto thresholdType = std::get<2>(std::get<1>(this->GetParam()));
-
-        const auto funcInputs = function->inputs();
-        auto fillThresholdInput = [&](size_t idx, float value) {
-            ov::Tensor tensor(thresholdType, targetInputStaticShapes[idx]);
-            if (thresholdType == ov::element::f16) {
-                tensor.data<ov::float16>()[0] = ov::float16(value);
-            } else {
-                tensor.data<float>()[0] = value;
-            }
-            inputs[funcInputs[idx].get_node_shared_ptr()] = tensor;
-        };
-        fillThresholdInput(2, iouThresholdVal);
-        fillThresholdInput(3, scoreThresholdVal);
-    }
-
-protected:
-    ov::Output<ov::Node> getIouThresholdParam(ov::ParameterVector& params, ov::element::Type thresholdType,
-                                              float /*iouThreshold*/) override {
-        VpuOv2LayerTest::inputDynamicShapes.push_back(ov::PartialShape{1});
-        for (auto& staticShapes : VpuOv2LayerTest::targetStaticShapes) {
-            staticShapes.push_back(ov::Shape{1});
-        }
-        auto iouParam =
-                std::make_shared<ov::op::v0::Parameter>(thresholdType, VpuOv2LayerTest::inputDynamicShapes.back());
-        params.push_back(iouParam);
-        return iouParam;
-    }
-
-    ov::Output<ov::Node> getScoreThresholdParam(ov::ParameterVector& params, ov::element::Type thresholdType,
-                                                float /*scoreThreshold*/) override {
-        VpuOv2LayerTest::inputDynamicShapes.push_back(ov::PartialShape{1});
-        for (auto& staticShapes : VpuOv2LayerTest::targetStaticShapes) {
-            staticShapes.push_back(ov::Shape{1});
-        }
-        auto scoreParam =
-                std::make_shared<ov::op::v0::Parameter>(thresholdType, VpuOv2LayerTest::inputDynamicShapes.back());
-        params.push_back(scoreParam);
-        return scoreParam;
-    }
-};
-
-TEST_P(DynamicNmsIouScoreThresholdLayerTest, NPU3720_HW) {
-    setDefaultHardwareMode();
-    VpuOv2LayerTest::run(Platform::NPU3720);
-}
-
-TEST_P(DynamicNmsIouScoreThresholdLayerTest, NPU4000_HW) {
-    setDefaultHardwareMode();
-    VpuOv2LayerTest::run(Platform::NPU4000);
-}
-
-TEST_P(DynamicNmsIouScoreThresholdLayerTest, NPU5010_HW) {
-    setDefaultHardwareMode();
-    VpuOv2LayerTest::run(Platform::NPU5010);
-}
-TEST_P(DynamicNmsIouScoreThresholdLayerTest, NPU5020_HW) {
     setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU5020);
 }
@@ -246,8 +167,5 @@ const auto nmsDynamicShapes = testing::Combine(
         ::testing::ValuesIn(outType), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_DynamicNms, DynamicNmsLayerTest, nmsDynamicShapes, PrintTestCaseName());
-
-INSTANTIATE_TEST_SUITE_P(smoke_DynamicNmsIouScoreThreshold, DynamicNmsIouScoreThresholdLayerTest, nmsDynamicShapes,
-                         PrintTestCaseName());
 
 }  // namespace

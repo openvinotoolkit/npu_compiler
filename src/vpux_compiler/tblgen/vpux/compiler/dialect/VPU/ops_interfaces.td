@@ -439,7 +439,49 @@ def VPU_NCEOpInterface : OpInterface<"NCEOpInterface"> {
                 return {};
             }]
         >,
+
+        InterfaceMethod<
+            "Return the reduce_xy_max optional result value, or nullptr if absent",
+            "mlir::Value", "getReduceXyMax", (ins),
+            [{}],
+            [{ return nullptr; }]
+        >,
+
+        InterfaceMethod<
+            "Return the reduce_xy_min optional result value, or nullptr if absent",
+            "mlir::Value", "getReduceXyMin", (ins),
+            [{}],
+            [{ return nullptr; }]
+        >,
+
+        InterfaceMethod<
+            "Return the reduce_tensor_min_max optional result value, or nullptr if absent",
+            "mlir::Value", "getReduceTensorMinMax", (ins),
+            [{}],
+            [{ return nullptr; }]
+        >,
     ];
+}
+
+//
+// ShapeInfoOpInterface
+//
+
+def VPU_ShapeInfoOpInterface : OpInterface<"ShapeInfoOpInterface"> {
+    let description = "Interface for operations that require 4D shapes after shape legalization";
+
+    let cppNamespace = "vpux::VPU";
+
+    let methods = [
+        InterfaceMethod<
+            "Verify operation shape requirements",
+            "mlir::LogicalResult", "verifyShapeInfo", (ins)
+        >
+    ];
+
+    let verify = [{
+        return vpux::VPU::verifyShapeInfo($_op);
+    }];
 }
 
 //
@@ -474,6 +516,18 @@ def VPU_TilingBuilderOpInterface : OpInterface<"TilingBuilderOpInterface"> {
             [{}],
             [{
                 return vpux::OutputTiling({outputTile});
+            }]
+        >,
+
+        InterfaceMethod<
+            "Infer output tile for main output (usually result 0) given the tile for one of the secondary outputs;"
+             "main output tile must be able to be inferred from the secondary output tile. If op does not have\n"
+             "secondary outputs, return empty tiling.",
+            "vpux::TileInfo", "getMainOutputTile",
+            (ins "mlir::OpResult":$secondaryOutput, "const vpux::TileInfo&":$secondaryOutputTile, "vpux::Logger":$log),
+            [{}],
+            [{
+                return vpux::TileInfo(ShapeRef());
             }]
         >,
 

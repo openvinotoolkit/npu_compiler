@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPUIP/interfaces/dma_descriptor_generator.hpp"
+#include <vpux/utils/core/mem_size.hpp>
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -496,7 +497,7 @@ VPUIP::DMADescriptorAttr vpux::VPUIP::ExpandDmaDescriptorGenerator::generate(vpu
                                                                              vpux::NDTypeInterface outType,
                                                                              mlir::ArrayAttr padsBegin,
                                                                              mlir::ArrayAttr padsEnd,
-                                                                             int64_t elemTypeSize) const {
+                                                                             const Bit& elemTypeSize) const {
     // Only support ExpandDMA padding at end
     // TODO: support padding at begin E65670
     VPUX_THROW_WHEN(llvm::any_of(parseIntArrayAttr<int64_t>(padsBegin),
@@ -535,8 +536,8 @@ VPUIP::DMADescriptorAttr vpux::VPUIP::ExpandDmaDescriptorGenerator::generate(vpu
 
     const auto inPaddingStride = getStrideOnPaddingDim(inType, inOrder, inputPaddingDimSize);
 
-    const auto lowerDimByteSize = inputPaddingDimSize * totalLowerDimSize * elemTypeSize;
-    const auto totalTrasferSize = inType.getShape().totalSize() * elemTypeSize;
+    const auto lowerDimByteSize = Byte(inputPaddingDimSize * totalLowerDimSize * elemTypeSize).count();
+    const auto totalTrasferSize = Byte(inType.getShape().totalSize() * elemTypeSize).count();
 
     // If source buffer is compact, source width and stride should be set as the size of the whole transfer,
     // otherwise there might performance penalties.
@@ -544,16 +545,15 @@ VPUIP::DMADescriptorAttr vpux::VPUIP::ExpandDmaDescriptorGenerator::generate(vpu
     auto len = vpux::getIntAttr(_ctx, totalTrasferSize);
     auto srcWidth = vpux::getIntAttr(_ctx, isInputStridedOnExpandDim ? lowerDimByteSize : totalTrasferSize);
     auto srcStride = vpux::getIntAttr(_ctx, isInputStridedOnExpandDim ? inPaddingStride : totalTrasferSize);
-    auto srcPlaneStride = vpux::getIntAttr(_ctx, 0 * elemTypeSize);
+    auto planeStride = vpux::getIntAttr(_ctx, 0);
 
     const auto outOrder = outType.getDimsOrder();
     const auto outPaddingStride = getStrideOnPaddingDim(outType, outOrder, outputPaddingDimSize);
 
     auto dstWidth = vpux::getIntAttr(_ctx, lowerDimByteSize);
     auto dstStride = vpux::getIntAttr(_ctx, outPaddingStride);
-    auto dstPlaneStride = vpux::getIntAttr(_ctx, 0 * elemTypeSize);
     auto numPlanes = vpux::getIntAttr(_ctx, 1);
 
-    return VPUIP::DMADescriptorAttr::get(_ctx, numPlanes, len, srcWidth, srcStride, srcPlaneStride, dstWidth, dstStride,
-                                         dstPlaneStride);
+    return VPUIP::DMADescriptorAttr::get(_ctx, numPlanes, len, srcWidth, srcStride, planeStride, dstWidth, dstStride,
+                                         planeStride);
 }

@@ -73,12 +73,54 @@ public:
 private:
     void safeRunOnFunc() final;
 
-    void planLegalization(const SmallVector<VPURT::TaskOp>& shvTasksWithDma,
-                          const std::map<QueueKey, VPURT::TaskOp>& startSyncs,
+    void planLegalization(BarrierInfo& barrierInfo, const SmallVector<VPURT::TaskOp>& shvTasksWithDma,
+                          const std::map<QueueKey, VPURT::TaskOp>& releaseSyncs,
                           PlannedInsertionsData& preparedInsertions, uint32_t numDmaPorts, Logger& log);
 
     void realizePlannedInsertions(mlir::OpBuilder& builder, PlannedInsertionsData& preparedInsertions, Logger& log);
 };
+
+// Finds the insertion point for SkipDMA by scanning backward from releaseSyncTask along queueType.
+// Maintains insertionAnchor as the earliest safe task found so far (initialized to releaseSyncTask).
+// Stops and returns insertionAnchor when it encounters either:
+//   1. An SHV guard SyncDMA task.
+//   2. A task with a dependency on an SHV task (currentTask -> SHV task).
+// SkipDMA is to be inserted BEFORE the returned anchor.
+// Throws an exception if traversal hits the start of the queue without finding a boundary.
+VPURT::TaskOp getInsertionPointForSkipDMA(int64_t logicalIdx, const VPURT::TaskQueueType& queueType,
+                                          VPURT::TaskOp releaseSyncTask,
+                                          const SmallVector<VPURT::TaskOp>& shvTasksInLogicalGroup,
+                                          BarrierInfo& barrierInfo) {
+    const auto releaseSyncTaskIdx = barrierInfo.getIndex(releaseSyncTask);
+    auto prevTaskOpt = barrierInfo.getPrevTaskOnQueue(releaseSyncTaskIdx, queueType);
+    auto insertionAnchor = releaseSyncTask;
+
+    std::pair<SmallVector<llvm::BitVector>, size_t> taskControlMapAndOffset;
+    std::optional<size_t> blockIdxOfTaskControlMap;
+
+    while (prevTaskOpt.has_value()) {
+        const auto currentTaskIdx = prevTaskOpt.value();
+        auto currentTaskOp = barrierInfo.getTaskOpAtIndex(currentTaskIdx);
+
+        if (VPUIP::isShvGuardSyncDmaTask(currentTaskOp)) {
+            return insertionAnchor;
+        }
+
+        for (auto shvTaskOp : shvTasksInLogicalGroup) {
+            auto shvTaskIdx = barrierInfo.getIndex(shvTaskOp);
+            if (barrierInfo.isDepFromTaskAToTaskB(currentTaskIdx, shvTaskIdx, taskControlMapAndOffset,
+                                                  blockIdxOfTaskControlMap)) {
+                return insertionAnchor;
+            }
+        }
+
+        insertionAnchor = currentTaskOp;
+        prevTaskOpt = barrierInfo.getPrevTaskOnQueue(currentTaskIdx, queueType);
+    }
+
+    VPUX_THROW("Guard sync boundary not found while scanning for logical task {0}, queue {1}:{2}", logicalIdx,
+               queueType.type, queueType.id);
+}
 
 VPUIP::SkipDMAAttr buildSkipDMAAttr(VPURT::TaskOp taskOp, int64_t logicalTaskIdx, int64_t descId) {
     const auto ctx = taskOp->getContext();
@@ -94,8 +136,9 @@ VPUIP::SkipDMAAttr buildSkipDMAAttr(VPURT::TaskOp taskOp, int64_t logicalTaskIdx
     return VPUIP::SkipDMAAttr::get(ctx, tileIdxAttr, listIdxAttr, logicalTaskIdxAttr, descIdAttr);
 }
 
-void InsertShaveSubmitSkipDMAsPass::planLegalization(const SmallVector<VPURT::TaskOp>& shvTasksWithDma,
-                                                     const std::map<QueueKey, VPURT::TaskOp>& startSyncs,
+void InsertShaveSubmitSkipDMAsPass::planLegalization(BarrierInfo& barrierInfo,
+                                                     const SmallVector<VPURT::TaskOp>& shvTasksWithDma,
+                                                     const std::map<QueueKey, VPURT::TaskOp>& releaseSyncs,
                                                      PlannedInsertionsData& preparedInsertions, uint32_t numDmaPorts,
                                                      Logger& log) {
     log.trace("Planning SkipDMA insertions for SHV submit split flow with {0} DMA ports", numDmaPorts);
@@ -161,15 +204,19 @@ void InsertShaveSubmitSkipDMAsPass::planLegalization(const SmallVector<VPURT::Ta
                        std::tuple(b.tile, b.list, b.port, getChannelOrder(b.channelType));
             });
 
-            auto syncIt = startSyncs.find(QueueKey{static_cast<int64_t>(logicalIdx), queueType});
-            VPUX_THROW_UNLESS(syncIt != startSyncs.end(), "Missing start sync for logical task {0}, queue {1}:{2}",
-                              logicalIdx, queueType.type, queueType.id);
+            auto releaseIt = releaseSyncs.find(QueueKey{static_cast<int64_t>(logicalIdx), queueType});
+            VPUX_THROW_UNLESS(releaseIt != releaseSyncs.end(),
+                              "Missing release sync for logical task {0}, queue {1}:{2}", logicalIdx, queueType.type,
+                              queueType.id);
+
+            auto insertionAnchor = getInsertionPointForSkipDMA(static_cast<int64_t>(logicalIdx), queueType,
+                                                               releaseIt->second, taskIndices, barrierInfo);
 
             log.trace("  Inserting {0} skips for queue {1}:{2}", plannedSkips.size(), queueType.type, queueType.id);
             for (const auto& planned : plannedSkips) {
                 SkipDMAData skip;
                 preparedInsertions.newDmaIndex++;
-                skip.insertionPointTask = syncIt->second;
+                skip.insertionPointTask = insertionAnchor;
                 skip.port = planned.port;
                 skip.channelType = planned.channelType;
                 skip.skipDmaAttr = planned.skipAttr;
@@ -205,7 +252,7 @@ void InsertShaveSubmitSkipDMAsPass::realizePlannedInsertions(mlir::OpBuilder& bu
     size_t skipIdx = 0;
     for (const auto& value : preparedInsertions.dmasToInsert) {
         auto insertionPointOp = value.insertionPointTask;
-        builder.setInsertionPointAfter(insertionPointOp);
+        builder.setInsertionPoint(insertionPointOp);
 
         std::pair<uint32_t, VPUIP::DmaChannelType> key{value.port, value.channelType};
         auto it = taskQueueBufferMap.find(key);
@@ -223,6 +270,7 @@ void InsertShaveSubmitSkipDMAsPass::realizePlannedInsertions(mlir::OpBuilder& bu
 
         auto skipDMA = VPURT::createSkipDMA(builder, inBuffer, outBuffer, value.port, value.skipDmaAttr,
                                             "shv_submit_skip_dma");
+        // barrierInfo.addNewTaskOp(skipDMA);
         if (auto pageOpt = insertionPointOp.getWlmPage()) {
             skipDMA.setWlmPage(pageOpt.value());
         }
@@ -233,7 +281,10 @@ void InsertShaveSubmitSkipDMAsPass::realizePlannedInsertions(mlir::OpBuilder& bu
 
 void InsertShaveSubmitSkipDMAsPass::safeRunOnFunc() {
     auto netFunc = getOperation();
-    const auto numDmaPorts = numDmaEnginesOpt.hasValue() ? numDmaEnginesOpt.getValue() : 1;
+    auto& barrierInfo = getAnalysis<BarrierInfo>();
+    barrierInfo.buildTaskQueueTypeMap();
+    const auto numDmaPorts = numDmaEnginesOpt.hasValue() ? numDmaEnginesOpt.getValue()
+                                                         : vpux::VPU::getMaxDMAPorts(config::getPlatform(netFunc));
     _log.trace("Starting InsertShaveSubmitSkipDMAs pass with {0} DMA engine(s)", numDmaPorts);
 
     mlir::OpBuilder builder(netFunc);
@@ -244,7 +295,7 @@ void InsertShaveSubmitSkipDMAsPass::safeRunOnFunc() {
             !bufferOps.empty() ? *bufferOps.begin() : &netFunc.getBody().front().front();
 
     SmallVector<VPURT::TaskOp> shvTasksWithDma;
-    std::map<QueueKey, VPURT::TaskOp> startSyncs;
+    std::map<QueueKey, VPURT::TaskOp> releaseSyncs;
 
     _log.trace("Finding SHV TaskOps with DMAs and anchor sync tasks for SkipDMA legalization");
     netFunc.walk([&](VPURT::TaskOp taskOp) {
@@ -256,31 +307,29 @@ void InsertShaveSubmitSkipDMAsPass::safeRunOnFunc() {
             }
         }
 
-        if (!VPUIP::isShvSyncDmaTask(taskOp)) {
+        if (!VPUIP::isShvReleaseSyncDmaTask(taskOp)) {
             return;
         }
 
         auto syncDMAOp = mlir::cast<VPUIP::SyncDMAOp>(taskOp.getInnerTaskOp());
         auto logicalIdxAttr = syncDMAOp->getAttrOfType<mlir::IntegerAttr>(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME);
-        if (logicalIdxAttr == nullptr) {
-            // Is some toher sync we don't care about for this pass, skip it
-            return;
-        }
         const auto queueType = VPURT::getTaskQueueType(taskOp, false);
         const auto key = QueueKey{logicalIdxAttr.getValue().getSExtValue(), queueType};
-        startSyncs[key] = taskOp;
+        releaseSyncs[key] = taskOp;
     });
 
-    _log.trace("Found {0} SHV tasks with DMA and {1} start sync tasks", shvTasksWithDma.size(), startSyncs.size());
+    _log.trace("Found {0} SHV tasks with DMA and {1} release sync tasks", shvTasksWithDma.size(), releaseSyncs.size());
     if (shvTasksWithDma.empty()) {
         _log.trace("No SHV TaskOps with DMAs found, skipping SkipDMA legalization");
         return;
     }
 
-    planLegalization(shvTasksWithDma, startSyncs, preparedInsertions, numDmaPorts, _log);
+    planLegalization(barrierInfo, shvTasksWithDma, releaseSyncs, preparedInsertions, numDmaPorts, _log);
     realizePlannedInsertions(builder, preparedInsertions, _log);
     _log.trace("InsertShaveSubmitSkipDMAs pass completed: inserted {0} SkipDMA operations",
                preparedInsertions.newDmaIndex);
+
+    barrierInfo.clearAttributes();
 }
 
 }  // namespace

@@ -18,9 +18,15 @@ namespace vpux::IE::arch37xx {
 template <typename OpType>
 class MPEEngineInfoOpModel : public IE::MPEEngineInfoOpInterface::ExternalModel<MPEEngineInfoOpModel<OpType>, OpType> {
 public:
-    mlir::Attribute getMPEEngineMode(mlir::Operation* op) const {
+    mlir::Attribute getMPEEngine(mlir::Operation* op) const {
+        return getMPEEngineWithZP(op, /*weightZp=*/nullptr, /*activationZp=*/nullptr);
+    }
+
+    mlir::Attribute getMPEEngineWithZP(mlir::Operation* op, mlir::Attribute weightZp,
+                                       mlir::Attribute activationZp) const {
         return VPU::MPEEngine37XXAttr::get(
-                op->getContext(), VPU::MPEEngine37XXModeAttr::get(op->getContext(), VPU::MPEEngine37XXMode::SCL));
+                op->getContext(), VPU::MPEEngine37XXModeAttr::get(op->getContext(), VPU::MPEEngine37XXMode::SCL),
+                weightZp, activationZp);
     }
 };
 }  // namespace vpux::IE::arch37xx

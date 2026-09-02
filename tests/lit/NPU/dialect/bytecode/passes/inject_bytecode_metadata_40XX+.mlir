@@ -38,7 +38,7 @@ module @StaticEltwiseNHWC attributes {config.compilationMode = #config.compilati
   // CHECK:        bytecode.constant [[STATIC_SHAPE:@[A-Za-z0-9_.$-]+]] dense<[1, 16, 720, 1000]> : tensor<4xi64>
   // CHECK:      }
   // CHECK:      bytecode.metadata_section @metadata_section {
-  // CHECK:        bytecode.network_metadata [[STATIC_NET_NAME]] 0 1
+  // CHECK:        bytecode.network_metadata [[STATIC_NET_NAME]] [[TILE_COUNT:[0-9]+]] 1
   // CHECK:        bytecode.input_metadata [[STATIC_IN_0_NAME]] {nodeFriendlyName = [[STATIC_IN_0_NAME]], shapeFromIRModel = [[STATIC_SHAPE]]} [[STATIC_F16_TYPE]] [[STATIC_SHAPE]] index_used_by_driver(0) has_dynamic_strides(false)
   // CHECK:        bytecode.input_metadata [[STATIC_IN_1_NAME]] {nodeFriendlyName = [[STATIC_IN_1_NAME]], shapeFromIRModel = [[STATIC_SHAPE]]} [[STATIC_F16_TYPE]] [[STATIC_SHAPE]] index_used_by_driver(1) has_dynamic_strides(false)
   // CHECK:        bytecode.output_metadata [[STATIC_OUT_0_NAME]] {nodeFriendlyName = [[STATIC_OUT_0_NAME]], shapeFromIRModel = [[STATIC_SHAPE]]} [[STATIC_F16_TYPE]] [[STATIC_SHAPE]] index_used_by_driver(0) has_dynamic_strides(false)
@@ -76,7 +76,7 @@ module @DynamicEltwiseNHWC attributes {config.compilationMode = #config.compilat
   // CHECK:        bytecode.constant [[DYN_SHAPE:@[A-Za-z0-9_.$-]+]] {{.*-9223372036854775808.*}}
   // CHECK:      }
   // CHECK:      bytecode.metadata_section @metadata_section {
-  // CHECK:        bytecode.network_metadata [[DYN_NET_NAME]] 0 1
+  // CHECK:        bytecode.network_metadata [[DYN_NET_NAME]] [[TILE_COUNT:[0-9]+]] 1
   // CHECK:        bytecode.input_metadata [[DYN_IN_0_NAME]] {nodeFriendlyName = [[DYN_IN_0_NAME]], shapeFromIRModel = [[DYN_SHAPE]]} [[DYN_F16_TYPE]] [[DYN_BOUND]] index_used_by_driver(0) has_dynamic_strides(false)
   // CHECK:        bytecode.output_metadata [[DYN_OUT_0_NAME]] {nodeFriendlyName = [[DYN_OUT_0_NAME]], shapeFromIRModel = [[DYN_SHAPE]]} [[DYN_F16_TYPE]] [[DYN_BOUND]] index_used_by_driver(0) has_dynamic_strides(false)
   // CHECK:      }
@@ -108,6 +108,6 @@ module @PipelinedWithThreeStreams attributes {config.compilationMode = #config.c
   }
 
   // CHECK:      bytecode.metadata_section @metadata_section {
-  // CHECK:        bytecode.network_metadata [[PIPE_NET_NAME:@[A-Za-z0-9_.$-]+]] 0 3
+  // CHECK:        bytecode.network_metadata [[PIPE_NET_NAME:@[A-Za-z0-9_.$-]+]] [[TILE_COUNT:[0-9]+]] 3
   // CHECK:      }
 }

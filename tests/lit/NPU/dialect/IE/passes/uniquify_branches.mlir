@@ -756,6 +756,36 @@ func.func @MoveAffineReshapeBeforeOverlappingSlice(%arg0: tensor<1x8866x1x1xf16>
 
 // -----
 
+// CHECK-LABEL: @NoChangesAffineReshapeOverlappingUnalignedSiblingSlice
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x64x1610x1xf16>
+func.func @NoChangesAffineReshapeOverlappingUnalignedSiblingSlice(%arg0: tensor<1x64x1610x1xf16>) -> tensor<1x64x3x35xf16> {
+    %0 = IE.Slice %arg0 [0, 0, 0, 0] [1, 64, 35, 1] : tensor<1x64x1610x1xf16> to tensor<1x64x35x1xf16>
+    %1 = IE.Slice %arg0 [0, 0, 25, 0] [1, 64, 35, 1] : tensor<1x64x1610x1xf16> to tensor<1x64x35x1xf16>
+    %2 = IE.Slice %arg0 [0, 0, 50, 0] [1, 64, 35, 1] : tensor<1x64x1610x1xf16> to tensor<1x64x35x1xf16>
+
+    %3 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 64, 1, 35]} : tensor<1x64x35x1xf16> -> tensor<1x64x1x35xf16>
+    %4 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 64, 1, 35]} : tensor<1x64x35x1xf16> -> tensor<1x64x1x35xf16>
+    %5 = IE.AffineReshape(%2) {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 64, 1, 35]} : tensor<1x64x35x1xf16> -> tensor<1x64x1x35xf16>
+
+    %6 = IE.Concat(%3, %4, %5) {static_offsets = [[0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 2, 0]]} : tensor<1x64x1x35xf16>, tensor<1x64x1x35xf16>, tensor<1x64x1x35xf16> -> tensor<1x64x3x35xf16>
+
+    return %6 : tensor<1x64x3x35xf16>
+
+    // CHECK: [[SLICE0:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 64, 35, 1] : tensor<1x64x1610x1xf16> to tensor<1x64x35x1xf16>
+    // CHECK: [[SLICE1:%.+]] = IE.Slice [[INPUT]] [0, 0, 25, 0] [1, 64, 35, 1] : tensor<1x64x1610x1xf16> to tensor<1x64x35x1xf16>
+    // CHECK: [[SLICE2:%.+]] = IE.Slice [[INPUT]] [0, 0, 50, 0] [1, 64, 35, 1] : tensor<1x64x1610x1xf16> to tensor<1x64x35x1xf16>
+    // CHECK: [[RESHAPE0:%.+]] = IE.AffineReshape([[SLICE0]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 64, 1, 35]} : tensor<1x64x35x1xf16> -> tensor<1x64x1x35xf16>
+    // CHECK: [[RESHAPE1:%.+]] = IE.AffineReshape([[SLICE1]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 64, 1, 35]} : tensor<1x64x35x1xf16> -> tensor<1x64x1x35xf16>
+    // CHECK: [[RESHAPE2:%.+]] = IE.AffineReshape([[SLICE2]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 64, 1, 35]} : tensor<1x64x35x1xf16> -> tensor<1x64x1x35xf16>
+    // CHECK: [[CONCAT:%.+]] = IE.Concat([[RESHAPE0]], [[RESHAPE1]], [[RESHAPE2]])
+    // CHECK: return [[CONCAT]] : tensor<1x64x3x35xf16>
+}
+
+// -----
+
 #NC = affine_map<(d0, d1) -> (d0, d1)>
 #CN = affine_map<(d0, d1) -> (d1, d0)>
 
@@ -896,6 +926,31 @@ func.func @NoMoveReorderBeforeSplitAsSplitDimPos(%arg0: tensor<1x2x96x49xf16, {o
     // CHECK:       return [[REORDER0]], [[REORDER1]] : tensor<1x1x96x49xf16, {order = #NHWC}>, tensor<1x1x96x49xf16, {order = #NHWC}>
 }
 
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NoMoveReorderBeforeSplitAsOutputHasMultipleUsers
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x32x96x49xf16, {order = #NHWC}>
+func.func @NoMoveReorderBeforeSplitAsOutputHasMultipleUsers(%arg0: tensor<1x32x96x49xf16, {order = #NHWC}>)
+        -> (tensor<1x16x96x49xf16, {order = #NCHW}>, tensor<1x16x96x49xf16, {order = #NCHW}>, tensor<1x16x96x49xf16, {order = #NHWC}>) {
+    %0:2 = IE.Split(%arg0) {axis_value = 1 : i64, num_splits = 2 : i64} :
+        tensor<1x32x96x49xf16, {order = #NHWC}> -> tensor<1x16x96x49xf16, {order = #NHWC}>, tensor<1x16x96x49xf16, {order = #NHWC}>
+    %1 = IE.Sigmoid(%0#0) : tensor<1x16x96x49xf16, {order = #NHWC}> -> tensor<1x16x96x49xf16, {order = #NHWC}>
+    %2 = IE.Reorder(%0#0) {dstOrder = #NCHW} : tensor<1x16x96x49xf16, {order = #NHWC}> -> tensor<1x16x96x49xf16, {order = #NCHW}>
+    %3 = IE.Reorder(%0#1) {dstOrder = #NCHW} : tensor<1x16x96x49xf16, {order = #NHWC}> -> tensor<1x16x96x49xf16, {order = #NCHW}>
+
+    return %2, %3, %1 :
+        tensor<1x16x96x49xf16, {order = #NCHW}>, tensor<1x16x96x49xf16, {order = #NCHW}>, tensor<1x16x96x49xf16, {order = #NHWC}>
+
+    // %0#0 feeds both Sigmoid and Reorder, so the pattern must not fire and IR stays unchanged.
+    // CHECK:       [[SPLIT:%.+]]:2 = IE.Split([[INPUT]]) {axis_value = 1 : i64, num_splits = 2 : i64} : tensor<1x32x96x49xf16, {order = #NHWC}> -> tensor<1x16x96x49xf16, {order = #NHWC}>, tensor<1x16x96x49xf16, {order = #NHWC}>
+    // CHECK-DAG:   [[SIG:%.+]] = IE.Sigmoid([[SPLIT]]#0) : tensor<1x16x96x49xf16, {order = #NHWC}> -> tensor<1x16x96x49xf16, {order = #NHWC}>
+    // CHECK-DAG:   [[R1:%.+]] = IE.Reorder([[SPLIT]]#0) {dstOrder = #NCHW} : tensor<1x16x96x49xf16, {order = #NHWC}> -> tensor<1x16x96x49xf16, {order = #NCHW}>
+    // CHECK-DAG:   [[R2:%.+]] = IE.Reorder([[SPLIT]]#1) {dstOrder = #NCHW} : tensor<1x16x96x49xf16, {order = #NHWC}> -> tensor<1x16x96x49xf16, {order = #NCHW}>
+    // CHECK:       return [[R1]], [[R2]], [[SIG]]
+}
 
 // -----
 

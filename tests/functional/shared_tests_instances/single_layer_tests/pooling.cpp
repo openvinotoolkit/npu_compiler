@@ -209,7 +209,7 @@ class PoolingLayerTest_NPU4000_F32 : public PoolingLayerTest_NPU4000 {
 
 TEST_P(PoolingLayerTest_NPU4000, SW) {
     abs_threshold = 0.02;
-    setSkipCompilationCallback([this](std::stringstream& skip) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
         const auto& poolParams = std::get<0>(GetParam());
         PoolingTypes poolType = std::get<0>(poolParams);
         const auto netPrecision = std::get<1>(GetParam());
@@ -232,12 +232,12 @@ TEST_P(PoolingLayerTest_NPU4000_SOB, HW) {
     run(Platform::NPU4000);
 }
 
-class PoolingLayerTest_NPU5010 : public PoolingLayerTest, virtual public VpuOv2LayerTest {};
-class PoolingLayerTest_NPU5010_SOB : public PoolingLayerTestWithUnrollBatchingCompileMethod {};
+class PoolingLayerTestCommon : public PoolingLayerTest, virtual public VpuOv2LayerTest {};
+class PoolingLayerTestCommonSOB : public PoolingLayerTestWithUnrollBatchingCompileMethod {};
 
-TEST_P(PoolingLayerTest_NPU5010, SW) {
+TEST_P(PoolingLayerTestCommon, NPU5010_SW) {
     abs_threshold = 0.02;
-    setSkipCompilationCallback([this](std::stringstream& skip) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
         const auto& poolParams = std::get<0>(GetParam());
         PoolingTypes poolType = std::get<0>(poolParams);
         const auto netPrecision = std::get<1>(GetParam());
@@ -250,17 +250,14 @@ TEST_P(PoolingLayerTest_NPU5010, SW) {
     run(Platform::NPU5010);
 }
 
-TEST_P(PoolingLayerTest_NPU5010_SOB, HW) {
+TEST_P(PoolingLayerTestCommonSOB, NPU5010_SOB) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
 
-class PoolingLayerTest_NPU5020 : public PoolingLayerTest, virtual public VpuOv2LayerTest {};
-class PoolingLayerTest_NPU5020_SOB : public PoolingLayerTestWithUnrollBatchingCompileMethod {};
-
-TEST_P(PoolingLayerTest_NPU5020, SW) {
+TEST_P(PoolingLayerTestCommon, NPU5020_SW) {
     abs_threshold = 0.02;
-    setSkipCompilationCallback([this](std::stringstream& skip) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
         const auto& poolParams = std::get<0>(GetParam());
         PoolingTypes poolType = std::get<0>(poolParams);
         const auto netPrecision = std::get<1>(GetParam());
@@ -273,10 +270,7 @@ TEST_P(PoolingLayerTest_NPU5020, SW) {
     run(Platform::NPU5020);
 }
 
-// Suppression for gtest framework internal test
-GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(PoolingLayerTest_NPU5020_SOB);
-
-TEST_P(PoolingLayerTest_NPU5020_SOB, HW) {
+TEST_P(PoolingLayerTestCommonSOB, NPU5020_SOB) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
 }
@@ -288,7 +282,7 @@ class MaxPoolingV8LayerTestCommon : public MaxPoolingV8LayerTest, virtual public
 class MaxPoolingV8LayerTestCommonHW : public MaxPoolingV8LayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(MaxPoolingV8LayerTestCommon, NPU3720_SW) {
-    setSkipCompilationCallback([this](std::stringstream& skip) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
         const auto netPrecision = std::get<1>(GetParam());
         if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
             skip << "MaxPool8 SingleLayerTest is not enabled with precision: " << netPrecision;
@@ -299,7 +293,7 @@ TEST_P(MaxPoolingV8LayerTestCommon, NPU3720_SW) {
 }
 
 TEST_P(MaxPoolingV8LayerTestCommon, NPU4000_SW) {
-    setSkipCompilationCallback([this](std::stringstream& skip) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
         const auto netPrecision = std::get<1>(GetParam());
         if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
             skip << "MaxPool8 SingleLayerTest is not enabled with precision: " << netPrecision;
@@ -310,7 +304,7 @@ TEST_P(MaxPoolingV8LayerTestCommon, NPU4000_SW) {
 }
 
 TEST_P(MaxPoolingV8LayerTestCommonHW, NPU4000_HW) {
-    setSkipCompilationCallback([this](std::stringstream& skip) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
         const auto netPrecision = std::get<1>(GetParam());
         if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
             skip << "MaxPool8 SingleLayerTest is not enabled with precision: " << netPrecision;
@@ -322,7 +316,7 @@ TEST_P(MaxPoolingV8LayerTestCommonHW, NPU4000_HW) {
 }
 
 TEST_P(MaxPoolingV8LayerTestCommon, NPU5010_SW) {
-    setSkipCompilationCallback([this](std::stringstream& skip) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
         const auto netPrecision = std::get<1>(GetParam());
         if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
             skip << "MaxPool8 SingleLayerTest is not enabled with precision: " << netPrecision;
@@ -331,8 +325,9 @@ TEST_P(MaxPoolingV8LayerTestCommon, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(MaxPoolingV8LayerTestCommon, NPU5020_SW) {
-    setSkipCompilationCallback([this](std::stringstream& skip) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
         const auto netPrecision = std::get<1>(GetParam());
         if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
             skip << "MaxPool8 SingleLayerTest is not enabled with precision: " << netPrecision;
@@ -348,7 +343,7 @@ GTEST_ALLOW_UNINSTANTIATED_PARAMETERIZED_TEST(AvgPoolingV16LayerTest);
 class AvgPoolingV16LayerTestCommon : public AvgPoolingV16LayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(AvgPoolingV16LayerTestCommon, NPU3720_SW) {
-    setSkipCompilationCallback([this](std::stringstream& skip) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
         const auto netPrecision = std::get<1>(GetParam());
         if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
             skip << "AvgPool16 SingleLayerTest is not enabled with precision: " << netPrecision;
@@ -359,7 +354,7 @@ TEST_P(AvgPoolingV16LayerTestCommon, NPU3720_SW) {
 }
 
 TEST_P(AvgPoolingV16LayerTestCommon, NPU4000_SW) {
-    setSkipCompilationCallback([this](std::stringstream& skip) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
         const auto netPrecision = std::get<1>(GetParam());
         if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
             skip << "AvgPool16 SingleLayerTest is not enabled with precision: " << netPrecision;
@@ -370,7 +365,7 @@ TEST_P(AvgPoolingV16LayerTestCommon, NPU4000_SW) {
 }
 
 TEST_P(AvgPoolingV16LayerTestCommon, NPU5010_SW) {
-    setSkipCompilationCallback([this](std::stringstream& skip) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
         const auto netPrecision = std::get<1>(GetParam());
         if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
             skip << "AvgPool16 SingleLayerTest is not enabled with precision: " << netPrecision;
@@ -379,8 +374,9 @@ TEST_P(AvgPoolingV16LayerTestCommon, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(AvgPoolingV16LayerTestCommon, NPU5020_SW) {
-    setSkipCompilationCallback([this](std::stringstream& skip) {
+    setSkipCompilationCallback([](std::stringstream& skip) {
         const auto netPrecision = std::get<1>(GetParam());
         if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
             skip << "AvgPool16 SingleLayerTest is not enabled with precision: " << netPrecision;
@@ -1345,38 +1341,23 @@ INSTANTIATE_TEST_SUITE_P_WITH_DISABLE_OPTION(smoke_MaxPooling_LargeKernelsX, Poo
                                              maxPool_largeKernelsX, PoolingLayerTest::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P_WITH_DISABLE_OPTION(smoke_MaxPooling_LargeKernelsY, PoolingLayerTest_NPU4000,
                                              maxPool_largeKernelsY, PoolingLayerTest::getTestCaseName);
-/* ============= NPU 5010 ============= */
+/* ============= NPU 5010 and newer platforms ============= */
 
-INSTANTIATE_TEST_SUITE_P(smoke_Pooling_NoPadding, PoolingLayerTest_NPU5010, pool_ExplicitNoPadding_Params,
-                         PoolingLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Pooling_NoPadding, PoolingLayerTestCommon, pool_ExplicitNoPadding_Params,
+                         PoolingLayerTestCommon::getTestCaseName);
 
 // U-net usecase
-
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_Pooling_unet, PoolingLayerTest_NPU5010, pool_unet_Params,
-                         PoolingLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Pooling_unet, PoolingLayerTestCommon, pool_unet_Params,
+                         PoolingLayerTestCommon::getTestCaseName);
 
 // Integer Input/Output
-INSTANTIATE_TEST_SUITE_P(smoke_Pooling_InputOutputInteger, PoolingLayerTest_NPU5010, pool_inputOutputInteger,
-                         PoolingLayerTest_NPU5010::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Pooling_InputOutputInteger, PoolingLayerTestCommon, pool_inputOutputInteger,
+                         PoolingLayerTestCommon::getTestCaseName);
 
 // SOB multi-clustering
-INSTANTIATE_TEST_SUITE_P(smoke_Pooling_SOB, PoolingLayerTest_NPU5010_SOB,
+INSTANTIATE_TEST_SUITE_P(smoke_Pooling_SOB, PoolingLayerTestCommonSOB,
                          generateSOBParamsFromInputShape({{3, 64, 28, 28}}),
-                         PoolingLayerTest_NPU5010_SOB::getTestCaseName);
-
-/* ============= NPU 5020 ============= */
-
-INSTANTIATE_TEST_SUITE_P(smoke_Pooling_NoPadding, PoolingLayerTest_NPU5020, pool_ExplicitNoPadding_Params,
-                         PoolingLayerTest_NPU5020::getTestCaseName);
-
-// U-net usecase
-
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_Pooling_unet, PoolingLayerTest_NPU5020, pool_unet_Params,
-                         PoolingLayerTest_NPU5020::getTestCaseName);
-
-// Integer Input/Output
-INSTANTIATE_TEST_SUITE_P(smoke_Pooling_InputOutputInteger, PoolingLayerTest_NPU5020, pool_inputOutputInteger,
-                         PoolingLayerTest_NPU5020::getTestCaseName);
+                         PoolingLayerTestCommonSOB::getTestCaseName);
 
 /* ============= MaxPool8 ============= */
 

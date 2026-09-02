@@ -175,15 +175,7 @@ def VPURegMapped_NPURegDescriptorOpInterface: OpInterface<"NPURegDescriptorOpInt
             "elf::Version",
             "getVersion", (ins), [{}],
             /*defaultImplementation=*/[{
-                auto returnVersion = $_op.getProperties().getDescriptor().getDescriptorVersion();
-
-                // TODO: E#210671 remove this workaround when all descriptors have version attached.
-                if (!returnVersion.has_value()) {
-                    return elf::Version();
-                }
-
-                VPUX_THROW_UNLESS(returnVersion.has_value(), "Descriptor does not have version attached.");
-                return returnVersion.value();
+                return $_op.getProperties().getDescriptor().getRequiredMIVersion();
             }]
         >,
         InterfaceMethod<

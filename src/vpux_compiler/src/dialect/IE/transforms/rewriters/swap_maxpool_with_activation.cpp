@@ -71,11 +71,11 @@ mlir::LogicalResult GenericConverter<ConcreteOp>::matchAndRewrite(ConcreteOp ori
     const auto activationOutType = maxPool.getInput().getType();
     auto newActivationOp = rewriter.create<ConcreteOp>(maxPool.getLoc(), activationOutType, maxPool.getInput());
 
-    rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(originOp, maxPool.getType(), newActivationOp.getOutput(),
-                                               maxPool.getKernelSize(), maxPool.getStrides(), maxPool.getPadsBegin(),
-                                               maxPool.getPadsEnd(), maxPool.getRoundingType(), maxPool.getPostOpAttr(),
-                                               maxPool.getClampAttr(), maxPool.getStaticScaleAttr(),
-                                               maxPool.getOutputPaddingAttr(), maxPool.getInputPaddingAttr());
+    rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(
+            originOp, maxPool.getType(), newActivationOp.getOutput(), maxPool.getScale(), maxPool.getKernelSize(),
+            maxPool.getStrides(), maxPool.getPadsBegin(), maxPool.getPadsEnd(), maxPool.getRoundingType(),
+            maxPool.getPostOpAttr(), maxPool.getClampAttr(), maxPool.getStaticScaleAttr(),
+            maxPool.getOutputPaddingAttr(), maxPool.getInputPaddingAttr());
 
     return mlir::success();
 }

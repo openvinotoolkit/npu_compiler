@@ -49,6 +49,14 @@ TEST(VirtualMachineInstructionSizesTest, BufferViewVariadicSize) {
               OPCODE_SIZE + (5 + 2 * rank) * OPERAND_SIZE);
 }
 
+TEST(VirtualMachineInstructionSizesTest, BufferLoadVariadicSize) {
+    // operands: dst, src, rank=2, index0, index1
+    const auto rank = static_cast<int16_t>(2);
+    const auto bytes = encodeInstruction(OpCode::BUFFER_LOAD, {/*dst=*/1, /*src=*/2, rank, 10, 20});
+    EXPECT_EQ(getInstructionSize(OpCode::BUFFER_LOAD, bytes.data(), bytes.size()),
+              OPCODE_SIZE + (3 + rank) * OPERAND_SIZE);
+}
+
 TEST(VirtualMachineInstructionSizesTest, GetInstructionSizeFallsBackToStaticInstructions) {
     const auto bufferGetDimBytes = encodeInstruction(OpCode::BUFFER_GET_DIM, {1, 2, 3});
     EXPECT_EQ(getStaticInstructionSize(OpCode::ADD_I64), OPCODE_SIZE + 3 * OPERAND_SIZE);
@@ -59,19 +67,18 @@ TEST(VirtualMachineInstructionSizesTest, GetInstructionSizeFallsBackToStaticInst
 TEST(VirtualMachineInstructionSizesTest, VariadicInstructionSizeRejectsMalformedOps) {
     const auto negativeBufferRankBytes =
             encodeInstruction(OpCode::BUFFER_CREATE, {/*dst=*/1, /*elem_type=*/2, /*rank=*/-1});
-    EXPECT_FALSE(getVariadicInstructionSize(OpCode::BUFFER_CREATE, negativeBufferRankBytes.data(),
-                                            negativeBufferRankBytes.size())
-                         .has_value());
+    EXPECT_FALSE(
+            getInstructionSize(OpCode::BUFFER_CREATE, negativeBufferRankBytes.data(), negativeBufferRankBytes.size())
+                    .has_value());
 
     const auto negativeRankBytes = encodeInstruction(OpCode::BUFFER_SUBVIEW, {/*dst=*/1, /*src=*/2, /*rank=*/-1});
-    EXPECT_FALSE(getVariadicInstructionSize(OpCode::BUFFER_SUBVIEW, negativeRankBytes.data(), negativeRankBytes.size())
-                         .has_value());
+    EXPECT_FALSE(
+            getInstructionSize(OpCode::BUFFER_SUBVIEW, negativeRankBytes.data(), negativeRankBytes.size()).has_value());
 
     const auto negativeViewRankBytes = encodeInstruction(
             OpCode::BUFFER_VIEW, {/*dst=*/1, /*src=*/2, /*byte_offset=*/0, /*elem_type=*/3, /*rank=*/-1});
-    EXPECT_FALSE(
-            getVariadicInstructionSize(OpCode::BUFFER_VIEW, negativeViewRankBytes.data(), negativeViewRankBytes.size())
-                    .has_value());
+    EXPECT_FALSE(getInstructionSize(OpCode::BUFFER_VIEW, negativeViewRankBytes.data(), negativeViewRankBytes.size())
+                         .has_value());
 
     const auto unknownOpcode = static_cast<OpCode>(0xFFFF);
     EXPECT_FALSE(getInstructionSize(unknownOpcode, negativeRankBytes.data(), negativeRankBytes.size()).has_value());
@@ -95,19 +102,6 @@ TEST(VirtualMachineInstructionSizesTest, CallVariadicSize) {
     const auto bytes = encodeInstruction(OpCode::CALL, {/*rs=*/1, /*N=*/2, /*dst0=*/4, /*dst1=*/5, /*M=*/3,
                                                         /*arg0=*/6, /*arg1=*/7, /*arg2=*/8});
     EXPECT_EQ(getInstructionSize(OpCode::CALL, bytes.data(), bytes.size()), OPCODE_SIZE + 8 * OPERAND_SIZE);
-}
-
-TEST(VirtualMachineInstructionSizesTest, InstructionSizeDecodeByteSizeProtectsVariadicOperandReads) {
-    EXPECT_EQ(getInstructionSizeDecodeByteSize(OpCode::ADD_I64), OPCODE_SIZE + 3 * OPERAND_SIZE);
-    EXPECT_EQ(getInstructionSizeDecodeByteSize(OpCode::RETV), OPCODE_SIZE + OPERAND_SIZE);
-    EXPECT_EQ(getInstructionSizeDecodeByteSize(OpCode::BUFFER_CREATE), OPCODE_SIZE + 3 * OPERAND_SIZE);
-    EXPECT_EQ(getInstructionSizeDecodeByteSize(OpCode::BUFFER_SUBVIEW), OPCODE_SIZE + 3 * OPERAND_SIZE);
-    EXPECT_EQ(getInstructionSizeDecodeByteSize(OpCode::BUFFER_VIEW), OPCODE_SIZE + 5 * OPERAND_SIZE);
-    EXPECT_EQ(getInstructionSizeDecodeByteSize(OpCode::KERNEL_CREATE), OPCODE_SIZE + 4 * OPERAND_SIZE);
-    EXPECT_EQ(getInstructionSizeDecodeByteSize(OpCode::CMD_LIST_ADD_KERNEL), OPCODE_SIZE + 3 * OPERAND_SIZE);
-    EXPECT_EQ(getInstructionSizeDecodeByteSize(OpCode::CALL), OPCODE_SIZE + 2 * OPERAND_SIZE);
-    const auto unknownOpcode = static_cast<OpCode>(0xFFFF);
-    EXPECT_FALSE(getInstructionSizeDecodeByteSize(unknownOpcode).has_value());
 }
 
 TEST(InstructionSizesTest, KernelCreateVariadicSize) {
@@ -140,4 +134,17 @@ TEST(InstructionSizesTest, KernelCreateRejectsNegativeOutputCount) {
 TEST(InstructionSizesTest, KernelCreateRejectsTruncatedBufferBeforeOutputCount) {
     const auto bytes = encodeInstruction(OpCode::KERNEL_CREATE, {/*dst=*/0, /*kidx=*/1, /*kNameIdx=*/1, /*N=*/2});
     EXPECT_FALSE(getInstructionSize(OpCode::KERNEL_CREATE, bytes.data(), bytes.size()).has_value());
+}
+
+TEST(VirtualMachineInstructionSizesTest, VariadicInstructionSizeGatesDecodeHeaderInternally) {
+    const auto shortBytes = std::vector<uint8_t>(OPCODE_SIZE, 0u);
+
+    EXPECT_FALSE(getInstructionSize(OpCode::RETV, shortBytes.data(), shortBytes.size()).has_value());
+    EXPECT_FALSE(getInstructionSize(OpCode::BUFFER_CREATE, shortBytes.data(), shortBytes.size()).has_value());
+    EXPECT_FALSE(getInstructionSize(OpCode::BUFFER_LOAD, shortBytes.data(), shortBytes.size()).has_value());
+    EXPECT_FALSE(getInstructionSize(OpCode::BUFFER_SUBVIEW, shortBytes.data(), shortBytes.size()).has_value());
+    EXPECT_FALSE(getInstructionSize(OpCode::BUFFER_VIEW, shortBytes.data(), shortBytes.size()).has_value());
+    EXPECT_FALSE(getInstructionSize(OpCode::KERNEL_CREATE, shortBytes.data(), shortBytes.size()).has_value());
+    EXPECT_FALSE(getInstructionSize(OpCode::CMD_LIST_ADD_KERNEL, shortBytes.data(), shortBytes.size()).has_value());
+    EXPECT_FALSE(getInstructionSize(OpCode::CALL, shortBytes.data(), shortBytes.size()).has_value());
 }

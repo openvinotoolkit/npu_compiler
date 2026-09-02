@@ -99,6 +99,8 @@ mlir::LogicalResult OptimizeShapeCastDistributedCopies::matchAndRewrite(VPU::Sha
 
     auto prevUTOpInputDistTensorType =
             mlir::cast<VPU::DistributedTensorType>(*prevUTOpInputDistTypeInterface.getDistributedTypes().begin());
+    auto nextUTOpOutputDistTensorType =
+            mlir::cast<VPU::DistributedTensorType>(*nextUTOpOutputDistTypeInterface.getDistributedTypes().begin());
 
     // Get updated distribution based on the distribution after the shape cast, using the shape before the shape cast
     auto updatedDistAttr = VPUIP::getDistributedAttrAfterShapeCast<VPU::DistributedTensorType>(
@@ -107,8 +109,13 @@ mlir::LogicalResult OptimizeShapeCastDistributedCopies::matchAndRewrite(VPU::Sha
     _log.trace("[{0}] Updating output type of: {1}\n\tOld Distribution: {2}\n\tNew Distribution: {3}", getDebugName(),
                prevUTOp.getInput(), prevUTOpInputDistTensorType.getDistribution(), updatedDistAttr);
 
-    auto newDistType = nextUTOpOutputDistTypeInterface.changeShapeForExplicitDistribution(
-            prevUTOpInputDistTensorType.getShape(), updatedDistAttr);
+    NDTypeInterface newDistType =
+            mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(nextUTOpOutputDistTensorType.getElementType())
+                    ? nextUTOpOutputDistTypeInterface.changeShapeElemTypeForExplicitDistribution(
+                              prevUTOpInputDistTensorType.getShape(), prevUTOpInputDistTensorType.getElementType(),
+                              updatedDistAttr)
+                    : nextUTOpOutputDistTypeInterface.changeShapeForExplicitDistribution(
+                              prevUTOpInputDistTensorType.getShape(), updatedDistAttr);
 
     // Update "prevUTOp" input with the new distribution type
     prevUTOp.getInput().setType(newDistType);
@@ -245,6 +252,10 @@ void MakeDistributedCopiesPass::safeRunOnFunc() {
                 mlir::dyn_cast_or_null<VPU::DistributedTensorType>(prevUTOp.getInput().getType());
         auto nextUTOpOutputDistTensorType =
                 mlir::dyn_cast_or_null<VPU::DistributedTensorType>(nextUTOp.getOutput().getType());
+
+        if (prevUTOpInputDistTensorType == nullptr || nextUTOpOutputDistTensorType == nullptr) {
+            return true;
+        }
 
         // Current optimization only targets I/O with "OVERLAPPED" distribution mode
         if (prevUTOpInputDistTensorType.getDistribution().getMode().getValue() != VPU::DistributionMode::OVERLAPPED ||

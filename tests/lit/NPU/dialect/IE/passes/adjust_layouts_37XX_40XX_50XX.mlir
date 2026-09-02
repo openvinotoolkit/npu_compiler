@@ -10,7 +10,7 @@
 module @AdjustTransposedConvolutionLayout {
 
 config.PipelineOptions @Options {
-        config.Option @config.EnableSEPtrsOperations : true 
+        config.Option @config.EnableSEPtrsOperations : true
 }
 
 net.NetworkInfo

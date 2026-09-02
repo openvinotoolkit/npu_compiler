@@ -23,7 +23,7 @@ func.func @interpolateStaticSOH(%arg0: tensor<1x21x14x14xf16, {order = #NHWC}>) 
         initial_input_dims_attr = [1, 21, 14, 14],
         initial_output_dims_attr = [1, 21, 16, 10],
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>,
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
         scales_attr = [2.3571428571428572, 2.3571428571428572],
         sizes_attr = [16, 10],
         tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]
@@ -39,7 +39,9 @@ func.func @interpolateStaticSOH(%arg0: tensor<1x21x14x14xf16, {order = #NHWC}>) 
     // CHECK-NOT:   VPU.UnrolledType
 
     // CHECK:       scf.forall
-    // CHECK:         VPU.Interpolate({{%.+}}, [[COORDINATES]], [[LAMBDAS]])
+    // CHECK:         VPU.Interpolate
+    // CHECK-SAME:    [[COORDINATES]]
+    // CHECK-SAME:    [[LAMBDAS]]
     // CHECK:         scf.forall.in_parallel
 }
 
@@ -64,7 +66,7 @@ func.func @interpolateDynamicSOH(%arg0: tensor<1x21x?x14xf16, {bounds = #const.O
         initial_input_dims_attr = [1, 21, 14, 14],
         initial_output_dims_attr = [1, 21, 16, 10],
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>,
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
         scales_attr = [2.3571428571428572, 2.3571428571428572],
         sizes_attr = [16, 10],
         tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]
@@ -80,7 +82,9 @@ func.func @interpolateDynamicSOH(%arg0: tensor<1x21x?x14xf16, {bounds = #const.O
     // CHECK-NOT:   VPU.UnrolledType
 
     // CHECK:       scf.forall
-    // CHECK:         VPU.Interpolate({{%.+}}, [[COORDINATES]], [[LAMBDAS]])
+    // CHECK:         VPU.Interpolate
+    // CHECK-SAME:    [[COORDINATES]]
+    // CHECK-SAME:    [[LAMBDAS]]
     // CHECK:         scf.forall.in_parallel
 }
 
@@ -105,18 +109,24 @@ func.func @interpolateStaticSOH_AxesH(%arg0: tensor<1x21x7x14xf16, {order = #NHW
         initial_input_dims_attr = [1, 21, 7, 14],
         initial_output_dims_attr = [1, 21, 14, 14],
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>,
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
         scales_attr = [2.0],
         sizes_attr = [14],
         tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]
     } : tensor<1x21x7x14xf16, {order = #NHWC}> -> tensor<1x21x14x14xf16, {order = #NHWC}>
     return %0 : tensor<1x21x14x14xf16, {order = #NHWC}>
 
-    // CHECK:       [[LAMBDAS:%.+]] = const.Declare tensor<1x1x1x{{[0-9]+}}xf16>
-    // CHECK:       [[COORDINATES:%.+]] = const.Declare tensor<1x1x1x{{[0-9]+}}xsi32>
+    // With axes_attr = [2] (H only), the innermost interpolation axis is H itself.
+    // After scf-multiclustering tiles along H, the H offset becomes kDynamic,
+    // so compute-interpolate-coordinates correctly bails: it cannot precompute
+    // coordinates when the sole interpolation axis has a dynamic offset.
+    // No COORDINATES/LAMBDAS are expected here.
     // CHECK-NOT:   VPU.UnrolledType
+    // CHECK-NOT:   const.Declare
     // CHECK:       scf.forall
-    // CHECK:         VPU.Interpolate({{%.+}}, [[COORDINATES]], [[LAMBDAS]])
+    // CHECK:         VPU.Interpolate
+    // CHECK-NOT:     coordinates
+    // CHECK-NOT:     lambdas
     // CHECK:         scf.forall.in_parallel
 }
 }

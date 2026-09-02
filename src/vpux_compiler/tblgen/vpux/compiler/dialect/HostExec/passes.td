@@ -66,11 +66,56 @@ def ConvertToLLVMUMDCalls : PassBase<"convert-to-llvm-umd-calls", "vpux::ModuleP
 
 def InlineMainBatchingCalls : PassBase<"inline-main-batching-calls", "vpux::ModulePass"> {
     let summary = "Inlines main_batching calls before bytecode conversion";
+
     let description = [{
         The pass finds calls to main_batching* functions, inlines them at their call sites, and removes callees that
         become dead after inlining.
+
+        Why a dedicated pass instead of the default MLIR inliner:
+
+        1. Selective, name-based targeting. The default inliner considers every call in the module and decides
+           based on cost heuristics and interface hooks. This pass acts on exactly one, well-defined set: calls whose
+           callee symbol starts with `main_batching`. Nothing else in the module is touched. That predictability
+           matters here because inlining is used as a correctness transform (see rationale below), not an
+           optimization.
+
+        2. Works on dialects that do not opt into `DialectInlinerInterface`. The default MLIR inliner requires
+           the involved dialects to implement `DialectInlinerInterface::isLegalToInline`; without that, calls are
+           left untouched. The bodies of `main_batching*` callers/callees contain ops from custom dialects
+           (Core/HostExec/async/…) that do not provide such an interface. This pass installs a local
+           `InlinerInterface` that returns `true` unconditionally for the three `isLegalToInline` overloads,
+           so the batching body can be inlined regardless of which dialect its ops belong to. The default
+           inliner has no way to express that.
+
+        3. Terminator handling tailored to the caller shape. The custom `handleTerminator` overloads convert
+           the inlined `func.return` into a `cf.branch` to the caller's continuation block (multi-block form)
+           and RAUW the returned values into the single-block form. This is what allows the batching body to be
+           spliced into a caller that already has, or will grow, control flow before it reaches bytecode
+           conversion.
+
+        4. Side-effect attribute tagging on the caller. During the walk, the caller function is stamped with
+           `HostCompileInferenceExec` and `disable_pipelined_cmdlist_recording`. Those attributes are consumed
+           downstream by `preprocessingAsyncOps` in `convert-hostcode-to-bytecode` to convert intermediate
+           `async.await_all`s into barriers/no-ops and to wrap the whole function in a single reused command
+           list. The default inliner has no hook to perform such tagging as part of inlining.
+
+        5. Single-shot, deterministic run. The default inliner runs SCC-based iterative inlining driven by
+           cost heuristics. Here the transform must run exactly once, unconditionally, at a specific point in
+           the pipeline (right before bytecode conversion), so a plain module walk with `mlir::inlineCall` is
+           both simpler and stable.
+
+        Rationale for inlining at all: keeping `main_batching*` as a separate callee across the boundary that
+        leads into bytecode conversion causes the `AdjustForVPUPipelineRewriterExecutor` pass to fail with a
+        `getCompactAllocSize` error when the model is compiled with fully dynamic shapes. The rewriter tries to
+        compute a compact allocation size for buffers that flow through the batching call, but those buffers
+        have unresolved dynamic extents at the call boundary, so `getCompactAllocSize` aborts. Inlining the
+        `main_batching*` body into its caller merges the batching region with the surrounding host code before
+        that pass runs, so the dynamic dimensions become visible in a single function and can be resolved via
+        `memref.dim` / shape propagation instead of being crossed as opaque call operands.
     }];
+
     let constructor = "vpux::HostExec::createInlineMainBatchingCallsPass()";
+
     let dependentDialects = [
         "mlir::func::FuncDialect",
         "mlir::cf::ControlFlowDialect"

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2025 Intel Corporation
+// Copyright (C) 2022-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -33,4 +33,17 @@ mlir::LogicalResult vpux::IE::SelectOp::inferReturnTypeComponents(
     }
 
     return outShapeRes;
+}
+
+mlir::LogicalResult vpux::IE::SelectOp::verify() {
+    const auto thenType = mlir::cast<vpux::NDTypeInterface>(getInput2().getType()).getElementType();
+    const auto elseType = mlir::cast<vpux::NDTypeInterface>(getInput3().getType()).getElementType();
+    const auto outType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType()).getElementType();
+
+    if (thenType != elseType || elseType != outType) {
+        return emitOpError("requires uniform element types across input2, input3 and output, got ")
+               << "then=" << thenType << ", else=" << elseType << ", out=" << outType;
+    }
+
+    return mlir::success();
 }

@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -198,6 +199,9 @@ SmallVector<mlir::Value> UnrollDynamicDequantize::splitInputs(IE::DynamicDequant
         auto reduceDequantize = rewriter.create<IE::DynamicDequantizeOp>(
                 loc, getValue(input, idx), getValue(scale, idx), hasZeroPoint ? getValue(zeroPoint, idx) : nullptr,
                 origOp.getDstElemType());
+        if (origOp->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
+            reduceDequantize->setAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR, origOp->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR));
+        }
         deQuantizeResults.push_back(reduceDequantize.getResult());
     }
     return deQuantizeResults;
@@ -230,6 +234,12 @@ bool UnrollDynamicDequantize::isBeneficialForUnroll(IE::DynamicDequantizeOp orig
     // Benefit when: KV cache model, the first dim is one.
     // For prefill mode, it's more performant to keep the op unrolled.
     if (!origOp->hasOneUse()) {
+        return false;
+    }
+
+    // Synthetic WAC DynDeqs should not be group-unrolled; they will be converted
+    // to Dequantize by the bridge pass and handled as a single batched convolution.
+    if (origOp->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
         return false;
     }
 

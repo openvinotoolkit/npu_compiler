@@ -102,7 +102,7 @@ func.func @ConvChain(%arg0: tensor<1x128x28x28xf16, {order = #NHWC}>) -> tensor<
 // CHECK-SAME{LITERAL}:  memory_shapes = [[48, 128, 3, 3], [48, 128, 3, 3]],
 // CHECK-SAME{LITERAL}:  memory_offsets = [[0, 0, 0, 0], [48, 0, 0, 0]]}>
 
-// CHECK:    [[CONV:%.+]] = VPU.NCE.Convolution([[CP_INPUT]], [[CP_WEIGHTS]]) rawFilterShape [96, 128, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, 
+// CHECK:    [[CONV:%.+]] = VPU.NCE.Convolution([[CP_INPUT]], [[CP_WEIGHTS]]) rawFilterShape [96, 128, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
 // CHECK-SAME:           strides = [1, 1]}
 // CHECK: -> !VPU.DistributedTensor<1x96x28x28xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1], uniform_distributed_segments,
 // CHECK-SAME{LITERAL}:  compute_shapes = [[1, 48, 28, 28], [1, 48, 28, 28]],

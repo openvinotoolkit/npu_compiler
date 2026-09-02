@@ -97,7 +97,7 @@ def IE_DynamicDequantizeOp :
     let summary = "InferenceEngine Dynamic Dequantize layer";
 
     let description = [{
-        The operation dequantizes the input from like i8 i4 or i2 to f16 or f32.
+        The operation dequantizes the input from like u/i16 u/i8 u/i4 or u/i2 to f16 or f32.
         The input data type should be signed or unsigned, we can not support
         signless because we can not determine the data range.
 

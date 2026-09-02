@@ -1318,6 +1318,7 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterElementsUpdateToAddMultipl
     }
 
     auto numpyBroadcastTypeAttr = IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NUMPY);
+    _log.trace("Replace '{0}' at '{1}' with add/multiply", origOp->getName(), origOp->getLoc());
     if (reduction == IE::ScatterElementsUpdateReductionType::SUM) {
         rewriter.replaceOpWithNewOp<IE::AddOp>(origOp, origOp.getInput(), origOp.getUpdates(), numpyBroadcastTypeAttr,
                                                nullptr, nullptr, nullptr, nullptr);
@@ -1328,7 +1329,6 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterElementsUpdateToAddMultipl
                                                     numpyBroadcastTypeAttr, nullptr, nullptr, nullptr, nullptr);
     }
 
-    _log.trace("Replace '{0}' at '{1}' with add/multiply", origOp->getName(), origOp->getLoc());
     return mlir::success();
 }
 

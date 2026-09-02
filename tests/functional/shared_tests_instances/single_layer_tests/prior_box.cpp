@@ -80,6 +80,7 @@ TEST_P(PriorBoxLayerTestCommon, NPU5010_SW) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU5010);
 }
+
 TEST_P(PriorBoxLayerTestCommon, NPU5020_SW) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU5020);

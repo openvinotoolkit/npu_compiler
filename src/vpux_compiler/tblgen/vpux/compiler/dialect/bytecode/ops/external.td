@@ -10,6 +10,7 @@ include "vpux/compiler/dialect/bytecode/ops/base.td"
 include "vpux/compiler/dialect/bytecode/types.td"
 include "mlir/IR/BuiltinAttributes.td"
 include "mlir/IR/BuiltinTypes.td"
+include "mlir/IR/SymbolInterfaces.td"
 
 def Bytecode_ExtAssertOp : Bytecode_Op<"ext.assert", []> {
     let summary = "External assert operation";
@@ -34,7 +35,7 @@ def Bytecode_ExtAssertOp : Bytecode_Op<"ext.assert", []> {
     }];
 }
 
-def Bytecode_ExtFuncOp : Bytecode_Op<"ext.func", [HasParent<"vpux::bytecode::FuncSectionOp">, IsolatedFromAbove]> {
+def Bytecode_ExtFuncOp : Bytecode_Op<"ext.func", [HasParent<"vpux::bytecode::FuncSectionOp">, IsolatedFromAbove, Symbol]> {
     let summary = "External function operation";
 
     let description = [{
@@ -131,5 +132,6 @@ def Bytecode_ExtBufferCreateOp : Bytecode_Op<"ext.buffer.create", []> {
 
     let hasVerifier = 1;
 }
+
 
 #endif

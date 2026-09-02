@@ -615,9 +615,9 @@ func.func @ConvWithStaticScale(%arg0: tensor<1x32x16x16xf16, {order = #NHWC}>,
 
     // CHECK:   [[MAXPOOL:%.+]] = IE.MaxPool([[ARG2]])
     // CHECK-SAME:          static_scale = 0.247436523 : f32
-    // CHECK:   [[RESHAPE:%.+]] = IE.AffineReshape([[MAXPOOL]]) 
+    // CHECK:   [[RESHAPE:%.+]] = IE.AffineReshape([[MAXPOOL]])
     // CHECK-SAME:          : tensor<1x32x1x1xf32> -> tensor<32x1x1x1xf32>
-    
+
     // CHECK:   [[OUT:%.+]] = IE.Convolution([[ARG0]], [[ARG1]], [[RESHAPE]])
     // CHECK-SAME:      dilations = [1, 1],
     // CHECK-SAME:      pads_begin = [0, 0],

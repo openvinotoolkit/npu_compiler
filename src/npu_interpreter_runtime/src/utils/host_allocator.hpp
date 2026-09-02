@@ -18,7 +18,7 @@ namespace intel_npu::vm {
 class NPU_VM_EXPORT HostAllocator {
 public:
     // Chunk-base alignment this backing guarantees: new[] returns max_align_t-aligned storage.
-    static constexpr size_t alignment = alignof(std::max_align_t);
+    static constexpr size_t ALIGNMENT = alignof(std::max_align_t);
 
     Block allocate(size_t bytes);
     void deallocate(Block block) noexcept;

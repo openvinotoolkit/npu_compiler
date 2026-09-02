@@ -23,8 +23,8 @@ namespace VPUXDriverCompiler {
  */
 class VPUXExecutableL0 final {
 public:
-    VPUXExecutableL0(const std::shared_ptr<const vpux::NetworkDescription>& networkDesc,
-                     const intel_npu::Config& config, std::shared_ptr<VCLLogger> vclLogger);
+    VPUXExecutableL0(const std::shared_ptr<const vpux::NetworkDescription>& networkDesc, const vpux::OV::Config& config,
+                     std::shared_ptr<VCLLogger> vclLogger);
 
     VPUXExecutableL0(const std::string& compatibilityString, std::shared_ptr<VCLLogger> vclLogger);
 
@@ -72,7 +72,7 @@ public:
 
 private:
     std::shared_ptr<const vpux::NetworkDescription> _networkDesc;  ///< The compilation result of MLIR compiler
-    std::optional<intel_npu::Config> _config;                      ///< Configuration for the executable
+    std::optional<vpux::OV::Config> _config;                       ///< Configuration for the executable
     std::string _compatibilityString;
     std::shared_ptr<VCLLogger> _logger;
 };

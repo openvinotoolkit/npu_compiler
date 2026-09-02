@@ -33,6 +33,7 @@ TEST_P(GroupNormalizationLayerTestCommon, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(GroupNormalizationLayerTestCommon, NPU5020_SW) {
     abs_threshold = 0.08;
     setReferenceSoftwareMode();

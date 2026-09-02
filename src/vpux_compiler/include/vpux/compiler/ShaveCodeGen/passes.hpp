@@ -46,6 +46,8 @@ std::unique_ptr<mlir::Pass> createShaveStackAllocationPass(Logger log = Logger::
 std::unique_ptr<mlir::Pass> createMoveKernelResultsToArgumentsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createParametricCapsuleTilingPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOneShotBufferizeSWKernelsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createWrapInKernelRegionPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createSplitCodeGenCapsulesPass(Logger log = Logger::global());
 
 //
 // Registration

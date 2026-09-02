@@ -16,7 +16,7 @@ func.func @NceEltwiseAdd(%arg0: tensor<1x64x28x28xf16, {order = #NHWC, mem_space
                          %arg1: tensor<1x64x28x28xf16, {order = #NHWC, mem_space = @CMX_NN}>)
         -> tensor<1x64x28x28xf16, {order = #NHWC, mem_space = @CMX_NN}> {
 
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 op_type = #VPU.eltwise_type<ADD>,
                 ppe = #VPU.PPEStub<>
             } -> tensor<1x64x28x28xf16, {mem_space = @CMX_NN, order = #NHWC}> {
@@ -28,7 +28,7 @@ func.func @NceEltwiseAdd(%arg0: tensor<1x64x28x28xf16, {order = #NHWC, mem_space
     // CHECK: [[ELTWISE_ADD:%.+]] = VPU.NCE.Eltwise([[ARG0]], [[ARG1]]) {
     // CHECK-SAME: __inplace_operands_attr__ = ["false", "false"],
     // CHECK-SAME: op_type = #VPU.eltwise_type<ADD>,
-    // CHECK-SAME: ppe = #VPU.PPEStub<>}
+    // CHECK-SAME: ppe = #VPU.PPEStub<>, resultSegmentSizes = array<i32: 1, 0, 0, 0>}
     // CHECK-SAME: -> tensor<1x64x28x28xf16, {mem_space = @CMX_NN, order = #NHWC}> {
     // CHECK: VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 64, 28, 28] pad [0, 0, 0, 0] <VECTOR_FP16>
     // CHECK: }

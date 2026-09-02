@@ -69,7 +69,6 @@ class ConvWithActivationQuantizedTest :
                              : utils::make_activation(lastOutput, ov::element::f16, activationType);
 
         if (quantParams.outputQuant.has_value()) {
-            const auto& outputQuant = quantParams.outputQuant.value();
             lastOutput = utils::makeFakeQuantize(lastOutput, ov::element::f16, 256, *quantParams.outputQuant)
                                  ->get_default_output();
         }

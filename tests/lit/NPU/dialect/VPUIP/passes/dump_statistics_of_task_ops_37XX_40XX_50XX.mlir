@@ -545,3 +545,95 @@ func.func @testMpeModesAllOps(%convInput: !ConvInput, %convWeights : !ConvWeight
 // CHECK-NOT:       opCount
 // CHECK:     SCL Task Op - 4 ops
 // CHECK:       opCount - 83520 ops
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+module @DumpOpsStatisticsDynamicTest {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        DataInfo "input0" : tensor<?x?x?x?xi8, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 4]> : tensor<4xsi64>, order = #NCHW}>
+        DataInfo "input1" : tensor<1xi8>
+        DataInfo "input2" : tensor<1xi8>
+        DataInfo "input3" : tensor<1xi8>
+    }
+    outputsInfo : {
+        DataInfo "output0" : tensor<?x?x?x?xi8, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 6]> : tensor<4xsi64>, order = #NCHW}>
+    }
+
+func.func @main(%input0: memref<?x?x?x?xi8>, %input1: memref<1xi8>, %input2: memref<1xi8>, %input3: memref<1xi8>,
+                %output0: memref<?x?x?x?xi8>) -> memref<?x?x?x?xi8> {
+    return %output0 : memref<?x?x?x?xi8>
+}
+}
+
+// CHECK:   Input size - 7 bytes Output size - 6 bytes
+// CHECK:   DDR heap size - 0 bytes
+// CHECK:   VPUIP tasks statistics:
+// CHECK:   Weights statistics
+// CHECK:     Total weights - count: 0, size: 0 bytes (no compression)
+// CHECK:   Const swizzling statistics:
+// CHECK:     Swizzled constants     - count: 0, size: 0 bytes
+// CHECK:     Not swizzled constants - count: 0, size: 0 bytes
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+module @DumpOpsStatisticsDynamicTestNoBounds {
+
+// Verifies that the pass does not fail when network bounds are missing and
+// simply skips the input/output size summary
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        DataInfo "input0" : tensor<?x?x?x?xi8>
+        DataInfo "input1" : tensor<1xi8>
+        DataInfo "input2" : tensor<1xi8>
+        DataInfo "input3" : tensor<1xi8>
+    }
+    outputsInfo : {
+        DataInfo "output0" : tensor<?x?x?x?xi8>
+    }
+
+func.func @main(%input0: memref<?x?x?x?xi8>, %input1: memref<1xi8>, %input2: memref<1xi8>, %input3: memref<1xi8>,
+                %output0: memref<?x?x?x?xi8>) -> memref<?x?x?x?xi8> {
+    return %output0 : memref<?x?x?x?xi8>
+}
+}
+
+// CHECK-NOT:   Input size
+// CHECK-NOT:   Output size
+// CHECK:   DDR heap size - 0 bytes
+// CHECK:   VPUIP tasks statistics:
+// CHECK:   Weights statistics
+// CHECK:     Total weights - count: 0, size: 0 bytes (no compression)
+// CHECK:   Const swizzling statistics:
+// CHECK:     Swizzled constants     - count: 0, size: 0 bytes
+// CHECK:     Not swizzled constants - count: 0, size: 0 bytes
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// Verifies that the pass does not fail when the module has no net.NetworkInfo
+// and only reports the remaining statistics
+
+func.func @main(%input0: memref<?x?x?x?xi8>, %input1: memref<1xi8>, %input2: memref<1xi8>, %input3: memref<1xi8>,
+                %output0: memref<?x?x?x?xi8>) -> memref<?x?x?x?xi8> {
+    return %output0 : memref<?x?x?x?xi8>
+}
+
+// CHECK-NOT:   Input size
+// CHECK-NOT:   Output size
+// CHECK:   DDR heap size - 0 bytes
+// CHECK:   VPUIP tasks statistics:
+// CHECK:   Weights statistics
+// CHECK:     Total weights - count: 0, size: 0 bytes (no compression)
+// CHECK:   Const swizzling statistics:
+// CHECK:     Swizzled constants     - count: 0, size: 0 bytes
+// CHECK:     Not swizzled constants - count: 0, size: 0 bytes

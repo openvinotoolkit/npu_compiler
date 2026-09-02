@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/VPU/utils/tiling_algorithm/tiling_general_algorithm.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/precomputed_strategy_table_cache.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
 using namespace vpux;
@@ -23,7 +24,8 @@ mlir::LogicalResult TilingGeneralAlgorithm::applyTiling(mlir::Operation* operati
     VPUX_THROW_WHEN(tilingBuilder == nullptr, "Operation '{0}' doesn't implement TilingInfoOpInterface",
                     operation->getName());
 
-    const auto tiles = fillDividedTiles(operation, strategy, getShape(operation->getResult(0)));
+    const bool efficientWorkloadAlign = operation->hasAttr(VPU::pinnedStrategy) ? true : false;
+    const auto tiles = fillDividedTiles(operation, strategy, getShape(operation->getResult(0)), efficientWorkloadAlign);
 
     if (mlir::failed(tiles)) {
         return mlir::failure();

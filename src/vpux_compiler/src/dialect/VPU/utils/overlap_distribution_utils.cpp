@@ -343,18 +343,15 @@ OverlapDistributionParams vpux::VPU::getOverlappedDistributionParameters(
             uniformDistributedSegments, {}, {}, {}, {}, {}, outputTensorMemoryNumTiles);
 
     const auto shape = getBoundedShape(tensorType);
-    const auto computeShapes = getPerClusterComputeShapes(shape, neutralDistribution, tensorType.getElementType());
-    const auto computeOffsets =
-            getPerClusterComputeShapeOffsets(shape, neutralDistribution, tensorType.getElementType());
+    const auto computeShapes = getPerClusterComputeShapes(shape, neutralDistribution);
+    const auto computeOffsets = getPerClusterComputeShapeOffsets(shape, neutralDistribution);
 
-    auto memoryShapes =
-            outputTensorMemoryNumTiles.has_value()
-                    ? getPerClusterMemoryShapes(shape, neutralDistribution, tensorType.getElementType()).value()
-                    : computeShapes;
-    auto memoryOffsets =
-            outputTensorMemoryNumTiles.has_value()
-                    ? getPerClusterMemoryShapeOffsets(shape, neutralDistribution, tensorType.getElementType())
-                    : computeOffsets;
+    auto memoryShapes = outputTensorMemoryNumTiles.has_value()
+                                ? getPerClusterMemoryShapes(shape, neutralDistribution).value()
+                                : computeShapes;
+    auto memoryOffsets = outputTensorMemoryNumTiles.has_value()
+                                 ? getPerClusterMemoryShapeOffsets(shape, neutralDistribution)
+                                 : computeOffsets;
 
     SmallVector<VPU::NCEOpInterface> nceOpCandidates;
     for (auto clusteredOp : consumerSubgraph) {
@@ -417,16 +414,14 @@ OverlapDistributionParams vpux::VPU::getOverlappedDistributionParameters(
             }
         }
 
-        auto consumerMemoryShapesOpt =
-                getPerClusterMemoryShapes(tensorShape, consumerDistr, tensorType.getElementType());
+        auto consumerMemoryShapesOpt = getPerClusterMemoryShapes(tensorShape, consumerDistr);
         if (!consumerMemoryShapesOpt.has_value()) {
             // op is not SOH/SOW Compatible
             continue;
         }
 
         auto consumerMemoryShapes = consumerMemoryShapesOpt.value();
-        auto consumerMemoryOffsets =
-                getPerClusterMemoryShapeOffsets(tensorShape, consumerDistr, tensorType.getElementType());
+        auto consumerMemoryOffsets = getPerClusterMemoryShapeOffsets(tensorShape, consumerDistr);
 
         if (origTensorHasSETable) {
             memoryShapes = std::move(consumerMemoryShapes);
@@ -495,7 +490,7 @@ OverlapDistributionParams vpux::VPU::getActivationOverlappedParams(VPU::Clustere
                                                                    ArrayRef<int64_t> activationTensorNumTiles,
                                                                    vpux::NDTypeInterface inType) {
     const auto kernelTileAxis = extractKernelTileAxis(activationTensorNumTiles);
-    const auto localOverlappedParams =
+    auto localOverlappedParams =
             getOverlappedDistributionParameters(SmallVector<VPU::ClusteredOpInterface>({clusteredOp}), kernelTileAxis);
 
     // For 37XX, we do not set input workloads explicitly and therefore
@@ -626,17 +621,13 @@ OverlapDistributionParams vpux::VPU::getActivationOverlappedParams(VPU::Clustere
             localOverlappedParams.getStride(), localOverlappedParams.getPads(), numTilesPerDim, {},
             /*hasUniformDistributedSegments*/ true, {}, {}, {}, {}, {}, std::nullopt);
 
-    const auto candidateOffsets =
-            getPerClusterMemoryShapeOffsets(inputShape, candidateDistribution, inType.getElementType());
-    const auto optionalCandidateShapes =
-            getPerClusterMemoryShapes(inputShape, candidateDistribution, inType.getElementType());
+    const auto candidateOffsets = getPerClusterMemoryShapeOffsets(inputShape, candidateDistribution);
+    const auto optionalCandidateShapes = getPerClusterMemoryShapes(inputShape, candidateDistribution);
     VPUX_THROW_UNLESS(optionalCandidateShapes.has_value(),
                       "Cannot get per cluster memory shapes. Unsupported distribution: {0}", candidateDistribution);
     const auto& candidateShapes = optionalCandidateShapes.value();
-    const auto localOffsets =
-            getPerClusterMemoryShapeOffsets(inputShape, localDistributedAttr, inType.getElementType());
-    const auto optionalLocalShapes =
-            getPerClusterMemoryShapes(inputShape, localDistributedAttr, inType.getElementType());
+    const auto localOffsets = getPerClusterMemoryShapeOffsets(inputShape, localDistributedAttr);
+    const auto optionalLocalShapes = getPerClusterMemoryShapes(inputShape, localDistributedAttr);
     VPUX_THROW_UNLESS(optionalLocalShapes.has_value(),
                       "Cannot get per cluster memory shapes. Unsupported distribution: {0}", localDistributedAttr);
     const auto& localShapes = optionalLocalShapes.value();
@@ -825,7 +816,7 @@ OverlapDistributionParams vpux::VPU::getOutputOverlappedParams(VPU::ClusteredOpI
         }
     }
     const auto kernelTileAxis = extractKernelTileAxis(outputTensorNumTiles);
-    const auto candidateOverlappedParams =
+    auto candidateOverlappedParams =
             getOverlappedDistributionParameters(consumerSubgraph, kernelTileAxis, equalComputeAndMemoryView);
 
     // Lacking a way specifying explicit per cluster shapes and offsets in the distributed
@@ -851,26 +842,19 @@ OverlapDistributionParams vpux::VPU::getOutputOverlappedParams(VPU::ClusteredOpI
     const auto kernel = SmallVector<int64_t>{1, 1};
     const auto pads = VPU::Padding(0, 0, 0, 0);
     const auto strides = SmallVector<int64_t>{1, 1};
-    const auto fallbackOverlappedParams = OverlapDistributionParams(kernel, pads, strides, equalComputeAndMemoryView);
+    auto fallbackOverlappedParams = OverlapDistributionParams(kernel, pads, strides, equalComputeAndMemoryView);
 
     const auto outputShape =
             (outputType == nullptr) ? getBoundedShape(clusteredOp->getResult(0)) : getBoundedShape(outputType);
-    const auto elementType =
-            (outputType == nullptr)
-                    ? mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType()).getElementType()
-                    : outputType.getElementType();
-    const auto optionalCandidateMemoryShapes =
-            getPerClusterMemoryShapes(outputShape, candidateDistribution, elementType);
+    const auto optionalCandidateMemoryShapes = getPerClusterMemoryShapes(outputShape, candidateDistribution);
     if (!optionalCandidateMemoryShapes.has_value()) {
         // If NCEProducer has tiling required and the tiled shape does not satisfy producer op
         return fallbackOverlappedParams;
     }
 
-    const auto candidateMemoryOffsets =
-            getPerClusterMemoryShapeOffsets(outputShape, candidateDistribution, elementType);
-    const auto candidateComputeOffsets =
-            getPerClusterComputeShapeOffsets(outputShape, candidateDistribution, elementType);
-    const auto candidateComputeShapes = getPerClusterComputeShapes(outputShape, candidateDistribution, elementType);
+    const auto candidateMemoryOffsets = getPerClusterMemoryShapeOffsets(outputShape, candidateDistribution);
+    const auto candidateComputeOffsets = getPerClusterComputeShapeOffsets(outputShape, candidateDistribution);
+    const auto candidateComputeShapes = getPerClusterComputeShapes(outputShape, candidateDistribution);
 
     // Memory start offset must be before or equal to compute start offset
     for (auto startOffsetsPerClusterZip : zip(candidateMemoryOffsets, candidateComputeOffsets)) {
@@ -960,4 +944,20 @@ OverlapDistributionParams vpux::VPU::getOutputOverlappedParams(
     auto siblingsAnalysis = SiblingOpsAnalysis(clusteredOp);
     return getOutputOverlappedParams(clusteredOp, outputTensorNumTiles, uniformDistributedSegments, outputType,
                                      tileInfo, siblingsAnalysis, outputTensorMemoryNumTiles, alignment);
+}
+
+bool vpux::VPU::hasTrueOverlappedParams(VPU::DistributedTensorType tensor) {
+    if (tensor == nullptr) {
+        return false;
+    }
+    if (tensor.getDistribution().getMode().getValue() != VPU::DistributionMode::OVERLAPPED) {
+        return false;
+    }
+    if (tensor.getPerClusterMemoryShapes() != tensor.getPerClusterComputeShapes()) {
+        return true;
+    }
+    if (tensor.getPerClusterMemoryShapeOffsets() != tensor.getPerClusterComputeShapeOffsets()) {
+        return true;
+    }
+    return false;
 }

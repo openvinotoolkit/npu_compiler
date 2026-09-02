@@ -267,25 +267,17 @@ mlir::LogicalResult areDistributionNumClustersCompatible(int64_t sourceNumCluste
 mlir::LogicalResult areDistributionNumClustersCompatible(mlir::IntegerAttr sourceNumClusters,
                                                          mlir::IntegerAttr targetNumClusters);
 mlir::LogicalResult areDistributionElementTypesCompatible(mlir::Type inType, mlir::Type outType);
-//
-std::optional<SmallVector<Shape>> getPerClusterMemoryShapes(ShapeRef shapeRef, DistributionInfoAttr distributionAttr,
-                                                            mlir::Type elementType);
-SmallVector<Shape> getPerClusterMemoryShapeOffsets(ShapeRef shapeRef, DistributionInfoAttr distributionAttr,
-                                                   mlir::Type elementType);
-SmallVector<Shape> getPerClusterComputeShapes(ShapeRef shapeRef, DistributionInfoAttr distributionAttr,
-                                              mlir::Type elementType);
-SmallVector<Shape> getPerClusterComputeShapeOffsets(ShapeRef shapeRef, DistributionInfoAttr distributionAttr,
-                                                    mlir::Type elementType);
-//
+
+std::optional<SmallVector<Shape>> getPerClusterMemoryShapes(ShapeRef shapeRef, DistributionInfoAttr distributionAttr);
+SmallVector<Shape> getPerClusterMemoryShapeOffsets(ShapeRef shapeRef, DistributionInfoAttr distributionAttr);
+SmallVector<Shape> getPerClusterComputeShapes(ShapeRef shapeRef, DistributionInfoAttr distributionAttr);
+SmallVector<Shape> getPerClusterComputeShapeOffsets(ShapeRef shapeRef, DistributionInfoAttr distributionAttr);
+
 std::optional<SmallVector<Shape>> getPerClusterMemoryShapes(ShapeRef shapeRef,
-                                                            const VPU::DistributionInfo& distribution,
-                                                            mlir::Type elementType);
-SmallVector<Shape> getPerClusterMemoryShapeOffsets(ShapeRef shapeRef, const VPU::DistributionInfo& distribution,
-                                                   mlir::Type elementType);
-SmallVector<Shape> getPerClusterComputeShapes(ShapeRef shapeRef, const VPU::DistributionInfo& distribution,
-                                              mlir::Type elementType);
-SmallVector<Shape> getPerClusterComputeShapeOffsets(ShapeRef shapeRef, const VPU::DistributionInfo& distribution,
-                                                    mlir::Type elementType);
+                                                            const VPU::DistributionInfo& distribution);
+SmallVector<Shape> getPerClusterMemoryShapeOffsets(ShapeRef shapeRef, const VPU::DistributionInfo& distribution);
+SmallVector<Shape> getPerClusterComputeShapes(ShapeRef shapeRef, const VPU::DistributionInfo& distribution);
+SmallVector<Shape> getPerClusterComputeShapeOffsets(ShapeRef shapeRef, const VPU::DistributionInfo& distribution);
 //
 SmallVector<PadInfo> getPerClusterPadding(DistributionInfoAttr distributionAttr, PadInfo kernelPadding);
 SmallVector<StridedShape> getPerClusterMemoryStridedShapes(ShapeRef shape, StridesRef strides,
@@ -336,7 +328,7 @@ std::optional<VPU::MemoryKind> getMemKind(StringRef) {
 std::optional<SmallVector<Shape>> splitSegmentedShape(ArrayRef<int64_t> shape, ArrayRef<int64_t> tilingScheme,
                                                       int64_t numClusters, int64_t axis,
                                                       std::optional<ArrayRef<int64_t>> alignment,
-                                                      bool uniformDistributedSegments, mlir::Type elementType);
+                                                      bool uniformDistributedSegments);
 
 SmallVector<SmallVector<int64_t>> arrayOfArrayFromShape(ArrayRef<Shape> shape);
 

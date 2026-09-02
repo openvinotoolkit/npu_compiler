@@ -85,7 +85,7 @@ void dispatchLog(LogLevel level, const char* file, int line, std::string_view fo
         } else if constexpr (std::is_same_v<ValueType, std::string_view>) {
             return std::string(value);
         } else if constexpr (std::is_same_v<ValueType, const char*> || std::is_same_v<ValueType, char*>) {
-            const char* strValue = value;
+            const char* strValue = value;  // NOLINT(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
             return strValue == nullptr ? std::string{} : std::string(strValue);
         } else {
             std::ostringstream stream;

@@ -73,6 +73,7 @@ TEST_P(ConvertColorI420LayerTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 // NPU5020
 TEST_P(ConvertColorNV12LayerTestCommon, NPU5020_SW) {
     setReferenceSoftwareMode();

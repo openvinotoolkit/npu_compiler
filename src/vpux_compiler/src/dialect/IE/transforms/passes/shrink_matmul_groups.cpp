@@ -133,6 +133,31 @@ Case 3:
     1x2x7x1152          |
         \               /
             MatMul
+
+Case 4:
+    Convert below 32 groups Matmul where LHS H > 1 (multi-token, H <= 32):
+                        RHS
+                    1x8x1x8704x128
+                        |
+                    Broadcast
+                        |
+                    1x8x4x8704x128
+                        |
+                    AffineReshape
+        LHS             |
+    1x32x8x128      1x32x8704x128
+        \               /
+             MatMul (transpose_b)
+
+    to a new 8 groups Matmul:
+        LHS             RHS
+    1x32x8x128      1x8x1x8704x128
+        |               |
+    Reshape         Reshape
+        |               |
+    1x8x32x128      1x8x8704x128
+        \               /
+            MatMul (transpose_b)
 */
 
 class ShrinkMatmulGroups final : public mlir::OpRewritePattern<IE::MatMulOp> {

@@ -231,14 +231,14 @@ MemStrides vpux::StrideReqsRef::calcStrides(Bit elemSize, MemShapeRef memShape) 
 
 MemStrides vpux::StrideReqsRef::calcStrides(const DimsOrder& order, vpux::NDTypeInterface type) const {
     const Bit elemSize = type.getElemTypeSize();
-    const auto shape = type.getShape();
+    const auto shape = getBoundedShape(type);
     const auto memShape = order.toMemoryOrder(shape);
     return calcStrides(elemSize, memShape);
 }
 
 bool vpux::StrideReqsRef::checkStrides(vpux::NDTypeInterface type) const {
     const Bit elemSize = type.getElemTypeSize();
-    const auto shape = type.getShape();
+    const auto shape = getBoundedShape(type);
     const auto strides = type.getStrides();
     const auto order = type.getDimsOrder();
     const auto memShape = order.toMemoryOrder(shape);

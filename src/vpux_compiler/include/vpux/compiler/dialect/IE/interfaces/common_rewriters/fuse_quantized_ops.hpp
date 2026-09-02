@@ -18,7 +18,6 @@
 
 namespace vpux {
 namespace IE {
-
 //
 // FuseWithConvBase
 //
@@ -356,11 +355,8 @@ mlir::LogicalResult FuseWithReduce<ConcreteOp>::matchAndRewrite(IE::QuantizeOp q
     auto users = reduceOp.getResult().getUsers();
     auto userSize = std::distance(users.begin(), users.end());
     auto newLoc = takeOpLoc(reduceOp, "{0}", userSize);
-
-    auto axes = getIntArrayAttr(this->getContext(), IE::extractAxes(reduceOp->getLoc(), reduceOp));
     rewriter.replaceOpWithNewOp<ConcreteOp>(quantizeOp, quantizeOp.getType(), inputDequantizeOp.getInput(),
-                                            /*axes*/ nullptr,
-                                            /*axes_value*/ axes,
+                                            /*axes_value*/ reduceOp.getAxesValueAttr(),
                                             /*keep_dims*/ mlir::UnitAttr::get(quantizeOp.getContext()),
                                             reduceOp.getOutputPaddingAttr(), reduceOp.getInputPaddingAttr())
             ->setLoc(newLoc);

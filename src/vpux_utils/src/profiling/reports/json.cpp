@@ -98,6 +98,8 @@ private:
 
     void processDMATraceEvents(const TaskList& tasks);
 
+    void processSWTraceEvents(const TaskList& tasks);
+
     std::string getThreadLabel(const TaskInfo& taskInfo);
 
     void createProcess(const std::string& processName);
@@ -162,6 +164,9 @@ TraceEventDesc makeTaskTraceEvent(const TaskInfo& task, int pid, int tid) {
     ted.duration = task.duration_ns / 1000.;
 
     ted.customArgs = task.customArgs;
+    if (task.exec_type == TaskInfo::ExecType::SW && task.fifo_id.has_value()) {
+        ted.customArgs.push_back({"FIFO ID", std::to_string(*task.fifo_id)});
+    }
     return ted;
 }
 
@@ -218,7 +223,7 @@ void TraceEventExporter::processTasks(const std::vector<TaskInfo>& tasks) {
         processTraceEvents(dpuInvariants);
         processTraceEvents(dpuVariants);
         auto clusterSwTasks = swTasks.selectTasksFromCluster(clusterId);
-        processTraceEvents(clusterSwTasks);
+        processSWTraceEvents(clusterSwTasks);
     }
 
     TaskList m2iTasks = TaskList(tasks).selectM2Itasks();
@@ -289,7 +294,11 @@ std::string TraceEventExporter::getThreadLabel(const TaskInfo& taskInfo) {
         label << "M2I";
         break;
     case TaskInfo::ExecType::SW:
-        label << "Shave";
+        if (taskInfo.fifo_id.has_value()) {
+            label << "Shave" << static_cast<unsigned>(taskInfo.fifo_id.value());
+        } else {
+            label << "Shave";
+        }
         break;
     case TaskInfo::ExecType::NONE:
     default:
@@ -343,6 +352,26 @@ void TraceEventExporter::processDMATraceEvents(const TaskList& tasks) {
     for (auto dmaChannel : uniqueChannels) {
         processTraceEvents(tasks, [&](const TaskInfo& task) {
             return task.port_id == dmaChannel.second && task.channel_type == dmaChannel.first;
+        });
+    }
+}
+
+void TraceEventExporter::processSWTraceEvents(const TaskList& tasks) {
+    if (tasks.empty()) {
+        return;
+    }
+
+    const auto sortedTasks = tasks.getSortedByStartTime();
+
+    // Group by fifo_id to ensure consistent thread labels per FIFO
+    std::set<std::optional<uint8_t>> uniqueFifoIds;
+    for (const auto& task : sortedTasks) {
+        uniqueFifoIds.insert(task.fifo_id);
+    }
+
+    for (auto fifoId : uniqueFifoIds) {
+        processTraceEvents(sortedTasks, [&](const TaskInfo& task) {
+            return task.fifo_id == fifoId;
         });
     }
 }

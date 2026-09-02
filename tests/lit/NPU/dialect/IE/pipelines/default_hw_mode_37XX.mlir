@@ -233,13 +233,9 @@ module @MatMulWithGroupQuant {
         // CHECK-SAME:      mem_perm = #map1
         // CHECK-SAME:  } : tensor<1x4096x16x1xf32, {order = #NHWC}> -> tensor<16x4096x1x1xf32>
 
-        // CHECK:   [[RESHAPE_OUT_0:%.+]] = IE.AffineReshape([[PERMUTE_CAST_OUT]]) {
-        // CHECK-SAME:      shape_value = [1, 1, 16, 4096]
-        // CHECK-SAME:  } : tensor<16x4096x1x1xf32> -> tensor<1x1x16x4096xf32>
-
-        // CHECK:   [[RESHAPE_OUT_1:%.+]] = IE.AffineReshape([[RESHAPE_OUT_0]]) {
+        // CHECK:   [[RESHAPE_OUT_1:%.+]] = IE.AffineReshape([[PERMUTE_CAST_OUT]]) {
         // CHECK-SAME:      shape_value = [16, 4096]
-        // CHECK-SAME:  } : tensor<1x1x16x4096xf32> -> tensor<16x4096xf32>
+        // CHECK-SAME:  } : tensor<16x4096x1x1xf32> -> tensor<16x4096xf32>
 
         return %GEMM : tensor<16x4096xf32>
         // CHECK:   return [[RESHAPE_OUT_1]] : tensor<16x4096xf32>
@@ -330,8 +326,7 @@ net.NetworkInfo
 
     // CHECK: func.func @main([[ARG0:%.+]]: tensor<1x42840x17xf16>)
     func.func @main(%arg0: tensor<1x42840x17xf16>) -> tensor<1x42840x1xf16> {
-         %cst = const.Declare tensor<1xsi64> = dense<2> : tensor<1xsi64>
-        %0 = IE.ReduceMax(%arg0, %cst) {keep_dims} : tensor<1x42840x17xf16>, tensor<1xsi64> -> tensor<1x42840x1xf16>
+        %0 = IE.ReduceMax(%arg0) {axes_value = [2], keep_dims} : tensor<1x42840x17xf16> -> tensor<1x42840x1xf16>
         return %0 : tensor<1x42840x1xf16>
     }
 
@@ -346,8 +341,6 @@ net.NetworkInfo
         // CHECK:       [[MAXPOOL2:%.+]] = IE.MaxPool([[MAXPOOL1]]) {kernel_size = [1, 3], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x7140x3xf16, {order = #NHWC}> -> tensor<1x16x7140x1xf16>
         // CHECK:       [[SLICE3:%.+]] = IE.Slice [[MAXPOOL2]] [0, 0, 0, 0] [1, 6, 7140, 1] : tensor<1x16x7140x1xf16> to tensor<1x6x7140x1xf16
         // CHECK:       [[AFFINERESHAPE2:%.+]] = IE.AffineReshape([[SLICE3]])
-        // CHECK-SAME{LITERAL}:        {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 42840, 1, 1]} : tensor<1x6x7140x1xf16> -> tensor<1x42840x1x1xf16>
-        // CHECK:       [[AFFINERESHAPE3:%.+]] = IE.AffineReshape([[AFFINERESHAPE2]])
-        // CHECK-SAME{LITERAL}:        {dim_mapping = [[0], [1], [2], [2]], shape_value = [1, 42840, 1]} : tensor<1x42840x1x1xf16> -> tensor<1x42840x1xf16>
-        // CHECK:       return [[AFFINERESHAPE3]] : tensor<1x42840x1xf16>
+        // CHECK-SAME{LITERAL}:        {dim_mapping = [[0], [1], [1], [2]], shape_value = [1, 42840, 1]} : tensor<1x6x7140x1xf16> -> tensor<1x42840x1xf16>
+        // CHECK:       return [[AFFINERESHAPE2]] : tensor<1x42840x1xf16>
 }

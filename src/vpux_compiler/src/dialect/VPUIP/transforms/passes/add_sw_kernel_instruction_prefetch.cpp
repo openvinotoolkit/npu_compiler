@@ -190,7 +190,6 @@ private:
     bool hasVPUSWModule(mlir::Operation* funcOp);
     size_t getNumTiles(mlir::ModuleOp moduleOp);
 
-    static constexpr StringLiteral vpuTaskTypeAttrName{"VPU.task_type"};
     static constexpr StringLiteral vpuKernelEntryAttrName{"VPU.kernel_entry"};
 
     size_t _minimumFreeCyclesForPrefetch = 50000;
@@ -304,28 +303,10 @@ mlir::SymbolRefAttr AddSwKernelInstructionPrefetch::getPrefetchSymbol(mlir::Oper
     auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>();
     auto vpuswModule = vpux::VPUIP::getVPUSWModule(moduleOp, _log);
 
-    const auto cacheOpType = VPU::ActShaveTaskType::CACHE_PREFETCH;
     const std::string functionName = "cache_prefetch";
     auto functionNameSymbol = mlir::SymbolRefAttr::get(ctx, functionName);
-    auto functionSymbol = mlir::SymbolRefAttr::get(ctx, vpuswModule.getName().value(), {functionNameSymbol});
-
-    // check if this function was already created
-    auto prebuiltFunction = vpuswModule.lookupSymbol<mlir::func::FuncOp>(functionName);
-    if (prebuiltFunction == nullptr) {
-        OpBuilderLogger builderLog(_log.nest());
-        auto innerModuleBuilder = mlir::OpBuilder::atBlockBegin(vpuswModule.getBody(), &builderLog);
-
-        const auto funcType = mlir::FunctionType::get(ctx, {}, {});
-        auto newFuncOp =
-                innerModuleBuilder.create<mlir::func::FuncOp>(mlir::UnknownLoc::get(ctx), functionName, funcType);
-
-        // modify attributes
-        newFuncOp.setSymVisibilityAttr(mlir::StringAttr::get(ctx, "nested"));
-        newFuncOp->setAttr(vpuTaskTypeAttrName,
-                           mlir::SymbolRefAttr::get(ctx, VPU::stringifyActShaveTaskType(cacheOpType)));
-    }
-
-    return functionSymbol;
+    VPUX_THROW_UNLESS(vpuswModule.lookupSymbol<mlir::func::FuncOp>(functionName), "No prefetch kernel found");
+    return mlir::SymbolRefAttr::get(ctx, vpuswModule.getName().value(), {functionNameSymbol});
 }
 
 size_t AddSwKernelInstructionPrefetch::getNumTiles(mlir::ModuleOp moduleOp) {
@@ -466,7 +447,6 @@ std::vector<VPUIP::SwKernelOp> AddSwKernelInstructionPrefetch::insertPrefetchTas
         mlir::Operation* funcOp, VPURT::TaskConfigVec& allTasks,
         AddSwKernelInstructionPrefetch::SwKernelPrefetchVec& kernelsToPrefetch, mlir::Operation* firstShaveTaskInIR,
         mlir::Value bestWaitBarrier, mlir::Value bestUpdateBarrier, bool useDummyKernels) {
-    auto functionSymbol = getPrefetchSymbol(funcOp);
     auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>();
     const auto numClusters = getNumTiles(moduleOp);
     const auto noOfShavesPerCluster =
@@ -489,6 +469,7 @@ std::vector<VPUIP::SwKernelOp> AddSwKernelInstructionPrefetch::insertPrefetchTas
                 prefetchKernels.push_back(newDummyKernel);
             }
         } else {
+            auto functionSymbol = getPrefetchSymbol(funcOp);
             auto newPrefetchKernel = insertPrefetchTask(firstShaveTaskInIR, bestWaitBarrier, bestUpdateBarrier,
                                                         clusterIdx, kernelName, functionSymbol);
             if (newPrefetchKernel) {
@@ -655,7 +636,7 @@ void AddSwKernelInstructionPrefetch::safeRunOnFunc() {
         return;
     }
 
-    bool useDummyKernels = config::getArch(module) == config::ArchKind::NPU40XX ? true : false;
+    bool useDummyKernels = config::getArch(module) == config::ArchKind::NPU40XX;
     if (useDummyKernels) {
         _log.info("using dummy kernels for prefetch");
     }

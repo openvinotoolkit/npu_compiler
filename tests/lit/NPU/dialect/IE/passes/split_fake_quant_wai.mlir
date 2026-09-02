@@ -134,3 +134,46 @@ func.func @SplitFakeQuantForI8WeightsAsInputsWithTranspose(%arg0 : tensor<16x256
 
     // CHECK: return [[DEQUANTIZE]] : tensor<1x256x1x16xf16>
 }
+
+// -----
+
+!qElemType = !quant.uniform<u2:f16, 1.000000e+00:2>
+
+// CHECK: !qElemType = !quant.uniform<i8:f16, 0.060064338235294119>
+// CHECK: !qElemType1 = !quant.uniform<u2:f16, 1.000000e+00:2>
+// CHECK-LABEL: @SplitFakeQuantToI8ForU2WeightsAsInputsWithZP
+// CHECK-SAME:  [[ACT:%.+]]: tensor<1x1x1536xf32>
+// CHECK-SAME:  [[W_IN:%.+]]: tensor<12288x1536xui2>
+func.func @SplitFakeQuantToI8ForU2WeightsAsInputsWithZP(%arg0: tensor<1x1x1536xf32>, %arg1: tensor<12288x1536xui2>) -> tensor<1x12288x1x1xf16> {
+  %cst_0 = const.Declare tensor<1x1x1x1xf16> = dense<7.62890625> : tensor<1x1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
+  %cst_1 = const.Declare tensor<1x1x1x1xf16> = dense<-7.6875> : tensor<1x1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
+  %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<7.62890625> : tensor<1x1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
+  %cst_3 = const.Declare tensor<1x1x1x1xf16> = dense<-7.6875> : tensor<1x1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
+
+  %0 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [1, 2], [3]], shape_value = [1, 1, 1, 1536]} : tensor<1x1x1536xf32> -> tensor<1x1x1x1536xf32>
+  %1 = IE.Convert(%0) {dstElemType = f16} : tensor<1x1x1x1536xf32> -> tensor<1x1x1x1536xf16>
+  %2 = IE.FakeQuantize(%1, %cst_3, %cst_2, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x1x1x1536xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x1x1536xf16>
+
+  %3 = IE.AffineReshape(%arg1) {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 12288, 1536]} : tensor<12288x1536xui2> -> tensor<1x1x12288x1536xui2>
+  %4 = IE.QuantizeCast(%3) {dstElemType = !qElemType} : tensor<1x1x12288x1536xui2> -> tensor<1x1x12288x1536x!qElemType>
+  %5 = IE.Dequantize(%4) {dstElemType = f16} : tensor<1x1x12288x1536x!qElemType> -> tensor<1x1x12288x1536xf16>
+
+  %6 = IE.AffineReshape(%2) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [1, 1536, 1, 1]} : tensor<1x1x1x1536xf16> -> tensor<1x1536x1x1xf16>
+  %7 = IE.AffineReshape(%5) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [12288, 1536, 1, 1]} : tensor<1x1x12288x1536xf16> -> tensor<12288x1536x1x1xf16>
+  %8 = IE.Convolution(%6, %7) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x1536x1x1xf16>, tensor<12288x1536x1x1xf16> -> tensor<1x12288x1x1xf16>
+  return %8 : tensor<1x12288x1x1xf16>
+
+  // CHECK: [[A0:%.+]] = IE.AffineReshape([[ACT]])
+  // CHECK: [[A1:%.+]] = IE.Convert([[A0]]) {dstElemType = f16}
+  // CHECK: [[Q0:%.+]] = IE.Quantize([[A1]]) {dstElemType = !qElemType}
+  // CHECK: [[DQ0:%.+]] = IE.Dequantize([[Q0]]) {dstElemType = f16}
+
+  // CHECK: [[W0:%.+]] = IE.AffineReshape([[W_IN]])
+  // CHECK: [[W1:%.+]] = IE.QuantizeCast([[W0]]) {dstElemType = !qElemType1}
+  // CHECK: [[W2:%.+]] = IE.Dequantize([[W1]]) {dstElemType = f16}
+
+  // CHECK: [[R0:%.+]] = IE.AffineReshape([[DQ0]])
+  // CHECK: [[R1:%.+]] = IE.AffineReshape([[W2]])
+  // CHECK: [[CONV:%.+]] = IE.Convolution([[R0]], [[R1]])
+  // CHECK: return [[CONV]] : tensor<1x12288x1x1xf16>
+}

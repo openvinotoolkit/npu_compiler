@@ -556,3 +556,126 @@ func.func @NoChangeWithEffectiveStridesShapeCast(
     // CHECK:   VPUIP.Copy
     // CHECK:   VPUIP.ShapeCast
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!InputDistributed = !VPUIP.DistributedBuffer<
+    1x16x16x4xf16, #NHWC, @CMX_NN, {
+    mode = "OVERLAPPED",
+    num_tiles = [1, 1, 4, 1],
+    num_clusters = 4,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 4, 0], [0, 0, 8, 0], [0, 0, 12, 0]],
+    memory_shapes = [[1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 4, 0], [0, 0, 8, 0], [0, 0, 12, 0]]
+}>
+
+// CHECK-LABEL: @MoveGenericReshapeBeforeTilingCopyOverlappedAxisTradeHaloFree
+// CHECK-SAME:  [[INPUT:%.+]]: !VPUIP.DistributedBuffer<1x16x16x4xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED"
+func.func @MoveGenericReshapeBeforeTilingCopyOverlappedAxisTradeHaloFree(%arg0: !InputDistributed) -> memref<1x16x8x8xf16, {order = #NHWC}, @DDR> {
+    %alloc = memref.alloc() : memref<1x16x16x4xf16, {order = #NHWC}, @DDR>
+    %0 = VPUIP.Copy
+        inputs(%arg0 : !InputDistributed)
+        outputs(%alloc : memref<1x16x16x4xf16, {order = #NHWC}, @DDR>) -> memref<1x16x16x4xf16, {order = #NHWC}, @DDR>
+    %1 = VPUIP.GenericReshape inputs(%0 : memref<1x16x16x4xf16, {order = #NHWC}, @DDR>) -> memref<1x16x8x8xf16, {order = #NHWC}, @DDR>
+
+    return %1 : memref<1x16x8x8xf16, {order = #NHWC}, @DDR>
+
+    //CHECK:               [[GENERICRESHAPE:%.+]] = VPUIP.GenericReshape
+    //CHECK-SAME:              inputs([[INPUT]] : !VPUIP.DistributedBuffer<1x16x16x4xf16, #NHWC, @CMX_NN,
+    //CHECK-SAME:                  {mode = "OVERLAPPED", num_tiles = [1, 1, 4, 1], num_clusters = 4 : i64, uniform_distributed_segments,
+    //CHECK-SAME{LITERAL}:          compute_shapes = [[1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4]], compute_offsets = [[0, 0, 0, 0], [0, 0, 4, 0], [0, 0, 8, 0], [0, 0, 12, 0]],
+    //CHECK-SAME{LITERAL}:          memory_shapes = [[1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4]], memory_offsets = [[0, 0, 0, 0], [0, 0, 4, 0], [0, 0, 8, 0], [0, 0, 12, 0]]}>)
+    //CHECK-SAME:              -> !VPUIP.DistributedBuffer<1x16x8x8xf16, #NHWC, @CMX_NN,
+    //CHECK-SAME:                  {mode = "OVERLAPPED", num_tiles = [1, 1, 4, 1], num_clusters = 4 : i64, uniform_distributed_segments,
+    //CHECK-SAME{LITERAL}:          compute_shapes = [[1, 16, 2, 8], [1, 16, 2, 8], [1, 16, 2, 8], [1, 16, 2, 8]], compute_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 4, 0], [0, 0, 6, 0]],
+    //CHECK-SAME{LITERAL}:          memory_shapes = [[1, 16, 2, 8], [1, 16, 2, 8], [1, 16, 2, 8], [1, 16, 2, 8]], memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 4, 0], [0, 0, 6, 0]]}>
+    //CHECK:               [[OUTBUFF:%.+]] = memref.alloc() : memref<1x16x8x8xf16, {order = #NHWC}, @DDR>
+    //CHECK:               [[COPY:%.+]] = VPUIP.Copy
+    //CHECK-SAME:              inputs([[GENERICRESHAPE]] : !VPUIP.DistributedBuffer<1x16x8x8xf16, #NHWC, @CMX_NN
+    //CHECK-SAME:              outputs([[OUTBUFF]] : memref<1x16x8x8xf16, {order = #NHWC}, @DDR>) -> memref<1x16x8x8xf16, {order = #NHWC}, @DDR>
+    //CHECK:               return [[COPY]] : memref<1x16x8x8xf16, {order = #NHWC}, @DDR>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!InputDistributedWithHalo = !VPUIP.DistributedBuffer<
+    1x16x16x4xf16, #NHWC, @CMX_NN, {
+    mode = "OVERLAPPED",
+    num_tiles = [1, 1, 4, 1],
+    num_clusters = 4,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 4, 0], [0, 0, 8, 0], [0, 0, 12, 0]],
+    memory_shapes = [[1, 16, 5, 4], [1, 16, 6, 4], [1, 16, 6, 4], [1, 16, 5, 4]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 3, 0], [0, 0, 7, 0], [0, 0, 11, 0]]
+}>
+
+// CHECK-LABEL: @NoMoveGenericReshapeOverlappedAxisTradeWithHalo
+// CHECK-SAME:  [[INPUT:%.+]]: !VPUIP.DistributedBuffer<1x16x16x4xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED"
+func.func @NoMoveGenericReshapeOverlappedAxisTradeWithHalo(%arg0: !InputDistributedWithHalo) -> memref<1x16x8x8xf16, {order = #NHWC}, @DDR> {
+    %alloc = memref.alloc() : memref<1x16x16x4xf16, {order = #NHWC}, @DDR>
+    %0 = VPUIP.Copy
+        inputs(%arg0 : !InputDistributedWithHalo)
+        outputs(%alloc : memref<1x16x16x4xf16, {order = #NHWC}, @DDR>) -> memref<1x16x16x4xf16, {order = #NHWC}, @DDR>
+    %1 = VPUIP.GenericReshape inputs(%0 : memref<1x16x16x4xf16, {order = #NHWC}, @DDR>) -> memref<1x16x8x8xf16, {order = #NHWC}, @DDR>
+
+    return %1 : memref<1x16x8x8xf16, {order = #NHWC}, @DDR>
+
+    //CHECK:               [[COPY:%.+]] = VPUIP.Copy
+    //CHECK-SAME:              inputs([[INPUT]]
+    //CHECK:               [[GENERICRESHAPE:%.+]] = VPUIP.GenericReshape inputs([[COPY]] : memref<1x16x16x4xf16, {order = #NHWC}, @DDR>) -> memref<1x16x8x8xf16, {order = #NHWC}, @DDR>
+    //CHECK:               return [[GENERICRESHAPE]] : memref<1x16x8x8xf16, {order = #NHWC}, @DDR>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!InputDistributed = !VPUIP.DistributedBuffer<
+    1x16x16x4xf16, #NHWC, @CMX_NN, {
+    mode = "OVERLAPPED",
+    num_tiles = [1, 1, 4, 1],
+    num_clusters = 4,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 4, 0], [0, 0, 8, 0], [0, 0, 12, 0]],
+    memory_shapes = [[1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4], [1, 16, 4, 4]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 4, 0], [0, 0, 8, 0], [0, 0, 12, 0]]
+}>
+
+// CHECK-LABEL: @NoMoveGenericReshapeOverlappedAxisTradeStridedConcatDestination
+// CHECK-SAME:  [[INPUT:%.+]]: !VPUIP.DistributedBuffer<1x16x16x4xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED"
+// CHECK-SAME:  [[INPUT1:%.+]]: memref<1x16x8x8xf16, {order = #NHWC}, @DDR>
+func.func @NoMoveGenericReshapeOverlappedAxisTradeStridedConcatDestination(
+        %arg0: !InputDistributed,
+        %arg1: memref<1x16x8x8xf16, {order = #NHWC}, @DDR>) -> memref<1x32x8x8xf16, {order = #NHWC}, @DDR> {
+    %alloc = memref.alloc() : memref<1x16x16x4xf16, {order = #NHWC}, @DDR>
+    %0 = VPUIP.Copy
+        inputs(%arg0 : !InputDistributed)
+        outputs(%alloc : memref<1x16x16x4xf16, {order = #NHWC}, @DDR>) -> memref<1x16x16x4xf16, {order = #NHWC}, @DDR>
+    %1 = VPUIP.GenericReshape inputs(%0 : memref<1x16x16x4xf16, {order = #NHWC}, @DDR>) -> memref<1x16x8x8xf16, {order = #NHWC}, @DDR>
+
+    %concat_alloc = memref.alloc() : memref<1x32x8x8xf16, {order = #NHWC}, @DDR>
+    %sub0 = VPUIP.SubView %concat_alloc [0, 0, 0, 0] [1, 16, 8, 8] : memref<1x32x8x8xf16, {order = #NHWC}, @DDR> to memref<1x16x8x8xf16, {order = #NHWC, strides = [2048, 1, 256, 32]}, @DDR>
+    %copy0 = VPUIP.Copy inputs(%1 : memref<1x16x8x8xf16, {order = #NHWC}, @DDR>) outputs(%sub0 : memref<1x16x8x8xf16, {order = #NHWC, strides = [2048, 1, 256, 32]}, @DDR>) -> memref<1x16x8x8xf16, {order = #NHWC, strides = [2048, 1, 256, 32]}, @DDR>
+    %sub1 = VPUIP.SubView %concat_alloc [0, 16, 0, 0] [1, 16, 8, 8] : memref<1x32x8x8xf16, {order = #NHWC}, @DDR> to memref<1x16x8x8xf16, {order = #NHWC, strides = [2048, 1, 256, 32]}, @DDR>
+    %copy1 = VPUIP.Copy inputs(%arg1 : memref<1x16x8x8xf16, {order = #NHWC}, @DDR>) outputs(%sub1 : memref<1x16x8x8xf16, {order = #NHWC, strides = [2048, 1, 256, 32]}, @DDR>) -> memref<1x16x8x8xf16, {order = #NHWC, strides = [2048, 1, 256, 32]}, @DDR>
+    %concat = VPUIP.ConcatView inputs(%copy0, %copy1 : memref<1x16x8x8xf16, {order = #NHWC, strides = [2048, 1, 256, 32]}, @DDR>, memref<1x16x8x8xf16, {order = #NHWC, strides = [2048, 1, 256, 32]}, @DDR>) outputs(%concat_alloc : memref<1x32x8x8xf16, {order = #NHWC}, @DDR>) -> memref<1x32x8x8xf16, {order = #NHWC}, @DDR>
+
+    return %concat : memref<1x32x8x8xf16, {order = #NHWC}, @DDR>
+
+    // The GenericReshape stays after the Copy (not hoisted in front of it).
+    //CHECK:               [[COPY:%.+]] = VPUIP.Copy
+    //CHECK-SAME:              inputs([[INPUT]]
+    //CHECK:               [[GENERICRESHAPE:%.+]] = VPUIP.GenericReshape inputs([[COPY]] : memref<1x16x16x4xf16, {order = #NHWC}, @DDR>) -> memref<1x16x8x8xf16, {order = #NHWC}, @DDR>
+    //CHECK:               [[SUB0:%.+]] = VPUIP.SubView
+    //CHECK:               [[COPY0:%.+]] = VPUIP.Copy inputs([[GENERICRESHAPE]]
+    //CHECK:               [[CONCAT:%.+]] = VPUIP.ConcatView
+    //CHECK:               return [[CONCAT]] : memref<1x32x8x8xf16, {order = #NHWC}, @DDR>
+}

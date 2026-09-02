@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
@@ -24,6 +25,9 @@
 #include "vpux/compiler/utils/loop.hpp"
 
 #include <mutex>
+
+#include <vpu_cost_model.h>
+#include <vpu_layer_cost_model.h>
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_TILINGSTRATEGYASSIGNMENT
@@ -159,6 +163,12 @@ void TilingStrategyAssignmentPass::safeRunOnFunc() {
             VPU::LayerCostModelAnalysis::getOrCreateLayerCostModel(maybeLayerCostModelAnalysis, &getContext(), _log);
     auto strategyLayerCost = std::make_unique<VPU::LayerVPUNNCost>(func);
 
+    // Only needed for the full-search path below; grabbing it here (before layerCostModel is moved into
+    // _costModel) avoids reaching for it once ownership has been transferred. Left null otherwise so the
+    // shared cost model is not kept alive by this scope in the common case.
+    std::shared_ptr<VPUNN::VPUCostModel> dpuCostModel =
+            _enableTilingFullSearchSpace ? layerCostModel->get_cost_model_shared() : nullptr;
+
     auto siblingOpsAnalysis = getAnalysis<VPU::EagerSiblingOpsAnalysis>();
     llvm::DenseSet<VPU::TilingBuilderOpInterface> opsToCheckForPrefetch{};
     llvm::DenseMap<VPU::TilingBuilderOpInterface, std::vector<vpux::VPU::StrategyWithCost>> strategiesForOp{};
@@ -171,6 +181,9 @@ void TilingStrategyAssignmentPass::safeRunOnFunc() {
             func, _enablePrefetchTiling, siblingOpsAnalysis, std::move(layerCostModel), _log));
 
     if (_enableTilingFullSearchSpace) {
+        // Scope online profiling to this search (covers the whole parallel loop below).
+        const VPU::ScopedProfilingForAutoHint profilingScope(dpuCostModel);
+
         llvm::DenseMap<VPU::TilingBuilderOpInterface, VPU::TemporalTilingInfo> temporalTilingInfoForOp{};
         std::mutex temporalTilingMapMutex;
 
@@ -313,6 +326,7 @@ void TilingStrategyAssignmentPass::safeRunOnFunc() {
     cache.printStats(_log);
     cache.cleanUp();
     VPU::removeDynamicDimAlignment(func);
+    VPU::writePrecomputedStrategyTableJSON(func);
 }
 }  // namespace
 

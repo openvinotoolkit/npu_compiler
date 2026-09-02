@@ -8,6 +8,7 @@
 #include <llvm/ADT/STLExtras.h>
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/comparison.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
@@ -23,6 +24,7 @@
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/shape_utils.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -51,16 +53,17 @@ private:
 };
 
 // Match pattern
-// Input -> IE.Power|IE.Multiply -> IE.ReduceSum -> (optional IE.Add) -> IE.Sqrt -> IE.Divide -> IE.Multiply(Cst_Scale)
-//   |                                                                                   ^
-//   |                                                                                   |
-//    ------------------------------------------------------------------------------------
+// Input -> IE.Power|IE.Multiply -> IE.ReduceSum -> (optional IE.Add) -> (optional IE.ReLU) -> IE.Sqrt -> IE.Divide ->
+// IE.Multiply(Cst_Scale)
+//   |                                                                                            ^
+//   |                                                                                            |
+//    ------------------------------------------------------------------------------------------------
 //                     Fuses to IE.RMS with gamma = Cst_Scale/Sqrt(inputDims[axis])
 // Or
-// Input -> IE.Power|IE.Multiply -> IE.ReduceSum -> (optional IE.Add) -> IE.Sqrt -> IE.Divide
-//   |                                                                                   ^
-//   |                                                                                   |
-//    ------------------------------------------------------------------------------------
+// Input -> IE.Power|IE.Multiply -> IE.ReduceSum -> (optional IE.Add) -> (optional IE.ReLU) -> IE.Sqrt -> IE.Divide
+//   |                                                                                            ^
+//   |                                                                                            |
+//    ------------------------------------------------------------------------------------------------
 //                     Fuses to IE.RMS with gamma = 1/Sqrt(inputDims[axis])
 // Or
 // Input -> IE.Power|IE.Multiply -> IE.ReduceSum -> IE.Multiply(Cst_Scale) -> (optional IE.Add)
@@ -85,13 +88,15 @@ private:
 //    ----------------------------------------------------------------------------
 //                     Fuses to IE.RMS with gamma = Cst_Scale_2/Sqrt(inputDims[axis]*Cst_Scale_1)
 // Since (X/Sqrt(ReduceMean(X^2, axis)))*(1/Sqrt(inputDims[axis])) = X/Sqrt(ReduceSum(X^2, axis))
+// Note: the optional IE.ReLU (inserted by handle_u16_fake_quantize) is transparent to the match -
+// see getSqrtAndDivideOps for why it is safe to drop.
 
 bool isDimExpansionOp(mlir::Operation* op) {
     // Helper to check if op is a dimension expansion operation (unsqueeze-like)
     if (auto affineReshapeOp = mlir::dyn_cast_if_present<IE::AffineReshapeOp>(op)) {
         auto inShape = getShape(affineReshapeOp.getInput());
         auto outShape = getShape(affineReshapeOp.getOutput());
-        return !IE::isNotDimExpansionReshape(inShape, outShape);
+        return !vpux::isNotDimExpansionReshape(inShape, outShape);
     }
     return mlir::isa_and_present<IE::UnsqueezeOp>(op);
 }
@@ -143,6 +148,18 @@ mlir::Operation* getPowerOp(mlir::Operation* op) {
 }
 
 mlir::Operation* getSqrtAndDivideOps(mlir::Operation* op) {
+    // handle_u16_fake_quantize may insert a ReLU right before Sqrt to clamp the (already
+    // non-negative) variance/epsilon sum into the unsigned range expected by the u16 fake-quantize
+    // op it inserts downstream. Since Sqrt's input here is guaranteed non-negative (it is a sum of
+    // squares plus a non-negative epsilon), the ReLU is a no-op on the value flowing through this
+    // path, so it is safe to skip over it when matching the RMSNorm pattern.
+    if (auto reluOp = mlir::dyn_cast_or_null<IE::ReLUOp>(op)) {
+        if (!reluOp->hasOneUse()) {
+            return nullptr;
+        }
+        return getSqrtAndDivideOps(*reluOp->getUsers().begin());
+    }
+
     // Check the case of 1/Sqrt(x)
     const auto sqrtOp = mlir::dyn_cast_or_null<IE::SqrtOp>(op);
     if (sqrtOp != nullptr && sqrtOp->hasOneUse()) {
@@ -559,29 +576,34 @@ IE::RMSOp createRMSOp(mlir::OpBuilder& builder, mlir::Operation* headOp, mlir::V
 //
 
 // Match pattern
-// Input -> IE.Power -> IE.ReduceMean -> IE.Add (epsilon) -> [IE.AffineReshape] -> IE.Sqrt -> IE.Divide -> IE.Multiply
-//   \                                                                                             /
-//    ---------------------------------------------------------------------------------------------
+// Input -> IE.Power -> IE.ReduceMean -> IE.Add (epsilon) -> (optional IE.ReLU) -> [IE.AffineReshape] -> IE.Sqrt ->
+// IE.Divide -> IE.Multiply
+//   \ /
+//    --------------------------------------------------------------------------------------------------------------------------------
 // -> IE.Multiply (gamma)
 // Or
-// Input -> IE.Power|IE.Multiply -> IE.ReduceMean -> IE.Add (epsilon) -> [IE.AffineReshape] -> IE.Power(-0.5) ->
-// IE.Multiply
-//   \                                                                                                               /
-//    ---------------------------------------------------------------------------------------------------------------
+// Input -> IE.Power|IE.Multiply -> IE.ReduceMean -> IE.Add (epsilon) -> (optional IE.ReLU) -> [IE.AffineReshape] ->
+// IE.Power(-0.5) -> IE.Multiply
+//   \ /
+//    -------------------------------------------------------------------------------------------------------------------------------------
 // -> [IE.Multiply (gamma)]
 // Note: IE.Multiply (gamma) is optional; without it a unit gamma is synthesized.
 //       The final IE.Multiply may have multiple downstream users.
 // Or
-// Input -> IE.Convert -> IE.Power -> IE.ReduceMean -> IE.Add (epsilon) -> [IE.AffineReshape] -> IE.Sqrt -> IE.Divide
-//   \                                                                                                           /
-//    -----------------------------------------------------------------------------------------------------------
+// Input -> IE.Convert -> IE.Power -> IE.ReduceMean -> IE.Add (epsilon) -> (optional IE.ReLU) -> [IE.AffineReshape] ->
+// IE.Sqrt -> IE.Divide
+//   \ /
+//    --------------------------------------------------------------------------------------------------------------------------------
 // -> IE.Multiply -> IE.Convert -> IE.Multiply (gamma)
 // Or
 // Input -> IE.Power -> IE.ReduceMean -> IE.Equal -----
 //                            |                       | ->
-//                            |------------------------ ->   IE.Select -> IE.Sqrt -> IE.Divide -> IE.Multiply
+//                            |------------------------ ->   IE.Select -> (optional IE.ReLU) -> IE.Sqrt -> IE.Divide ->
+//                            IE.Multiply
 //                                              Const   ->
 // Note: [IE.AffineReshape] is optional, present when ReduceMean uses keep_dims=false
+// Note: the optional IE.ReLU (inserted by handle_u16_fake_quantize) is transparent to the match -
+//       see getSqrtAndDivideOps for why it is safe to drop.
 // Convert to RMS
 // RMS = x * 1/Sqrt(ReduceMean(x^2,axes)+eps) * gamma
 void FuseRMSNormPass::safeRunOnFunc() {

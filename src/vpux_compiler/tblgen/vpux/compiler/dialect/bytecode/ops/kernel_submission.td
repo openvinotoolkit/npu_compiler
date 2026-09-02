@@ -13,7 +13,7 @@ include "mlir/IR/SymbolInterfaces.td"
 def Bytecode_CmdListCreateOp : Bytecode_OneOperandInstructionBase<"cmd_list.create", [], "1.0.0", "intel_npu::vm::OpCode::CMD_LIST_CREATE"> {
     let summary = "Create a command list";
 
-    let opDescription = [{
+    let description = [{
         Creates a new command list and stores its opaque handle into the `reg` register.
         The command list is initially empty and is intended to be populated with commands,
         then finalized and submitted by subsequent command-list operations.
@@ -23,12 +23,16 @@ def Bytecode_CmdListCreateOp : Bytecode_OneOperandInstructionBase<"cmd_list.crea
         bytecode.cmd_list.create %cmd_list  // creates a command list; handle stored in %cmd_list
         ```
     }];
+
+    let extraClassDeclaration = [{
+        bool isDstOperand(::mlir::OpOperand& operand) { return operand.get() == getReg(); }
+    }];
 }
 
 def Bytecode_CmdListCloseOp : Bytecode_OneOperandInstructionBase<"cmd_list.close", [], "1.0.0", "intel_npu::vm::OpCode::CMD_LIST_CLOSE"> {
     let summary = "Close a command list";
 
-    let opDescription = [{
+    let description = [{
         Closes the command list identified by the opaque handle in `reg`.
         After this operation, the command list is finalized and ready to be submitted
         for execution by subsequent command-list operations.
@@ -43,7 +47,7 @@ def Bytecode_CmdListCloseOp : Bytecode_OneOperandInstructionBase<"cmd_list.close
 def Bytecode_CmdListExecOp : Bytecode_OneOperandsPlusImmInstructionBase<"cmd_list.exec", [], "1.0.0", "intel_npu::vm::OpCode::CMD_LIST_EXEC"> {
     let summary = "Execute a command list";
 
-    let opDescription = [{
+    let description = [{
         Submits the command list identified by the opaque handle in `reg` to the
         command queue for execution. Execution is asynchronous and this operation
         does not wait for completion.
@@ -76,19 +80,25 @@ def Bytecode_KernelCreateOp : Bytecode_VariadicOperandsInstructionOp<"kernel.cre
 
         Example:
         ```mlir
-        bytecode.kernel.create %dst, @my_kernel, inputs(%in0, %in1), outputs(%out0)
+        bytecode.kernel.create %dst, @kernel_section::@my_kernel, inputs(%in0, %in1), outputs(%out0)
         ```
     }];
 
     let arguments = (ins
         Bytecode_RegisterType:$dst,
-        FlatSymbolRefAttr:$kernel,
+        SymbolRefAttr:$kernel,
         Variadic<Bytecode_RegisterType>:$inputs,
         Variadic<Bytecode_RegisterType>:$outputs
     );
 
     let assemblyFormat = [{
         $dst `,` $kernel `,` `inputs` `(` $inputs `)` `,` `outputs` `(` $outputs `)` attr-dict
+    }];
+
+    let extraClassDeclaration = [{
+        bool isDstOperand(::mlir::OpOperand& operand) {
+            return operand.get() == getDst();
+        }
     }];
 }
 

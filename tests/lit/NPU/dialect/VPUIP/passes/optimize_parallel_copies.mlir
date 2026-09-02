@@ -2681,3 +2681,267 @@ func.func @OptimizeParallelCopiesMultiUserSubView(
 
     // CHECK:      return [[CONV_0]], [[CONV_1]]
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#QKV_IDENTITY = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#QKV_ACT_PERM = affine_map<(d0, d1, d2, d3) -> (d2, d0, d3, d1)>
+#QKV_WEIGHTS_PERM = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+
+!QKVLayerNormRootDDR = memref<1x1x256x384xf16, @DDR>
+!QKVLayerNormTileDDR = memref<1x1x64x384xf16, {order = #QKV_IDENTITY, strides = [98304, 98304, 384, 1]}, @DDR>
+!QKVRmsInputDDR = memref<1x1x1024x384xf16, @DDR>
+!QKVRmsInputTileDDR = memref<1x1x256x384xf16, {order = #QKV_IDENTITY, strides = [393216, 393216, 384, 1]}, @DDR>
+!QKVRmsInputHalfDDR = memref<1x1x128x384xf16, {order = #QKV_IDENTITY, strides = [393216, 393216, 384, 1]}, @DDR>
+!QKVRmsOutputHalfDDR = memref<1x1x128x384xf16, {order = #QKV_IDENTITY, strides = [98304, 98304, 384, 1]}, @DDR>
+!QKVRmsHalfCMX = memref<1x1x128x384xf16, @CMX_NN>
+!QKVActFlatDDR = memref<64x384x1x1xf16, @DDR>
+!QKVActPermuteDDR = memref<1x384x64x1xf16, {order = #NHWC}, @DDR>
+!QKVActDDR = memref<1x384x8x8xf16, {order = #NHWC}, @DDR>
+!QKVActCMX = memref<1x384x8x8xf16, {order = #NHWC}, @CMX_NN>
+!QKVWeightsParamDDR = memref<6x192x64xf16, @DDR>
+!QKVWeightsRootDDR = memref<1x6x192x64xf16, @DDR>
+!QKVWeightsTileDDR = memref<1x6x64x64xf16, {order = #QKV_IDENTITY, strides = [73728, 12288, 64, 1]}, @DDR>
+!QKVWeightsTileCMX = memref<1x6x64x64xf16, {order = #QKV_IDENTITY, strides = [73728, 12288, 64, 1]}, @CMX_NN>
+!QKVWeightsPermuteCMX = memref<1x64x6x64xf16, @CMX_NN>
+!QKVWeightsPermuteHalfCMX = memref<1x32x6x64xf16, {order = #QKV_IDENTITY, strides = [24576, 384, 64, 1]}, @CMX_NN>
+!QKVScalesDDR = memref<1x64x6x1xf16, @DDR>
+!QKVScalesCMX = memref<1x64x6x1xf16, @CMX_NN>
+!QKVScaleHalfCMX = memref<1x32x6x1xf16, {order = #QKV_IDENTITY, strides = [384, 6, 1, 1]}, @CMX_NN>
+!QKVWeightsDequantCMX = memref<1x64x6x64xf16, @CMX_NN>
+!QKVWeightsDequantHalfCMX = memref<1x32x6x64xf16, {order = #QKV_IDENTITY, strides = [24576, 384, 64, 1]}, @CMX_NN>
+!QKVWeightsCMXRaw = memref<64x384x1x1xf16, @CMX_NN>
+!QKVWeightsCMX = memref<64x384x1x1xf16, {order = #NHWC}, @CMX_NN>
+!QKVOutCMX = memref<1x64x8x8xf16, {order = #NHWC}, @CMX_NN>
+!QKVOutDDR = memref<1x64x8x8xf16, {order = #NHWC}, @DDR>
+
+module @VPU.SW {
+  func.func nested @builtin_DynamicDequantize(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>) attributes {VPU.kernel_code = "dynamic_dequantize.cpp", VPU.kernel_entry = "dynamic_dequantize"}
+  func.func nested @builtin_RMS(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>) attributes {VPU.kernel_code = "rms.cpp", VPU.kernel_entry = "rms"}
+}
+
+// CHECK-LABEL: @KeepInputCopyDynamicDequantConvVFPatternTilingOnTwoAxis
+// CHECK-SAME: [[RMS_INPUT:%[^:]+]]: memref<1x1x1024x384xf16, @DDR>,
+// CHECK-SAME: [[OUT0:%[^:]+]]: memref<1x64x8x8xf16, {order = #NHWC}, @DDR>,
+// CHECK-SAME: [[OUT1:%[^:]+]]: memref<1x64x8x8xf16, {order = #NHWC}, @DDR>,
+// CHECK-SAME: [[OUT2:%[^:]+]]: memref<1x64x8x8xf16, {order = #NHWC}, @DDR>,
+// CHECK-SAME: [[WEIGHTS_PARAM:%[^:]+]]: memref<6x192x64xf16, @DDR>,
+// CHECK-SAME: [[SCALES:%[^:]+]]: memref<1x64x6x1xf16, @DDR>)
+func.func @KeepInputCopyDynamicDequantConvVFPatternTilingOnTwoAxis(%rmsInput: !QKVRmsInputDDR, %out0: !QKVOutDDR, %out1: !QKVOutDDR, %out2: !QKVOutDDR, %weightsParam: !QKVWeightsParamDDR, %scales: !QKVScalesDDR) -> (!QKVOutDDR, !QKVOutDDR, !QKVOutDDR) {
+    %rmsInputTile = VPUIP.SubView %rmsInput [0, 0, 0, 0] [1, 1, 256, 384] : !QKVRmsInputDDR to !QKVRmsInputTileDDR
+    %rmsInputHiSlice = VPUIP.SubView %rmsInputTile [0, 0, 128, 0] [1, 1, 128, 384] : !QKVRmsInputTileDDR to !QKVRmsInputHalfDDR
+    %rmsInputHiBuffer = memref.alloc() : !QKVRmsHalfCMX
+    %rmsInputHiCopy = VPUIP.Copy inputs(%rmsInputHiSlice : !QKVRmsInputHalfDDR) outputs(%rmsInputHiBuffer : !QKVRmsHalfCMX) -> !QKVRmsHalfCMX
+    %rmsInputLoSlice = VPUIP.SubView %rmsInputTile [0, 0, 0, 0] [1, 1, 128, 384] : !QKVRmsInputTileDDR to !QKVRmsInputHalfDDR
+    %rmsInputLoBuffer = memref.alloc() : !QKVRmsHalfCMX
+    %rmsInputLoCopy = VPUIP.Copy inputs(%rmsInputLoSlice : !QKVRmsInputHalfDDR) outputs(%rmsInputLoBuffer : !QKVRmsHalfCMX) -> !QKVRmsHalfCMX
+    %rmsLoBuffer = memref.alloc() : !QKVRmsHalfCMX
+    %rmsHiBuffer = memref.alloc() : !QKVRmsHalfCMX
+    %rms:2 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 2, 0, 0>} @VPU.SW::@builtin_RMS
+      inputs(%rmsInputLoCopy as %rmsKernelInputLo: !QKVRmsHalfCMX, %rmsInputHiCopy as %rmsKernelInputHi: !QKVRmsHalfCMX)
+      outputs(%rmsLoBuffer as %rmsKernelOutputLo: !QKVRmsHalfCMX, %rmsHiBuffer as %rmsKernelOutputHi: !QKVRmsHalfCMX) on tile 0 -> (!QKVRmsHalfCMX, !QKVRmsHalfCMX) {
+      VPUIP.SW.Kernel.run {attrs = [9223372036854775807]}(%rmsKernelInputLo, %rmsKernelOutputLo) : !QKVRmsHalfCMX, !QKVRmsHalfCMX
+      VPUIP.SW.Kernel.run {attrs = [9223372036854775807]}(%rmsKernelInputHi, %rmsKernelOutputHi) : !QKVRmsHalfCMX, !QKVRmsHalfCMX
+    }
+    %rmsDDR = memref.alloc() : !QKVLayerNormRootDDR
+    %rmsOutputLoSlice = VPUIP.SubView %rmsDDR [0, 0, 0, 0] [1, 1, 128, 384] : !QKVLayerNormRootDDR to !QKVRmsOutputHalfDDR
+    %rmsDDRLo = VPUIP.Copy inputs(%rms#0 : !QKVRmsHalfCMX) outputs(%rmsOutputLoSlice : !QKVRmsOutputHalfDDR) -> !QKVRmsOutputHalfDDR
+    %rmsOutputHiSlice = VPUIP.SubView %rmsDDR [0, 0, 128, 0] [1, 1, 128, 384] : !QKVLayerNormRootDDR to !QKVRmsOutputHalfDDR
+    %rmsDDRHi = VPUIP.Copy inputs(%rms#1 : !QKVRmsHalfCMX) outputs(%rmsOutputHiSlice : !QKVRmsOutputHalfDDR) -> !QKVRmsOutputHalfDDR
+    %rmsDDRConcat = VPUIP.ConcatView inputs(%rmsDDRLo, %rmsDDRHi : !QKVRmsOutputHalfDDR, !QKVRmsOutputHalfDDR) outputs(%rmsDDR : !QKVLayerNormRootDDR) -> !QKVLayerNormRootDDR
+
+    %weights = VPUIP.GenericReshape inputs(%weightsParam : !QKVWeightsParamDDR) -> !QKVWeightsRootDDR
+    %wRootSlice = VPUIP.SubView %weights [0, 0, 0, 0] [1, 6, 64, 64] : !QKVWeightsRootDDR to !QKVWeightsTileDDR
+    %wSiblingRootSlice = VPUIP.SubView %weights [0, 0, 64, 0] [1, 6, 64, 64] : !QKVWeightsRootDDR to !QKVWeightsTileDDR
+    %wRootCopyBuffer = memref.alloc() : !QKVWeightsTileCMX
+    %wRootCopy = VPUIP.Copy inputs(%wRootSlice : !QKVWeightsTileDDR) outputs(%wRootCopyBuffer : !QKVWeightsTileCMX) -> !QKVWeightsTileCMX
+    %wPermuteBuffer = memref.alloc() : !QKVWeightsPermuteCMX
+    %wPermute = VPUIP.PermuteDMA <{mem_perm = #QKV_WEIGHTS_PERM}> inputs(%wRootCopy : !QKVWeightsTileCMX) outputs(%wPermuteBuffer : !QKVWeightsPermuteCMX) -> !QKVWeightsPermuteCMX
+    %wPermuteHi = VPUIP.SubView %wPermute [0, 32, 0, 0] [1, 32, 6, 64] : !QKVWeightsPermuteCMX to !QKVWeightsPermuteHalfCMX
+    %wPermuteLo = VPUIP.SubView %wPermute [0, 0, 0, 0] [1, 32, 6, 64] : !QKVWeightsPermuteCMX to !QKVWeightsPermuteHalfCMX
+    %scalesBuffer = memref.alloc() : !QKVScalesCMX
+    %scalesCopy = VPUIP.Copy inputs(%scales : !QKVScalesDDR) outputs(%scalesBuffer : !QKVScalesCMX) -> !QKVScalesCMX
+    %scalesHi = VPUIP.SubView %scalesCopy [0, 32, 0, 0] [1, 32, 6, 1] : !QKVScalesCMX to !QKVScaleHalfCMX
+    %scalesLo = VPUIP.SubView %scalesCopy [0, 0, 0, 0] [1, 32, 6, 1] : !QKVScalesCMX to !QKVScaleHalfCMX
+    %wDqBuffer = memref.alloc() : !QKVWeightsDequantCMX
+    %wDqHiBuffer = VPUIP.SubView %wDqBuffer [0, 32, 0, 0] [1, 32, 6, 64] : !QKVWeightsDequantCMX to !QKVWeightsDequantHalfCMX
+    %wDqLoBuffer = VPUIP.SubView %wDqBuffer [0, 0, 0, 0] [1, 32, 6, 64] : !QKVWeightsDequantCMX to !QKVWeightsDequantHalfCMX
+    %wDq:2 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 2, 0, 0>} @VPU.SW::@builtin_DynamicDequantize
+      inputs(%wPermuteLo as %wDqInputLo: !QKVWeightsPermuteHalfCMX, %scalesLo as %wDqScaleLo: !QKVScaleHalfCMX, %wPermuteHi as %wDqInputHi: !QKVWeightsPermuteHalfCMX, %scalesHi as %wDqScaleHi: !QKVScaleHalfCMX)
+      outputs(%wDqLoBuffer as %wDqOutputLo: !QKVWeightsDequantHalfCMX, %wDqHiBuffer as %wDqOutputHi: !QKVWeightsDequantHalfCMX) on tile 0 -> (!QKVWeightsDequantHalfCMX, !QKVWeightsDequantHalfCMX) {
+      VPUIP.SW.Kernel.run {attrs = [9223372036854775807]}(%wDqInputLo, %wDqScaleLo, %wDqOutputLo) : !QKVWeightsPermuteHalfCMX, !QKVScaleHalfCMX, !QKVWeightsDequantHalfCMX
+      VPUIP.SW.Kernel.run {attrs = [9223372036854775807]}(%wDqInputHi, %wDqScaleHi, %wDqOutputHi) : !QKVWeightsPermuteHalfCMX, !QKVScaleHalfCMX, !QKVWeightsDequantHalfCMX
+    }
+    %wConcat = VPUIP.ConcatView inputs(%wDq#0, %wDq#1 : !QKVWeightsDequantHalfCMX, !QKVWeightsDequantHalfCMX) outputs(%wDqBuffer : !QKVWeightsDequantCMX) -> !QKVWeightsDequantCMX
+    %wReshape = VPUIP.GenericReshape inputs(%wConcat : !QKVWeightsDequantCMX) -> !QKVWeightsCMXRaw
+    %w = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs(%wReshape : !QKVWeightsCMXRaw) -> !QKVWeightsCMX
+    %wSiblingRootCopyBuffer = memref.alloc() : !QKVWeightsTileCMX
+    %wSiblingRootCopy = VPUIP.Copy inputs(%wSiblingRootSlice : !QKVWeightsTileDDR) outputs(%wSiblingRootCopyBuffer : !QKVWeightsTileCMX) -> !QKVWeightsTileCMX
+    %wSiblingPermuteBuffer = memref.alloc() : !QKVWeightsPermuteCMX
+    %wSiblingPermute = VPUIP.PermuteDMA <{mem_perm = #QKV_WEIGHTS_PERM}> inputs(%wSiblingRootCopy : !QKVWeightsTileCMX) outputs(%wSiblingPermuteBuffer : !QKVWeightsPermuteCMX) -> !QKVWeightsPermuteCMX
+    %wSiblingReshape = VPUIP.GenericReshape inputs(%wSiblingPermute : !QKVWeightsPermuteCMX) -> !QKVWeightsCMXRaw
+    %wSibling = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs(%wSiblingReshape : !QKVWeightsCMXRaw) -> !QKVWeightsCMX
+    %actSlice0 = VPUIP.SubView %rmsDDRConcat [0, 0, 0, 0] [1, 1, 64, 384] : !QKVLayerNormRootDDR to !QKVLayerNormTileDDR
+    %actFlat0 = VPUIP.GenericReshape inputs(%actSlice0 : !QKVLayerNormTileDDR) -> !QKVActFlatDDR
+    %actPermute0 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #QKV_ACT_PERM} inputs(%actFlat0 : !QKVActFlatDDR) -> !QKVActPermuteDDR
+    %actDDR0 = VPUIP.GenericReshape inputs(%actPermute0 : !QKVActPermuteDDR) -> !QKVActDDR
+    %act0Buffer = memref.alloc() : !QKVActCMX
+    %act0 = VPUIP.Copy inputs(%actDDR0 : !QKVActDDR) outputs(%act0Buffer : !QKVActCMX) -> !QKVActCMX
+    %conv0Buffer = memref.alloc() : !QKVOutCMX
+    %conv0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+      input(%act0 : !QKVActCMX) weights(%w : !QKVWeightsCMX) parent_input(%act0 : !QKVActCMX) parent_output(%conv0Buffer : !QKVOutCMX) outputs(%conv0Buffer : !QKVOutCMX) -> !QKVOutCMX variants : {
+      DPUTask {inEnd = [7, 7, 383], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [7, 7, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+      PPETask {ppe = #VPU.PPEStub<>}
+    }
+    %copyOut0 = VPUIP.Copy inputs(%conv0 : !QKVOutCMX) outputs(%out0 : !QKVOutDDR) -> !QKVOutDDR
+
+    %actAnchorBuffer = memref.alloc() : !QKVActCMX
+    %actAnchor = VPUIP.Copy inputs(%actDDR0 : !QKVActDDR) outputs(%actAnchorBuffer : !QKVActCMX) -> !QKVActCMX
+    %convAnchorBuffer = memref.alloc() : !QKVOutCMX
+    %convAnchor = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+      input(%actAnchor : !QKVActCMX) weights(%w : !QKVWeightsCMX) parent_input(%actAnchor : !QKVActCMX) parent_output(%convAnchorBuffer : !QKVOutCMX) outputs(%convAnchorBuffer : !QKVOutCMX) -> !QKVOutCMX variants : {
+      DPUTask {inEnd = [7, 7, 383], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [7, 7, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+      PPETask {ppe = #VPU.PPEStub<>}
+    }
+    %tmpOutAnchor = memref.alloc() : !QKVOutDDR
+    %copyOutAnchor = VPUIP.Copy inputs(%convAnchor : !QKVOutCMX) outputs(%tmpOutAnchor : !QKVOutDDR) -> !QKVOutDDR
+
+    %actSliceNext = VPUIP.SubView %rmsDDRConcat [0, 0, 64, 0] [1, 1, 64, 384] : !QKVLayerNormRootDDR to !QKVLayerNormTileDDR
+    %actFlatNext = VPUIP.GenericReshape inputs(%actSliceNext : !QKVLayerNormTileDDR) -> !QKVActFlatDDR
+    %actPermuteNext = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #QKV_ACT_PERM} inputs(%actFlatNext : !QKVActFlatDDR) -> !QKVActPermuteDDR
+    %actDDRNext = VPUIP.GenericReshape inputs(%actPermuteNext : !QKVActPermuteDDR) -> !QKVActDDR
+    %actNextBuffer = memref.alloc() : !QKVActCMX
+    %actNext = VPUIP.Copy inputs(%actDDRNext : !QKVActDDR) outputs(%actNextBuffer : !QKVActCMX) -> !QKVActCMX
+    %convNextBuffer = memref.alloc() : !QKVOutCMX
+    %convNext = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+      input(%actNext : !QKVActCMX) weights(%wSibling : !QKVWeightsCMX) parent_input(%actNext : !QKVActCMX) parent_output(%convNextBuffer : !QKVOutCMX) outputs(%convNextBuffer : !QKVOutCMX) -> !QKVOutCMX variants : {
+      DPUTask {inEnd = [7, 7, 383], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [7, 7, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+      PPETask {ppe = #VPU.PPEStub<>}
+    }
+    %tmpOut = memref.alloc() : !QKVOutDDR
+    %copyOutNext = VPUIP.Copy inputs(%convNext : !QKVOutCMX) outputs(%tmpOut : !QKVOutDDR) -> !QKVOutDDR
+
+    %act1Buffer = memref.alloc() : !QKVActCMX
+    %act1 = VPUIP.Copy inputs(%actDDR0 : !QKVActDDR) outputs(%act1Buffer : !QKVActCMX) -> !QKVActCMX
+    %conv1Buffer = memref.alloc() : !QKVOutCMX
+    %conv1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+      input(%act1 : !QKVActCMX) weights(%w : !QKVWeightsCMX) parent_input(%act1 : !QKVActCMX) parent_output(%conv1Buffer : !QKVOutCMX) outputs(%conv1Buffer : !QKVOutCMX) -> !QKVOutCMX variants : {
+      DPUTask {inEnd = [7, 7, 383], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [7, 7, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+      PPETask {ppe = #VPU.PPEStub<>}
+    }
+    %copyOut1 = VPUIP.Copy inputs(%conv1 : !QKVOutCMX) outputs(%out1 : !QKVOutDDR) -> !QKVOutDDR
+
+    %actSliceNext2 = VPUIP.SubView %rmsDDRConcat [0, 0, 128, 0] [1, 1, 64, 384] : !QKVLayerNormRootDDR to !QKVLayerNormTileDDR
+    %actFlatNext2 = VPUIP.GenericReshape inputs(%actSliceNext2 : !QKVLayerNormTileDDR) -> !QKVActFlatDDR
+    %actPermuteNext2 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #QKV_ACT_PERM} inputs(%actFlatNext2 : !QKVActFlatDDR) -> !QKVActPermuteDDR
+    %actDDRNext2 = VPUIP.GenericReshape inputs(%actPermuteNext2 : !QKVActPermuteDDR) -> !QKVActDDR
+    %actNext2Buffer = memref.alloc() : !QKVActCMX
+    %actNext2 = VPUIP.Copy inputs(%actDDRNext2 : !QKVActDDR) outputs(%actNext2Buffer : !QKVActCMX) -> !QKVActCMX
+    %convNext2Buffer = memref.alloc() : !QKVOutCMX
+    %convNext2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+      input(%actNext2 : !QKVActCMX) weights(%w : !QKVWeightsCMX) parent_input(%actNext2 : !QKVActCMX) parent_output(%convNext2Buffer : !QKVOutCMX) outputs(%convNext2Buffer : !QKVOutCMX) -> !QKVOutCMX variants : {
+      DPUTask {inEnd = [7, 7, 383], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [7, 7, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+      PPETask {ppe = #VPU.PPEStub<>}
+    }
+    %tmpOut2 = memref.alloc() : !QKVOutDDR
+    %copyOutNext2 = VPUIP.Copy inputs(%convNext2 : !QKVOutCMX) outputs(%tmpOut2 : !QKVOutDDR) -> !QKVOutDDR
+
+    %act2Buffer = memref.alloc() : !QKVActCMX
+    %act2 = VPUIP.Copy inputs(%actDDR0 : !QKVActDDR) outputs(%act2Buffer : !QKVActCMX) -> !QKVActCMX
+    %conv2Buffer = memref.alloc() : !QKVOutCMX
+    %conv2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+      input(%act2 : !QKVActCMX) weights(%w : !QKVWeightsCMX) parent_input(%act2 : !QKVActCMX) parent_output(%conv2Buffer : !QKVOutCMX) outputs(%conv2Buffer : !QKVOutCMX) -> !QKVOutCMX variants : {
+      DPUTask {inEnd = [7, 7, 383], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [7, 7, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+      PPETask {ppe = #VPU.PPEStub<>}
+    }
+    %copyOut2 = VPUIP.Copy inputs(%conv2 : !QKVOutCMX) outputs(%out2 : !QKVOutDDR) -> !QKVOutDDR
+
+    return %copyOut0, %copyOut1, %copyOut2 : !QKVOutDDR, !QKVOutDDR, !QKVOutDDR
+
+    // CHECK:       [[RMS_INPUT_TILE:%.+]] = VPUIP.SubView [[RMS_INPUT]] [0, 0, 0, 0] [1, 1, 256, 384]
+    // CHECK:       [[RMS_INPUT_HI:%.+]] = VPUIP.SubView [[RMS_INPUT_TILE]] [0, 0, 128, 0] [1, 1, 128, 384]
+    // CHECK:       [[RMS_INPUT_HI_COPY:%.+]] = VPUIP.Copy inputs([[RMS_INPUT_HI]]
+    // CHECK:       [[RMS_INPUT_LO:%.+]] = VPUIP.SubView [[RMS_INPUT_TILE]] [0, 0, 0, 0] [1, 1, 128, 384]
+    // CHECK:       [[RMS_INPUT_LO_COPY:%.+]] = VPUIP.Copy inputs([[RMS_INPUT_LO]]
+    // CHECK:       [[RMS:%.+]]:2 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 2, 0, 0>} @VPU.SW::@builtin_RMS
+    // CHECK-SAME:      inputs([[RMS_INPUT_LO_COPY]] as
+    // CHECK-SAME:      [[RMS_INPUT_HI_COPY]] as
+    // CHECK:       [[RMS_DDR:%.+]] = memref.alloc() : memref<1x1x256x384xf16, @DDR>
+    // CHECK:       [[RMS_OUTPUT_LO:%.+]] = VPUIP.SubView [[RMS_DDR]] [0, 0, 0, 0] [1, 1, 128, 384]
+    // CHECK:       [[RMS_DDR_LO:%.+]] = VPUIP.Copy inputs([[RMS]]#0
+    // CHECK:       [[RMS_OUTPUT_HI:%.+]] = VPUIP.SubView [[RMS_DDR]] [0, 0, 128, 0] [1, 1, 128, 384]
+    // CHECK:       [[RMS_DDR_HI:%.+]] = VPUIP.Copy inputs([[RMS]]#1
+    // CHECK:       [[RMS_DDR_CONCAT:%.+]] = VPUIP.ConcatView inputs([[RMS_DDR_LO]], [[RMS_DDR_HI]]
+    // CHECK-SAME:      outputs([[RMS_DDR]]
+
+    // CHECK:       [[WEIGHTS:%.+]] = VPUIP.GenericReshape inputs([[WEIGHTS_PARAM]]
+    // CHECK:       [[W_ROOT_SLICE:%.+]] = VPUIP.SubView [[WEIGHTS]] [0, 0, 0, 0] [1, 6, 64, 64]
+    // CHECK:       [[W_SIBLING_ROOT_SLICE:%.+]] = VPUIP.SubView [[WEIGHTS]] [0, 0, 64, 0] [1, 6, 64, 64]
+    // CHECK:       [[W_ROOT_COPY:%.+]] = VPUIP.Copy inputs([[W_ROOT_SLICE]]
+    // CHECK:       [[W_PERMUTE:%.+]] = VPUIP.PermuteDMA
+    // CHECK-SAME:      inputs([[W_ROOT_COPY]]
+    // CHECK:       [[W_PERMUTE_LO:%.+]] = VPUIP.SubView [[W_PERMUTE]] [0, 0, 0, 0] [1, 32, 6, 64]
+    // CHECK:       [[SCALES_COPY:%.+]] = VPUIP.Copy inputs([[SCALES]]
+    // CHECK:       [[W_DQ:%.+]]:2 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 2, 0, 0>} @VPU.SW::@builtin_DynamicDequantize
+    // CHECK-SAME:      inputs([[W_PERMUTE_LO]] as
+    // CHECK:       [[W_CONCAT:%.+]] = VPUIP.ConcatView inputs([[W_DQ]]#0, [[W_DQ]]#1
+    // CHECK:       [[W_RESHAPE:%.+]] = VPUIP.GenericReshape inputs([[W_CONCAT]]
+    // CHECK:       [[W:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs([[W_RESHAPE]]
+    // CHECK:       [[W_SIBLING_ROOT_COPY:%.+]] = VPUIP.Copy inputs([[W_SIBLING_ROOT_SLICE]]
+    // CHECK:       [[W_SIBLING_PERMUTE:%.+]] = VPUIP.PermuteDMA
+    // CHECK-SAME:      inputs([[W_SIBLING_ROOT_COPY]]
+    // CHECK:       [[W_SIBLING_RESHAPE:%.+]] = VPUIP.GenericReshape inputs([[W_SIBLING_PERMUTE]]
+    // CHECK:       [[W_SIBLING:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs([[W_SIBLING_RESHAPE]]
+
+    // CHECK:       [[ACT_SLICE0:%.+]] = VPUIP.SubView [[RMS_DDR_CONCAT]] [0, 0, 0, 0] [1, 1, 64, 384]
+    // CHECK:       [[ACT_FLAT0:%.+]] = VPUIP.GenericReshape inputs([[ACT_SLICE0]]
+    // CHECK:       [[ACT_PERMUTE0:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #map} inputs([[ACT_FLAT0]]
+    // CHECK:       [[ACT_DDR0:%.+]] = VPUIP.GenericReshape inputs([[ACT_PERMUTE0]]
+    // CHECK:       [[ACT0:%.+]] = VPUIP.Copy inputs([[ACT_DDR0]]
+    // CHECK:       [[CONV0:%.+]] = VPUIP.NCEClusterTask
+    // CHECK-SAME:      input([[ACT0]]
+    // CHECK-SAME:      weights([[W]]
+    // CHECK:       [[COPY_OUT0:%.+]] = VPUIP.Copy inputs([[CONV0]]
+    // CHECK:       [[CONV_ANCHOR:%.+]] = VPUIP.NCEClusterTask
+    // CHECK-SAME:      input([[ACT0]]
+    // CHECK-SAME:      weights([[W]]
+
+    // CHECK:       [[ACT_SLICE_NEXT:%.+]] = VPUIP.SubView [[RMS_DDR_CONCAT]] [0, 0, 64, 0] [1, 1, 64, 384]
+    // CHECK:       [[ACT_FLAT_NEXT:%.+]] = VPUIP.GenericReshape inputs([[ACT_SLICE_NEXT]]
+    // CHECK:       [[ACT_PERMUTE_NEXT:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #map} inputs([[ACT_FLAT_NEXT]]
+    // CHECK:       [[ACT_DDR_NEXT:%.+]] = VPUIP.GenericReshape inputs([[ACT_PERMUTE_NEXT]]
+    // CHECK:       [[ACT_NEXT:%.+]] = VPUIP.Copy inputs([[ACT_DDR_NEXT]]
+    // CHECK:       [[CONV_NEXT:%.+]] = VPUIP.NCEClusterTask
+    // CHECK-SAME:      input([[ACT_NEXT]]
+    // CHECK-SAME:      weights([[W_SIBLING]]
+    // CHECK:       [[COPY_OUT_NEXT:%.+]] = VPUIP.Copy inputs([[CONV_NEXT]]
+    // CHECK:       [[ACT1:%.+]] = VPUIP.Copy inputs([[ACT_DDR0]]
+    // CHECK:       [[CONV1:%.+]] = VPUIP.NCEClusterTask
+    // CHECK-SAME:      input([[ACT1]]
+    // CHECK-SAME:      weights([[W]]
+
+    // CHECK:       [[COPY_OUT1:%.+]] = VPUIP.Copy inputs([[CONV1]]
+    // CHECK:       [[ACT_SLICE_NEXT2:%.+]] = VPUIP.SubView [[RMS_DDR_CONCAT]] [0, 0, 128, 0] [1, 1, 64, 384]
+    // CHECK:       [[ACT_FLAT_NEXT2:%.+]] = VPUIP.GenericReshape inputs([[ACT_SLICE_NEXT2]]
+    // CHECK:       [[ACT_PERMUTE_NEXT2:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #map} inputs([[ACT_FLAT_NEXT2]]
+    // CHECK:       [[ACT_DDR_NEXT2:%.+]] = VPUIP.GenericReshape inputs([[ACT_PERMUTE_NEXT2]]
+    // CHECK:       [[ACT_NEXT2:%.+]] = VPUIP.Copy inputs([[ACT_DDR_NEXT2]]
+    // CHECK:       [[CONV_NEXT2:%.+]] = VPUIP.NCEClusterTask
+    // CHECK-SAME:      input([[ACT_NEXT2]]
+    // CHECK-SAME:      weights([[W]]
+    // CHECK:       [[COPY_OUT_NEXT2:%.+]] = VPUIP.Copy inputs([[CONV_NEXT2]]
+    // CHECK:       [[ACT2:%.+]] = VPUIP.Copy inputs([[ACT_DDR0]]
+    // CHECK:       [[CONV2:%.+]] = VPUIP.NCEClusterTask
+    // CHECK-SAME:      input([[ACT2]]
+    // CHECK-SAME:      weights([[W]]
+    // CHECK:       [[COPY_OUT2:%.+]] = VPUIP.Copy inputs([[CONV2]]
+
+    // CHECK:       return [[COPY_OUT0]], [[COPY_OUT1]], [[COPY_OUT2]]
+}

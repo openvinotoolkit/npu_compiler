@@ -6,7 +6,6 @@
 #pragma once
 
 #include "vpux/compiler/compiler.hpp"
-#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <vpux_elf/writer.hpp>
@@ -19,8 +18,8 @@
 namespace vpux::ELF {
 
 std::vector<uint8_t> exportToELF(mlir::ModuleOp module, Logger log = Logger::global());
-std::pair<BlobView, BlobView> exportToELF(mlir::ModuleOp module, BlobAllocator& allocator,
-                                          std::string& compatibilityString, Logger log = Logger::global(),
-                                          bool allocateCompatibilityString = false);
+
+BlobView exportToELF(mlir::ModuleOp module, BlobAllocator& allocator, std::string& compatibilityString,
+                     Logger log = Logger::global());
 
 }  // namespace vpux::ELF

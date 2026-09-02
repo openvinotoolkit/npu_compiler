@@ -93,7 +93,9 @@ std::optional<double> getPerTensorBias(T convLikeOp) {
     }
 
     const auto biasConst = bias.template getDefiningOp<Const::DeclareOp>();
-    VPUX_THROW_WHEN(biasConst == nullptr, "Cannot apply non-constant bias");
+    if (biasConst == nullptr) {
+        return std::nullopt;  // Non-constant bias => use weight table
+    }
 
     const auto biasContent = biasConst.getContentAttr();
     if (!biasContent.isSplat()) {
@@ -205,7 +207,8 @@ std::optional<double> computeScale(mlir::Operation* operation) {
                         return getPerTensorInput2Scale(matmulOp);
                     })
                     .Case<IE::ReduceMeanOp>([](auto reduceMeanOp) -> std::optional<double> {
-                        return getReduceMeanScale(reduceMeanOp, IE::extractAxes(reduceMeanOp->getLoc(), reduceMeanOp));
+                        return getReduceMeanScale(reduceMeanOp,
+                                                  parseIntArrayAttr<int64_t>(reduceMeanOp.getAxesValue()));
                     })
                     .Case<VPU::NCEReduceOp>([](auto reduceOp) -> std::optional<double> {
                         return reduceOp.getOpType() == VPU::ReduceType::MEAN
@@ -223,6 +226,13 @@ std::optional<double> computeScale(mlir::Operation* operation) {
     // Convolution's may have static scale
     if (auto convOp = mlir::dyn_cast<IE::ConvolutionOp>(operation)) {
         if (const auto staticScale = convOp.getStaticScale()) {
+            scale *= staticScale->convertToDouble();
+        }
+    }
+
+    // Add's may have static scale
+    if (auto addOp = mlir::dyn_cast<IE::AddOp>(operation)) {
+        if (const auto staticScale = addOp.getStaticScale()) {
             scale *= staticScale->convertToDouble();
         }
     }
@@ -513,9 +523,15 @@ PpeFactory::AttrBuilder PpeFactory::retrieveNonEltwisePPEAttribute(mlir::Operati
     if (nceOp != nullptr && !mlir::isa<VPU::PPEStubAttr>(nceOp.getPPE()) && hasWeightsTable(nceOp.getPPE())) {
         return builder;
     }
-
-    auto maybeConvOp = mlir::dyn_cast<IE::ConvolutionOp>(operation);
-    auto hasScaleTable = maybeConvOp != nullptr && maybeConvOp.getScale() != nullptr;
+    // When a dynamic per-channel scale tensor is provided by the IE op, the WT stores the scale and
+    // the PPE scale field must be null (per PPEFpAttr specification).
+    const auto hasScaleTable = mlir::TypeSwitch<mlir::Operation*, bool>(operation)
+                                       .Case<IE::ConvolutionOp, IE::MaxPoolOp, IE::AvgPoolOp, IE::AddOp>([](auto op) {
+                                           return op.getScale() != nullptr;
+                                       })
+                                       .Default([](auto) {
+                                           return false;
+                                       });
 
     // It's not possible to pick only the bias or the scale from WT, so WT is either used for both or not used at all.
     builder.bias = ::computeBias(operation);
@@ -644,6 +660,14 @@ PpeFactory::AttrBuilder PpeFactory::retrieveEltwisePPEAttribute(mlir::Operation*
     auto outputScale = 1.0;
     if (const auto outputElemQType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(outputElemType)) {
         outputScale = outputElemQType.getScale();
+    }
+
+    // Apply static scale fused from a preceding Multiply into IE::AddOp by the FuseScale pass.
+    // Skip when scale is null (per-axis quantization), as scaling is handled by the weights table.
+    if (operation->hasAttr("static_scale")) {
+        if (const auto staticScaleAttr = operation->getAttrOfType<mlir::FloatAttr>("static_scale")) {
+            outputScale *= staticScaleAttr.getValueAsDouble();
+        }
     }
 
     const auto elemType = mlir::dyn_cast<mlir::quant::QuantizedType>(in1ElemType).getStorageType();

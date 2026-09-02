@@ -65,3 +65,18 @@ func.func @NotConvertPowerWithoutIntegerExponentToMult(%arg0: tensor<1x16xf16>) 
     // CHECK-SAME:      tensor<1x16xf16>, tensor<1x1xf16> -> tensor<1x16xf16>
     // CHECK:       return [[POWER]]
 }
+
+// -----
+
+// CHECK-LABEL: @NotConvertPowerWithNegativeExponentToMult
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16xf16>
+func.func @NotConvertPowerWithNegativeExponentToMult(%arg0: tensor<1x16xf16>) -> tensor<1x16xf16> {
+    %cst_exponent = const.Declare tensor<1x1xf16> = dense<-1.0> : tensor<1x1xf16>
+    %power = IE.Power(%arg0, %cst_exponent) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16xf16>, tensor<1x1xf16> -> tensor<1x16xf16>
+    return %power : tensor<1x16xf16>
+
+    // CHECK-DAG:   [[EXPONENT:%.+]] = const.Declare tensor<1x1xf16> = dense<-1.000000e+00> : tensor<1x1xf16>
+    // CHECK:       [[POWER:%.+]] = IE.Power([[INPUT]], [[EXPONENT]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK-SAME:      tensor<1x16xf16>, tensor<1x1xf16> -> tensor<1x16xf16>
+    // CHECK:       return [[POWER]]
+}

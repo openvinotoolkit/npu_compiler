@@ -35,16 +35,17 @@ bool isTensorDim(mlir::Value value) {
 }
 
 // OpChainAnalysis class implementation
-OpChainAnalysis::OpChainAnalysis(const Logger& log): _registry(DialectProcessorRegistry::createDefault()), _log(log) {
+OpChainAnalysis::OpChainAnalysis(const Logger& log)
+        : _registry(DialectProcessorRegistry::createDefault(getInterpolateScalesBoundResolver())), _log(log) {
 }
 
 OpChainAnalysis::OpChainAnalysis(const OpChainAnalysis& other)
-        : _registry(DialectProcessorRegistry::createDefault()), _log(other._log) {
+        : _registry(DialectProcessorRegistry::createDefault(getInterpolateScalesBoundResolver())), _log(other._log) {
 }
 
 OpChainAnalysis& OpChainAnalysis::operator=(const OpChainAnalysis& other) {
     if (this != &other) {
-        _registry = DialectProcessorRegistry::createDefault();
+        _registry = DialectProcessorRegistry::createDefault(getInterpolateScalesBoundResolver());
         _log = other._log;
         _chainCache.clear();
     }
@@ -220,14 +221,17 @@ void OpChainAnalysis::traverseAndGetBlockArgs(mlir::Value val,
         }
     }
 
+    // Keep only loop IVs; function arguments (e.g. Interpolate scales) are not
+    // valid inputs for generateValueMap().
+    llvm::SmallSetVector<mlir::Value, DEFAULT_ARG_SET_SIZE> loopBlockArgs;
     for (auto blockArg : blockArgs) {
-        auto arg = mlir::dyn_cast<mlir::BlockArgument>(blockArg);
+        auto arg = mlir::cast<mlir::BlockArgument>(blockArg);
         auto parentOp = arg.getOwner()->getParentOp();
-        if (!mlir::isa<mlir::LoopLikeOpInterface>(parentOp)) {
-            blockArgs.clear();
-            return;
+        if (mlir::isa<mlir::LoopLikeOpInterface>(parentOp)) {
+            loopBlockArgs.insert(blockArg);
         }
     }
+    blockArgs = std::move(loopBlockArgs);
 }
 
 SmallVector<mlir::Value> reorderBlocksArgs(const llvm::SmallSetVector<mlir::Value, DEFAULT_ARG_SET_SIZE>& blockArgs) {
@@ -338,10 +342,20 @@ void iterativeDfs(
     }
 }
 
-std::tuple<int64_t, int64_t, int64_t> OpChainAnalysis::getLoopBoundsAndStep(mlir::scf::ForOp forOp) {
+std::tuple<int64_t, int64_t, int64_t> OpChainAnalysis::getLoopBoundsAndStep(mlir::scf::ForOp forOp,
+                                                                            ValueRangeMap* valueHints) {
     auto lowerBoundOpt = getIntegerFromValue(forOp.getLowerBound(), true);
     auto upperBoundOpt = getIntegerFromValue(forOp.getUpperBound(), true);
     auto stepOpt = getIntegerFromValue(forOp.getStep(), true);
+
+    // When the upper bound is dynamic try to evaluate it using the caller-supplied hints map, which may contain
+    // pre-seeded single-value entries such as Interpolate scale bounds.
+    if (!upperBoundOpt.has_value() && valueHints) {
+        auto result = getOpFoldResultValue(forOp.getUpperBound(), *valueHints, OpChainAnalysis::MODE::MAX_VALUE);
+        if (result.has_value() && !result->empty()) {
+            upperBoundOpt = result->front();
+        }
+    }
 
     if (!lowerBoundOpt.has_value() || !upperBoundOpt.has_value() || !stepOpt.has_value()) {
         VPUX_THROW("Failed to get integer values for scf.for operation bounds and step");
@@ -426,7 +440,7 @@ bool OpChainAnalysis::generateValueMap(llvm::ArrayRef<mlir::Value> blockOperands
         }
         if (auto forOp = mlir::dyn_cast<mlir::scf::ForOp>(dimInductionArg.getOwner()->getParentOp())) {
             SmallVector<int64_t> vals;
-            auto [low, high, step] = getLoopBoundsAndStep(forOp);
+            auto [low, high, step] = getLoopBoundsAndStep(forOp, &valueMap);
             for (auto i = low; i < high; i += step) {
                 vals.push_back(i);
             }
@@ -459,6 +473,15 @@ bool OpChainAnalysis::generateValueMap(llvm::ArrayRef<mlir::Value> blockOperands
 
 std::optional<SmallVector<int64_t>> OpChainAnalysis::processCallChain(mlir::Value val, ValueRangeMap& valueMap,
                                                                       OpChainAnalysis::MODE mode) {
+    // Propagate single-value entries from ValueRangeMap to the scalar operand map
+    auto seedScalarMap = [&](llvm::DenseMap<mlir::Value, int64_t>& localOperandMap) {
+        for (const auto& [seedValue, seedRange] : valueMap) {
+            if (seedRange.size() == 1) {
+                localOperandMap.try_emplace(seedValue, seedRange.front());
+            }
+        }
+    };
+
     llvm::SmallSetVector<mlir::Value, DEFAULT_ARG_SET_SIZE> blockOperands;
     traverseAndGetBlockArgs(val, blockOperands);
 
@@ -466,6 +489,7 @@ std::optional<SmallVector<int64_t>> OpChainAnalysis::processCallChain(mlir::Valu
         _log.trace("Block operands empty, try evaluating op chain directly");
         auto callChain = collectParentOpsChain(val);
         llvm::DenseMap<mlir::Value, int64_t> localOperandMap;
+        seedScalarMap(localOperandMap);
         if (!evaluateOpChain(callChain, localOperandMap)) {
             _log.trace("Failed to evaluate op chain without block operands");
             return std::nullopt;
@@ -520,6 +544,7 @@ std::optional<SmallVector<int64_t>> OpChainAnalysis::processCallChain(mlir::Valu
         decodeIndices(static_cast<int>(i), sizes, indices);
 
         llvm::DenseMap<mlir::Value, int64_t> localOperandMap;
+        seedScalarMap(localOperandMap);
         for (size_t j = 0; j < orderedBlockOperands.size(); ++j) {
             localOperandMap[orderedBlockOperands[j]] = (*ranges[j])[indices[j]];
         }

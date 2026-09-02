@@ -154,6 +154,18 @@ bool isParentOptimalForAlignment(mlir::Operation* parentOp);
 bool isAlignmentBeneficial(mlir::Operation* op);
 
 bool hasDimensionExceedingVPULimit(ShapeRef shape);
+
+//
+// DPU vs SHAVE size heuristic
+//
+
+// Returns true when `sizeBytes` is large enough (relative to per-tile CMX capacity and the
+// number of tiles) that paying DPU/broadcast-DMA overhead is worth it instead of a cheap SHAVE
+// kernel dispatch. `op` is used to look up the per-tile CMX size for the current module.
+// Shared by callers that decide between a DPU (NCE) path and a SHAVE path for small tensors:
+// OptimizeTileOp's spatial-broadcast Tile fold, DecomposeMVN's forceDecompose gate, and
+// MVNLayoutInfoOpModelForSW's NHWC-retention guard for the DPU-normalize path.
+bool isLargeEnoughForDPUOverSHAVE(mlir::Operation* op, int64_t sizeBytes, int64_t numTiles);
 }  // namespace NCEInvariant
 
 }  // namespace VPU

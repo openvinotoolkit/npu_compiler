@@ -15,7 +15,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @valid_fn @valid_fn_name @fn_type {
+    bytecode.func @valid_fn @string_section::@valid_fn_name @type_section::@fn_type {
         bytecode.ret
     }
 }
@@ -32,8 +32,8 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    // expected-error @+1 {{could not be resolved in the type section}}
-    bytecode.func @bad_fn @bad_fn_name @nonexistent {
+    // expected-error @+1 {{references undefined symbol @type_section::@nonexistent}}
+    bytecode.func @bad_fn @string_section::@bad_fn_name @type_section::@nonexistent {
         bytecode.ret
     }
 }
@@ -51,7 +51,7 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     // expected-error @+1 {{resolves to a non-function type in the type section}}
-    bytecode.func @bad_fn @bad_fn_name @i64_type {
+    bytecode.func @bad_fn @string_section::@bad_fn_name @type_section::@i64_type {
         bytecode.ret
     }
 }

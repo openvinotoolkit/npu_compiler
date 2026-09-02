@@ -21,14 +21,14 @@
 
 module {
 bytecode.func_section @function_section {
-    bytecode.func @add @add_fn_name @fn_type_a {
+    bytecode.func @add @string_section::@add_fn_name @type_section::@fn_type_a {
         %dst = bytecode.general_register 0
         %lhs = bytecode.general_register 1
         %rhs = bytecode.general_register 2
         bytecode.add.i64 %dst, %lhs, %rhs
         bytecode.retv %dst
     }
-    bytecode.func @scale @scale_fn_name @fn_type_b {
+    bytecode.func @scale @string_section::@scale_fn_name @type_section::@fn_type_b {
         %dst = bytecode.general_register 0
         %src = bytecode.general_register 1
         bytecode.set %dst, %src

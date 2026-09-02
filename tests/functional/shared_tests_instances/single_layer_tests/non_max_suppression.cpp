@@ -67,11 +67,8 @@ protected:
                                  ? op::v9::NonMaxSuppression::BoxEncodingType::CENTER
                                  : op::v9::NonMaxSuppression::BoxEncodingType::CORNER;
 
-        size_t numBatches, numBoxes, numClasses;
-        std::tie(numBatches, numBoxes, numClasses) = inShapeParams;
-
-        ov::element::Type paramsType, maxBoxType, thrType;
-        std::tie(paramsType, maxBoxType, thrType) = inputTypes;
+        const auto& [numBatches, numBoxes, numClasses] = inShapeParams;
+        const auto& [paramsType, maxBoxType, thrType] = inputTypes;
 
         const std::vector<size_t> boxesShape{numBatches, numBoxes, 4}, scoresShape{numBatches, numClasses, numBoxes};
         VpuOv2LayerTest::init_input_shapes(static_shapes_to_test_representation({boxesShape, scoresShape}));
@@ -107,6 +104,7 @@ TEST_P(NmsLayerTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU5010);
 }
+
 TEST_P(NmsLayerTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU5020);
@@ -173,12 +171,14 @@ const auto nmsParamsSmoke =
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_NmsLayerTest, NmsLayerTestCommon, nmsParamsSmoke,
                          NmsLayerTestCommon::getTestCaseName);
 
-const std::vector<ov::test::InputShapeParams> customInShapeParamsSmoke = {ov::test::InputShapeParams{1, 76726, 1}};
+const std::vector<ov::test::InputShapeParams> customInShapeParamsSmokeSmall = {ov::test::InputShapeParams{1, 100, 1}};
+const std::vector<ov::test::InputShapeParams> customInShapeParamsSmokeLarge = {ov::test::InputShapeParams{1, 76726, 1}};
 const std::vector<int32_t> customMaxOutBoxPerClassSmoke = {100};
 const std::vector<float> customIouThresholdSmoke = {0.5f};
 const std::vector<float> customScoreThresholdSmoke = {0.39990234375f};
-const auto nmsCustomParamsSmoke = testing::Combine(
-        testing::ValuesIn(customInShapeParamsSmoke),
+
+const auto nmsCustomParamsSmokeSmall = testing::Combine(
+        testing::ValuesIn(customInShapeParamsSmokeSmall),
         ::testing::Combine(::testing::ValuesIn(paramsType), ::testing::ValuesIn(maxBoxType),
                            ::testing::ValuesIn(thrType)),
         ::testing::ValuesIn(customMaxOutBoxPerClassSmoke), ::testing::ValuesIn(customIouThresholdSmoke),
@@ -186,6 +186,18 @@ const auto nmsCustomParamsSmoke = testing::Combine(
         ::testing::ValuesIn(encodTypeSmoke), ::testing::ValuesIn(sortResDesc), ::testing::ValuesIn(outType),
         ::testing::Values(test_utils::TARGET_DEVICE));
 
-INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_custom_NmsLayerTest, NmsLayerTestCommon, nmsCustomParamsSmoke,
+const auto nmsCustomParamsSmokeLarge = testing::Combine(
+        testing::ValuesIn(customInShapeParamsSmokeLarge),
+        ::testing::Combine(::testing::ValuesIn(paramsType), ::testing::ValuesIn(maxBoxType),
+                           ::testing::ValuesIn(thrType)),
+        ::testing::ValuesIn(customMaxOutBoxPerClassSmoke), ::testing::ValuesIn(customIouThresholdSmoke),
+        ::testing::ValuesIn(customScoreThresholdSmoke), ::testing::ValuesIn(sigmaThresholdSmoke),
+        ::testing::ValuesIn(encodTypeSmoke), ::testing::ValuesIn(sortResDesc), ::testing::ValuesIn(outType),
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_custom_NmsLayerTest, NmsLayerTestCommon, nmsCustomParamsSmokeSmall,
+                         NmsLayerTestCommon::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_custom_large_NmsLayerTest, NmsLayerTestCommon, nmsCustomParamsSmokeLarge,
                          NmsLayerTestCommon::getTestCaseName);  // Tracking number [E#172848]
 }  // namespace

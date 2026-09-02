@@ -189,13 +189,12 @@ mlir::LogicalResult generalReduceRewrite(
         return mlir::success();
     }
 
-    // Optimization for N-axis (batch) reduction: when H=1 and W is channel-aligned,
-    // two Transpose ops bracket the pool so that AdjustLayouts can later rewrite each
-    // Transpose into a zero-copy PermuteCast with NHWC layout. In NHWC terms, the
-    // reduction axis becomes the spatial H dimension and W becomes the channel dimension
-    // (C_nhwc=W >= 16), avoiding Expand/Slice overhead.
+    // Optimization for N-axis (batch) reduction: when H=1 (or absent for 3D) and W is
+    // channel-aligned, bracket the pool with two Transposes so that AdjustLayouts can
+    // rewrite each into a zero-copy PermuteCast in NHWC layout.  In NHWC terms W becomes
+    // the channel dim (>= 16, no Expand/Slice) and N becomes the pool spatial-H target.
     //
-    //   NxCx1xW NCHW (axes=[0])
+    //   NxCx1xW NCHW  -or-  NxCxW (3D, H=1 implicit)  (axes=[0])
     //       |
     //   Reshape -> 1xNxCxW NCHW  (valid since H=1, flat index unchanged)
     //       |
@@ -206,13 +205,12 @@ mlir::LogicalResult generalReduceRewrite(
     //   Transpose [N,H,W,C] -> 1x1xCxW NCHW  (AdjustLayouts rewrites to PermuteCast)
     //       |
     //   Reshape -> output shape
-    if (inputShape.size() == 4 && axes.size() == 1 && axes.front() == Dims4D::Act::N.ind() &&
-        inputShape[Dims4D::Act::H.ind()] == 1 &&
-        inputShape[Dims4D::Act::W.ind()] % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT == 0 &&
-        inputShape[Dims4D::Act::N.ind()] > 1) {
-        const auto origN = inputShape[Dims4D::Act::N.ind()];
-        const auto origC = inputShape[Dims4D::Act::C.ind()];
-        const auto origW = inputShape[Dims4D::Act::W.ind()];
+    if (axes.size() == 1 && axes.front() == Dims4D::Act::N.ind() &&
+        (inputShape.size() == 3 || (inputShape.size() == 4 && inputShape[Dims4D::Act::H.ind()] == 1)) &&
+        inputShape.back() % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT == 0 && inputShape[Dims4D::Act::N.ind()] > 1) {
+        const auto origN = inputShape[axes.front()];
+        const auto origC = inputShape[1];
+        const auto origW = inputShape.back();
 
         auto input = origOp->getOperand(0);
 
@@ -464,16 +462,16 @@ private:
 mlir::LogicalResult ReduceMeanRewriter::matchAndRewrite(IE::ReduceMeanOp origOp,
                                                         mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got ReduceMean layer at '{1}'", getDebugName(), origOp->getLoc());
-    auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
+    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue());
     if (!isValidOperationForConversion(origOp, _log, _channelReductionChecker)) {
         return mlir::failure();
     }
     return generalReduceRewrite(origOp, rewriter, std::move(axes),
                                 [&](mlir::Location loc, mlir::Value input, PoolingAttr attr) -> mlir::Operation* {
                                     return rewriter.create<IE::AvgPoolOp>(
-                                            appendLoc(loc, "as_avgpool"), input, attr.kernelAttr, attr.stridesAttr,
-                                            attr.padBeginAttr, attr.padEndAttr, attr.roundingAttr, attr.excludePadsAttr,
-                                            nullptr, nullptr, nullptr, nullptr, nullptr);
+                                            appendLoc(loc, "as_avgpool"), input, nullptr, attr.kernelAttr,
+                                            attr.stridesAttr, attr.padBeginAttr, attr.padEndAttr, attr.roundingAttr,
+                                            attr.excludePadsAttr, nullptr, nullptr, nullptr, nullptr, nullptr);
                                 });
 }
 
@@ -502,13 +500,13 @@ mlir::LogicalResult ReduceMaxRewriter::matchAndRewrite(IE::ReduceMaxOp origOp, m
         _log.trace("Operation at '{0}' is not valid for conversion to Pooling", origOp->getLoc());
         return mlir::failure();
     }
-    auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
+    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue());
     return generalReduceRewrite(origOp, rewriter, std::move(axes),
                                 [&](mlir::Location loc, mlir::Value input, PoolingAttr attr) -> mlir::Operation* {
                                     return rewriter.create<IE::MaxPoolOp>(
-                                            appendLoc(loc, "as_maxpool"), input, attr.kernelAttr, attr.stridesAttr,
-                                            attr.padBeginAttr, attr.padEndAttr, attr.roundingAttr, nullptr, nullptr,
-                                            nullptr, nullptr, nullptr);
+                                            appendLoc(loc, "as_maxpool"), input, /*scale=*/nullptr, attr.kernelAttr,
+                                            attr.stridesAttr, attr.padBeginAttr, attr.padEndAttr, attr.roundingAttr,
+                                            nullptr, nullptr, nullptr, nullptr, nullptr);
                                 });
 }
 
@@ -533,7 +531,7 @@ private:
 
 mlir::LogicalResult ReduceSumRewriter::matchAndRewrite(IE::ReduceSumOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got ReduceSum layer at '{1}'", getDebugName(), origOp->getLoc());
-    auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
+    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue());
     if (!isValidOperationForConversion(origOp, _log, _channelReductionChecker)) {
         return mlir::failure();
     }
@@ -541,7 +539,7 @@ mlir::LogicalResult ReduceSumRewriter::matchAndRewrite(IE::ReduceSumOp origOp, m
     return generalReduceRewrite(
             origOp, rewriter, std::move(axes),
             [&](mlir::Location loc, mlir::Value input, PoolingAttr attr) -> mlir::Operation* {
-                input = rewriter.create<IE::AvgPoolOp>(appendLoc(loc, "as_avgpool"), input, attr.kernelAttr,
+                input = rewriter.create<IE::AvgPoolOp>(appendLoc(loc, "as_avgpool"), input, nullptr, attr.kernelAttr,
                                                        attr.stridesAttr, attr.padBeginAttr, attr.padEndAttr,
                                                        attr.roundingAttr, attr.excludePadsAttr, nullptr, nullptr,
                                                        nullptr, nullptr, nullptr);
@@ -550,14 +548,7 @@ mlir::LogicalResult ReduceSumRewriter::matchAndRewrite(IE::ReduceSumOp origOp, m
                 const auto dataStorageTensor = mlir::RankedTensorType::get({1}, mlir::Float16Type::get(ctx));
                 const auto inputShape = getShape(origOp.getInput()).raw();
 
-                auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
-                for (size_t i = 0; i < axes.size(); i++) {
-                    if (axes[i] < 0) {
-                        axes[i] += inputShape.size();
-                    }
-                }
-                std::sort(axes.begin(), axes.end());
-
+                const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue());
                 float reductionDimsCount = 1;
                 for (const auto& axis : axes) {
                     reductionDimsCount *= inputShape[axis];
@@ -594,15 +585,15 @@ mlir::LogicalResult ReduceMinRewriter::matchAndRewrite(IE::ReduceMinOp origOp, m
     if (!isValidOperationForConversion(origOp, _log, _channelReductionChecker)) {
         return mlir::failure();
     }
-    auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
+    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue());
     return generalReduceRewrite(
             origOp, rewriter, std::move(axes),
             [&](mlir::Location loc, mlir::Value input, PoolingAttr attr) -> mlir::Operation* {
                 auto scale1 = rewriter.create<IE::NegativeOp>(appendLoc(loc, "inv_in"), input.getType(), input);
                 auto maxPool = rewriter.create<IE::MaxPoolOp>(appendLoc(loc, "as_maxpool"), scale1.getOutput(),
-                                                              attr.kernelAttr, attr.stridesAttr, attr.padBeginAttr,
-                                                              attr.padEndAttr, attr.roundingAttr, nullptr, nullptr,
-                                                              nullptr, nullptr, nullptr);
+                                                              /*scale=*/nullptr, attr.kernelAttr, attr.stridesAttr,
+                                                              attr.padBeginAttr, attr.padEndAttr, attr.roundingAttr,
+                                                              nullptr, nullptr, nullptr, nullptr, nullptr);
                 return rewriter.create<IE::NegativeOp>(appendLoc(loc, "inv_out"), maxPool.getOutput().getType(),
                                                        maxPool.getOutput());
             });
@@ -645,22 +636,8 @@ mlir::LogicalResult ReduceSimplifyAxesRewriter<ConcreteOp>::matchAndRewrite(Conc
         return mlir::failure();
     }
 
-    auto axesAttr = origOp.getAxesValue();
-    if (!axesAttr.has_value()) {
-        return mlir::failure();
-    }
-    auto axes = parseIntArrayAttr<int64_t>(axesAttr.value());
-
+    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue());
     const auto inputShape = getShape(origOp.getInput());
-    const auto rank = static_cast<int64_t>(inputShape.size());
-
-    // Normalize negative axes
-    for (auto& axis : axes) {
-        if (axis < 0) {
-            axis += rank;
-        }
-    }
-    std::sort(axes.begin(), axes.end());
 
     // Remove axes where input dim is 1 (trivial reduction)
     SmallVector<int64_t> simplifiedAxes;
@@ -725,7 +702,7 @@ private:
 mlir::LogicalResult ReduceSumBatchToChannelRewriter::matchAndRewrite(IE::ReduceSumOp origOp,
                                                                      mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got ReduceSum layer at '{1}'", getDebugName(), origOp->getLoc());
-    auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
+    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue());
     const auto inputShape = getShape(origOp.getInput());
 
     if (inputShape.size() != 4) {
@@ -748,7 +725,7 @@ mlir::LogicalResult ReduceSumBatchToChannelRewriter::matchAndRewrite(IE::ReduceS
     auto reshapeOp = rewriter.create<IE::ReshapeOp>(origOp->getLoc(), origOp.getInput(), newShapeAttr);
 
     const auto newAxesAttr = getIntArrayAttr(getContext(), SmallVector<int64_t>{Dims4D::Act::C.ind()});
-    auto newReduceOp = rewriter.create<IE::ReduceSumOp>(origOp->getLoc(), reshapeOp.getOutput(), nullptr, newAxesAttr,
+    auto newReduceOp = rewriter.create<IE::ReduceSumOp>(origOp->getLoc(), reshapeOp.getOutput(), newAxesAttr,
                                                         origOp.getKeepDimsAttr());
 
     rewriter.replaceOp(origOp, newReduceOp.getOutput());

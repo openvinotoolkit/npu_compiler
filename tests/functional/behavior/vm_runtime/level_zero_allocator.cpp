@@ -9,6 +9,7 @@
 
 #include "level_zero_allocator.hpp"
 #include "allocator_core.hpp"
+#include "common/npu_test_env_cfg.hpp"
 
 #include <common_test_utils/test_common.hpp>
 #include <functional_test_utils/skip_tests_config.hpp>
@@ -21,11 +22,15 @@
 
 #include <cstdint>
 #include <memory>
+#include <sstream>
+#include <string>
 
 using intel_npu::vm::AnyAllocator;
 using intel_npu::vm::Block;
 using intel_npu::vm::LevelZeroAllocator;
 using intel_npu::vm::makeLevelZeroAllocator;
+
+using LevelZeroAllocatorDeviceTestParams = std::string;
 
 namespace {
 
@@ -37,10 +42,23 @@ bool isPageAligned(const uint8_t* ptr) {
 
 }  // namespace
 
-class LevelZeroAllocatorDeviceTest : public ov::test::TestsCommon {
+class LevelZeroAllocatorDeviceTest :
+        public testing::WithParamInterface<LevelZeroAllocatorDeviceTestParams>,
+        public ov::test::TestsCommon {
+public:
+    static std::string getTestCaseName(const testing::TestParamInfo<LevelZeroAllocatorDeviceTestParams>& obj) {
+        std::string targetDevice = obj.param;
+
+        std::ostringstream result;
+        result << "target_platform=" << ov::test::utils::getTestsPlatformFromEnvironmentOr(targetDevice) << "_";
+        result << "target_device=" << targetDevice << "_";
+        return result.str();
+    }
+
 protected:
     void SetUp() override {
         SKIP_IF_CURRENT_TEST_IS_DISABLED();
+        _targetDevice = GetParam();
         try {
             _initStruct = std::make_shared<intel_npu::ZeroInitStructsHolder>();
         } catch (const std::exception& e) {
@@ -50,12 +68,13 @@ protected:
         ASSERT_NE(_context, nullptr);
     }
 
+    std::string _targetDevice;
     std::shared_ptr<intel_npu::ZeroInitStructsHolder> _initStruct;
     ze_context_handle_t _context = nullptr;
 };
 
 // The bare leaf: zeMemAllocHost-backed, page-aligned, host-visible, reusable across allocate/deallocate.
-TEST_F(LevelZeroAllocatorDeviceTest, LeafAllocatesPageAlignedHostVisibleMemory) {
+TEST_P(LevelZeroAllocatorDeviceTest, LeafAllocatesPageAlignedHostVisibleMemory) {
     LevelZeroAllocator allocator(_context);
 
     const Block block = allocator.allocate(4 * kPage);
@@ -82,7 +101,7 @@ TEST_F(LevelZeroAllocatorDeviceTest, LeafAllocatesPageAlignedHostVisibleMemory) 
 
 // The Level Zero device allocator (GrowingArena<LevelZeroAllocator, BumpRegion<page>, ...>): page-aligned, distinct,
 // host-visible sub-buffers; recycle() reuses the same memory; release() frees and the arena re-grows.
-TEST_F(LevelZeroAllocatorDeviceTest, DefaultAllocatorHandsOutAlignedDistinctReusableBuffers) {
+TEST_P(LevelZeroAllocatorDeviceTest, DefaultAllocatorHandsOutAlignedDistinctReusableBuffers) {
     AnyAllocator allocator = makeLevelZeroAllocator(_context);
     ASSERT_TRUE(allocator);
 
@@ -115,3 +134,6 @@ TEST_F(LevelZeroAllocatorDeviceTest, DefaultAllocatorHandsOutAlignedDistinctReus
     ASSERT_TRUE(afterRelease);
     EXPECT_TRUE(isPageAligned(afterRelease.ptr));
 }
+
+INSTANTIATE_TEST_SUITE_P(smoke_BehaviorTest_level_zero_allocator, LevelZeroAllocatorDeviceTest,
+                         ::testing::Values(test_utils::TARGET_DEVICE), LevelZeroAllocatorDeviceTest::getTestCaseName);

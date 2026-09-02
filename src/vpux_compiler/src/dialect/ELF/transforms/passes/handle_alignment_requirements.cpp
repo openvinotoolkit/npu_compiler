@@ -12,6 +12,8 @@
 
 #include <vpux_elf/types/vpu_extensions.hpp>
 
+#include <algorithm>
+
 namespace vpux::ELF {
 #define GEN_PASS_DECL_HANDLEALIGNMENTREQUIREMENTS
 #define GEN_PASS_DEF_HANDLEALIGNMENTREQUIREMENTS
@@ -75,6 +77,12 @@ void HandleAlignmentRequirementsPass::safeRunOnFunc() {
         auto builder = mlir::OpBuilder::atBlockEnd(block);
         size_t offsetTracker = 0;
         for (auto binarySizeOp : binarySizeOps) {
+            const auto binarySize = binarySizeOp.getBinarySizeCached(symRefMap, arch);
+            if (binarySizeOp.getMemoryOffset().has_value()) {
+                const auto preAssignedOffset = static_cast<size_t>(binarySizeOp.getMemoryOffset().value());
+                offsetTracker = std::max(offsetTracker, preAssignedOffset + binarySize);
+                continue;
+            }
             const auto binarySizeOperation = binarySizeOp.getOperation();
             const auto alignmentRequirement = binarySizeOp.getAlignmentRequirements(arch);
             size_t paddingRequired = offsetTracker % alignmentRequirement;
@@ -84,7 +92,7 @@ void HandleAlignmentRequirementsPass::safeRunOnFunc() {
                 builder.template create<ELF::PadOp>(builder.getUnknownLoc(), paddingSize, nullptr);
                 offsetTracker += paddingSize;
             }
-            offsetTracker += binarySizeOp.getBinarySizeCached(symRefMap, arch);
+            offsetTracker += binarySize;
         }
 
         if (requiresEndPadding && section.getSectionType() != ELF::SectionTypeAttr::SHT_NOBITS) {

@@ -285,10 +285,6 @@ mlir::LogicalResult ConvertDMASubViewCopy::matchAndRewrite(VPUIP::ConvertDMAOp c
 
     const auto convertInput = convertOp.getInput();
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(convertInput.getType());
-    if (!isCompactStride(inputType)) {
-        nestedLogger.trace("Convert input has strides at {0}", convertOp->getLoc());
-        return mlir::failure();
-    }
 
     auto lastViewOp = convertOp.getOperation();
     SmallVector<mlir::Operation*> viewLikeOps;
@@ -304,6 +300,11 @@ mlir::LogicalResult ConvertDMASubViewCopy::matchAndRewrite(VPUIP::ConvertDMAOp c
     }
 
     if (!viewLikeOps.empty()) {
+        if (!isCompactStride(inputType)) {
+            nestedLogger.trace("Convert input has strides at {0}", convertOp->getLoc());
+            return mlir::failure();
+        }
+
         nestedLogger.trace("ViewLike ops found at {0}", convertOp->getLoc());
         lastViewOp = viewLikeOps.back();
     }

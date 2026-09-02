@@ -29,7 +29,7 @@ void vpux::IE::arch37xx::registerElemTypeInfoOpInterfaces(mlir::DialectRegistry&
         IE::ReduceMaxOp::attachInterface<PerTensorElemTypeInfoOpModel>(*ctx);
         IE::ReorderOp::attachInterface<ElemTypeInfoReorderOpModel>(*ctx);
         IE::ReshapeOp::attachInterface<PerTensorElemTypeInfoOpModel>(*ctx);
-        IE::SliceOp::attachInterface<PerTensorElemTypeInfoOpModel>(*ctx);
+        IE::SliceOp::attachInterface<ElemTypeInfoSliceOpModel>(*ctx);
         IE::SpaceToDepthOp::attachInterface<PerTensorElemTypeInfoOpModel>(*ctx);
         IE::SplitOp::attachInterface<PerTensorElemTypeInfoOpModel>(*ctx);
         IE::SqueezeOp::attachInterface<PerTensorElemTypeInfoOpModel>(*ctx);

@@ -1,5 +1,11 @@
 Change Log:
 -----------
+VPUXCompilerL0 7.10.0:
+ - Add vclAllocatedExecutableCreateWSOneShot2
+
+VPUXCompilerL0 7.9.0:
+ - Remove deprecated vclAllocatedExecutableCreate3
+
 VPUXCompilerL0 7.8.0:
   - Add vclAllocatedExecutableCreate4 and vclExecutableGetCompatibilityString
 

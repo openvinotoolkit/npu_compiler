@@ -556,3 +556,46 @@ func.func @NotOptRMSAndSliceAsNormalizationDim(%arg0: tensor<1x1x1024x4096xf16>,
 
     // CHECK:       return [[SLICE]] : tensor<1x1x1024x2048xf16>
 }
+
+// -----
+
+// Slice does not affect RMS normalization dim (last dim of RMS output), slicing happens on a
+// non-normalization dim that survives through the AffineReshape with a 1:1 dim mapping.
+// RMS(1x1x1024x4096) -> AffineReshape(1x1024x4096) -> Slice[0,1023,0][1,1,4096]
+//   => Slice[0,0,1023,0][1,1,1,4096] -> RMS(1x1x1x4096) -> AffineReshape(1x1x4096)
+
+// CHECK-LABEL: func.func @OptRMSAffineReshapeAndSlice
+// CHECK-SAME:      ([[INPUT0:%.+]]: tensor<1x1x1024x4096xf16>, [[INPUT1:%.+]]: tensor<1x1x1x4096xf16>)
+func.func @OptRMSAffineReshapeAndSlice(%arg0: tensor<1x1x1024x4096xf16>, %arg1: tensor<1x1x1x4096xf16>) -> tensor<1x1x4096xf16> {
+    %0 = IE.RMS(%arg0, %arg1) {eps = 1.0132789611816406E-6 : f64} : tensor<1x1x1024x4096xf16>, tensor<1x1x1x4096xf16> -> tensor<1x1x1024x4096xf16>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [0], [1], [2]], shape_value = [1, 1024, 4096]} : tensor<1x1x1024x4096xf16> -> tensor<1x1024x4096xf16>
+    %2 = IE.Slice %1 [0, 1023, 0] [1, 1, 4096] : tensor<1x1024x4096xf16> to tensor<1x1x4096xf16>
+
+    return %2 : tensor<1x1x4096xf16>
+
+    // CHECK:       [[SLICE:%.+]] = IE.Slice [[INPUT0]] [0, 0, 1023, 0] [1, 1, 1, 4096] : tensor<1x1x1024x4096xf16> to tensor<1x1x1x4096xf16>
+    // CHECK:       [[RMS:%.+]] = IE.RMS([[SLICE]], [[INPUT1]]) {eps = 1.0132789611816406E-6 : f64} : tensor<1x1x1x4096xf16>, tensor<1x1x1x4096xf16> -> tensor<1x1x1x4096xf16>
+    // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[RMS]])
+    // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [0], [1], [2]], shape_value = [1, 1, 4096]} : tensor<1x1x1x4096xf16> -> tensor<1x1x4096xf16>
+    // CHECK:       return [[RESHAPE]] : tensor<1x1x4096xf16>
+}
+
+// -----
+
+// Slice cuts the normalization dimension (last dim of RMS) through AffineReshape — must NOT optimize.
+
+// CHECK-LABEL: func.func @NotOptRMSAffineReshapeAndSliceNormDim
+// CHECK-SAME:      ([[INPUT0:%.+]]: tensor<1x1x1024x4096xf16>, [[INPUT1:%.+]]: tensor<1x1x1x4096xf16>)
+func.func @NotOptRMSAffineReshapeAndSliceNormDim(%arg0: tensor<1x1x1024x4096xf16>, %arg1: tensor<1x1x1x4096xf16>) -> tensor<1x1024x2048xf16> {
+    %0 = IE.RMS(%arg0, %arg1) {eps = 1.0132789611816406E-6 : f64} : tensor<1x1x1024x4096xf16>, tensor<1x1x1x4096xf16> -> tensor<1x1x1024x4096xf16>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [0], [1], [2]], shape_value = [1, 1024, 4096]} : tensor<1x1x1024x4096xf16> -> tensor<1x1024x4096xf16>
+    %2 = IE.Slice %1 [0, 0, 0] [1, 1024, 2048] : tensor<1x1024x4096xf16> to tensor<1x1024x2048xf16>
+
+    return %2 : tensor<1x1024x2048xf16>
+
+    // CHECK:       [[RMS:%.+]] = IE.RMS([[INPUT0]], [[INPUT1]]) {eps = 1.0132789611816406E-6 : f64} : tensor<1x1x1024x4096xf16>, tensor<1x1x1x4096xf16> -> tensor<1x1x1024x4096xf16>
+    // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[RMS]])
+    // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [0], [1], [2]], shape_value = [1, 1024, 4096]} : tensor<1x1x1024x4096xf16> -> tensor<1x1024x4096xf16>
+    // CHECK:       [[SLICE:%.+]] = IE.Slice [[RESHAPE]] [0, 0, 0] [1, 1024, 2048] : tensor<1x1024x4096xf16> to tensor<1x1024x2048xf16>
+    // CHECK:       return [[SLICE]] : tensor<1x1024x2048xf16>
+}

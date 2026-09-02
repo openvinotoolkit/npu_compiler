@@ -15,7 +15,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @je_valid @fn_name @fn_type {
+    bytecode.func @je_valid @string_section::@fn_name @type_section::@fn_type {
         %lhs = bytecode.virtual_general_register
         %rhs = bytecode.virtual_general_register
         bytecode.je %lhs, %rhs, ^trueDest, ^falseDest
@@ -38,7 +38,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @je_invalid @fn_name @fn_type {
+    bytecode.func @je_invalid @string_section::@fn_name @type_section::@fn_type {
         %lhs = bytecode.virtual_general_register
         %rhs = bytecode.virtual_general_register
         // expected-error @+1 {{falseDest must be the physically next block in the region}}
@@ -62,7 +62,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @jne_valid @fn_name @fn_type {
+    bytecode.func @jne_valid @string_section::@fn_name @type_section::@fn_type {
         %lhs = bytecode.virtual_general_register
         %rhs = bytecode.virtual_general_register
         bytecode.jne %lhs, %rhs, ^trueDest, ^falseDest
@@ -85,7 +85,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @jne_invalid @fn_name @fn_type {
+    bytecode.func @jne_invalid @string_section::@fn_name @type_section::@fn_type {
         %lhs = bytecode.virtual_general_register
         %rhs = bytecode.virtual_general_register
         // expected-error @+1 {{falseDest must be the physically next block in the region}}
@@ -109,7 +109,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @je_self_loop_valid @fn_name @fn_type {
+    bytecode.func @je_self_loop_valid @string_section::@fn_name @type_section::@fn_type {
         %lhs = bytecode.virtual_general_register
         %rhs = bytecode.virtual_general_register
         bytecode.jmp ^loop_body
@@ -133,7 +133,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @je_self_loop_invalid @fn_name @fn_type {
+    bytecode.func @je_self_loop_invalid @string_section::@fn_name @type_section::@fn_type {
         %lhs = bytecode.virtual_general_register
         %rhs = bytecode.virtual_general_register
         bytecode.jmp ^loop_body
@@ -156,7 +156,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @jne_self_loop_invalid @fn_name @fn_type {
+    bytecode.func @jne_self_loop_invalid @string_section::@fn_name @type_section::@fn_type {
         %lhs = bytecode.virtual_general_register
         %rhs = bytecode.virtual_general_register
         bytecode.jmp ^loop_body

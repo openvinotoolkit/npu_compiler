@@ -38,18 +38,11 @@ bool isUniformQuantizedFloat8Storage(mlir::Type elemType) {
 }
 
 // Element-type buckets for the per-type shared zero constant.
-enum ExpandConstKind : size_t {
-    FP16 = 0,
-    I8,
-    U8,
-    FP8E4M3FN,
-    FP8E5M2,
-};
+enum ExpandConstKind : size_t { FP16 = 0, I8, U8, FP8E4M3FN, FP8E5M2, FP32 };
 
-constexpr std::array<ExpandConstKind, 5> SUPPORTED_EXPAND_CONST_KINDS = {
+constexpr std::array<ExpandConstKind, 6> SUPPORTED_EXPAND_CONST_KINDS = {
         ExpandConstKind::FP16,      ExpandConstKind::I8,      ExpandConstKind::U8,
-        ExpandConstKind::FP8E4M3FN, ExpandConstKind::FP8E5M2,
-};
+        ExpandConstKind::FP8E4M3FN, ExpandConstKind::FP8E5M2, ExpandConstKind::FP32};
 constexpr size_t EXPAND_CONST_KIND_COUNT = SUPPORTED_EXPAND_CONST_KINDS.size();
 
 constexpr size_t getExpandConstKindIndex(ExpandConstKind kind) {
@@ -70,6 +63,9 @@ ExpandConstKind getExpandConstKind(mlir::Type elemType) {
     if (mlir::isa<mlir::Float16Type>(elemType)) {
         return ExpandConstKind::FP16;
     }
+    if (mlir::isa<mlir::Float32Type>(elemType)) {
+        return ExpandConstKind::FP32;
+    }
 
     const auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType);
     VPUX_THROW_UNLESS(qType != nullptr, "Unsupported Expand input type '{0}'", elemType);
@@ -89,7 +85,7 @@ ExpandConstKind getExpandConstKind(mlir::Type elemType) {
 }
 
 bool isSupportedExpandElementType(mlir::Type elemType) {
-    if (mlir::isa<mlir::Float16Type>(elemType) || isUniformQuantizedFloat8Storage(elemType)) {
+    if (mlir::isa<mlir::Float16Type, mlir::Float32Type>(elemType) || isUniformQuantizedFloat8Storage(elemType)) {
         return true;
     }
 
@@ -257,6 +253,8 @@ ExpandConstInfo ConvertExpandPass::collectExpandConstInfo(mlir::func::FuncOp fun
 
         if (mlir::isa<mlir::Float16Type>(elemType)) {
             bumpBucket(ExpandConstKind::FP16);
+        } else if (mlir::isa<mlir::Float32Type>(elemType)) {
+            bumpBucket(ExpandConstKind::FP32);
         } else if (isUniformQuantizedInt8Storage(elemType)) {
             const auto storageType = mlir::cast<mlir::quant::QuantizedType>(elemType).getStorageType();
             bumpBucket(getExpandConstKind(elemType), storageType);
@@ -274,8 +272,10 @@ ExpandConstInfo ConvertExpandPass::collectExpandConstInfo(mlir::func::FuncOp fun
                   inShape, outShape, elemType);
     });
 
-    log.trace("Expand constant sizes:\n - FP16: {0}\n - I8: {1}\n - U8: {2}\n - FP8E4M3FN: {3}\n - FP8E5M2: {4}",
+    log.trace("Expand constant sizes:\n - FP16: {0}\n - FP32: {1}\n - I8: {2}\n - U8: {3}\n - FP8E4M3FN: {4}\n - "
+              "FP8E5M2: {5}",
               info[getExpandConstKindIndex(ExpandConstKind::FP16)].maxSize,
+              info[getExpandConstKindIndex(ExpandConstKind::FP32)].maxSize,
               info[getExpandConstKindIndex(ExpandConstKind::I8)].maxSize,
               info[getExpandConstKindIndex(ExpandConstKind::U8)].maxSize,
               info[getExpandConstKindIndex(ExpandConstKind::FP8E4M3FN)].maxSize,
@@ -310,6 +310,9 @@ ExpandConstOps ConvertExpandPass::getZeroConstOps(mlir::func::FuncOp func, mlir:
         switch (kind) {
         case ExpandConstKind::FP16:
             ops.at(kindIdx) = declareBucketConst(mlir::Float16Type::get(&ctx), vpux::type::float16(0.f), maxSize);
+            break;
+        case ExpandConstKind::FP32:
+            ops.at(kindIdx) = declareBucketConst(mlir::Float32Type::get(&ctx), static_cast<float>(0.f), maxSize);
             break;
         case ExpandConstKind::I8:
             VPUX_THROW_UNLESS(bucketInfo.storageType != nullptr,

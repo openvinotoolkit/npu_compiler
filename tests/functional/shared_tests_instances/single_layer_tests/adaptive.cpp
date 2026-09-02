@@ -42,6 +42,7 @@ TEST_P(AdaPoolLayerTestCommon, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(AdaPoolLayerTestCommon, NPU5020_SW) {
     abs_threshold = 0.02;
     setReferenceSoftwareMode();

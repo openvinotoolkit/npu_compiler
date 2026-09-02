@@ -38,7 +38,7 @@ public:
                 std::accumulate(inputStaticShape.begin(), inputStaticShape.end(), 1, std::multiplies<size_t>());
         auto inputTensor = ov::Tensor{ov::element::f32, inputStaticShape};
         auto inputData = inputTensor.data<ov::element_type_traits<ov::element::f32>::value_type>();
-        for (size_t i = 0; i < totalSize; i++) {
+        for (int64_t i = 0; i < totalSize; i++) {
             inputData[i] = std::sin(i);
         }
         inputs = {{funcInputs[0].get_node_shared_ptr(), inputTensor}};
@@ -72,7 +72,7 @@ public:
 
         std::vector<int8_t> weightsValues(weightsSize);
         std::vector<float> scaleValues(scalesSize, 1.0f / std::numeric_limits<int8_t>::max());
-        for (size_t i = 0; i < weightsValues.size(); ++i) {
+        for (uint32_t i = 0; i < weightsValues.size(); ++i) {
             weightsValues[i] = std::numeric_limits<int8_t>::min() + (i % std::numeric_limits<uint8_t>::max());
         }
         const auto weightsConst = ov::op::v0::Constant::create(ov::element::i8, weightsShape, weightsValues);
@@ -161,7 +161,7 @@ public:
 
         std::vector<int8_t> weightsValues(weightsSize);
         std::vector<float> scaleValues(scalesSize, 2.0f / std::numeric_limits<int8_t>::max());
-        for (size_t i = 0; i < weightsValues.size(); ++i) {
+        for (uint64_t i = 0; i < weightsValues.size(); ++i) {
             weightsValues[i] = std::numeric_limits<int8_t>::min() + (i % std::numeric_limits<uint8_t>::max());
         }
 
@@ -219,6 +219,7 @@ TEST_P(MatMulMixedPrecisionTestOutputQuantized, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(MatMulMixedPrecisionTestOutputQuantized, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

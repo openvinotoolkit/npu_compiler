@@ -44,9 +44,15 @@ void vpux::buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, bool enableInPla
         pm.addPass(createInPlaceBufferizationAnalyzePass());
     }
     pm.addPass(createOneShotBufferizeVPU2VPUIPPass());
+    pm.addPass(VPUIP::createConvertDynamicMemrefsToBoundedBuffersPass(log));
     pm.addPass(VPUIP::createUngroupBoundedBuffersAsFuncArgsPass(log));
     pm.addPass(VPUIP::createUngroupHostBuffersAsFuncArgsPass(log));
     pm.addPass(createAddBuffersForNetResults(useMemrefForHostFunctionBufferization, log));
+    // Note: during this VPU -> VPUIP lowering, one can only canonicalize IR
+    // *after* add-buffers-for-net-results pass since memory-effects interface,
+    // that the canonicalization uses, relies on the fact that VPUIP operations
+    // have output buffers as operands. Before this is the case,
+    // canonicalization will lead to UB.
     pm.addPass(mlir::createCanonicalizerPass(grc));
 }
 
@@ -65,19 +71,29 @@ void vpux::ShaveCodeGen::buildLowerSwLayers2LinalgPipeline(mlir::OpPassManager& 
 // ShaveCodeGen specific passes included in DefaultHW and ReferenceSW
 //
 
-void vpux::ShaveCodeGen::buildShaveCodeGenPipelineIE(mlir::OpPassManager& pm, Logger log) {
+void vpux::ShaveCodeGen::buildShaveCodeGenPipelineIE(mlir::OpPassManager& pm, Logger log,
+                                                     bool enableShaveCodeGenTiling) {
     pm.addPass(ShaveCodeGen::createEncapsulateCodeGenOpsPass());
     pm.addPass(ShaveCodeGen::createEarlyCodeGenCapsuleFusionPass());
 
     ShaveCodeGen::buildLowerSwLayers2LinalgPipeline(pm, log);
     pm.addPass(mlir::createLinalgElementwiseOpFusionPass());
     pm.addPass(mlir::createCanonicalizerPass());
-    pm.addPass(ShaveCodeGen::createFoldUnitDimReshapesPass(log));
+    if (enableShaveCodeGenTiling) {
+        // Don't fold unit dims as that changes tensor ranks making ops
+        // incompatible with tiling due to rank restrictions.
+        pm.addPass(ShaveCodeGen::createParametricCapsuleTilingPass(log));
+    } else {
+        pm.addPass(ShaveCodeGen::createFoldUnitDimReshapesPass(log));
+    }
+
+    pm.addPass(ShaveCodeGen::createWrapInKernelRegionPass(log));
+    pm.addPass(ShaveCodeGen::createSplitCodeGenCapsulesPass(log));
 
     pm.addPass(ShaveCodeGen::createOutlineCodeGenCapsulesPass());
 }
 
-void vpux::ShaveCodeGen::buildShaveCodeGenPipelineVPU(mlir::OpPassManager& pm, Logger) {
+void vpux::ShaveCodeGen::buildShaveCodeGenPipelineVPU(mlir::OpPassManager& pm, Logger, bool enableShaveCodeGenTiling) {
     pm.addPass(ShaveCodeGen::createShaveKernelSimplifyPass());
     const auto grc = getDefaultGreedyRewriteConfig();
     // Move kernel results to arguments before doing any other
@@ -91,7 +107,13 @@ void vpux::ShaveCodeGen::buildShaveCodeGenPipelineVPU(mlir::OpPassManager& pm, L
     pm.addPass(ShaveCodeGen::createMoveKernelResultsToArgumentsPass());
 
     pm.addPass(ShaveCodeGen::createDecomposeAggregateOpsPass());
-    pm.addPass(ShaveCodeGen::createFlattenEltwiseKernelPass());
+    if (!enableShaveCodeGenTiling) {
+        // Temporarily remove this pass when tiling is enabled since this triggers
+        // some issues around memref reshapes on dynamic shapes. These have already been
+        // solved in the upstream LLVM, so we're just waiting for an update to enable it.
+        // E#226669: enable kernel flattening with tiling
+        pm.addPass(ShaveCodeGen::createFlattenEltwiseKernelPass());
+    }
     pm.addPass(ShaveCodeGen::createLinalgTileAndFuseSwLayersPass());
     pm.addPass(mlir::createLinalgGeneralizeNamedOpsPass());
     pm.addPass(mlir::createCanonicalizerPass(grc));

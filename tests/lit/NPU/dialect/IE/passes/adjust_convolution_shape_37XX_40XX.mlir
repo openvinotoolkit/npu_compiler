@@ -530,10 +530,9 @@ func.func @ConvertGroupConv(%arg0: tensor<1x1x64x128xf16, {order = #NHWC}>, %arg
   %0 = IE.GroupConvolution(%arg0, %arg1, %arg2) {dilations = [1, 1], groups = 1 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x1x64x128xf16, {order = #NHWC}>, tensor<1x1x1x1xf16, {order = #NHWC}>, tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<1x1x64x128x!qElemType, {order = #NHWC}>
   return %0 : tensor<1x1x64x128x!qElemType, {order = #NHWC}>
 
-  // CHECK-DAG:   [[REPEAT_CONST:%.+]] = const.Declare tensor<4xsi32> = dense<[16, 1, 1, 1]> : tensor<4xsi32>
   // CHECK:       [[IN_SHAPECAST:%.+]] = IE.ShapeCast {shape = [1, 16, 64, 8]} inputs([[ARG0]] : tensor<1x1x64x128xf16, {order = #NHWC}>) -> tensor<1x16x64x8xf16, {order = #NHWC}>
-  // CHECK:       [[FILTER_TILE:%.+]] = IE.Tile([[ARG1]], [[REPEAT_CONST]]) : tensor<1x1x1x1xf16, {order = #NHWC}>, tensor<4xsi32> -> tensor<16x1x1x1xf16, {order = #NHWC}>
-  // CHECK:       [[BIAS_TILE:%.+]] = IE.Tile([[ARG2]], [[REPEAT_CONST]]) : tensor<1x1x1x1xf16, {order = #NHWC}>, tensor<4xsi32> -> tensor<16x1x1x1xf16, {order = #NHWC}>
+  // CHECK:       [[FILTER_TILE:%.+]] = IE.Tile([[ARG1]]) {repeats_values = [16, 1, 1, 1]} : tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<16x1x1x1xf16, {order = #NHWC}>
+  // CHECK:       [[BIAS_TILE:%.+]] = IE.Tile([[ARG2]]) {repeats_values = [16, 1, 1, 1]} : tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<16x1x1x1xf16, {order = #NHWC}>
   // CHECK:       [[GROUPCONV:%.+]] = IE.GroupConvolution([[IN_SHAPECAST]], [[FILTER_TILE]], [[BIAS_TILE]]) {dilations = [1, 1], groups = 16 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x64x8xf16, {order = #NHWC}>, tensor<16x1x1x1xf16, {order = #NHWC}>, tensor<16x1x1x1xf16, {order = #NHWC}> -> tensor<1x16x64x8x!qElemType, {order = #NHWC}>
   // CHECK:       [[OUT_SHAPECAST:%.+]] = IE.ShapeCast {shape = [1, 1, 64, 128]} inputs([[GROUPCONV]] : tensor<1x16x64x8x!qElemType, {order = #NHWC}>) -> tensor<1x1x64x128x!qElemType, {order = #NHWC}>
   // CHECK:       return [[OUT_SHAPECAST]]  : tensor<1x1x64x128x!qElemType, {order = #NHWC}>
@@ -550,10 +549,9 @@ func.func @ConvertGroupConvAdjustHW(%arg0: tensor<1x1x220x200xf16, {order = #NHW
   %0 = IE.GroupConvolution(%arg0, %arg1, %arg2) {dilations = [1, 1], groups = 1 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x1x220x200xf16, {order = #NHWC}>, tensor<1x1x1x1xf16, {order = #NHWC}>, tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<1x1x220x200x!qElemType, {order = #NHWC}>
   return %0 : tensor<1x1x220x200x!qElemType, {order = #NHWC}>
 
-  // CHECK-DAG:   [[REPEAT_CONST:%.+]] = const.Declare tensor<4xsi32> = dense<[16, 1, 1, 1]> : tensor<4xsi32>
   // CHECK:       [[IN_SHAPECAST:%.+]] = IE.ShapeCast {shape = [1, 16, 55, 50]} inputs([[ARG0]] : tensor<1x1x220x200xf16, {order = #NHWC}>) -> tensor<1x16x55x50xf16, {order = #NHWC}>
-  // CHECK:       [[FILTER_TILE:%.+]] = IE.Tile([[ARG1]], [[REPEAT_CONST]]) : tensor<1x1x1x1xf16, {order = #NHWC}>, tensor<4xsi32> -> tensor<16x1x1x1xf16, {order = #NHWC}>
-  // CHECK:       [[BIAS_TILE:%.+]] = IE.Tile([[ARG2]], [[REPEAT_CONST]]) : tensor<1x1x1x1xf16, {order = #NHWC}>, tensor<4xsi32> -> tensor<16x1x1x1xf16, {order = #NHWC}>
+  // CHECK:       [[FILTER_TILE:%.+]] = IE.Tile([[ARG1]]) {repeats_values = [16, 1, 1, 1]} : tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<16x1x1x1xf16, {order = #NHWC}>
+  // CHECK:       [[BIAS_TILE:%.+]] = IE.Tile([[ARG2]]) {repeats_values = [16, 1, 1, 1]} : tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<16x1x1x1xf16, {order = #NHWC}>
   // CHECK:       [[GROUPCONV:%.+]] = IE.GroupConvolution([[IN_SHAPECAST]], [[FILTER_TILE]], [[BIAS_TILE]]) {dilations = [1, 1], groups = 16 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x55x50xf16, {order = #NHWC}>, tensor<16x1x1x1xf16, {order = #NHWC}>, tensor<16x1x1x1xf16, {order = #NHWC}> -> tensor<1x16x55x50x!qElemType, {order = #NHWC}>
   // CHECK:       [[OUT_SHAPECAST:%.+]] = IE.ShapeCast {shape = [1, 1, 220, 200]} inputs([[GROUPCONV]] : tensor<1x16x55x50x!qElemType, {order = #NHWC}>) -> tensor<1x1x220x200x!qElemType, {order = #NHWC}>
   // CHECK:       return [[OUT_SHAPECAST]]  : tensor<1x1x220x200x!qElemType, {order = #NHWC}>

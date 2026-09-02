@@ -9,7 +9,7 @@
 #map = affine_map<(d0) -> (-d0 + 720, 44)>
 module {
   llvm.func @npu_level_zero_get_network_metadata(!llvm.ptr, i64, !llvm.ptr, !llvm.ptr, !llvm.ptr)
-  llvm.func internal @_mlir_ciface_get_network_metadata(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: !llvm.ptr, %arg3: !llvm.ptr) {
+  llvm.func @_mlir_ciface_get_network_metadata(%arg0: !llvm.ptr, %arg1: !llvm.ptr, %arg2: !llvm.ptr, %arg3: !llvm.ptr) {
     %0 = llvm.mlir.constant(3 : i64) : i64
     %1 = llvm.mlir.constant(0 : i64) : i64
     %2 = llvm.getelementptr %arg1[%1] : (!llvm.ptr, i64) -> !llvm.ptr, i64

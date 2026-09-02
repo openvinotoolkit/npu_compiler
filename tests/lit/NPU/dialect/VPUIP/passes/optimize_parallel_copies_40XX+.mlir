@@ -459,3 +459,59 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     // CHECK:     input([[COPY_ACT_2]] : memref<1x256x128x4xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     // CHECK:     weights([[COPY_WEIGHT_24]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!DistBuf_342x1536 = !VPUIP.DistributedBuffer<
+    1x1x342x1536xf16, #NCHW, @CMX_NN, {
+    mode = "SEGMENTED", num_tiles = [1, 1, 4, 1], num_clusters = 4 : i64,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 1, 86, 1536], [1, 1, 86, 1536], [1, 1, 85, 1536], [1, 1, 85, 1536]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 86, 0], [0, 0, 172, 0], [0, 0, 257, 0]],
+    memory_shapes = [[1, 1, 86, 1536], [1, 1, 86, 1536], [1, 1, 85, 1536], [1, 1, 85, 1536]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 86, 0], [0, 0, 172, 0], [0, 0, 257, 0]]
+}>
+
+// CHECK-LABEL: func.func @FuseParallelToDDRCopies
+func.func @FuseParallelToDDRCopies(
+        %arg0: memref<1x1x342x1536xf32, @DDR>)
+        -> (memref<1x1x342x1536xf16, @DDR>, memref<1x1x342x1536xf16, @DDR>,
+            memref<1x1x342x1536xf16, {order = #NCHW, strides = [525312, 525312, 1536, 1]}, @DDR>) {
+    %cmx_buf = VPURT.AllocDistributed -> !DistBuf_342x1536
+    %convert = VPUIP.ConvertDMA
+        inputs(%arg0 : memref<1x1x342x1536xf32, @DDR>)
+        outputs(%cmx_buf : !DistBuf_342x1536) -> !DistBuf_342x1536
+    %alloc_0 = memref.alloc() : memref<1x1x342x1536xf16, @DDR>
+    %copy_0 = VPUIP.Copy
+        inputs(%convert : !DistBuf_342x1536)
+        outputs(%alloc_0 : memref<1x1x342x1536xf16, @DDR>) -> memref<1x1x342x1536xf16, @DDR>
+    %alloc_1 = memref.alloc() : memref<1x1x342x1536xf16, @DDR>
+    %copy_1 = VPUIP.Copy
+        inputs(%convert : !DistBuf_342x1536)
+        outputs(%alloc_1 : memref<1x1x342x1536xf16, @DDR>) -> memref<1x1x342x1536xf16, @DDR>
+    // Strided copy: output buffer is a SubView slice — must NOT be fused.
+    %alloc_large = memref.alloc() : memref<2x1x342x1536xf16, @DDR>
+    %subview = VPUIP.SubView %alloc_large [0, 0, 0, 0] [1, 1, 342, 1536] :
+        memref<2x1x342x1536xf16, @DDR>
+        to memref<1x1x342x1536xf16, {order = #NCHW, strides = [525312, 525312, 1536, 1]}, @DDR>
+    %copy_stride = VPUIP.Copy
+        inputs(%convert : !DistBuf_342x1536)
+        outputs(%subview : memref<1x1x342x1536xf16, {order = #NCHW, strides = [525312, 525312, 1536, 1]}, @DDR>)
+        -> memref<1x1x342x1536xf16, {order = #NCHW, strides = [525312, 525312, 1536, 1]}, @DDR>
+    return %copy_0, %copy_1, %copy_stride
+        : memref<1x1x342x1536xf16, @DDR>, memref<1x1x342x1536xf16, @DDR>,
+          memref<1x1x342x1536xf16, {order = #NCHW, strides = [525312, 525312, 1536, 1]}, @DDR>
+
+    // CHECK:       [[CMX_BUF:%.+]] = VPURT.AllocDistributed
+    // CHECK:       [[CONVERT:%.+]] = VPUIP.ConvertDMA
+    // CHECK:       [[ALLOC_0:%.+]] = memref.alloc() : memref<1x1x342x1536xf16, @DDR>
+    // CHECK:       [[COPY_0:%.+]] = VPUIP.Copy inputs([[CONVERT]]
+    // CHECK-SAME:      outputs([[ALLOC_0]]
+    // CHECK:       [[ALLOC_LARGE:%.+]] = memref.alloc() : memref<2x1x342x1536xf16, @DDR>
+    // CHECK:       [[SUBVIEW:%.+]] = VPUIP.SubView [[ALLOC_LARGE]]
+    // CHECK:       [[COPY_STRIDE:%.+]] = VPUIP.Copy inputs([[CONVERT]]
+    // CHECK-SAME:      outputs([[SUBVIEW]]
+    // CHECK:       return [[COPY_0]], [[COPY_0]], [[COPY_STRIDE]]
+}

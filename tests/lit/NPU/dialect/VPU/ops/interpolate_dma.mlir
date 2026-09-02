@@ -16,7 +16,7 @@ func.func @InterpolateDMALargeInputCapsReturnTypeBound(
         %input: tensor<1x3x1081x1920xf16>,
         %scales: tensor<2xf16>,
         %aux: tensor<1x1x1x1024xui8>)
-            -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 4324, 7680]> : tensor<4xsi64>, order = #NCHW}> {
+            -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3838]> : tensor<4xsi64>, order = #NCHW}> {
     %0 = VPU.InterpolateDMA(%input, %scales, %aux) {
         attr = #IE.Interpolate<mode = <LINEAR>,
                                shape_calc_mode = <SCALES>,
@@ -28,11 +28,11 @@ func.func @InterpolateDMALargeInputCapsReturnTypeBound(
                                cube_coeff = -7.500000e-01 : f64>,
         axes_attr = [2, 3]
     } : tensor<1x3x1081x1920xf16>, tensor<2xf16>, tensor<1x1x1x1024xui8>
-            -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 4324, 7680]> : tensor<4xsi64>, order = #NCHW}>
-    return %0 : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 4324, 7680]> : tensor<4xsi64>, order = #NCHW}>
+            -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3838]> : tensor<4xsi64>, order = #NCHW}>
+    return %0 : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3838]> : tensor<4xsi64>, order = #NCHW}>
 
     // CHECK:       [[INTERP:%.+]] = VPU.InterpolateDMA([[INPUT]], [[SCALES]], [[AUX]])
     // CHECK-SAME:      axes_attr = [2, 3]
-    // CHECK-SAME:      : tensor<1x3x1081x1920xf16>, tensor<2xf16>, tensor<1x1x1x1024xui8> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 4324, 7680]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-SAME:      : tensor<1x3x1081x1920xf16>, tensor<2xf16>, tensor<1x1x1x1024xui8> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3838]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:       return [[INTERP]]
 }

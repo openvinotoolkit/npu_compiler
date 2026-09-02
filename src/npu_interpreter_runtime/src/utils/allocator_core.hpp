@@ -26,7 +26,7 @@
 // OS/device memory and hands out whole chunks (HostAllocator, LevelZeroAllocator); a SubAllocator carves one
 // borrowed chunk into sub-blocks for routing but no release(). GrowingArena ties a Backing to a per-chunk
 // SubAllocator into a full Allocator, and routes deallocations through SubAllocator::owns(). Each role
-// advertises a `static constexpr size_t alignment`: a Backing's chunk-base guarantee, a SubAllocator's
+// advertises a `static constexpr size_t ALIGNMENT`: a Backing's chunk-base guarantee, a SubAllocator's
 // sub-block stride.
 
 namespace intel_npu::vm {
@@ -44,6 +44,11 @@ struct Block {
 class NPU_VM_EXPORT AnyAllocator {
     class Concept {
     public:
+        Concept() = default;
+        Concept(const Concept&) = delete;
+        Concept& operator=(const Concept&) = delete;
+        Concept(Concept&&) = delete;
+        Concept& operator=(Concept&&) = delete;
         virtual ~Concept() = default;
         virtual Block allocate(size_t bytes) = 0;
         virtual void deallocate(Block block) noexcept = 0;

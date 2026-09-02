@@ -213,9 +213,36 @@ mlir::FailureOr<SmallVector<LoopTileDimInfo>> collectLoopTileDimInfos(mlir::scf:
         return mlir::failure();
     }
 
+    llvm::DenseMap<mlir::Operation*, vpux::Dim> insertDimByLoop;
+    auto directInsertOps = llvm::to_vector(forOp.getOps<mlir::tensor::InsertSliceOp>());
+    if (!directInsertOps.empty()) {
+        for (auto [idx, offset] : llvm::enumerate(directInsertOps.front().getMixedOffsets())) {
+            auto val = mlir::dyn_cast_or_null<mlir::Value>(offset);
+            if (val == nullptr) {
+                continue;
+            }
+            auto* defOp = val.getDefiningOp();
+            if (defOp != nullptr && mlir::isa<mlir::arith::ConstantOp>(defOp)) {
+                continue;
+            }
+            auto parentLoop = findParentForOpFromOffset(offset);
+            if (parentLoop == nullptr) {
+                continue;
+            }
+            insertDimByLoop.try_emplace(parentLoop.getOperation(), vpux::Dim(idx));
+        }
+    }
+
     SmallVector<LoopTileDimInfo> result;
-    for (auto [tensorDim, unrollDim, offsetVal] : llvm::zip(tensorDims, unrollDimsOrFailure.value(), offsetVals)) {
-        result.push_back({unrollDim, tensorDim, offsetVal});
+    for (auto [tensorDim, remappedDim, offsetVal] : llvm::zip(tensorDims, unrollDimsOrFailure.value(), offsetVals)) {
+        vpux::Dim effectiveDim = remappedDim;
+        if (auto parentLoop = findParentForOpFromOffset(offsetVal)) {
+            auto it = insertDimByLoop.find(parentLoop.getOperation());
+            if (it != insertDimByLoop.end()) {
+                effectiveDim = it->second;
+            }
+        }
+        result.push_back({effectiveDim, tensorDim, offsetVal});
     }
 
     return result;
@@ -389,6 +416,7 @@ mlir::LogicalResult processUnrolledLoops(mlir::func::FuncOp funcOp, ArrayRef<int
             TileDimensionInfo dimInfo;
             dimInfo.id = loopIdAttr.getInt();
             dimInfo.dimension = info.tensorDim;
+            dimInfo.outputDimension = info.unrollDim;
             dimInfo.numBlocks = dimUnrollFactor;
             dimInfo.isUnrolled = (dimUnrollFactor > 1);
             dimInfo.forOp = parentLoop;
@@ -458,7 +486,10 @@ mlir::LogicalResult processUnrolledLoops(mlir::func::FuncOp funcOp, ArrayRef<int
  * @return mlir::success() - Bounds successfully corrected and loops updated
  *         mlir::failure() - Should never occur in current implementation (reserved for future validation)
  */
-mlir::LogicalResult postProcessUnrolledLoop(mlir::UnrolledLoopInfo& result, mlir::OpBuilder& builder) {
+mlir::LogicalResult postProcessUnrolledLoop(mlir::UnrolledLoopInfo& result, mlir::OpBuilder& builder,
+                                            bool enableTailOverlapBacktracking,
+                                            int64_t tailOverlapBacktrackMarginPercent, Logger log, int64_t loopId,
+                                            int64_t factor) {
     auto mainLoop = *result.mainLoopOp;
     auto loc = mainLoop.getLoc();
     auto currentLow = mainLoop.getLowerBound();
@@ -504,8 +535,54 @@ mlir::LogicalResult postProcessUnrolledLoop(mlir::UnrolledLoopInfo& result, mlir
     // Update bounds. Next for loop starts from the place where current main loop ends
     mainLoop.setUpperBound(safeUpperbound);
 
-    // update epilogue loop lower bound
-    result.epilogueLoopOp->setLowerBound(safeUpperbound);
+    // Update epilogue loop lower bound. In overlap mode, back up the tail only when the runtime
+    // gap is both within the configured margin and still inside the current loop bounds.
+    mlir::Value epilogueLowerBound = safeUpperbound;
+    if (enableTailOverlapBacktracking) {
+        log.trace("Applying tail-overlap backtracking for loop id {0} with factor {1} and margin {2}", loopId, factor,
+                  tailOverlapBacktrackMarginPercent);
+        auto remainingTail = builder.create<mlir::arith::SubIOp>(loc, originalDimSize, safeUpperbound);
+
+        // Only backtrack when the current tile is larger than the remaining tail.
+        // Otherwise `currentStep - remainingTail` would underflow on unsigned/index arithmetic
+        auto stepExceedsTail =
+                builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::ugt, currentStep, remainingTail);
+        auto shortfall = builder.create<mlir::arith::SelectOp>(
+                loc, stepExceedsTail, builder.create<mlir::arith::SubIOp>(loc, currentStep, remainingTail),
+                builder.create<mlir::arith::ConstantIndexOp>(loc, 0));
+
+        auto percentValue = builder.create<mlir::arith::ConstantIndexOp>(loc, tailOverlapBacktrackMarginPercent);
+        auto hundredValue = builder.create<mlir::arith::ConstantIndexOp>(loc, 100);
+        auto scaledThreshold = builder.create<mlir::arith::MulIOp>(loc, currentStep, percentValue);
+        auto threshold = builder.create<mlir::arith::DivUIOp>(loc, scaledThreshold, hundredValue);
+
+        // `shortfall` and `threshold` are both absolute missing coverage values for the current tile.
+        // The overlap path is taken only when there is a real uncovered tail and it is small enough
+        // to reuse the current factor without generating a smaller kernel family
+        auto hasTail = builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::ne, remainingTail,
+                                                           builder.create<mlir::arith::ConstantIndexOp>(loc, 0));
+        auto shouldBacktrack = builder.create<mlir::arith::AndIOp>(
+                loc, hasTail,
+                builder.create<mlir::arith::AndIOp>(
+                        loc, stepExceedsTail,
+                        builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::ule, shortfall,
+                                                            threshold)));
+
+        // Backtrack by the uncovered shortfall, but never before the current stage lower bound
+        auto maxBacktrack = builder.create<mlir::arith::SubIOp>(loc, safeUpperbound, currentLow);
+        auto backtrackAmount = builder.create<mlir::arith::MinUIOp>(loc, shortfall, maxBacktrack);
+        auto backtrackLowerBound = builder.create<mlir::arith::SubIOp>(loc, safeUpperbound, backtrackAmount);
+
+        epilogueLowerBound =
+                builder.create<mlir::arith::SelectOp>(loc, shouldBacktrack, backtrackLowerBound, safeUpperbound);
+
+        log.trace("Tail-overlap lowering emitted for loop id {0}, factor {1}", loopId, factor);
+    } else {
+        log.trace("Tail-overlap heuristic disabled for loop id {0}, factor {1}; residual stays greedy at the safe "
+                  "upper bound.",
+                  loopId, factor);
+    }
+    result.epilogueLoopOp->setLowerBound(epilogueLowerBound);
     return mlir::success();
 }
 
@@ -530,6 +607,9 @@ mlir::LogicalResult postProcessUnrolledLoop(mlir::UnrolledLoopInfo& result, mlir
  * @param builder              MLIR OpBuilder for IR mutations.
  * @param loops                Loop info structures (loop op + unroll factor).
  * @param enableCascadedUnrolling  Apply cascaded stages N → N/2 → N/4 → … instead of a single pass.
+ * @param enableBacktrackingBeyondResidualKernel  Enable runtime tail-overlap backtracking for cascaded unrolling
+ * stages. When the remaining tail is within the configured margin, a stage may backtrack and reuse its larger kernel
+ * instead of descending to smaller cascade factors.
  * @param hasManualUnrollFactors   True when factors come from loop-unroll-factor; disables auto-mode guards.
  * @param autoUnrollingMode    Controls which loop nesting levels are eligible for auto-unrolling.
  * @param log                  Logger.
@@ -537,7 +617,9 @@ mlir::LogicalResult postProcessUnrolledLoop(mlir::UnrolledLoopInfo& result, mlir
  * @return mlir::success() if all unrolling operations complete; mlir::failure() otherwise.
  */
 mlir::LogicalResult unrollLoopsAndSetAttributes(mlir::OpBuilder& builder, SmallVector<LoopInfo>& loops,
-                                                bool enableCascadedUnrolling, bool hasManualUnrollFactors,
+                                                bool enableCascadedUnrolling,
+                                                bool enableBacktrackingBeyondResidualKernel,
+                                                int64_t tailOverlapBacktrackMarginPercent, bool hasManualUnrollFactors,
                                                 AutoUnrollingMode autoUnrollingMode, Logger log) {
     // Returns the subset of candidate loops related to currentOp under the given mode.
     //
@@ -715,8 +797,9 @@ mlir::LogicalResult unrollLoopsAndSetAttributes(mlir::OpBuilder& builder, SmallV
                 result->mainLoopOp->getOperation()->setAttr("no_reset_cmdlist", builder.getBoolAttr(true));
             }
 
-            // Post-process main unrolled loop to fix bounds and add runtime guards
-            if (mlir::failed(postProcessUnrolledLoop(*result, builder))) {
+            if (mlir::failed(postProcessUnrolledLoop(*result, builder, enableBacktrackingBeyondResidualKernel,
+                                                     tailOverlapBacktrackMarginPercent, log, loopId.getInt(),
+                                                     factor))) {
                 log.error("Failed to post-process unrolled loop with id {0}", loopId.getInt());
                 return mlir::failure();
             }
@@ -724,8 +807,8 @@ mlir::LogicalResult unrollLoopsAndSetAttributes(mlir::OpBuilder& builder, SmallV
             // Process epilogue - it becomes the next loop to unroll
             result->epilogueLoopOp->getOperation()->setAttr("id", loopId);
 
-            // If this is the last unroll factor, mark epilogue as residual
             if (i == unrollFactors.size() - 1) {
+                log.trace("Marking epilogue loop with id {0} as residual", loopId.getInt());
                 result->epilogueLoopOp->getOperation()->setAttr("residual", builder.getUnitAttr());
                 // The following attributes will be referred in ConvertToLLVMUMD pass
                 result->epilogueLoopOp->getOperation()->setAttr("no_reset_cmdlist", builder.getBoolAttr(true));
@@ -829,7 +912,15 @@ void UnrollSCFLoopPass::safeRunOnModule() {
         return;
     }
 
+    const auto marginPercent = tailOverlapBacktrackMarginPercent.getValue();
+    if (enableBacktrackingBeyondResidualKernel.getValue() && (marginPercent < 0 || marginPercent > 100)) {
+        _log.error("tail-overlap-backtrack-margin-percent must be in [0, 100], got {0}", marginPercent);
+        signalPassFailure();
+        return;
+    }
+
     if (mlir::failed(unrollLoopsAndSetAttributes(builder, loopInfoVector, enableCascadedUnrolling.getValue(),
+                                                 enableBacktrackingBeyondResidualKernel.getValue(), marginPercent,
                                                  hasManualFactors, autoUnrollingModeValue, _log))) {
         signalPassFailure();
         return;
@@ -856,10 +947,14 @@ void UnrollSCFLoopPass::safeRunOnModule() {
 //
 
 std::unique_ptr<mlir::Pass> vpux::VPU::createUnrollSCFLoopPass(StringRef loopUnrollFactor, bool enableCascadedUnrolling,
+                                                               bool enableBacktrackingBeyondResidualKernel,
+                                                               int64_t tailOverlapBacktrackMarginPercent,
                                                                AutoUnrollingMode autoUnrollingMode, Logger log) {
     UnrollSCFLoopOptions options;
     options.loopUnrollFactor = loopUnrollFactor.str();
     options.enableCascadedUnrolling = enableCascadedUnrolling;
+    options.enableBacktrackingBeyondResidualKernel = enableBacktrackingBeyondResidualKernel;
+    options.tailOverlapBacktrackMarginPercent = tailOverlapBacktrackMarginPercent;
     options.autoUnrollingMode = autoUnrollingMode;
     return std::make_unique<UnrollSCFLoopPass>(options, log);
 }

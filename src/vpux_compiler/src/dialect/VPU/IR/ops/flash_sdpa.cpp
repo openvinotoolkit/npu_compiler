@@ -42,8 +42,23 @@ mlir::Type getAuxiliaryBufferType(mlir::Value query, mlir::Value key, mlir::Modu
 
     // Have 1 buffer per SHAVE when tiling on Heads (channels)
     // Have 1 buffer for both SHAVEs when tiling on TargetSequenceLength (height)
+    // Special case: GQA with targetSeqLen==1 — the kernel folds all Q heads into the row
+    // dimension and batches them against the shared K/V. Here 'C' counts scratch rows, not
+    // SHAVEs: both SHAVEs share this buffer and split it by rows.
     const auto numShavesPerTile = vpux::config::getNumOfEnginesOnTile(module, config::ExecutorKind::SHAVE_ACT);
-    const auto numBuffers = (queryShape[Dims4D::Act::C] > 1) ? numShavesPerTile : 1;
+    const auto qHeads = queryShape[Dims4D::Act::C];
+    const auto kvHeads = keyShape[Dims4D::Act::C];
+    const auto isGQA = (kvHeads < qHeads);
+    const auto foldedGQA = (targetSeqLen == 1 && isGQA);
+    const auto groupSize = qHeads / kvHeads;  // Q heads per KV head
+    int64_t numBuffers;
+    if (foldedGQA && qHeads > 1) {
+        numBuffers = groupSize;  // batched path: one scratch row per Q head in the group
+    } else if (qHeads > 1) {
+        numBuffers = numShavesPerTile;  // per-head loop, multi-SHAVE
+    } else {
+        numBuffers = 1;  // single head, tiling on targetSeqLen
+    }
 
     const auto bufferShape = SmallVector<int64_t>{1, numBuffers, targetSeqLen, sourceSeqLen};
     const auto auxBufferType = mlir::RankedTensorType::get(bufferShape, getFp16Type(query.getContext()));
@@ -155,43 +170,53 @@ mlir::LogicalResult vpux::VPU::FlashSDPAOp::inferReturnTypes(mlir::MLIRContext* 
     return mlir::success();
 }
 
+// MatMul is computed as a DPU DWConv driven from SHAVE, which requires channel alignment.
+// The input tensors use NCHW layout, so the channel dimension is actually the width: the
+// second MatMul takes Attention scores and Values, with "channels" == sourceSeqLen. Hence
+// SourceSeqLen must stay aligned for the WeightsTable to be correct.
+int64_t vpux::VPU::FlashSDPAOp::getKeyValueBlockSize(int64_t kvNumBlocks) {
+    VPUX_THROW_UNLESS(kvNumBlocks > 0, "getKeyValueBlockSize expects kvNumBlocks > 0, got {0}", kvNumBlocks);
+    const auto keyType = mlir::cast<NDTypeInterface>(getKey().getType());
+    const auto sourceSeqLen = keyType.getShape()[Dims4D::Act::H];
+    const auto alignment = VPU::NCEInvariant::getAlignment(keyType.getElementType());
+
+    return alignValUp(divUp(sourceSeqLen, kvNumBlocks), alignment);
+}
+
 // A helper function to estimate how much CMX it would need for the operation
 // after we unroll it by Key/Value tensors kvNumBlocks times.
-bool vpux::VPU::FlashSDPAOp::fitIntoCMXAfterKeyValueTiling(::llvm::ArrayRef<vpux::NDTypeInterface> buffers,
-                                                           Byte reservedMem, int64_t kvNumBlocks) {
+// Scales KV-dimension buffers to match the tile size for the given kvNumBlocks, and returns
+// the resulting CMX memory footprint via calculateAlignedBuffersMemoryRequirement.
+static Byte computeKVTilingFootprint(VPU::FlashSDPAOp op, ::llvm::ArrayRef<vpux::NDTypeInterface> buffers,
+                                     int64_t kvNumBlocks) {
     auto minNumberOfBuffers = size_t{13};
-    VPUX_THROW_UNLESS(buffers.size() >= minNumberOfBuffers && buffers.size() <= minNumberOfBuffers + 2,
-                      "FlashSDPAOp requires 10-11 inputs and 3 outputs, but the number of buffer is {0}",
+    VPUX_THROW_UNLESS(buffers.size() >= minNumberOfBuffers && buffers.size() <= minNumberOfBuffers + 3,
+                      "FlashSDPAOp requires 10-12 inputs and 3 outputs, but the number of buffers is {0}",
                       buffers.size());
 
-    // Modify buffers size to take into account future tiling on Key/Value
-    // and compute how much CMX the biggest operation would take.
     SmallVector<NDTypeInterface> tiledBuffersStorage;
     if (kvNumBlocks > 1) {
         tiledBuffersStorage.assign(buffers.begin(), buffers.end());
         buffers = tiledBuffersStorage;
 
-        auto keyShape = tiledBuffersStorage[1].getShape();
-        const auto elemType = tiledBuffersStorage[1].getElementType();
-        const auto alignment = vpux::VPU::NCEInvariant::getAlignment(elemType);
-
-        const auto sourceSeqLen = keyShape[Dims4D::Act::H];
-        const auto tiledSourceSeqLen = alignValUp(divUp(sourceSeqLen, kvNumBlocks), alignment);
+        const auto sourceSeqLen = tiledBuffersStorage[1].getShape()[Dims4D::Act::H];
+        const auto tiledSourceSeqLen = op.getKeyValueBlockSize(kvNumBlocks);
 
         auto changeSeqLen = [&](NDTypeInterface& type, Dim dim, int64_t dimSize) {
             auto shape = Shape(type.getShape());
-            VPUX_THROW_UNLESS(shape[dim] == sourceSeqLen,
-                              "Expected SourceSequenceLength == {0}, but got {1} for type {2} dimension {3} at {4}",
-                              sourceSeqLen, shape[dim], type, dim, getLoc());
+            if (shape[dim] > 1) {
+                VPUX_THROW_UNLESS(shape[dim] == sourceSeqLen,
+                                  "Expected SourceSequenceLength == {0}, but got {1} for type {2} dimension {3} at {4}",
+                                  sourceSeqLen, shape[dim], type, dim, op.getLoc());
 
-            shape[dim] = dimSize;
-            type = type.changeShape(shape);
+                shape[dim] = dimSize;
+                type = type.changeShape(shape);
+            }
         };
 
         changeSeqLen(tiledBuffersStorage[1], Dims4D::Act::H, tiledSourceSeqLen);  // Key
         changeSeqLen(tiledBuffersStorage[2], Dims4D::Act::H, tiledSourceSeqLen);  // Value
         changeSeqLen(tiledBuffersStorage[3], Dims4D::Act::W, tiledSourceSeqLen);  // Auxiliary buffer
-
         changeSeqLen(tiledBuffersStorage[5], Dims4D::Act::H, tiledSourceSeqLen);  // WeightsTable0 buffer
 
         if (buffers.size() > minNumberOfBuffers) {
@@ -204,11 +229,15 @@ bool vpux::VPU::FlashSDPAOp::fitIntoCMXAfterKeyValueTiling(::llvm::ArrayRef<vpux
         return buffer.getTotalAllocSize();
     });
 
-    auto totalAvailableCMXSize = getTotalCMXSize(getOperation()).count();
+    auto arch = config::getArch(op.getOperation());
+    return vpux::VPU::calculateAlignedBuffersMemoryRequirement(arch, buffersSize);
+}
 
-    auto arch = config::getArch(getOperation());
-    auto requiredMemory = vpux::VPU::calculateAlignedBuffersMemoryRequirement(arch, buffersSize).count();
-    return requiredMemory + reservedMem.count() <= totalAvailableCMXSize;
+bool vpux::VPU::FlashSDPAOp::fitIntoCMXAfterKeyValueTiling(::llvm::ArrayRef<vpux::NDTypeInterface> buffers,
+                                                           Byte reservedMem, int64_t kvNumBlocks) {
+    const auto requiredMemory = computeKVTilingFootprint(*this, buffers, kvNumBlocks);
+    const auto totalAvailableCMXSize = getTotalCMXSize(getOperation());
+    return requiredMemory.count() + reservedMem.count() <= totalAvailableCMXSize.count();
 }
 
 //
@@ -240,8 +269,22 @@ InputTiling vpux::VPU::FlashSDPAOp::backInferTileInfo(const vpux::TileInfo& outp
     const auto numShavesPerTile = vpux::config::getNumOfEnginesOnTile(module, config::ExecutorKind::SHAVE_ACT);
     auto auxBufferShape = Shape(getShape(getAuxBuffer()));
 
+    const auto kvHeads = keyShape[Dims4D::Act::C];
+    const auto qHeads = getShape(getQuery())[Dims4D::Act::C];
+    const auto isGQA = (kvHeads < qHeads);
+
     if (outputTile.shape[Dims4D::Act::C] > 1) {
-        auxBufferShape[Dims4D::Act::C] = numShavesPerTile;
+        const auto targetSeqLen = outputTile.shape[Dims4D::Act::H];
+        const auto foldedGQA = (targetSeqLen == 1 && isGQA);
+        if (foldedGQA) {
+            // Folded GQA path: each cluster invocation processes
+            // exactly groupSize Q heads against one shared KV head.
+            // The aux buffer was created with numBuffers==groupSize, so the
+            // per-tile slice must not exceed that, regardless of the output tile C.
+            auxBufferShape[Dims4D::Act::C] = qHeads / kvHeads;
+        } else {
+            auxBufferShape[Dims4D::Act::C] = numShavesPerTile;
+        }
     } else {
         auxBufferShape[Dims4D::Act::C] = 1;
     }
@@ -250,14 +293,34 @@ InputTiling vpux::VPU::FlashSDPAOp::backInferTileInfo(const vpux::TileInfo& outp
     auto weightsTable0Shape = getShape(getDpuWeightsTable0());
     auto weightsTable1Shape = getShape(getDpuWeightsTable1());
 
-    const auto qHeads = getShape(getQuery())[Dims4D::Act::C];
-
     return FlashSDPAOpInputTiling(outputTile, qHeads, keyShape, attentionMaskShape, auxBufferShape,
                                   dpuDescriptorBufferShape, weightsTable0Shape, weightsTable1Shape);
 }
 
 OutputTiling vpux::VPU::FlashSDPAOp::getOutputTiling(const vpux::TileInfo& firstOutputTile, vpux::Logger /*log*/) {
     return vpux::VPU::FlashSDPAOpOutputTiling(firstOutputTile);
+}
+
+vpux::TileInfo vpux::VPU::FlashSDPAOp::getMainOutputTile(mlir::OpResult secondaryOutput,
+                                                         const vpux::TileInfo& secondaryOutputTile,
+                                                         vpux::Logger /*log*/) {
+    // running output: [1, Batch, TargetSeqLen, VEmbeddingSize]
+    // running max/sum: [1, Batch, TargetSeqLen, 1]
+    // Tiling can be done only on C & H of main output (Batch & TargetSeqLen), therefore we can infer the output 0 tile
+    // from any of the other outputs
+    if (secondaryOutput == getResultRunningOutput()) {
+        return secondaryOutputTile;
+    }
+
+    if (secondaryOutput != getResultRunningMax() && secondaryOutput != getResultRunningSum()) {
+        return vpux::TileInfo(ShapeRef());
+    }
+
+    auto mainTile = secondaryOutputTile;
+    mainTile.shape[Dims4D::Act::W] = getBoundedShape(getResultRunningOutput())[Dims4D::Act::W];
+    mainTile.offsets[Dims4D::Act::W] = 0;
+    mainTile.axis[Dims4D::Act::W] = 1;
+    return mainTile;
 }
 
 void vpux::VPU::FlashSDPAOp::adjustAttrs(const TilingInfo&, const TileInfo&) {

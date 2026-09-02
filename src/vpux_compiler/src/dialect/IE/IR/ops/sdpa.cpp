@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/utils/core/range.hpp"
 #include "vpux/utils/core/type/float16.hpp"
 
@@ -23,23 +24,20 @@ mlir::LogicalResult vpux::IE::SDPAOp::inferReturnTypeComponents(
     if (mlir::failed(sdpa.verify(loc))) {
         return mlir::failure();
     }
-    const auto inQType = mlir::cast<vpux::NDTypeInterface>(sdpa.getInputQ().getType());
-    const auto inQShape = inQType.getShape().raw();
-    const auto rank = inQType.getShape().size();
 
-    const auto inKType = mlir::cast<vpux::NDTypeInterface>(sdpa.getInputK().getType());
-    const auto inKShape = inKType.getShape().raw();
+    SmallVector<int64_t> outShape;
+    mlir::Attribute outEncoding;
+    mlir::Type outElementType;
+    inferAttentionOutputShapeComponents(ctx, sdpa.getInputQ(), sdpa.getInputK(), sdpa.getInputV(), outShape,
+                                        outEncoding, outElementType);
 
-    const auto inVType = mlir::cast<vpux::NDTypeInterface>(sdpa.getInputV().getType());
-    const auto inVShape = inVType.getShape().raw();
-
-    const auto isTransposedV = inKShape[rank - 2] != inVShape[rank - 2];
-    const auto Ev = isTransposedV ? inVShape[rank - 2] : inVShape[rank - 1];
-    SmallVector<int64_t> outShape(inQShape.begin(), inQShape.end());
-    outShape[rank - 1] = Ev;
-    inferredReturnShapes.emplace_back(outShape, inQType.getElementType());
-
+    inferredReturnShapes.emplace_back(outShape, outElementType, outEncoding);
     return mlir::success();
+}
+
+mlir::LogicalResult vpux::IE::SDPAOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                        mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    return reifyAttentionResultShape(builder, getInputQ(), getInputV(), getLoc(), reifiedReturnShapes);
 }
 
 //

@@ -19,7 +19,7 @@ if(ENABLE_NPU_EXECUTION_ENGINE AND BUILD_SHARED_LIBS)
     list(APPEND OPTIONAL_FUNC_TESTS_LIBS
         openvino::npu_zero_utils
         npu_compiler_interface
-        npu_interpreter_runtime
+        openvino_intel_npu_vm_runtime
     )
     # Private allocator headers so the vm_runtime device tests can reach the internal allocator. Scoped to the
     # utils/ folder that holds those headers, not the whole runtime src/, so the rest of the runtime internals
@@ -49,11 +49,13 @@ ov_add_test_target(
         ${PROJECT_SOURCE_DIR}/src/vpux_translate_utils/include
         ${CMAKE_CURRENT_SOURCE_DIR}/internal
         ${CMAKE_CURRENT_SOURCE_DIR}/shared_test_classes/include
+        ${PROJECT_SOURCE_DIR}/src/vpux_driver_compiler/test/functional
         ${LLVM_INCLUDE_DIRS}
     LINK_LIBRARIES
         ${OPTIONAL_FUNC_TESTS_LIBS}
         npu_ov_utils
         npu_logger
+        npu_compiler_loader_utils
         openvino::func_test_utils
         openvino::funcSharedTests
         openvino::format_reader
@@ -65,6 +67,10 @@ ov_add_test_target(
         MODELS_PATH=\"${MODELS_PATH}\"
     LABELS
         KMB
+)
+
+target_sources(${TARGET_NAME} PRIVATE
+    ${PROJECT_SOURCE_DIR}/src/vpux_driver_compiler/test/functional/vcl_tests_common.cpp
 )
 
 ov_build_target_faster(${TARGET_NAME} PCH PUBLIC "precomp.hpp")
@@ -85,6 +91,16 @@ if(MSVC)
     target_compile_options(${TARGET_NAME}
         PRIVATE
             /Zc:preprocessor
+    )
+endif()
+enable_warnings_as_errors(${TARGET_NAME} SKIP_SYSTEM)
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # Suppress -Winaccessible-base caused by mixed virtual/non-virtual inheritance paths
+    # to SubgraphBaseTest in test classes that combine OV and NPU layer test base classes.
+    target_compile_options(${TARGET_NAME}
+        PRIVATE
+            -Wno-inaccessible-base
     )
 endif()
 

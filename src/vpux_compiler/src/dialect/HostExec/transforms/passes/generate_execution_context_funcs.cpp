@@ -89,7 +89,7 @@ mlir::LogicalResult generateFuncWithCall(mlir::ModuleOp module, mlir::StringRef 
 mlir::LogicalResult GenerateExecutionContextFuncsPass::generateCreateFunc(mlir::ModuleOp module,
                                                                           LLVMArgumentTypes& llvmTypes) {
     return generateFuncWithCall(
-            module, "_mlir_ciface_create_execution_context", mlir::LLVM::Linkage::Internal, llvmTypes.voidType,
+            module, "_mlir_ciface_create_execution_context", mlir::LLVM::Linkage::External, llvmTypes.voidType,
             {llvmTypes.voidPtrType, llvmTypes.int64Type, llvmTypes.int64Type, llvmTypes.voidPtrType},
             "npu_level_zero_create_execution_context",
             [](mlir::LLVM::LLVMFuncOp& funcOp) {
@@ -102,7 +102,7 @@ mlir::LogicalResult GenerateExecutionContextFuncsPass::generateCreateFunc(mlir::
 mlir::LogicalResult GenerateExecutionContextFuncsPass::generateResetFunc(mlir::ModuleOp module,
                                                                          LLVMArgumentTypes& llvmTypes) {
     return generateFuncWithCall(
-            module, "_mlir_ciface_reset_execution_context", mlir::LLVM::Linkage::Internal, llvmTypes.voidType,
+            module, "_mlir_ciface_reset_execution_context", mlir::LLVM::Linkage::External, llvmTypes.voidType,
             {llvmTypes.voidPtrType, llvmTypes.voidPtrType, llvmTypes.int64Type},
             "npu_level_zero_reset_execution_context",
             [](mlir::LLVM::LLVMFuncOp& funcOp) {
@@ -114,7 +114,7 @@ mlir::LogicalResult GenerateExecutionContextFuncsPass::generateResetFunc(mlir::M
 mlir::LogicalResult GenerateExecutionContextFuncsPass::generateDestroyFunc(mlir::ModuleOp module,
                                                                            LLVMArgumentTypes& llvmTypes) {
     return generateFuncWithCall(
-            module, "_mlir_ciface_destroy_execution_context", mlir::LLVM::Linkage::Internal, llvmTypes.voidType,
+            module, "_mlir_ciface_destroy_execution_context", mlir::LLVM::Linkage::External, llvmTypes.voidType,
             {llvmTypes.voidPtrType}, "npu_level_zero_destroy_execution_context",
             [](mlir::LLVM::LLVMFuncOp& funcOp) {
                 return ValueList{funcOp.getArgument(0)};
@@ -125,7 +125,7 @@ mlir::LogicalResult GenerateExecutionContextFuncsPass::generateDestroyFunc(mlir:
 mlir::LogicalResult GenerateExecutionContextFuncsPass::generateUpdateMutableCommandListFunc(
         mlir::ModuleOp module, LLVMArgumentTypes& llvmTypes) {
     return generateFuncWithCall(
-            module, "_mlir_ciface_update_mutable_command_list", mlir::LLVM::Linkage::Internal, llvmTypes.voidType,
+            module, "_mlir_ciface_update_mutable_command_list", mlir::LLVM::Linkage::External, llvmTypes.voidType,
             {llvmTypes.voidPtrType, llvmTypes.voidPtrType, llvmTypes.int64Type, llvmTypes.voidPtrType,
              llvmTypes.int64Type},
             "npu_level_zero_update_mutable_command_list",
@@ -139,7 +139,7 @@ mlir::LogicalResult GenerateExecutionContextFuncsPass::generateUpdateMutableComm
 mlir::LogicalResult GenerateExecutionContextFuncsPass::generateExecuteMutableCommandListFunc(
         mlir::ModuleOp module, LLVMArgumentTypes& llvmTypes) {
     return generateFuncWithCall(
-            module, "_mlir_ciface_execute_mutable_command_list", mlir::LLVM::Linkage::Internal, llvmTypes.voidType,
+            module, "_mlir_ciface_execute_mutable_command_list", mlir::LLVM::Linkage::External, llvmTypes.voidType,
             {llvmTypes.voidPtrType, llvmTypes.voidPtrType, llvmTypes.int64Type, llvmTypes.voidPtrType,
              llvmTypes.int64Type, llvmTypes.voidPtrType, llvmTypes.int64Type, llvmTypes.voidPtrType,
              llvmTypes.voidPtrType},

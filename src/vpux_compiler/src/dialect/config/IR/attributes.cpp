@@ -162,7 +162,9 @@ void setResources(mlir::ModuleOp module, const Resources& res, const SetResource
     };
 
     const auto platform = config::getPlatform(module);
-    const auto workspaceCMXSize = availableCMXMemory.value_or(VPU::getPlatformCapabilities(platform).cmxWorkspaceSize);
+    const auto workspaceCMXSize = availableCMXMemory.has_value()
+                                          ? *availableCMXMemory
+                                          : VPU::getPlatformCapabilities(platform).cmxWorkspaceSize;
 
     const auto ddrSymbolAttr = mlir::SymbolRefAttr::get(module.getContext(), stringifyEnum(VPU::MemoryKind::DDR));
     const auto cmxSymbolAttr = mlir::SymbolRefAttr::get(module.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
@@ -323,17 +325,18 @@ bool vpux::config::hasRevisionID(mlir::ModuleOp module) {
 
 config::RevisionID vpux::config::getRevisionID(mlir::Operation* op) {
     auto module = getModuleOp(op);
+    auto revisionID = config::RevisionID::REVISION_NONE;
 
     if (module->hasAttr(revisionIDAttrName)) {
         if (auto attr = module->getAttr(revisionIDAttrName)) {
             VPUX_THROW_UNLESS(mlir::isa<config::RevisionIDAttr>(attr),
                               "Module attribute '{0}' has unsupported value '{1}'", revisionIDAttrName, attr);
 
-            return mlir::cast<config::RevisionIDAttr>(attr).getValue();
+            revisionID = mlir::cast<config::RevisionIDAttr>(attr).getValue();
         }
     }
 
-    return config::RevisionID::REVISION_NONE;
+    return revisionID;
 }
 
 namespace {

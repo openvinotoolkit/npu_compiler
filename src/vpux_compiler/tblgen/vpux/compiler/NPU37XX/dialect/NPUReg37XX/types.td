@@ -42,8 +42,8 @@ class NPUReg37XX_RegisterWrapper<string name = "", int size = 0, int address = 0
 // RegMapped Specialization
 //
 
-class NPUReg37XX_RegMappedWrapper<string name = "", list<string> regsTypes = []> :
-    VPURegMapped_RegMappedWrapper<NPUReg37XX_Dialect, "vpux::NPUReg37XX::", name, regsTypes> {
+class NPUReg37XX_RegMappedWrapper<string name = "", list<string> regsTypes = [], bit canBeEmpty = 0> :
+    VPURegMapped_RegMappedWrapper<NPUReg37XX_Dialect, "vpux::NPUReg37XX::", name, regsTypes, canBeEmpty> {
 
 }
 

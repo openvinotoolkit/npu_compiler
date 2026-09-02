@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPUIP/interfaces/common_rewriters/unroll_expand_dma.hpp"
+#include <mlir/IR/BuiltinAttributes.h>
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
@@ -13,15 +14,25 @@
 
 namespace vpux::VPUIP::ExpandDMA {
 
-vpux::NDTypeInterface changeShape(vpux::NDTypeInterface originType, ShapeRef outShape, ShapeRef offset) {
+vpux::NDTypeInterface changeShape(vpux::NDTypeInterface originType, ShapeRef outShape, ShapeRef offset,
+                                  mlir::ArrayAttr padsBegin, mlir::ArrayAttr padsEnd, bool isInput) {
     auto inShape = to_small_vector(outShape);
-    // After Expand fuse into Permute and got one PermuteDMA Op
-    // The channel size of input and output are not same
-    // For example: input (NCHW) 1x3x32x32, output(NHWC) 1x16x32x32
-    // The channel size need align with the input
-    inShape[Dims4D::Act::C.ind()] = originType.getShape()[Dims4D::Act::C];
+
+    // outShape provided to this function is the per cluster shape obtained from the distributed type.
+    // As such, it is using the expanded shape. When tiling the input memref, we must deduct the padding.
+    if (isInput) {
+        const auto padsBeginVec =
+                padsBegin != nullptr ? parseIntArrayAttr<int64_t>(padsBegin) : SmallVector<int64_t>(outShape.size(), 0);
+        const auto padsEndVec =
+                padsEnd != nullptr ? parseIntArrayAttr<int64_t>(padsEnd) : SmallVector<int64_t>(outShape.size(), 0);
+
+        for (auto i : irange(inShape.size())) {
+            inShape[i] -= padsBeginVec[i] + padsEndVec[i];
+        }
+    }
+
     const auto elemType = originType.getElementType();
-    if (auto qType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(elemType)) {
+    if (auto qType = mlir::dyn_cast_if_present<mlir::quant::UniformQuantizedPerAxisType>(elemType)) {
         const auto newQType = tileScalesAndZP(qType, ShapeRef(inShape), offset);
         return originType.changeShapeElemType(ShapeRef(inShape), newQType);
     }
@@ -63,9 +74,9 @@ mlir::LogicalResult SingleClusterExpandDMARewriter::matchAndRewrite(VPUIP::Expan
     return mlir::failure();
 }
 
-void SingleClusterExpandDMARewriter::createTilesForLargeSize(VPUIP::ExpandDMAOp origOp,
-                                                             VPUIP::ExpandDmaDescriptorGenerator dmaDescriptorGenerator,
-                                                             mlir::PatternRewriter& rewriter) const {
+void SingleClusterExpandDMARewriter::createTilesForLargeSize(
+        VPUIP::ExpandDMAOp origOp, VPUIP::ExpandDmaDescriptorGenerator& dmaDescriptorGenerator,
+        mlir::PatternRewriter& rewriter) const {
     // Currently, tiling is implemented only for 4D shapes.
     const auto origInputShape = getShape(origOp.getInput());
     const auto origOutputShape = getShape(origOp.getOutput());
@@ -111,7 +122,7 @@ void SingleClusterExpandDMARewriter::createTilesForLargeSize(VPUIP::ExpandDMAOp 
     Byte outputOffset{outputDeclBuff.getByteOffset()};
 
     const auto expandInputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
-    const Byte elemTypeSize = expandInputType.getElemTypeSize();
+    const auto elemTypeSize = expandInputType.getElemTypeSize();
 
     auto vpurtTask = origOp->getParentOfType<VPURT::TaskOp>();
     rewriter.setInsertionPointAfter(vpurtTask);
@@ -134,21 +145,21 @@ void SingleClusterExpandDMARewriter::createTilesForLargeSize(VPUIP::ExpandDMAOp 
         auto inputNewBuffer = VPURT::createOp<VPURT::DeclareBufferOp>(
                 rewriter, inputInsertionPoint, tileLoc, inputNewType, inputDeclBuff.getSection(), inputOffset.count());
         inputInsertionPoint = inputNewBuffer.getResult().getDefiningOp();
-        inputOffset += Byte(currentTileInShape.totalSize() * elemTypeSize.count());
+        inputOffset += Byte(currentTileInShape.totalSize() * elemTypeSize);
 
         // Create new output buffer
         auto outputNewBuffer = VPURT::createOp<VPURT::DeclareBufferOp>(
                 rewriter, outputInsertionPoint, tileLoc, outputDeclBuff.getType(), outputDeclBuff.getSection(),
                 outputOffset.count());
         outputInsertionPoint = outputNewBuffer.getResult().getDefiningOp();
-        outputOffset += Byte(currentTileOutShape.totalSize() * elemTypeSize.count());
+        outputOffset += Byte(currentTileOutShape.totalSize() * elemTypeSize);
 
         // Create Descriptor
         auto expandInType = mlir::dyn_cast<vpux::NDTypeInterface>(origOp.getInput().getType());
         auto expandOutType = mlir::dyn_cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
-        auto dmaDescriptor = dmaDescriptorGenerator.generate(expandInType.changeShape(currentTileInShape),
-                                                             expandOutType, origOp.getPadsBeginAttr(),
-                                                             origOp.getPadsEndAttr(), elemTypeSize.count());
+        auto dmaDescriptor =
+                dmaDescriptorGenerator.generate(expandInType.changeShape(currentTileInShape), expandOutType,
+                                                origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(), elemTypeSize);
 
         // Create tile ExpandDMAOp
         auto newDMAPort = tileIdx % _dmaPortCount;
@@ -171,7 +182,7 @@ void SingleClusterExpandDMARewriter::createTilesForLargeSize(VPUIP::ExpandDMAOp 
 }
 
 mlir::LogicalResult SingleClusterExpandDMARewriter::unrollSingleTile(
-        VPUIP::ExpandDMAOp expandDmaOp, VPUIP::ExpandDmaDescriptorGenerator dmaDescriptorGenerator,
+        VPUIP::ExpandDMAOp expandDmaOp, VPUIP::ExpandDmaDescriptorGenerator& dmaDescriptorGenerator,
         mlir::PatternRewriter& rewriter) const {
     _log.trace("ExpandDMA's result is not DistributedBufferType");
 
@@ -185,11 +196,11 @@ mlir::LogicalResult SingleClusterExpandDMARewriter::unrollSingleTile(
         return mlir::success();
     }
 
-    auto expandInType = mlir::dyn_cast<vpux::NDTypeInterface>(expandDmaOp.getInput().getType());
-    auto expandOutType = mlir::dyn_cast<vpux::NDTypeInterface>(expandDmaOp.getOutput().getType());
-    Byte elemTypeSize = expandInType.getElemTypeSize();
+    auto expandInType = mlir::cast<vpux::NDTypeInterface>(expandDmaOp.getInput().getType());
+    auto expandOutType = mlir::cast<vpux::NDTypeInterface>(expandDmaOp.getOutput().getType());
+    const auto elemTypeSize = expandInType.getElemTypeSize();
     auto dmaDescriptor = dmaDescriptorGenerator.generate(expandInType, expandOutType, expandDmaOp.getPadsBeginAttr(),
-                                                         expandDmaOp.getPadsEndAttr(), elemTypeSize.count());
+                                                         expandDmaOp.getPadsEndAttr(), elemTypeSize);
     rewriter.replaceOpWithNewOp<VPUIP::ExpandDMAOp>(
             expandDmaOp, expandDmaOp.getInput(), expandDmaOp.getOutputBuff(), expandDmaOp.getPadsBeginAttr(),
             expandDmaOp.getPadsEndAttr(), dmaDescriptor, vpux::getIntAttr(rewriter, 0), expandDmaOp.getIsOutOfOrder(),
@@ -250,7 +261,7 @@ mlir::LogicalResult MultiClusterExpandDMARewriter::matchAndRewrite(VPUIP::Expand
 
 void MultiClusterExpandDMARewriter::unrollSegmentedOrOverlapped(
         mlir::Location loc, VPUIP::ExpandDMAOp expandDmaOp, VPURT::TaskOp vpurtTask,
-        VPUIP::DistributedBufferType distributedType, VPUIP::ExpandDmaDescriptorGenerator dmaDescriptorGenerator,
+        VPUIP::DistributedBufferType distributedType, VPUIP::ExpandDmaDescriptorGenerator& dmaDescriptorGenerator,
         mlir::PatternRewriter& rewriter) const {
     const auto input = expandDmaOp.getInput();
     const auto output = expandDmaOp.getOutputBuff();
@@ -274,11 +285,12 @@ void MultiClusterExpandDMARewriter::unrollSegmentedOrOverlapped(
                       "Number of shape offsets '{0}' and clusters '{1}' are mismatch", perClusterShapeOffsets.size(),
                       numClusters);
 
-    const auto tileType = [&](vpux::NDTypeInterface type) {
+    const auto tileType = [&](vpux::NDTypeInterface type, bool isInput) {
         SmallVector<vpux::NDTypeInterface> newTypes(numClusters);
         for (size_t clusterId = 0; clusterId < perClusterShapes.size(); ++clusterId) {
             newTypes[clusterId] =
-                    ExpandDMA::changeShape(type, perClusterShapes[clusterId], perClusterShapeOffsets[clusterId]);
+                    ExpandDMA::changeShape(type, perClusterShapes[clusterId], perClusterShapeOffsets[clusterId],
+                                           expandDmaOp.getPadsBeginAttr(), expandDmaOp.getPadsEndAttr(), isInput);
         }
 
         return newTypes;
@@ -329,9 +341,9 @@ void MultiClusterExpandDMARewriter::unrollSegmentedOrOverlapped(
     auto inputInsertionPoint = input.getDefiningOp();
     auto outputInsertionPoint = output.getDefiningOp();
 
-    const auto inTypes = tileType(inputType);
-    const auto outTypes = tileType(outputType);
-    Byte elemTypeSize = inputType.getElemTypeSize();
+    const auto inTypes = tileType(inputType, true);
+    const auto outTypes = tileType(outputType, false);
+    const auto elemTypeSize = inputType.getElemTypeSize();
     for (int64_t clusterId = 0; clusterId < numClusters; ++clusterId) {
         const auto newInputType = inTypes[clusterId];
         const auto newOutType = outTypes[clusterId];
@@ -346,7 +358,7 @@ void MultiClusterExpandDMARewriter::unrollSegmentedOrOverlapped(
 
         const auto newLoc = appendLoc(loc, "cluster_{0}", clusterId);
         auto dmaDescriptor = dmaDescriptorGenerator.generate(newInputType, newOutType, expandDmaOp.getPadsBeginAttr(),
-                                                             expandDmaOp.getPadsEndAttr(), elemTypeSize.count());
+                                                             expandDmaOp.getPadsEndAttr(), elemTypeSize);
         auto newDMAPort = clusterId % _dmaPortCount;
         auto newExpandDMAOp = VPURT::wrapIntoTaskOp<VPUIP::ExpandDMAOp>(
                 rewriter, vpurtTask.getWaitBarriers(), vpurtTask.getUpdateBarriers(), newLoc, inputBuffer, outBuffer,
@@ -361,7 +373,7 @@ void MultiClusterExpandDMARewriter::unrollSegmentedOrOverlapped(
 void MultiClusterExpandDMARewriter::unrollDuplicated(mlir::Location loc, VPUIP::ExpandDMAOp expandDmaOp,
                                                      VPURT::TaskOp vpurtTask,
                                                      VPUIP::DistributedBufferType distributedType,
-                                                     VPUIP::ExpandDmaDescriptorGenerator dmaDescriptorGenerator,
+                                                     VPUIP::ExpandDmaDescriptorGenerator& dmaDescriptorGenerator,
                                                      mlir::PatternRewriter& rewriter) const {
     const auto input = expandDmaOp.getInput();
     const auto output = expandDmaOp.getOutputBuff();
@@ -383,9 +395,9 @@ void MultiClusterExpandDMARewriter::unrollDuplicated(mlir::Location loc, VPUIP::
     const auto newLoc = appendLoc(loc, "broadcast_copy_to_CMX[{0},{1}]", clusters.front(), clusters.back());
     auto expandInType = mlir::dyn_cast<vpux::NDTypeInterface>(expandDmaOp.getInput().getType());
     auto expandOutType = mlir::dyn_cast<vpux::NDTypeInterface>(expandDmaOp.getOutput().getType());
-    Byte elemTypeSize = expandInType.getElemTypeSize();
+    const auto elemTypeSize = expandInType.getElemTypeSize();
     auto dmaDescriptor = dmaDescriptorGenerator.generate(expandInType, expandOutType, expandDmaOp.getPadsBeginAttr(),
-                                                         expandDmaOp.getPadsEndAttr(), elemTypeSize.count());
+                                                         expandDmaOp.getPadsEndAttr(), elemTypeSize);
     const auto newExpandDMA = VPURT::wrapIntoTaskOp<VPUIP::ExpandDMAOp>(
             rewriter, vpurtTask.getWaitBarriers(), vpurtTask.getUpdateBarriers(), newLoc, input, newCMXBuffer,
             expandDmaOp.getPadsBeginAttr(), expandDmaOp.getPadsEndAttr(), dmaDescriptor,

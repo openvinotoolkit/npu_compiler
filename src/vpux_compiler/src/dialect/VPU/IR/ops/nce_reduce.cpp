@@ -43,6 +43,18 @@ mlir::LogicalResult vpux::VPU::NCEReduceOp::inferReturnTypes(mlir::MLIRContext* 
                                        reduce.getInputPaddingAttr(), reduce.getOutputPaddingAttr());
 }
 
+//
+// ShapeInfoOpInterface
+//
+
+mlir::LogicalResult vpux::VPU::NCEReduceOp::verifyShapeInfo() {
+    return vpux::VPU::verifyInputIs4D(getInput());
+}
+
+//
+// Verification
+//
+
 mlir::LogicalResult vpux::VPU::NCEReduceOp::verify() {
     const auto op = getOperation();
 

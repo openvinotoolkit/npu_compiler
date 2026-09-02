@@ -40,9 +40,6 @@ void testExplicitDistributedAttr(llvm::StringLiteral inputIR, vpux::VPU::Distrib
     for (auto& op : func.getOps()) {
         if (auto clusterOp = mlir::dyn_cast<vpux::VPU::ClusteredOpInterface>(op)) {
             auto overlapParams = vpux::VPU::OverlapDistributionParams();
-            auto resultType = op.getResult(0).getType();
-            auto tensorType = mlir::dyn_cast<vpux::NDTypeInterface>(resultType);
-            auto elementType = tensorType ? tensorType.getElementType() : nullptr;
 
             // HW ops & Concat will receive their overlapped params explicitly.
             if (mode == VPU::DistributionMode::OVERLAPPED &&
@@ -52,14 +49,10 @@ void testExplicitDistributedAttr(llvm::StringLiteral inputIR, vpux::VPU::Distrib
                         expectedDistributedAttr.getPads(), expectedDistributedAttr.getStrides(), numClusters, alignment,
                         uniformDistributedSeg, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
 
-                const auto perClusterMemoryShapes =
-                        VPU::getPerClusterMemoryShapes(shape, tempDistribution, elementType).value();
-                const auto perClusterMemoryOffsets =
-                        VPU::getPerClusterMemoryShapeOffsets(shape, tempDistribution, elementType);
-                const auto perClusterComputeShapes =
-                        VPU::getPerClusterComputeShapes(shape, tempDistribution, elementType);
-                const auto perClusterComputeOffsets =
-                        VPU::getPerClusterComputeShapeOffsets(shape, tempDistribution, elementType);
+                const auto perClusterMemoryShapes = VPU::getPerClusterMemoryShapes(shape, tempDistribution).value();
+                const auto perClusterMemoryOffsets = VPU::getPerClusterMemoryShapeOffsets(shape, tempDistribution);
+                const auto perClusterComputeShapes = VPU::getPerClusterComputeShapes(shape, tempDistribution);
+                const auto perClusterComputeOffsets = VPU::getPerClusterComputeShapeOffsets(shape, tempDistribution);
 
                 overlapParams.setMemoryShapes(VPU::arrayOfArrayFromShape(perClusterMemoryShapes));
                 overlapParams.setMemoryOffsets(VPU::arrayOfArrayFromShape(perClusterMemoryOffsets));
@@ -98,7 +91,7 @@ TEST_F(MLIR_GetExplicitDistributionInfoAttrTest, SWOp) {
                     shape_calc_mode = <SIZES>>, axes_attr = [2, 3],
                     initial_input_dims_attr = [1, 1, 96, 160],
                     initial_output_dims_attr = [1, 1, 192, 320],
-                    operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+                    operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
                     scales_attr = [2.000000e+00, 2.000000e+00],
                     sizes_attr = [192, 320],
                     tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]}

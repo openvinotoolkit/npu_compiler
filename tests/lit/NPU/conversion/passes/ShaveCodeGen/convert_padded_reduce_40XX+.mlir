@@ -47,7 +47,7 @@ func.func @PaddedFlatKeepDims(%arg0: tensor<1x16x4000x200xf32>) -> tensor<1x16x4
   return %0 : tensor<1x16x4000x200xf32>
 
 // CHECK:    IE.CodeGenCapsule inputs({{.+}} as [[ARG1:%.+]]: tensor<1x16x4000x200xf32>) {
-// CHECK-NEXT:      [[ZERO:%.+]] = arith.constant 0.000000e+00 : f32  
+// CHECK-NEXT:      [[ZERO:%.+]] = arith.constant 0.000000e+00 : f32
 // CHECK-NEXT:      [[EMPT:%.+]] = tensor.empty() : tensor<1x4000x200xf32>
 // CHECK-NEXT:      [[REDUCE_INIT:%.+]] = linalg.fill ins([[ZERO]] : f32) outs([[EMPT]] : tensor<1x4000x200xf32>) -> tensor<1x4000x200xf32>
 // CHECK-NEXT:      [[REDUCE_IN:%.+]] = tensor.extract_slice [[ARG1]][0, 0, 0, 0] [1, 12, 4000, 200] [1, 1, 1, 1] : tensor<1x16x4000x200xf32> to tensor<1x12x4000x200xf32>
@@ -190,7 +190,7 @@ func.func @PaddedNHWCToCWHF16(%arg0: tensor<1x16x4000x200xf16, {order = #NHWC}>)
   return %0 : tensor<16x4000x200xf16, {order = #map}>
 
 // CHECK:    IE.CodeGenCapsule inputs({{.+}} as [[ARG1:%.+]]: tensor<1x4000x200x16xf16>) {
-// CHECK-NEXT:     [[ZERO1:%.+]] = arith.constant 0.000000e+00 : f16 
+// CHECK-NEXT:     [[ZERO1:%.+]] = arith.constant 0.000000e+00 : f16
 // CHECK-NEXT:     [[ZERO:%.+]] = arith.constant 0.000000e+00 : f32
 // CHECK-NEXT:     [[EMPT:%.+]] = tensor.empty() : tensor<1x200x4000xf32>
 // CHECK-NEXT:     [[REDUCE_OUT_INIT:%.+]] = linalg.fill ins([[ZERO]] : f32) outs([[EMPT]] : tensor<1x200x4000xf32>) -> tensor<1x200x4000xf32>

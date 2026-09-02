@@ -40,6 +40,15 @@ func.func @HeterogenousInputsBatchInConstant(%arg0: tensor<3x320xf32>, %arg1: te
     // CHECK: return [[RET]] : tensor<3x320xf32>
 }
 
+net.NetworkInfo entryPoint : @HeterogenousInputsBatchInConstant inputsInfo : {
+    DataInfo "input0" : tensor<3x320xf32>
+    DataInfo "input1" : tensor<1xf64>
+    DataInfo "input2" : tensor<1x160xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<3x320xf32>
+}
+
+
 
 // -----
 
@@ -80,4 +89,12 @@ func.func @HeterogenousInputsBatchInConstantBroadcastNonArgConst(%arg0: tensor<3
     // CHECK: [[VAL8:%.+]] = IE.Add([[VAL0]], [[VAL7]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x320xf32>, tensor<1x320xf32> -> tensor<1x320xf32>
     // CHECK: [[RET:%.+]] = builtin.unrealized_conversion_cast [[VAL8]] : tensor<1x320xf32> to tensor<3x320xf32>
     // CHECK: return [[RET]] : tensor<3x320xf32>
+}
+
+net.NetworkInfo entryPoint : @HeterogenousInputsBatchInConstantBroadcastNonArgConst inputsInfo : {
+    DataInfo "input0" : tensor<3x320xf32>
+    DataInfo "input1" : tensor<1xf64>
+    DataInfo "input2" : tensor<1x160xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<3x320xf32>
 }

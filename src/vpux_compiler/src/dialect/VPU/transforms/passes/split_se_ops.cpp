@@ -162,22 +162,25 @@ mlir::LogicalResult SplitInterpolate::matchAndRewrite(VPU::InterpolateOp origOp,
             return rewriter
                     .create<VPU::InterpolateOp>(
                             newLoc, newOutputType, inputVal, origOp.getSizes(), origOp.getScales(), origOp.getAxes(),
-                            origOp.getCoordinates(), origOp.getLambdas(), newSizesAttr, newScalesAttr,
-                            origOp.getAxesAttrAttr(), origOp.getTileOffsetAttrAttr(),
-                            origOp.getInitialInputDimsAttrAttr(), origOp.getInitialOutputDimsAttrAttr(),
-                            origOp.getInitialInputOffsetAttrAttr(), origOp.getInitialOutputOffsetAttrAttr(),
-                            origOp.getMultiClusterStrategyAttr(), origOp.getAttr(), origOp.getOutputPaddingAttr(),
+                            origOp.getCoordinates(), origOp.getLambdas(), origOp.getDynamicInputOffsets(),
+                            origOp.getDynamicOutputOffsets(), newSizesAttr, newScalesAttr, origOp.getAxesAttrAttr(),
+                            origOp.getTileOffsetAttrAttr(), origOp.getInitialInputDimsAttrAttr(),
+                            origOp.getInitialOutputDimsAttrAttr(), origOp.getInitialInputOffsetAttrAttr(),
+                            origOp.getInitialOutputOffsetAttrAttr(), origOp.getMultiClusterStrategyAttr(),
+                            origOp.getUseScaleAttrAttr(), origOp.getAttr(), origOp.getOutputPaddingAttr(),
                             origOp.getInputPaddingAttr())
                     .getOutput();
         }
         return rewriter
                 .create<VPU::InterpolateOp>(
                         newLoc, inputVal, origOp.getSizes(), origOp.getScales(), origOp.getAxes(),
-                        origOp.getCoordinates(), origOp.getLambdas(), newSizesAttr, newScalesAttr,
-                        origOp.getAxesAttrAttr(), origOp.getTileOffsetAttrAttr(), origOp.getInitialInputDimsAttrAttr(),
+                        origOp.getCoordinates(), origOp.getLambdas(), origOp.getDynamicInputOffsets(),
+                        origOp.getDynamicOutputOffsets(), newSizesAttr, newScalesAttr, origOp.getAxesAttrAttr(),
+                        origOp.getTileOffsetAttrAttr(), origOp.getInitialInputDimsAttrAttr(),
                         origOp.getInitialOutputDimsAttrAttr(), origOp.getInitialInputOffsetAttrAttr(),
-                        origOp.getInitialOutputOffsetAttrAttr(), origOp.getMultiClusterStrategyAttr(), origOp.getAttr(),
-                        origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr())
+                        origOp.getInitialOutputOffsetAttrAttr(), origOp.getMultiClusterStrategyAttr(),
+                        origOp.getUseScaleAttrAttr(), origOp.getAttr(), origOp.getOutputPaddingAttr(),
+                        origOp.getInputPaddingAttr())
                 .getOutput();
     };
 

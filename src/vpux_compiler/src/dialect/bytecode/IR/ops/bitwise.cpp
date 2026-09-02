@@ -25,62 +25,55 @@ using namespace vpux;
 
 void bytecode::And64Op::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto dstReg = getRegisterNumber(getDst());
     const auto lhsReg = getRegisterNumber(getLhs());
     const auto rhsReg = getRegisterNumber(getRhs());
-    writer.appendInstruction(opcode, addrMode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg});
+    writer.appendInstruction(opcode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg});
 }
 
 void bytecode::Not64Op::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto dstReg = getRegisterNumber(getDst());
     const auto srcReg = getRegisterNumber(getSrc());
-    writer.appendInstruction(opcode, addrMode, SmallVector<int16_t>{dstReg, srcReg});
+    writer.appendInstruction(opcode, SmallVector<int16_t>{dstReg, srcReg});
 }
 
 void bytecode::Or64Op::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto dstReg = getRegisterNumber(getDst());
     const auto lhsReg = getRegisterNumber(getLhs());
     const auto rhsReg = getRegisterNumber(getRhs());
-    writer.appendInstruction(opcode, addrMode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg});
+    writer.appendInstruction(opcode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg});
 }
 
 void bytecode::Xor64Op::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto dstReg = getRegisterNumber(getDst());
     const auto lhsReg = getRegisterNumber(getLhs());
     const auto rhsReg = getRegisterNumber(getRhs());
-    writer.appendInstruction(opcode, addrMode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg});
+    writer.appendInstruction(opcode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg});
 }
 
 void bytecode::Sll64Op::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto dstReg = getRegisterNumber(getDst());
     const auto lhsReg = getRegisterNumber(getLhs());
     const auto rhsReg = getRegisterNumber(getRhs());
-    writer.appendInstruction(opcode, addrMode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg});
+    writer.appendInstruction(opcode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg});
 }
 
 void bytecode::Srl64Op::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto dstReg = getRegisterNumber(getDst());
     const auto lhsReg = getRegisterNumber(getLhs());
     const auto rhsReg = getRegisterNumber(getRhs());
-    writer.appendInstruction(opcode, addrMode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg});
+    writer.appendInstruction(opcode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg});
 }
 
 void bytecode::Sra64Op::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto dstReg = getRegisterNumber(getDst());
     const auto lhsReg = getRegisterNumber(getLhs());
     const auto rhsReg = getRegisterNumber(getRhs());
-    writer.appendInstruction(opcode, addrMode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg});
+    writer.appendInstruction(opcode, SmallVector<int16_t>{dstReg, lhsReg, rhsReg});
 }

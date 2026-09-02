@@ -159,32 +159,29 @@ public:
 
         const auto inputShape = getShape(sliceOp.getInput());
         const auto outputShape = getShape(sliceOp.getResult());
-        for (size_t i = 0; i < outputTile.shape.size(); ++i) {
+        auto inputTile = outputTile;
+        auto bounds = to_small_vector(inputTile.bounds.raw());
+
+        for (size_t i = 0; i < inputTile.shape.size(); ++i) {
             const bool isDimSliced = (outputShape[Dim(i)] != inputShape[Dim(i)]);
-            if (isDimSliced) {
-                auto tileSizeValue = mlir::getConstantIntValue(outputTile.shape[i]);
-                VPUX_THROW_WHEN(tileSizeValue.has_value() && tileSizeValue.value() != outputShape[Dim(i)],
-                                "SCF tiling and VPU.Slice '{0}' both operate on axis {1} — not allowed",
-                                sliceOp.getLoc(), i);
+            const auto tileSizeValue = mlir::getConstantIntValue(outputTile.shape[i]);
+            const bool isDimTiled = !tileSizeValue.has_value() || tileSizeValue.value() != outputShape[Dim(i)];
+
+            VPUX_THROW_WHEN(isDimSliced && isDimTiled,
+                            "SCF tiling and VPU.Slice '{0}' both operate on axis {1} — not allowed", sliceOp.getLoc(),
+                            i);
+
+            if (!isDimTiled) {
+                inputTile.shape[i] = builder.getIndexAttr(inputShape[Dim(i)]);
+                inputTile.offsets[i] = builder.getIndexAttr(0);
+                if (!bounds.empty()) {
+                    bounds[i] = inputShape[Dim(i)];
+                }
             }
         }
 
-        auto inputTile = outputTile;
-        const auto sliceOffsets = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsetsAttr());
-        for (size_t i = 0; i < inputTile.offsets.size(); ++i) {
-            auto tileOffsetValue = getConstantIntValue(inputTile.offsets[i]);
-
-            if (!tileOffsetValue.has_value()) {
-                auto tileOffset = getValueOrCreateConstantIndexOp(builder, op->getLoc(), inputTile.offsets[i]);
-                auto sliceOffset =
-                        builder.create<mlir::arith::ConstantIndexOp>(op->getLoc(), sliceOffsets[i]).getResult();
-                inputTile.offsets[i] =
-                        builder.create<mlir::arith::AddIOp>(op->getLoc(), tileOffset, sliceOffset).getResult();
-            } else {
-                int64_t combinedOffset = tileOffsetValue.value() + sliceOffsets[i];
-                inputTile.offsets[i] =
-                        builder.create<mlir::arith::ConstantIndexOp>(op->getLoc(), combinedOffset).getResult();
-            }
+        if (!bounds.empty()) {
+            inputTile.bounds = Bounds(bounds);
         }
         return SCFTilingInfo{{std::move(inputTile)}};
     }

@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters.hpp"
@@ -131,6 +132,82 @@ mlir::LogicalResult FuseClampRewriter::matchAndRewrite(IE::ClampOp clampOp, mlir
 }
 
 //
+// SwapSliceWithActivation
+//
+// Moves a unary eltwise activation from after a Slice to before it, enabling
+// subsequent fusion as a post-op on the preceding DPU operation.
+//   DPUOp -> Slice -> Activation  =>  DPUOp -> Activation -> Slice
+//
+
+class SwapSliceWithActivation final : public mlir::OpRewritePattern<IE::SliceOp> {
+public:
+    SwapSliceWithActivation(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+            : mlir::OpRewritePattern<IE::SliceOp>(ctx, benefit), _log(log) {
+        this->setDebugName("FusePostOps::SwapSliceWithActivation");
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(IE::SliceOp sliceOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult SwapSliceWithActivation::matchAndRewrite(IE::SliceOp sliceOp,
+                                                             mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got SliceOp at '{1}'", getDebugName(), sliceOp->getLoc());
+
+    if (!sliceOp.getResult().hasOneUse()) {
+        return mlir::failure();
+    }
+
+    auto* userOp = *sliceOp.getResult().getUsers().begin();
+
+    if (!userOp->hasTrait<IE::EltwiseOp>() || userOp->getNumOperands() != 1) {
+        return mlir::failure();
+    }
+
+    if (!sliceOp.getSource().hasOneUse()) {
+        return mlir::failure();
+    }
+
+    auto producerOp = sliceOp.getSource().getDefiningOp<IE::LayerWithPostOpInterface>();
+    if (producerOp == nullptr) {
+        return mlir::failure();
+    }
+
+    if (producerOp.getPostOp()) {
+        return mlir::failure();
+    }
+
+    const auto logCb = [&](const formatv_object_base& msg) {
+        _log.trace("{0}", msg.str());
+    };
+    if (!producerOp.isSupportedPostOp(userOp, logCb)) {
+        return mlir::failure();
+    }
+
+    // Swap: create activation on the unsliced tensor, then slice the result
+    rewriter.setInsertionPoint(sliceOp);
+    auto* newActivation = rewriter.clone(*userOp);
+    auto sourceType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getSource().getType());
+    auto activationElemType = mlir::cast<vpux::NDTypeInterface>(userOp->getResult(0).getType()).getElementType();
+    rewriter.modifyOpInPlace(newActivation, [&] {
+        newActivation->setOperand(0, sliceOp.getSource());
+        newActivation->getResult(0).setType(sourceType.changeElemType(activationElemType));
+    });
+
+    auto newSlice = rewriter.create<IE::SliceOp>(sliceOp.getLoc(), newActivation->getResult(0),
+                                                 sliceOp.getStaticOffsetsAttr(), sliceOp.getStaticSizesAttr());
+    extendOpLoc(newSlice, "swap_act");
+
+    rewriter.replaceOp(userOp, newSlice.getResult());
+    rewriter.eraseOp(sliceOp);
+
+    return mlir::success();
+}
+
+//
 // FuseActivationOpsPass
 //
 
@@ -155,6 +232,7 @@ void FuseActivationOpsPass::safeRunOnFunc() {
 
     // Note the below patterns exec order is defined by "benefitLevels" at the head
     mlir::RewritePatternSet patterns(&ctx);
+    patterns.insert<SwapSliceWithActivation>(&ctx, vpux::benefitHigh, _log);
     patterns.insert<FusePostOpsRewriter>(&ctx, vpux::benefitLow, _log);
     patterns.insert<FuseClampRewriter>(&ctx, vpux::benefitMid, _log);
 
@@ -168,6 +246,7 @@ void FuseActivationOpsPass::safeRunOnFunc() {
 
 void vpux::IE::registerFuseActivationOpsRewriters(RewriterRegistry& registry, Logger log) {
     registry.registerRewriterSet("fuse-activation-ops-set", [&registry, log]() {
+        registry.registerRewriter<SwapSliceWithActivation>("swap-slice-with-activation", vpux::benefitHigh, log);
         registry.registerRewriter<FusePostOpsRewriter>("fuse-post-ops", vpux::benefitLow, log);
         registry.registerRewriter<FuseClampRewriter>("fuse-clamp", vpux::benefitMid, log);
     });

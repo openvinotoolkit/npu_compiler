@@ -5,11 +5,9 @@
 
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/sw_kernel_rewriter.hpp"
 #include <kernels/inc/common_types.h>
-#include "vpux/compiler/act_kernels/shave_binary_resources.h"
 #include "vpux/compiler/conversion/passes/VPUIP2VPUMI40XX/buffer_conversion.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/bounded_buffer.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
@@ -18,8 +16,8 @@
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
+#include "vpux/compiler/utils/kernel_data_type.hpp"
 #include "vpux/compiler/utils/llvm_to_binary.hpp"
-#include "vpux/compiler/utils/quantization.hpp"
 
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -86,131 +84,6 @@ void appendValueToVector(SmallVector<uint8_t>& vec, const T& anyValue) {
     vec.insert(vec.end(), valueAsArray.begin(), valueAsArray.end());
 }
 
-sw_params::DataType getDataTypeFromMlirType(mlir::Type type) {
-    if (auto floatType = mlir::dyn_cast<mlir::FloatType>(type)) {
-        auto typeWidth = floatType.getWidth();
-        switch (typeWidth) {
-        case 64:
-            return sw_params::DataType::NN_FP64;
-        case 32:
-            return sw_params::DataType::NN_FP32;
-        case 16:
-            if (type.isBF16()) {
-                return sw_params::DataType::NN_BF16;
-            }
-            return sw_params::DataType::NN_FP16;
-        case 8:
-            if (mlir::isa<mlir::Float8E4M3FNType>(floatType)) {
-                return sw_params::DataType::NN_HF8;
-            } else if (mlir::isa<mlir::Float8E5M2Type>(floatType)) {
-                return sw_params::DataType::NN_BF8;
-            }
-            break;
-        }
-    } else if (auto integerType = mlir::dyn_cast<mlir::IntegerType>(type)) {
-        if (integerType.isSigned()) {
-            auto typeWidth = integerType.getWidth();
-            switch (typeWidth) {
-            case 64:
-                return sw_params::DataType::NN_I64;
-            case 32:
-                return sw_params::DataType::NN_I32;
-            case 16:
-                return sw_params::DataType::NN_I16;
-            case 8:
-                return sw_params::DataType::NN_I8;
-            case 4:
-                return sw_params::DataType::NN_I4;
-            case 2:
-                return sw_params::DataType::NN_I2;
-            case 1:
-                return sw_params::DataType::NN_BIN;
-            }
-        } else if (integerType.isUnsigned()) {
-            auto typeWidth = integerType.getWidth();
-            switch (typeWidth) {
-            case 64:
-                return sw_params::DataType::NN_U64;
-            case 32:
-                return sw_params::DataType::NN_U32;
-            case 16:
-                return sw_params::DataType::NN_U16;
-            case 8:
-                return sw_params::DataType::NN_U8;
-            case 4:
-                return sw_params::DataType::NN_U4;
-            case 2:
-                return sw_params::DataType::NN_U2;
-            case 1:
-                return sw_params::DataType::NN_BIN;
-            }
-        } else if (integerType.isSignless()) {
-            auto typeWidth = integerType.getWidth();
-            switch (typeWidth) {
-            case 64:
-                return sw_params::DataType::NN_I64;
-            case 32:
-                return sw_params::DataType::NN_I32;
-            case 16:
-                return sw_params::DataType::NN_I16;
-            case 8:
-                return sw_params::DataType::NN_I8;
-            case 4:
-                return sw_params::DataType::NN_I4;
-            case 2:
-                return sw_params::DataType::NN_I2;
-            case 1:
-                return sw_params::DataType::NN_BIN;
-            }
-        }
-    } else if (auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(type)) {
-        const auto isSigned = qType.isSigned();
-        auto storageType = qType.getStorageType();
-        auto isQuantileType = mlir::isa<vpux::type::QuantileType>(storageType);
-        // Unwrap QuantileType to get the actual integer storage type for bitwidth
-        if (const auto qType = mlir::dyn_cast<vpux::type::QuantileType>(storageType)) {
-            storageType = qType.getStorageType();
-        }
-        auto bitWidth = storageType.getIntOrFloatBitWidth();
-        auto isFloatStorage = mlir::isa<mlir::FloatType>(storageType);
-
-        switch (bitWidth) {
-        case 16:
-            if (!isQuantileType && !isFloatStorage) {
-                return isSigned ? sw_params::DataType::NN_I16 : sw_params::DataType::NN_U16;
-            }
-            break;
-        case 8:
-            if (!isQuantileType && !isFloatStorage) {
-                return isSigned ? sw_params::DataType::NN_I8 : sw_params::DataType::NN_U8;
-            }
-            if (!isQuantileType && isFloatStorage) {
-                if (mlir::isa<mlir::Float8E4M3FNType>(storageType)) {
-                    return sw_params::DataType::NN_HF8;
-                } else if (mlir::isa<mlir::Float8E5M2Type>(storageType)) {
-                    return sw_params::DataType::NN_BF8;
-                }
-            }
-            break;
-        case 4:
-            if (!isQuantileType && !isFloatStorage) {
-                return isSigned ? sw_params::DataType::NN_I4 : sw_params::DataType::NN_U4;
-            }
-            if (isNF4SpecQuantized(qType)) {
-                return sw_params::DataType::NN_NF4;
-            }
-            break;
-        case 2:
-            if (!isQuantileType && !isFloatStorage) {
-                return isSigned ? sw_params::DataType::NN_I2 : sw_params::DataType::NN_U2;
-            }
-            break;
-        }
-    }
-    VPUX_THROW("Conversion to sw_params::DataType failed for {0}", type);
-    return sw_params::DataType::NN_UNDEFINED;
-}
-
 sw_params::Location getSwParamsLocationFromMemKind(VPU::MemoryKind memKind) {
     static const EnumMap<VPU::MemoryKind, sw_params::Location> memKindMapping = {
             {VPU::MemoryKind::DDR, sw_params::Location::DDR},
@@ -245,7 +118,7 @@ void addTensorArgToVector(SmallVector<uint8_t>& vec, std::optional<uint32_t> til
 
     memrefData.dataAddr = tileMask;
 
-    memrefData.dataType = getDataTypeFromMlirType(ndType.getElementType());
+    memrefData.dataType = vpux::getDataTypeFromMlirType(ndType.getElementType());
     memrefData.location = getSwParamsLocationFromMemKind(ndType.getMemoryKind());
     memrefData.isStatic = !isDynamic;
 
@@ -258,7 +131,7 @@ void addBasicAttrToVector(SmallVector<uint8_t>& vec, mlir::Attribute attr) {
     } else if (auto val = mlir::dyn_cast_or_null<mlir::FloatAttr>(attr)) {
         appendValueToVector(vec, static_cast<float>(val.getValue().convertToDouble()));
     } else if (auto val = mlir::dyn_cast_or_null<mlir::TypeAttr>(attr)) {
-        appendValueToVector(vec, getDataTypeFromMlirType(val.getValue()));
+        appendValueToVector(vec, vpux::getDataTypeFromMlirType(val.getValue()));
     } else {
         VPUX_THROW("Act Shave Invocation: cannot store attribute {0}", attr);
     }
@@ -605,7 +478,6 @@ mlir::LogicalResult SWKernelRewriter::matchAndRewrite(VPUIP::SwKernelOp origOp, 
 
         auto log = vpux::Logger("translate-to-LLVMIR", vpux::Logger::global().level());
         vpux::lowerLLVMToBinary(moduleOp, std::move(llvmModule), kernelFuncSym, log);
-        ShaveBinaryResources::loadElfData(moduleOp);
     }
 
     rewriter.eraseOp(origOp);

@@ -344,8 +344,8 @@ TEST_F(MLIR_NDTypeInterface, CompressedMemRefType) {
     const int64_t alignment = 16;
     const auto sparsityCompression = VPUIP::SparsityCompressionAttr::get(&ctx, getIntAttr(&ctx, compressionAxis),
                                                                          numElemsAttr, getIntAttr(&ctx, alignment));
-    const auto memrefType = getMemRefType(shape, mlir::Float16Type::get(&ctx), order, memSpace, StridesRef(), nullptr,
-                                          sparsityCompression);
+    const auto memrefType = getMemRefType(shape, mlir::Float16Type::get(&ctx), order, memSpace, StridesRef(),
+                                          BoundsRef(), nullptr, sparsityCompression);
 
     const auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(memrefType);
     ASSERT_TRUE(ndType != nullptr) << "Type cannot be cast to vpux::NDTypeInterface";

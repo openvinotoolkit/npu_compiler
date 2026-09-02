@@ -71,7 +71,6 @@ public:
         constexpr size_t batchSize = 16;
         constexpr size_t numGroups = 3;
         constexpr size_t numColumns = 32;
-        constexpr size_t numRows = 64;
         const std::vector<ov::Shape> inferenceShapes = {{batchSize, numColumns * numGroups}};
         const ov::test::InputShape dataShape = {{batchSize, numColumns * numGroups}, inferenceShapes};
         init_input_shapes({dataShape});

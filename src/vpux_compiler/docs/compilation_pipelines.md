@@ -180,7 +180,8 @@ flowchart LR
     subgraph Conv[Convolution Conversions]
         C1[LegalizeDilatedConvolution] --> C2[ConvertTransposedConv2DToConv2D]
         C2 --> C3[ConvertGroupTransposedConvToGroupConv]
-        C3 --> C4[ConvertGroupTransposedConvToTransposedConv]
+        C3 --> C3b[LegalizeDilatedConvolution 2nd]
+        C3b --> C4[ConvertGroupTransposedConvToTransposedConv]
         C4 --> C5[ConvertGroupConvToConv]
     end
 

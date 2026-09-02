@@ -10,7 +10,7 @@
 module @StaticEltwiseNHWC {
     func.func nested @main_func0(%arg0: tensor<1x16x90x1000xf16, {order = #NHWC}>,
                                   %arg1: tensor<1x16x90x1000xf16, {order = #NHWC}>) -> tensor<1x16x90x1000xf16, {order = #NHWC}> {
-        %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+        %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>,
                 clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
@@ -63,21 +63,21 @@ module @StaticEltwiseNHWC {
 module @StaticEltwiseMultipleOps {
     func.func nested @main_func0(%arg0: tensor<1x16x90x1000xf16, {order = #NHWC}>, %arg1: tensor<1x16x90x1000xf16, {order = #NHWC}>)
         -> tensor<1x16x90x1000xf16, {order = #NCHW}> {
-        %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+        %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>,
                 clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
                 lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
                 quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>}
             -> tensor<1x16x90x1000xf16, {order = #NHWC}>
-        %1 = VPU.NCE.Eltwise(%0, %arg1) {
+        %1 = VPU.NCE.Eltwise(%0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>,
                 clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
                 lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
                 quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>}
             -> tensor<1x16x90x1000xf16, {order = #NHWC}>
-        %2 = VPU.NCE.Eltwise(%1, %arg1) {
+        %2 = VPU.NCE.Eltwise(%1, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>,
                 clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
@@ -156,7 +156,7 @@ module @DynamicBoundedEltwiseNHWC {
   func.func nested @main_func0(%arg0: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>,
                                  %arg1: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>)
                                   -> tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
     return %0 : tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
   }
 
@@ -256,7 +256,7 @@ module @StaticQuantizedNHWC {
     func.func nested @main_func0(%arg0: tensor<1x16x90x1000x!qElemType, {order = #NHWC}>,
                                   %arg1: tensor<1x16x90x1000x!qElemType, {order = #NHWC}>)
                                   -> tensor<1x16x90x1000x!qElemType, {order = #NHWC}> {
-        %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+        %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>,
                 clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,

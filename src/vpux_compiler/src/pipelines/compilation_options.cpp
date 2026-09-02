@@ -8,23 +8,23 @@
 #include "vpux/compiler/NPU40XX/pipeline_options.hpp"
 #include "vpux/compiler/NPU50XX/pipeline_options.hpp"
 #include "vpux/compiler/pipelines/options_mapper.hpp"
-#include "vpux/utils/ov/config.hpp"
 
-#include <intel_npu/config/options.hpp>
+#include "vpux/utils/ov/options.hpp"
 
 #include <llvm/Support/raw_ostream.h>
 
 namespace vpux {
 
 template <typename Options>
-void checkCompilerOptions(const intel_npu::Config& config) {
+void checkCompilerOptions(const vpux::OV::Config& config) {
     const auto warnForPrivate = !arePrivateOptionsEnabled();
-    const auto options = parseCompilationModeParams<Options>(config.get<intel_npu::COMPILATION_MODE_PARAMS>(),
-                                                             getArchKind(config), warnForPrivate, getLogLevel(config));
+    const auto options =
+            parseCompilationModeParams<Options>(config.get<vpux::OV::COMPILATION_MODE_PARAMS>(), getArchKind(config),
+                                                warnForPrivate, config.get<vpux::OV::LOG_LEVEL>());
     VPUX_THROW_WHEN(options == nullptr, "Failed to parse COMPILATION_MODE_PARAMS");
 }
 
-void checkCompilerOptions(const intel_npu::Config& config) {
+void checkCompilerOptions(const vpux::OV::Config& config) {
     const auto arch = getArchKind(config);
     if (arch == config::ArchKind::NPU37XX) {
         checkCompilerOptions<DefaultHWOptions37XX>(config);

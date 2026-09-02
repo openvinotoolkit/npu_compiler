@@ -96,17 +96,17 @@ mlir::LogicalResult MergeParallelGatherSameIndices::matchAndRewrite(IE::ConcatOp
 
     // All GatherOps must share axis, batch_dims == 0, indicesRank, and constant table of equal shape.
     auto anchor = gatherOps.front();
-    if (!anchor.getAxisValue().has_value() || anchor.getBatchDims() != 0) {
+    if (anchor.getBatchDims() != 0) {
         return mlir::failure();
     }
-    const auto anchorAxis = anchor.getAxisValue().value();
+    const auto anchorAxis = anchor.getAxisValue();
     const auto anchorTableShape = getShape(anchor.getInput());
 
     SmallVector<mlir::Value> tableInputs;
     tableInputs.reserve(numGathers);
 
     for (auto g : gatherOps) {
-        if (!g.getAxisValue().has_value() || g.getAxisValue().value() != anchorAxis) {
+        if (g.getAxisValue() != anchorAxis) {
             return mlir::failure();
         }
         if (g.getBatchDims() != 0) {
@@ -152,9 +152,9 @@ mlir::LogicalResult MergeParallelGatherSameIndices::matchAndRewrite(IE::ConcatOp
                                                 /*post_op=*/nullptr, /*clamp=*/nullptr,
                                                 /*output_padding=*/nullptr, /*input_padding=*/nullptr);
 
-    auto mergedGather = rewriter.create<IE::GatherOp>(
-            concatOp->getLoc(), concatTables.getOutput(), mergedIdx.getOutput(), /*axis=*/nullptr,
-            anchor.getAxisValueAttr(), anchor.getBatchDims(), anchor.getIndicesRankAttr());
+    auto mergedGather =
+            rewriter.create<IE::GatherOp>(concatOp->getLoc(), concatTables.getOutput(), mergedIdx.getOutput(),
+                                          anchor.getAxisValue(), anchor.getBatchDims(), anchor.getIndicesRankAttr());
 
     const auto concatShape = getShape(concatOp.getOutput());
     auto reshaped = rewriter.create<IE::ReshapeOp>(concatOp->getLoc(), mergedGather.getOutput(),
@@ -351,8 +351,7 @@ mlir::Value ConvertToGather::convertSliceGroupToGather(SmallVector<IE::SliceOp> 
 
     int64_t batchDims = 0;
     int64_t axis = 0;
-    auto newGather = rewriter.create<IE::GatherOp>(source.getLoc(), newInput, indices, nullptr,
-                                                   getIntAttr(rewriter.getContext(), axis), batchDims, nullptr);
+    auto newGather = rewriter.create<IE::GatherOp>(source.getLoc(), newInput, indices, axis, batchDims, nullptr);
 
     _log.trace("Created gather {0}", newGather);
     return newGather.getOutput();

@@ -4,6 +4,10 @@
 /*
   VERSION HISTORY
 
+ - version 2.4
+         Adds ActShave field:
+             fifoId
+
  - version 2.3
      Adds DMATask fields:
        tensorShapeInfo, tensorStrideInfo, gatherIndices, dynamicStridesInput, dynamicStridesOutput
@@ -102,6 +106,7 @@ table SWTask {
     tileId: uint;
     clusterId: uint;
     tensorInfo: TensorInfo;
+    fifoId: ubyte = null; // list index when dedicated FIFO-per-SHAVE is enabled
 }
 
 table M2ITask {

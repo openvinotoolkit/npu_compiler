@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vcl_tests_common.h"
+#include "vcl_tests_common.hpp"
 
 #include <llvm/Support/JSON.h>
 
@@ -45,7 +45,10 @@ vcl_result_t VCLTestsCommon::initModelData(const char* netName, const char* weig
     compilerDesc.version.major = VCL_COMPILER_VERSION_MAJOR;
     compilerDesc.version.minor = VCL_COMPILER_VERSION_MINOR;
     compilerDesc.debugLevel = VCL_LOG_ERROR;
-    vcl_device_desc_t deviceDesc = {sizeof(vcl_device_desc_t), 0x643e, 3, 5};
+    vcl_device_desc_t deviceDesc = getDeviceDesc();
+    if (deviceDesc.deviceID == 0u) {
+        return VCL_RESULT_ERROR_INVALID_ARGUMENT;
+    }
     vcl_compiler_handle_t compiler = nullptr;
     ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, nullptr);
     if (ret) {
@@ -167,6 +170,75 @@ std::string VCLTestsCommon::getCidToolPath() {
 void VCLTestsCommon::postProcessNetOptions(const std::string& device) {
     netOptions += std::string{" NPU_PLATFORM=\""} + device + std::string{"\""};
     netOptions += std::string{" DEVICE_ID=\""} + std::string{"NPU."} + device + std::string{"\""};
+}
+
+vcl_device_desc_t VCLTestsCommon::getDeviceDesc() const {
+    static const std::unordered_map<std::string, vcl_device_desc_t> deviceDescs = {
+            {"3720", {sizeof(vcl_device_desc_t), 0x7D1D, 3, 2}},
+            {"4000", {sizeof(vcl_device_desc_t), 0x643E, 3, 6}},
+            {"5010", {sizeof(vcl_device_desc_t), 0xB03E, 3, 3}},
+            {"5020", {sizeof(vcl_device_desc_t), 0xFD3E, 3, 1}},
+    };
+    const auto& netInfo = std::get<0>(GetParam());
+    const auto& device = netInfo.at("device");
+    const auto it = deviceDescs.find(device);
+    if (it == deviceDescs.end()) {
+        ADD_FAILURE() << "Unknown device \"" << device << "\": fix the test parameters.";
+        return {sizeof(vcl_device_desc_t), 0u, 0u, 0u};
+    }
+    return it->second;
+}
+
+vcl_result_t VCLTestsCommon::createCompiler(vcl_compiler_handle_t& compiler, vcl_log_handle_t& logHandle,
+                                            vcl_log_level_t debugLevel) {
+    vcl_compiler_desc_t compilerDesc{};
+    compilerDesc.version.major = VCL_COMPILER_VERSION_MAJOR;
+    compilerDesc.version.minor = VCL_COMPILER_VERSION_MINOR;
+    compilerDesc.debugLevel = debugLevel;
+    vcl_device_desc_t deviceDesc = getDeviceDesc();
+    if (deviceDesc.deviceID == 0u) {
+        return VCL_RESULT_ERROR_INVALID_ARGUMENT;
+    }
+    compiler = nullptr;
+    const auto ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, &logHandle);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to create compiler! Result:0x", ret);
+        return ret;
+    }
+    if (debugLevel >= VCL_LOG_INFO) {
+        vcl_compiler_properties_t props;
+        if (const auto propRet = queryCompilerProperties(compiler, props); propRet != VCL_RESULT_SUCCESS) {
+            (void)destroyCompiler(compiler);
+            compiler = nullptr;
+            return propRet;
+        }
+        std::stringstream ss;
+        ss << std::this_thread::get_id();
+        const std::string threadId = ss.str();
+        std::cout << "############################################" << std::endl;
+        std::cout << threadId << " Current compiler info:" << std::endl;
+        std::cout << threadId << " ID: " << props.id << std::endl;
+        std::cout << threadId << " Version:" << props.version.major << "." << props.version.minor << std::endl;
+        std::cout << threadId << "\tSupported opsets:" << props.supportedOpsets << std::endl;
+        std::cout << "############################################" << std::endl;
+    }
+    return ret;
+}
+
+vcl_result_t VCLTestsCommon::destroyCompiler(vcl_compiler_handle_t compiler) {
+    const auto ret = vclCompilerDestroy(compiler);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to destroy compiler! Result:0x", ret);
+    }
+    return ret;
+}
+
+vcl_result_t VCLTestsCommon::queryCompilerProperties(vcl_compiler_handle_t compiler, vcl_compiler_properties_t& props) {
+    const auto ret = vclCompilerGetProperties(compiler, &props);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printErrorInfo("Failed to query compiler props! Result: 0x", ret);
+    }
+    return ret;
 }
 
 IRInfoTestType VCLTestsCommon::readJson2Vec(const std::string& fileName) {

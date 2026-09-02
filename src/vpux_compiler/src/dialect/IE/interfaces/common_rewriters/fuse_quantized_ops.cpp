@@ -104,8 +104,8 @@ mlir::LogicalResult FuseWithMaxPool::matchAndRewrite(IE::QuantizeOp quantizeOp, 
     auto inputDequantizeOp = maxPoolOp.getInput().getDefiningOp<IE::DequantizeOp>();
 
     rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(
-                    quantizeOp, quantizeOp.getType(), inputDequantizeOp.getInput(), maxPoolOp.getKernelSize(),
-                    maxPoolOp.getStrides(), maxPoolOp.getPadsBegin(), maxPoolOp.getPadsEnd(),
+                    quantizeOp, quantizeOp.getType(), inputDequantizeOp.getInput(), maxPoolOp.getScale(),
+                    maxPoolOp.getKernelSize(), maxPoolOp.getStrides(), maxPoolOp.getPadsBegin(), maxPoolOp.getPadsEnd(),
                     maxPoolOp.getRoundingType(), maxPoolOp.getPostOpAttr(), maxPoolOp.getClampAttr(),
                     maxPoolOp.getStaticScaleAttr(), maxPoolOp.getOutputPaddingAttr(), maxPoolOp.getInputPaddingAttr())
             ->setLoc(maxPoolOp->getLoc());
@@ -143,8 +143,8 @@ mlir::LogicalResult FuseWithAveragePool::matchAndRewrite(IE::QuantizeOp quantize
     auto userSize = std::distance(users.begin(), users.end());
     auto newLoc = takeOpLoc(avgPoolOp, "{0}", userSize);
     rewriter.replaceOpWithNewOp<IE::AvgPoolOp>(
-                    quantizeOp, quantizeOp.getType(), inputDequantizeOp.getInput(), avgPoolOp.getKernelSize(),
-                    avgPoolOp.getStrides(), avgPoolOp.getPadsBegin(), avgPoolOp.getPadsEnd(),
+                    quantizeOp, quantizeOp.getType(), inputDequantizeOp.getInput(), avgPoolOp.getScale(),
+                    avgPoolOp.getKernelSize(), avgPoolOp.getStrides(), avgPoolOp.getPadsBegin(), avgPoolOp.getPadsEnd(),
                     avgPoolOp.getRoundingTypeAttr(), avgPoolOp.getExcludePadsAttr(), avgPoolOp.getPostOpAttr(),
                     avgPoolOp.getClampAttr(), avgPoolOp.getStaticScaleAttr(), avgPoolOp.getOutputPaddingAttr(),
                     avgPoolOp.getInputPaddingAttr())
@@ -236,7 +236,7 @@ mlir::LogicalResult FuseWithTile::matchAndRewrite(IE::QuantizeOp quantizeOp, mli
     }
 
     rewriter.replaceOpWithNewOp<IE::TileOp>(quantizeOp, quantizeOp.getType(),
-                                            tileOp.getInput().getDefiningOp<IE::DequantizeOp>().getInput(), nullptr,
+                                            tileOp.getInput().getDefiningOp<IE::DequantizeOp>().getInput(),
                                             tileOp.getRepeatsValuesAttr());
 
     return mlir::success();

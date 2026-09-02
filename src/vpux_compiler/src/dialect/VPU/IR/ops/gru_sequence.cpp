@@ -159,3 +159,14 @@ mlir::FailureOr<OutputTiling> vpux::VPU::GRUSequenceOp::getTilingStrategy(Tiling
 OutputTiling vpux::VPU::GRUSequenceOp::getOutputTiling(const vpux::TileInfo& firstOutputTile, vpux::Logger /*log*/) {
     return GRUSequenceOutputTiling(firstOutputTile);
 }
+
+vpux::TileInfo vpux::VPU::GRUSequenceOp::getMainOutputTile(mlir::OpResult /*secondaryOutput*/,
+                                                           const vpux::TileInfo& /*secondaryOutputTile*/,
+                                                           vpux::Logger /*log*/) {
+    // The shape of the first output is [batch_size, num_directions, seq_len, hidden_size],
+    // and the shape of second output is [batch_size, num_directions, hidden_size].
+    // The first output cannot be completely inferred from the tile of the second output,
+    // since it is not known if/how sequence length is tiled.
+    // Returning empty tile to signal that no valid main tile can be inferred.
+    return vpux::TileInfo(ShapeRef());
+}

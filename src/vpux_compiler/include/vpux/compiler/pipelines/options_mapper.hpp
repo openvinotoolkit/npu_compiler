@@ -7,43 +7,33 @@
 
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/init/dialects_registry.hpp"
+#include "vpux/compiler/utils/compiler_profiling/compiler_profiling.hpp"
 #include "vpux/utils/core/mem_size.hpp"
-
-#include <intel_npu/config/config.hpp>
+#include "vpux/utils/ov/config.hpp"
 
 namespace vpux {
 
-config::Platform getPlatform(const intel_npu::Config& config);
-config::ArchKind getArchKind(const intel_npu::Config& config);
-config::CompilationMode getCompilationMode(const intel_npu::Config& config);
-std::optional<int> getRevisionID(const intel_npu::Config& config);
-std::optional<int> getNumberOfDPUGroups(const intel_npu::Config& config);
-std::optional<int> getNumberOfDMAEngines(const intel_npu::Config& config);
-Byte getAvailableCmx(const intel_npu::Config& config);
-std::optional<bool> getWlmEnabled(const intel_npu::Config& config);
-std::optional<bool> getQDQOptimization(const intel_npu::Config& config);
-std::optional<bool> getQDQOptimizationAggressive(const intel_npu::Config& config);
-std::optional<bool> getEnableVerifiers(const intel_npu::Config& config);
-std::optional<bool> getEnableMemoryUsageCollector(const intel_npu::Config& config);
-std::optional<bool> getEnableFunctionStatisticsInstrumentation(const intel_npu::Config& config);
-std::optional<DummyOpMode> getDummyOpReplacement(const intel_npu::Config& config);
-std::optional<bool> getCompilerDynamicQuantization(const intel_npu::Config& config);
-std::optional<bool> getPerfCount(const intel_npu::Config& config);
-std::optional<bool> getEnableDecomposeSDPA(const intel_npu::Config& config);
-std::set<std::string> getIoWithDynamicStrides(const intel_npu::Config& config);
-std::optional<bool> getEnablePipelinedCmdListRecording(const intel_npu::Config& config);
+config::Platform getPlatform(const vpux::OV::Config& config);
+config::ArchKind getArchKind(const vpux::OV::Config& config);
+config::CompilationMode getCompilationMode(const vpux::OV::Config& config);
+std::optional<int> getRevisionID(const vpux::OV::Config& config);
+std::optional<int> getNumberOfDPUGroups(const vpux::OV::Config& config);
+std::optional<int> getNumberOfDMAEngines(const vpux::OV::Config& config);
+std::optional<bool> getQDQOptimization(const vpux::OV::Config& config);
+std::optional<bool> getQDQOptimizationAggressive(const vpux::OV::Config& config);
+std::optional<bool> getEnableVerifiers(const vpux::OV::Config& config);
+std::optional<bool> getEnableMemoryUsageCollector(const vpux::OV::Config& config);
+std::optional<bool> getEnableFunctionStatisticsInstrumentation(const vpux::OV::Config& config);
+std::optional<DummyOpMode> getDummyOpReplacement(const vpux::OV::Config& config);
+std::optional<bool> getCompilerDynamicQuantization(const vpux::OV::Config& config);
+std::optional<bool> getPerfCount(const vpux::OV::Config& config);
+std::optional<bool> getEnableDecomposeSDPA(const vpux::OV::Config& config);
+std::set<std::string> getIoWithDynamicStrides(const vpux::OV::Config& config);
+std::optional<bool> getEnablePipelinedCmdListRecording(const vpux::OV::Config& config);
 
-#ifdef BACKGROUND_FOLDING_ENABLED
-struct ConstantFoldingConfig {
-    bool foldingInBackgroundEnabled;
-    int64_t maxConcurrentTasks;
-    bool collectStatistics;
-    int64_t memoryUsageLimit;
-    double cacheCleanThreshold;
-};
-std::optional<ConstantFoldingConfig> getConstantFoldingInBackground(const intel_npu::Config& config);
-#endif
+std::optional<std::string> getPerformanceHintOverride(const vpux::OV::Config& config);
+std::optional<std::string> getCustomKernelConfigPath(const vpux::OV::Config& config);
 
-std::optional<std::string> getPerformanceHintOverride(const intel_npu::Config& config);
+vpux::compiler_profiling::CompilerProfiler getCompilerProfilerTool(const vpux::OV::Config& config);
 
 }  // namespace vpux

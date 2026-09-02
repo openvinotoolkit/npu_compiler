@@ -22,5 +22,6 @@ VPUIP::DMATypeOpInterface getDmaTypeOp(mlir::async::ExecuteOp execOp);
 bool isDmaDDR2CMX(mlir::async::ExecuteOp execOp);
 bool isDmaCMX2DDR(mlir::async::ExecuteOp execOp);
 bool isDmaDDR2DDR(mlir::async::ExecuteOp execOp);
+bool isDmaCMX2CMX(mlir::async::ExecuteOp execOp);
 
 }  // namespace vpux::VPUIP

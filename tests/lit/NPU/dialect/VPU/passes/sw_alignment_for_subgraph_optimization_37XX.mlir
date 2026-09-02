@@ -242,7 +242,7 @@ func.func @MVNOutputAlignForSegmentedOutput(%input: tensor<1x32x64x64xf16, {orde
     %mvn = VPU.MVN(%input) {across_channels = false, eps = 1.0E-4 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true}
             : tensor<1x32x64x64xf16, {order = #NWHC}> -> tensor<1x32x64x64xf16, {order = #NWHC}>
     %permute_cast = VPU.PermuteCast(%mvn) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x32x64x64xf16, {order = #NWHC}> -> tensor<1x32x64x64xf16, {order = #NHWC}>
-    %dwconv = VPU.NCE.DepthConvolution(%permute_cast, %weights, %weights_table) rawFilterShape [32, 1, 1, 1] {
+    %dwconv = VPU.NCE.DepthConvolution(%permute_cast, %weights, %weights_table) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
              strides = [1, 1]}

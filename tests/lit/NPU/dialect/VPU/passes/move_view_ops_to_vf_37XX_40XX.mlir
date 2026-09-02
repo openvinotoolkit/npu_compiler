@@ -17,7 +17,7 @@ func.func @MoveAffineReshapeToRMSVF(%arg0: tensor<1x3072x1x1xf16, {order = #NHWC
 
   %0 = VPU.VerticalFusion (%arg0 as %arg2: tensor<1x3072x1x1xf16, {order = #NHWC}>, %arg1 as %arg3: tensor<1x3072x1x1xf16, {order = #NHWC}>)
           attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x3072x1x1xf16, {order = #NHWC}> {
-    %1 = VPU.NCE.Eltwise(%arg2, %arg3) {
+    %1 = VPU.NCE.Eltwise(%arg2, %arg3) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
       mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
       multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
       op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>

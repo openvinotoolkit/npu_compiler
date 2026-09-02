@@ -28,8 +28,7 @@ module @DynamicShapeOfGatherStridedSlice {
     %1 = IE.ShapeOf(%0) {dstElemType = si64} : tensor<?x3xsi64, {bounds = #const.OpaqueI64Elements<[5, 3]> : tensor<2xsi64>, order = #NC}> -> tensor<2xsi64>
 
     %cst_2 = const.Declare tensor<1xsi64> = dense<0> : tensor<1xsi64>
-    %cst_3 = const.Declare tensor<si64> = dense<0> : tensor<si64>
-    %2 = IE.Gather(%1, %cst_2, %cst_3) {batch_dims = 0 : i64} : tensor<2xsi64>, tensor<1xsi64>, tensor<si64> -> tensor<1xsi64>
+    %2 = IE.Gather(%1, %cst_2) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<2xsi64>, tensor<1xsi64> -> tensor<1xsi64>
     %cst_4 = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
 
     %3 = IE.StridedSlice(%cst, %cst_0, %2, %cst_4) {begin_mask = [0], ellipsis_mask = [], end_mask = [0], new_axis_mask = [], operandSegmentSizes = array<i32: 1, 1, 1, 1>, shrink_axis_mask = []}

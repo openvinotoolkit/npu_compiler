@@ -32,7 +32,7 @@ func.func @BuildSubgraphEltwise(%arg0: tensor<1x16x256x256x!qElemType, {order = 
     }
     %2 = VPU.VerticalFusion (%0 as %arg1: tensor<1x32x256x256x!qElemType, {order = #NHWC}>, %1 as %arg2: tensor<1x32x256x256x!qElemType, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x32x256x256x!qElemType, {order = #NHWC}> {
       %3 = VPU.NCE.Eltwise(%arg1, %arg2)
-         {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
+         {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
          ppe = #VPU.PPEStub<>}
          -> tensor<1x32x256x256x!qElemType, {order = #NHWC}>
       VPU.Yield %3
@@ -82,7 +82,7 @@ func.func @BuildLargeSubgraph(%arg0: tensor<1x16x256x256x!qElemType, {order = #N
          ppe = #VPU.PPEStub<>,
           strides = [1, 1]} : tensor<1x32x256x256x!qElemType, {order = #NHWC}>, tensor<32x32x3x3x!qElemType1, {order = #NHWC}> -> tensor<1x32x256x256x!qElemType, {order = #NHWC}>
       %4 = VPU.NCE.Eltwise(%2, %3)
-         {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
+         {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
          ppe = #VPU.PPEStub<>}
          -> tensor<1x32x256x256x!qElemType, {order = #NHWC}>
       VPU.Yield %4
@@ -127,7 +127,7 @@ func.func @BuildSubgraphEltwiseWithViewLikeOpInput(%arg0: tensor<1x16x256x256x!q
 
     %3 = VPU.VerticalFusion (%1 as %arg2: tensor<1x32x256x256x!qElemType, {order = #NHWC}>, %2 as %arg3: tensor<1x32x256x256x!qElemType, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x32x256x256x!qElemType, {order = #NHWC}> {
       %4 = VPU.NCE.Eltwise(%arg2, %arg3)
-         {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
+         {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
          ppe = #VPU.PPEStub<>}
          -> tensor<1x32x256x256x!qElemType, {order = #NHWC}>
       VPU.Yield %4
@@ -184,11 +184,11 @@ func.func @BuildSubgraphConvSwishGroupConvVF(%arg0: tensor<1x16x176x176xf16, {or
        %cst_2 as %arg2: tensor<96x16x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 4, 1]}
           -> tensor<1x96x176x176xf16, {order = #NHWC}> {
     %4 = VPU.NCE.DepthConvolution(
-       %arg1, %arg2) rawFilterShape [96, 1, 1, 1] {
+       %arg1, %arg2) rawFilterShape [96, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
        ppe = #VPU.PPEStub<>,
-       
+
        strides = [1, 1]
        } -> tensor<1x96x176x176xf16, {order = #NHWC}>
       VPU.Yield %4
@@ -201,12 +201,12 @@ func.func @BuildSubgraphConvSwishGroupConvVF(%arg0: tensor<1x16x176x176xf16, {or
     // CHECK:      [[VERTICAL_FUSION:%.+]] = VPU.VerticalFusion ([[ARG_0]] as [[ARG_1:%[^:]+]]: tensor<1x16x176x176xf16, {order = #NHWC}>,
     // CHECK-SAME:                        [[CST]] as [[ARG_2:%[^:]+]]: tensor<96x16x1x1xf16, {order = #NHWC}>)
     // CHECK-SAME:                        scenario = #VPU.vf_scenario<FULL_PREFETCHING>
-    // CHECK:      [[CONV0:%.+]] = VPU.NCE.Convolution([[ARG_1]], [[ARG_2]]) rawFilterShape [96, 16, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+    // CHECK:      [[CONV0:%.+]] = VPU.NCE.Convolution([[ARG_1]], [[ARG_2]]) rawFilterShape [96, 16, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
     // CHECK-SAME:                       strides = [1, 1]}
     // CHECK-SAME:      -> tensor<1x96x176x176xf16, {order = #NHWC}>
     // CHECK:      [[SWISH0:%.+]] = VPU.Swish([[CONV0]]) {beta_value = 1.000000e+00 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x96x176x176xf16, {order = #NHWC}> -> tensor<1x96x176x176xf16, {order = #NHWC}>
-    // CHECK:      [[DWCONV0:%.+]] = VPU.NCE.DepthConvolution([[SWISH0]], [[ARG_2]]) rawFilterShape [96, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
-    // CHECK-SAME: strides = [1, 1]} -> tensor<1x96x176x176xf16, {order = #NHWC}>
+    // CHECK:      [[DWCONV0:%.+]] = VPU.NCE.DepthConvolution([[SWISH0]], [[ARG_2]]) rawFilterShape [96, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
+    // CHECK-SAME: resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1]} -> tensor<1x96x176x176xf16, {order = #NHWC}>
     // CHECK:        VPU.Yield [[DWCONV0]]
 
     // CHECK: return [[VERTICAL_FUSION]] : tensor<1x96x176x176xf16, {order = #NHWC}>
@@ -241,7 +241,7 @@ func.func @BuildSubgraphVFInput(%arg0: tensor<1x16x256x256x!qElemType, {order = 
     }
     %3 = VPU.VerticalFusion (%2 as %arg2: tensor<1x32x256x256x!qElemType, {order = #NHWC}>, %1 as %arg3: tensor<1x32x256x256x!qElemType, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x32x256x256x!qElemType, {order = #NHWC}> {
       %4 = VPU.NCE.Eltwise(%arg2, %arg3)
-         {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
+         {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
          ppe = #VPU.PPEStub<>}
          -> tensor<1x32x256x256x!qElemType, {order = #NHWC}>
       VPU.Yield %4
@@ -291,7 +291,7 @@ func.func @BuildSubgraphConvGeluVF(%arg0: tensor<1x16x128x128xf16, {order = #NHW
     // CHECK: [[VERTICAL_FUSION:%.+]] = VPU.VerticalFusion ([[INPUT]] as [[INNER_ARG1:[^:]+]]: tensor<1x16x128x128xf16, {order = #NHWC}>,
     // CHECK-SAME:                        [[WEIGHTS]] as [[INNER_ARG2:[^:]+]]: tensor<64x16x1x1xf16, {order = #NHWC}>
     // CHECK-SAME:                        ) attributes {scenario = #VPU.vf_scenario<FULL_PREFETCHING>, tilingStrategy = [1, 1, 2, 1]} -> tensor<1x64x128x128xf16, {order = #NHWC}> {
-    // CHECK: [[NCE:%.+]] = VPU.NCE.Convolution([[INNER_ARG1]], [[INNER_ARG2]]) rawFilterShape [64, 16, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+    // CHECK: [[NCE:%.+]] = VPU.NCE.Convolution([[INNER_ARG1]], [[INNER_ARG2]]) rawFilterShape [64, 16, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
     // CHECK-SAME:                       strides = [1, 1]}
     // CHECK-SAME: -> tensor<1x64x128x128xf16, {order = #NHWC}>
     // CHECK: [[GELU:%.+]] = VPU.Gelu([[NCE]]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x64x128x128xf16, {order = #NHWC}> -> tensor<1x64x128x128xf16, {order = #NHWC}>
@@ -323,7 +323,7 @@ func.func @BuildSubgraphConvSigmoidVF(%arg0: tensor<1x16x128x128xf16, {order = #
     // CHECK: [[VERTICAL_FUSION:%.+]] = VPU.VerticalFusion ([[INPUT]] as [[INNER_ARG1:[^:]+]]: tensor<1x16x128x128xf16, {order = #NHWC}>,
     // CHECK-SAME:                        [[WEIGHTS]] as [[INNER_ARG2:[^:]+]]: tensor<64x16x1x1xf16, {order = #NHWC}>
     // CHECK-SAME:                        ) attributes {scenario = #VPU.vf_scenario<FULL_PREFETCHING>, tilingStrategy = [1, 1, 2, 1]} -> tensor<1x64x128x128xf16, {order = #NHWC}> {
-    // CHECK: [[NCE:%.+]] = VPU.NCE.Convolution([[INNER_ARG1]], [[INNER_ARG2]]) rawFilterShape [64, 16, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+    // CHECK: [[NCE:%.+]] = VPU.NCE.Convolution([[INNER_ARG1]], [[INNER_ARG2]]) rawFilterShape [64, 16, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
     // CHECK-SAME:                       strides = [1, 1]}
     // CHECK-SAME: -> tensor<1x64x128x128xf16, {order = #NHWC}>
     // CHECK: [[SIGMOID:%.+]] = VPU.Sigmoid([[NCE]]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x64x128x128xf16, {order = #NHWC}> -> tensor<1x64x128x128xf16, {order = #NHWC}>
@@ -553,14 +553,14 @@ func.func @NotMergeDueToLargeCostForSmallSoftMax(%arg0: tensor<1x32x8x8xf16>, %a
 func.func @BuildSubgraphEltwiseQuantizeCastVF(%arg0: tensor<1x32x48x48x!qElemType, {order = #NHWC}>) -> tensor<1x32x48x48xf16, {order = #NHWC}> {
   %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x32x48x48x!qElemType, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x32x48x48x!qElemType, {order = #NHWC}> {
       %2 = VPU.NCE.Eltwise(%arg1, %arg1)
-         {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x32x48x48x!qElemType, {order = #NHWC}>
+         {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x32x48x48x!qElemType, {order = #NHWC}>
       VPU.Yield %2
   }
 
   %1 = VPU.VerticalFusion (%0 as %arg2: tensor<1x32x48x48x!qElemType, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x32x48x48xf16, {order = #NHWC}> {
       %3 = VPU.QuantizeCast(%arg2) {dstElemType = !qElemType1} : tensor<1x32x48x48x!qElemType, {order = #NHWC}> -> tensor<1x32x48x48x!qElemType1, {order = #NHWC}>
       %4 = VPU.NCE.Eltwise(%3, %3)
-         {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x32x48x48xf16, {order = #NHWC}>
+         {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x32x48x48xf16, {order = #NHWC}>
       VPU.Yield %4
   }
   return %1 : tensor<1x32x48x48xf16, {order = #NHWC}>
@@ -597,7 +597,7 @@ func.func @BuildSubgraphConvAbsVF(%arg0: tensor<1x16x128x128xf16, {order = #NHWC
     // CHECK: [[VERTICAL_FUSION:%.+]] = VPU.VerticalFusion ([[INPUT]] as [[INNER_ARG1:[^:]+]]: tensor<1x16x128x128xf16, {order = #NHWC}>,
     // CHECK-SAME:                        [[WEIGHTS]] as [[INNER_ARG2:[^:]+]]: tensor<64x16x1x1xf16, {order = #NHWC}>
     // CHECK-SAME:                        ) attributes {scenario = #VPU.vf_scenario<FULL_PREFETCHING>, tilingStrategy = [1, 1, 2, 1]} -> tensor<1x64x128x128xf16, {order = #NHWC}> {
-    // CHECK: [[NCE:%.+]] = VPU.NCE.Convolution([[INNER_ARG1]], [[INNER_ARG2]]) rawFilterShape [64, 16, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+    // CHECK: [[NCE:%.+]] = VPU.NCE.Convolution([[INNER_ARG1]], [[INNER_ARG2]]) rawFilterShape [64, 16, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
     // CHECK-SAME:                       strides = [1, 1]}
     // CHECK-SAME: -> tensor<1x64x128x128xf16, {order = #NHWC}>
     // CHECK: [[ABS:%.+]] = VPU.Abs([[NCE]]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x64x128x128xf16, {order = #NHWC}> -> tensor<1x64x128x128xf16, {order = #NHWC}>
@@ -618,7 +618,7 @@ func.func @NotBuildNotPipelinedSubgraph(%arg0: tensor<1x128x32x64xf16, {order = 
 
     %set = VPU.StorageElementTable {dataElemType = f16, dataShape = [1, 128, 32, 64], seAttr = #VPU.SEUpsampling<factors = [1, 1], padding = [2, 2, 2, 2]>, seDepth = 1 : i64, seSize = [128]} -> tensor<1x1x67x131xi32, {order = #NHWC}>
     %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x128x32x64xf16, {order = #NHWC}>, %cst_3 as %arg2: tensor<128x16x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x128x32x64xf16, {order = #NHWC}> {
-      %2 = VPU.NCE.DepthConvolution(%arg1, %arg2) rawFilterShape [128, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,  strides = [1, 1]} -> tensor<1x128x32x64xf16, {order = #NHWC}>
+      %2 = VPU.NCE.DepthConvolution(%arg1, %arg2) rawFilterShape [128, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,  strides = [1, 1]} -> tensor<1x128x32x64xf16, {order = #NHWC}>
       VPU.Yield %2
     }
     %1 = VPU.VerticalFusion (%0 as %arg1: tensor<1x128x32x64xf16, {order = #NHWC}>, %cst_0 as %arg2: tensor<1x128x67x131xi1, {order = #NHWC}>, %set as %arg3: tensor<1x1x67x131xi32, {order = #NHWC}>, %cst_1 as %arg4: tensor<64x128x4x4xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x64x64x128xf16> {
@@ -651,7 +651,7 @@ func.func @NotBuildSOKDuplicatedSubgraph(%arg0: tensor<1x32x1x5375xf16, {order =
     %gst = VPU.GroupSparseTensor(%cst_1, %cst_0) {is_weights, sparsity_compression = #VPU.SparsityCompression<axis = 0 : i64, numElems = dense<24> : tensor<384xi64>, alignment = 16 : i64>} -> !VPU.SparseTensor<data=tensor<384x32x1x1xf16, {order = #NHWC}>, sparsity_map=tensor<384x1x1x128xi1>, is_weights, #VPU.SparsityCompression<axis = 0 : i64, numElems = dense<24> : tensor<384xi64>, alignment = 16 : i64>>
 
     %0 = VPU.VerticalFusion (%arg0 as %arg2: tensor<1x32x1x5375xf16, {order = #NHWC}>, %cst_4 as %arg3: tensor<32x16x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x32x1x5375xf16, {order = #NHWC}> {
-      %3 = VPU.NCE.DepthConvolution(%arg2, %arg3) rawFilterShape [32, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,  strides = [1, 1]} -> tensor<1x32x1x5375xf16, {order = #NHWC}>
+      %3 = VPU.NCE.DepthConvolution(%arg2, %arg3) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,  strides = [1, 1]} -> tensor<1x32x1x5375xf16, {order = #NHWC}>
       VPU.Yield %3
     }
     %1 = VPU.VerticalFusion (%0 as %arg2: tensor<1x32x1x5375xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x32x1x5375xf16, {order = #NHWC}> {
@@ -702,7 +702,7 @@ func.func @BuildSubgraphConvPReluVF(%arg0: tensor<1x16x128x128xf16, {order = #NH
     // CHECK: [[VERTICAL_FUSION:%.+]] = VPU.VerticalFusion ([[INPUT]] as [[INNER_ARG1:[^:]+]]: tensor<1x16x128x128xf16, {order = #NHWC}>,
     // CHECK-SAME:                        [[WEIGHTS]] as [[INNER_ARG2:[^:]+]]: tensor<16x16x1x1xf16, {order = #NHWC}>,
     // CHECK-SAME:                        [[CST]] as [[INNER_ARG4:[^:]+]]: tensor<1x16x1x1xf16, {order = #NHWC}>) attributes {scenario = #VPU.vf_scenario<FULL_PREFETCHING>, tilingStrategy = [1, 1, 2, 1]} -> tensor<1x16x128x128xf16, {order = #NHWC}> {
-    // CHECK: [[NCE:%.+]] = VPU.NCE.Convolution([[INNER_ARG1]], [[INNER_ARG2]]) rawFilterShape [16, 16, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+    // CHECK: [[NCE:%.+]] = VPU.NCE.Convolution([[INNER_ARG1]], [[INNER_ARG2]]) rawFilterShape [16, 16, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
     // CHECK-SAME:                        strides = [1, 1]}
     // CHECK-SAME: -> tensor<1x16x128x128xf16, {order = #NHWC}>
     // CHECK: [[PRELU:%.+]] = VPU.PRelu([[NCE]], [[INNER_ARG4]]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} :
@@ -741,7 +741,7 @@ func.func @BuildSubgraphConvPReluVFWithDifferentTiles(%arg0: tensor<1x16x128x128
     // CHECK: [[VERTICAL_FUSION:%.+]] = VPU.VerticalFusion ([[INPUT]] as [[INNER_ARG1:[^:]+]]: tensor<1x16x128x128xf16, {order = #NHWC}>,
     // CHECK-SAME:                        [[WEIGHTS]] as [[INNER_ARG2:[^:]+]]: tensor<16x16x1x1xf16, {order = #NHWC}>,
     // CHECK-SAME:                        [[CST]] as [[INNER_ARG4:[^:]+]]: tensor<1x16x1x1xf16, {order = #NHWC}>) attributes {scenario = #VPU.vf_scenario<FULL_PREFETCHING>, tilingStrategy = [1, 1, 4, 1]} -> tensor<1x16x128x128xf16, {order = #NHWC}> {
-    // CHECK: [[NCE:%.+]] = VPU.NCE.Convolution([[INNER_ARG1]], [[INNER_ARG2]]) rawFilterShape [16, 16, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, 
+    // CHECK: [[NCE:%.+]] = VPU.NCE.Convolution([[INNER_ARG1]], [[INNER_ARG2]]) rawFilterShape [16, 16, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>,
     // CHECK-SAME:                        strides = [1, 1]}
     // CHECK-SAME: -> tensor<1x16x128x128xf16, {order = #NHWC}>
     // CHECK: [[PRELU:%.+]] = VPU.PRelu([[NCE]], [[INNER_ARG4]]) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} :
@@ -974,7 +974,7 @@ func.func @FuseBlocksWithPermuteCast(%arg0: tensor<1x2x320x4096xf16>) -> tensor<
 
     %4 = VPU.PermuteCast(%arg1) {dst_order = #NHWC, mem_perm = #NCHW}
     : tensor<1x4096x2x320xf16, {order = #NHCW}> -> tensor<1x320x2x4096xf16, {order = #NHWC}>
-    %5 = VPU.NCE.DepthConvolution(%4, %arg2) rawFilterShape [320, 1, 1, 1] {
+    %5 = VPU.NCE.DepthConvolution(%4, %arg2) rawFilterShape [320, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
       multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
       pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
       ppe = #VPU.PPEStub<>,  strides = [1, 1]

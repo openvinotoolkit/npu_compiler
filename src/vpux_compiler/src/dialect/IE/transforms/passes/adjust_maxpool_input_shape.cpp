@@ -138,9 +138,9 @@ mlir::LogicalResult ReshapeMaxPoolOutput1x1::matchAndRewrite(IE::MaxPoolOp origO
     const auto newMaxPoolKernelAttr = getIntArrayAttr(ctx, ArrayRef(newMaxPoolKernel));
 
     auto newMaxPoolOp = rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(
-            origOp, origOp.getOutput().getType(), newInputResult, newMaxPoolKernelAttr, origOp.getStridesAttr(),
-            origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(), origOp.getRoundingType(), origOp.getPostOpAttr(),
-            origOp.getClampAttr(), origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(),
+            origOp, origOp.getOutput().getType(), newInputResult, origOp.getScale(), newMaxPoolKernelAttr,
+            origOp.getStridesAttr(), origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(), origOp.getRoundingType(),
+            origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(),
             origOp.getInputPaddingAttr());
 
     _log.trace("Replace with new maxpool '{0}' ", newMaxPoolOp);

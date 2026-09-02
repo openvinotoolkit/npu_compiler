@@ -41,22 +41,35 @@ struct ExpectedOffsetsOut {
 };
 
 struct SEInterpolateAttrParams {
+    // SEInterpolateAttr parameters
     VPU::NCEInterpolateMode mode;
     IE::InterpolateNearestMode nearestMode;
     IE::InterpolateCoordMode coordMode;
     std::vector<double> scales;
-    std::vector<int64_t> offsets;
-    std::vector<int64_t> sizes;
-    std::vector<int64_t> dataShape;
-    std::vector<Bit> dataStrides;
+    SmallVector<int64_t> offsets;
+    SmallVector<int64_t> sizes;
+    // Input data
+    SmallVector<int64_t> dataShape;
+    SmallVector<Bit> dataStrides;
     int64_t dataElemByteSize;
     SeSizes seSizes;
-    ExpectedOffsetsOut expectedOutputs;
+    SmallVector<int64_t> outputTileOffset;
+    SmallVector<int64_t> outputTileShape;
+
+    // Expected results
+    SmallVector<int64_t> expectedOutputShape;
+    SmallVector<int64_t> expectedBackInferredInputShape;
+    SmallVector<int64_t> expectedInputTileOffset;
+    SmallVector<int64_t> expectedInputTileShape;
+    SmallVector<int64_t> expectedAttrOffsets;
+    SmallVector<int64_t> expectedAttrSizes;
+    std::vector<std::vector<int64_t>> expectedInputCoords;
+    ExpectedOffsetsOut expectedSEOffsets;
 };
 
 class SEInterpolateAttrTests : public testing::TestWithParam<SEInterpolateAttrParams> {};
 
-TEST_P(SEInterpolateAttrTests, ComputeSEOffsets) {
+TEST_P(SEInterpolateAttrTests, SEAttrInterface) {
     auto registry = vpux::createDialectRegistry();
 
     mlir::MLIRContext ctx(registry);
@@ -77,33 +90,88 @@ TEST_P(SEInterpolateAttrTests, ComputeSEOffsets) {
     auto seAttrInterface = mlir::dyn_cast<vpux::VPU::SEAttr>(interpolateAttr);
     ASSERT_TRUE(seAttrInterface != nullptr);
 
-    Shape dataShape(params.dataShape);
-    Strides dataStrides(params.dataStrides);
-    Byte elemSize(params.dataElemByteSize);
+    // inferOutputShape
+    const Shape dataShape(params.dataShape);
+    const auto outputShape = seAttrInterface.inferOutputShape(dataShape);
+    EXPECT_EQ(outputShape.raw(), params.expectedOutputShape);
 
-    // Single SeSize
+    // backInferInputShape
+    if (offsetsAttr == nullptr && sizesAttr == nullptr) {
+        const auto inputShape = seAttrInterface.backInferInputShape(outputShape);
+        EXPECT_EQ(inputShape.raw(), params.expectedBackInferredInputShape);
+    }
+
+    // backInferInputCoord
+    const auto offsets = params.offsets.empty() ? SmallVector<int64_t>(outputShape.size(), 0) : params.offsets;
+    const auto sizes = params.sizes.empty() ? SmallVector<int64_t>(outputShape.raw()) : params.sizes;
+
+    const auto outputH = sizes[Dims4D::Act::H.ind()];
+    const auto outputW = sizes[Dims4D::Act::W.ind()];
+    ASSERT_EQ(static_cast<int64_t>(params.expectedInputCoords.size()), outputH * outputW);
+    for (auto h : irange(outputH)) {
+        for (auto w : irange(outputW)) {
+            const auto actualH = h + offsets[Dims4D::Act::H.ind()];
+            const auto actualW = w + offsets[Dims4D::Act::W.ind()];
+            const Shape outputCoord({0, 0, actualH, actualW});
+            const auto inputCoord = seAttrInterface.backInferInputCoord(outputCoord, dataShape);
+            const auto& expectedCoord = params.expectedInputCoords[h * outputW + w];
+            const Shape expectedInputCoord({0, 0, expectedCoord[0], expectedCoord[1]});
+            EXPECT_EQ(inputCoord, expectedInputCoord)
+                    << "Invalid input coordinates for output coordinate [" << actualH << ", " << actualW << "]";
+        }
+    }
+
+    // extractTile
+    if (!params.outputTileOffset.empty() && !params.outputTileShape.empty()) {
+        const Shape outputTileOffset(params.outputTileOffset);
+        const Shape outputTileShape(params.outputTileShape);
+        Shape inputTileOffset{};
+        Shape inputTileShape{};
+        auto newSEAttr = seAttrInterface.extractTile(outputTileOffset, outputTileShape, dataShape, inputTileOffset,
+                                                     inputTileShape);
+        auto newSEInterpolateAttr = mlir::dyn_cast_or_null<VPU::SEInterpolateAttr>(newSEAttr);
+        ASSERT_TRUE(newSEInterpolateAttr != nullptr);
+        EXPECT_EQ(inputTileOffset.raw(), params.expectedInputTileOffset);
+        EXPECT_EQ(inputTileShape.raw(), params.expectedInputTileShape);
+        const auto newAttrOffsets = parseIntArrayAttr<int64_t>(newSEInterpolateAttr.getOffsets());
+        const auto newAttrSizes = parseIntArrayAttr<int64_t>(newSEInterpolateAttr.getSizes());
+        EXPECT_EQ(newAttrOffsets, params.expectedAttrOffsets);
+        EXPECT_EQ(newAttrSizes, params.expectedAttrSizes);
+    }
+
+    // computeSEOffsets
+    const Strides dataStrides(params.dataStrides);
+    const Byte elemSize(params.dataElemByteSize);
     const auto seOffsets =
             seAttrInterface.computeSEOffsets(dataShape, dataStrides, elemSize, params.seSizes.singleSeSize);
-    EXPECT_EQ(seOffsets, params.expectedOutputs.singleSeSize);
+    EXPECT_EQ(seOffsets, params.expectedSEOffsets.singleSeSize);
 
-    // Multiple SeSizes
-    if (!params.seSizes.multiSeSize.empty() && !params.expectedOutputs.multiSeSize.empty()) {
+    // computeSEOffsetsWithMultiSeSize
+    if (!params.seSizes.multiSeSize.empty() && !params.expectedSEOffsets.multiSeSize.empty()) {
         const auto multiSeOffsets = seAttrInterface.computeSEOffsetsWithMultiSeSize(dataShape, dataStrides, elemSize,
                                                                                     params.seSizes.multiSeSize);
-        EXPECT_EQ(multiSeOffsets, params.expectedOutputs.multiSeSize);
+        EXPECT_EQ(multiSeOffsets, params.expectedSEOffsets.multiSeSize);
     }
 }
 
 // clang-format off
 
-std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
-    //
-    // Nearest modes
-    //
+std::vector<SEInterpolateAttrParams> nearestParams = {
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::ROUND_PREFER_FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSize=*/SeSizes(16, {32, 16}),
-     /*expectedOutput=*/ ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16, {32, 16}),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 6, 6}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         { 0,  0,  16,  16,  32,  32, \
           0,  0,  16,  16,  32,  32, \
          48, 48,  64,  64,  80,  80, \
@@ -119,8 +187,19 @@ std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::ROUND_PREFER_CEIL, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSize=*/SeSizes(16, {64, 32, 16}),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16, {64, 32, 16}),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 6, 6}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
             { 0,  16,  16,  32,  32,  32, \
              48,  64,  64,  80,  80,  80, \
              48,  64,  64,  80,  80,  80, \
@@ -136,8 +215,19 @@ std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSize=*/SeSizes(16, {64, 16}),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16, {64, 16}),
+     /*outputTileOffset=*/{0, 0, 1, 0}, /*outputTileShape=*/{1, 16, 2, 6},
+     /*expectedOutputShape=*/{1, 16, 6, 6}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{0, 0, 0, 0}, /*expectedInputTileShape=*/{1, 16, 2, 3},
+     /*expectedAttrOffsets=*/{0, 0, 1, 0}, /*expectedAttrSizes=*/{1, 16, 2, 6},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         { 0,  0,  16,  16,  32,  32, \
           0,  0,  16,  16,  32,  32, \
          48, 48,  64,  64,  80,  80, \
@@ -153,8 +243,19 @@ std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::CEIL, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSize=*/SeSizes(16, {32, 16}),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16, {32, 16}),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 6, 6}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         { 0,  16,  16,  32,  32,  32, \
          48,  64,  64,  80,  80,  80, \
          48,  64,  64,  80,  80,  80, \
@@ -170,8 +271,19 @@ std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::SIMPLE, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSize=*/SeSizes(16, {16, 16}),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16, {16, 16}),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 6, 6}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         { 0,  0,  16,  16,  32,  32, \
           0,  0,  16,  16,  32,  32, \
          48, 48,  64,  64,  80,  80, \
@@ -191,8 +303,22 @@ std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
     //
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 3, 3}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSize=*/SeSizes(16),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 9, 9}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         { 0,  0,  0,  16,  16,  16,  32,  32,  32, \
           0,  0,  0,  16,  16,  16,  32,  32,  32, \
           0,  0,  0,  16,  16,  16,  32,  32,  32, \
@@ -205,8 +331,25 @@ std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 4, 4}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSize=*/SeSizes(16),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 12, 12}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         { 0,  0,  0,  0,  16,  16,  16,  16,  32,  32,  32,  32, \
           0,  0,  0,  0,  16,  16,  16,  16,  32,  32,  32,  32, \
           0,  0,  0,  0,  16,  16,  16,  16,  32,  32,  32,  32, \
@@ -226,8 +369,19 @@ std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
     //
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/2, /*seSize=*/SeSizes(16),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/2, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 6, 6}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         {  0,   0,  32,  32,  64,  64, \
            0,   0,  32,  32,  64,  64, \
           96,  96, 128, 128, 160, 160, \
@@ -237,8 +391,19 @@ std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/4, /*seSize=*/SeSizes(16),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/4, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 6, 6}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         {  0,   0, 64,   64, 128, 128, \
            0,   0, 64,   64, 128, 128, \
          192, 192, 256, 256, 320, 320, \
@@ -252,8 +417,19 @@ std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
     //
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 32, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSize=*/SeSizes(16),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 32, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 32, 6, 6}, /*expectedBackInferredInputShape=*/{1, 32, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         {  0,  16,   0,  16,  32,  48,  32,  48,  64,  80,  64,  80, \
            0,  16,   0,  16,  32,  48,  32,  48,  64,  80,  64,  80, \
           96, 112,  96, 112, 128, 144, 128, 144, 160, 176, 160, 176, \
@@ -263,8 +439,19 @@ std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 64, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSize=*/SeSizes(32),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 64, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(32),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 64, 6, 6}, /*expectedBackInferredInputShape=*/{1, 64, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         {  0,  32,   0,  32,  64,  96,  64,  96, 128, 160, 128, 160, \
            0,  32,   0,  32,  64,  96,  64,  96, 128, 160, 128, 160, \
          192, 224, 192, 224, 256, 288, 256, 288, 320, 352, 320, 352, \
@@ -274,8 +461,19 @@ std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 96, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSize=*/SeSizes(32),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 96, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(32),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 96, 6, 6}, /*expectedBackInferredInputShape=*/{1, 96, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         {  0,  32,  64,   0,  32,  64,  96, 128, 160,  96, 128, 160, 192, 224, 256, 192, 224, 256, \
            0,  32,  64,   0,  32,  64,  96, 128, 160,  96, 128, 160, 192, 224, 256, 192, 224, 256, \
          288, 320, 352, 288, 320, 352, 384, 416, 448, 384, 416, 448, 480, 512, 544, 480, 512, 544, \
@@ -289,8 +487,18 @@ std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
     //
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{0, 0, 0, 0}, /*sizes=*/{1, 16, 5, 6},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSize=*/SeSizes(16, {32, 16}),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16, {32, 16}),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 5, 6}, /*expectedBackInferredInputShape=*/{},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         { 0,  0,  16,  16,  32,  32, \
           0,  0,  16,  16,  32,  32, \
          48, 48,  64,  64,  80,  80, \
@@ -304,23 +512,66 @@ std::vector<SEInterpolateAttrParams> nearestAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{0, 0, 1, 1}, /*sizes=*/{1, 16, 4, 4},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSize=*/SeSizes(16),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 4, 4}, /*expectedBackInferredInputShape=*/{},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 1}, {0, 1}, {0, 2}, \
+                              {1, 0}, {1, 1}, {1, 1}, {1, 2}, \
+                              {1, 0}, {1, 1}, {1, 1}, {1, 2}, \
+                              {2, 0}, {2, 1}, {2, 1}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         { 0,  16,  16,  32, \
          48,  64,  64,  80, \
          48,  64,  64,  80, \
          96, 112, 112, 128})
+    },
+    {VPU::NCEInterpolateMode::NEAREST, IE::InterpolateNearestMode::ROUND_PREFER_FLOOR, IE::InterpolateCoordMode::HALF_PIXEL,
+     /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{0, 0, 0, 0}, /*outputTileShape=*/{1, 16, 4, 4},
+     /*expectedOutputShape=*/{1, 16, 6, 6}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{0, 0, 0, 0}, /*expectedInputTileShape=*/{1, 16, 2, 2},
+     /*expectedAttrOffsets=*/{0, 0, 0, 0}, /*expectedAttrSizes=*/{1, 16, 4, 4},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
+        {0, 0, 16, 16, 32, 32,
+         0, 0, 16, 16, 32, 32,
+         48, 48, 64, 64, 80, 80,
+         48, 48, 64, 64, 80, 80,
+         96, 96, 112, 112, 128, 128,
+         96, 96, 112, 112, 128, 128})
     }
 };
 
-std::vector<SEInterpolateAttrParams> bilinearAsymmetricParams = {
+std::vector<SEInterpolateAttrParams> bilinearParams = {
     //
     // Scales
     //
     {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, SeSizes(16, {32, 16}),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16, {32, 16}),
+     /*outputTileOffset=*/{0, 0, 0, 0}, /*outputTileShape=*/{1, 16, 4, 4},
+     /*expectedOutputShape=*/{1, 16, 7, 7}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{0, 0, 0, 0}, /*expectedInputTileShape=*/{1, 16, 2, 2},
+     /*expectedAttrOffsets=*/{0, 0, 0, 0}, /*expectedAttrSizes=*/{1, 16, 4, 4},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         {  0,   0,  16,  16,  32,  32,  32, \
            0,   0,  16,  16,  32,  32,  32, \
           48,  48,  64,  64,  80,  80,  80, \
@@ -338,8 +589,24 @@ std::vector<SEInterpolateAttrParams> bilinearAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 3, 3}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, SeSizes(16),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 11, 11}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         { 0,  0,  0,  16,  16,  16,  32,  32,  32,  32,  32, \
           0,  0,  0,  16,  16,  16,  32,  32,  32,  32,  32, \
           0,  0,  0,  16,  16,  16,  32,  32,  32,  32,  32, \
@@ -354,8 +621,28 @@ std::vector<SEInterpolateAttrParams> bilinearAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 4, 4}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, SeSizes(16),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 15, 15}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         { 0,  0,  0,  0,  16,  16,  16,  16,  32,  32,  32,  32,  32,  32,  32, \
           0,  0,  0,  0,  16,  16,  16,  16,  32,  32,  32,  32,  32,  32,  32, \
           0,  0,  0,  0,  16,  16,  16,  16,  32,  32,  32,  32,  32,  32,  32, \
@@ -378,8 +665,20 @@ std::vector<SEInterpolateAttrParams> bilinearAsymmetricParams = {
     //
     {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/2, SeSizes(16),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/2, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 7, 7}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         {  0,   0,  32,  32,  64,  64, 64, \
            0,   0,  32,  32,  64,  64, 64, \
           96,  96, 128, 128, 160, 160, 160, \
@@ -390,8 +689,20 @@ std::vector<SEInterpolateAttrParams> bilinearAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/4, SeSizes(16),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/4, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 7, 7}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         {  0,   0, 64,   64, 128, 128, 128, \
            0,   0, 64,   64, 128, 128, 128, \
          192, 192, 256, 256, 320, 320, 320, \
@@ -406,8 +717,20 @@ std::vector<SEInterpolateAttrParams> bilinearAsymmetricParams = {
     //
     {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 32, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, SeSizes(16),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 32, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 32, 7, 7}, /*expectedBackInferredInputShape=*/{1, 32, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         {  0,  16,   0,  16,  32,  48,  32,  48,  64,  80,  64,  80,  64,  80, \
            0,  16,   0,  16,  32,  48,  32,  48,  64,  80,  64,  80,  64,  80, \
           96, 112,  96, 112, 128, 144, 128, 144, 160, 176, 160, 176, 160, 176, \
@@ -418,8 +741,20 @@ std::vector<SEInterpolateAttrParams> bilinearAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 64, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, SeSizes(32),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 64, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(32),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 64, 7, 7}, /*expectedBackInferredInputShape=*/{1, 64, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         {  0,  32,   0,  32,  64,  96,  64,  96, 128, 160, 128, 160, 128, 160, \
            0,  32,   0,  32,  64,  96,  64,  96, 128, 160, 128, 160, 128, 160, \
          192, 224, 192, 224, 256, 288, 256, 288, 320, 352, 320, 352, 320, 352, \
@@ -430,8 +765,20 @@ std::vector<SEInterpolateAttrParams> bilinearAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
-     /*dataShape=*/{1, 96, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, SeSizes(32),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 96, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(32),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 96, 7, 7}, /*expectedBackInferredInputShape=*/{1, 96, 3, 3},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         {  0,  32,  64,   0,  32,  64,  96, 128, 160,  96, 128, 160, 192, 224, 256, 192, 224, 256, 192, 224, 256, \
            0,  32,  64,   0,  32,  64,  96, 128, 160,  96, 128, 160, 192, 224, 256, 192, 224, 256, 192, 224, 256, \
          288, 320, 352, 288, 320, 352, 384, 416, 448, 384, 416, 448, 480, 512, 544, 480, 512, 544, 480, 512, 544, \
@@ -446,8 +793,19 @@ std::vector<SEInterpolateAttrParams> bilinearAsymmetricParams = {
     //
     {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{0, 0, 0, 0}, /*sizes=*/{1, 16, 6, 7},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, SeSizes(16),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 6, 7}, /*expectedBackInferredInputShape=*/{},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         { 0,  0,  16,  16,  32,  32,  32, \
           0,  0,  16,  16,  32,  32,  32, \
          48, 48,  64,  64,  80,  80,  80, \
@@ -457,20 +815,133 @@ std::vector<SEInterpolateAttrParams> bilinearAsymmetricParams = {
     },
     {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ASYMMETRIC,
      /*scales=*/{1, 1, 2, 2}, /*offsets=*/{0, 0, 1, 1}, /*sizes=*/{1, 16, 5, 5},
-     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, SeSizes(16),
-     /*expectedOutput=*/ExpectedOffsetsOut(
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{}, /*outputTileShape=*/{},
+     /*expectedOutputShape=*/{1, 16, 5, 5}, /*expectedBackInferredInputShape=*/{},
+     /*expectedInputTileOffset=*/{}, /*expectedInputTileShape=*/{},
+     /*expectedAttrOffsets=*/{}, /*expectedAttrSizes=*/{},
+     /*expectedInputCoords=*/{{0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
         { 0,  16,  16,  32,  32, \
          48,  64,  64,  80,  80, \
          48,  64,  64,  80,  80, \
          96, 112, 112, 128, 128, \
          96, 112, 112, 128, 128})
-    }
+    },
+
+    //
+    // Coordinate Modes
+    //
+    {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::HALF_PIXEL,
+     /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{0, 0, 2, 2}, /*outputTileShape=*/{1, 16, 4, 4},
+     /*expectedOutputShape=*/{1, 16, 8, 8}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{0, 0, 0, 0}, /*expectedInputTileShape=*/{1, 16, 3, 3},
+     /*expectedAttrOffsets=*/{0, 0, 2, 2}, /*expectedAttrSizes=*/{1, 16, 4, 4},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
+        { 0,  0,  0,  16,  16,  32,  32,  32,
+          0,  0,  0,  16,  16,  32,  32,  32,
+          0,  0,  0,  16,  16,  32,  32,  32,
+         48, 48, 48,  64,  64,  80,  80,  80,
+         48, 48, 48,  64,  64,  80,  80,  80,
+         96, 96, 96, 112, 112, 128, 128, 128,
+         96, 96, 96, 112, 112, 128, 128, 128,
+         96, 96, 96, 112, 112, 128, 128, 128})
+    },
+    {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::PYTORCH_HALF_PIXEL,
+     /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{0, 0, 0, 0}, /*outputTileShape=*/{1, 16, 4, 4},
+     /*expectedOutputShape=*/{1, 16, 8, 8}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{0, 0, 0, 0}, /*expectedInputTileShape=*/{1, 16, 2, 2},
+     /*expectedAttrOffsets=*/{0, 0, 0, 0}, /*expectedAttrSizes=*/{1, 16, 4, 4},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
+        { 0,  0,  0,  16,  16,  32,  32,  32,
+          0,  0,  0,  16,  16,  32,  32,  32,
+          0,  0,  0,  16,  16,  32,  32,  32,
+         48, 48, 48,  64,  64,  80,  80,  80,
+         48, 48, 48,  64,  64,  80,  80,  80,
+         96, 96, 96, 112, 112, 128, 128, 128,
+         96, 96, 96, 112, 112, 128, 128, 128,
+         96, 96, 96, 112, 112, 128, 128, 128})
+    },
+    {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::ALIGN_CORNERS,
+     /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{0, 0, 0, 0}, /*outputTileShape=*/{1, 16, 3, 3},
+     /*expectedOutputShape=*/{1, 16, 6, 6}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{0, 0, 0, 0}, /*expectedInputTileShape=*/{1, 16, 2, 2},
+     /*expectedAttrOffsets=*/{0, 0, 0, 0}, /*expectedAttrSizes=*/{1, 16, 3, 3},
+     /*expectedInputCoords=*/{{0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {0, 0}, {0, 0}, {0, 1}, {0, 1}, {0, 2}, {0, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {1, 0}, {1, 0}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              {2, 0}, {2, 0}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
+        { 0,  0,  16,  16,  32,  32,
+          0,  0,  16,  16,  32,  32,
+         48, 48,  64,  64,  80,  80,
+         48, 48,  64,  64,  80,  80,
+         96, 96, 112, 112, 128, 128,
+         96, 96, 112, 112, 128, 128})
+    },
+    {VPU::NCEInterpolateMode::BILINEAR, IE::InterpolateNearestMode::FLOOR, IE::InterpolateCoordMode::TF_HALF_PIXEL_FOR_NN,
+     /*scales=*/{1, 1, 2, 2}, /*offsets=*/{}, /*sizes=*/{},
+     /*dataShape=*/{1, 16, 3, 3}, /*dataStrides=*/{}, /*dataElemByteSize=*/1, /*seSizes=*/SeSizes(16),
+     /*outputTileOffset=*/{0, 0, 0, 0}, /*outputTileShape=*/{1, 16, 4, 4},
+     /*expectedOutputShape=*/{1, 16, 8, 8}, /*expectedBackInferredInputShape=*/{1, 16, 3, 3},
+     /*expectedInputTileOffset=*/{0, 0, 1, 1}, /*expectedInputTileShape=*/{1, 16, 1, 1},
+     /*expectedAttrOffsets=*/{0, 0, -2, -2}, /*expectedAttrSizes=*/{1, 16, 4, 4},
+     /*expectedInputCoords=*/{{1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 1}, {1, 2}, {1, 2}, {1, 2}, \
+                              {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 1}, {2, 2}, {2, 2}, {2, 2}, \
+                              },
+     /*expectedSEOffsets=*/ExpectedOffsetsOut(
+        { 64,  64,  64,  64,  64,  80,  80,  80,
+          64,  64,  64,  64,  64,  80,  80,  80,
+          64,  64,  64,  64,  64,  80,  80,  80,
+          64,  64,  64,  64,  64,  80,  80,  80,
+          64,  64,  64,  64,  64,  80,  80,  80,
+         112, 112, 112, 112, 112, 128, 128, 128,
+         112, 112, 112, 112, 112, 128, 128, 128,
+         112, 112, 112, 112, 112, 128, 128, 128})},
 };
 
 // clang-format on
 
-INSTANTIATE_TEST_SUITE_P(NearestAsymmetric, SEInterpolateAttrTests, testing::ValuesIn(nearestAsymmetricParams));
-INSTANTIATE_TEST_SUITE_P(BilinearAsymmetric, SEInterpolateAttrTests, testing::ValuesIn(bilinearAsymmetricParams));
+INSTANTIATE_TEST_SUITE_P(Nearest, SEInterpolateAttrTests, testing::ValuesIn(nearestParams));
+INSTANTIATE_TEST_SUITE_P(Bilinear, SEInterpolateAttrTests, testing::ValuesIn(bilinearParams));
 
 //
 // SEUpsamplingAttr

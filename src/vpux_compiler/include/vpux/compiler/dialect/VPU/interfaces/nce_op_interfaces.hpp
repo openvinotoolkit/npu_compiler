@@ -54,12 +54,6 @@ public:
     mlir::Value getWeightsOperand(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getFilter();
     }
-    mlir::Value getWeightTableDataPtrOperand(mlir::Operation* op) const {
-        return mlir::cast<ConcreteOp>(op).getWeightTableDataPtr();
-    }
-    mlir::Value getWeightTableSpPtrOperand(mlir::Operation* op) const {
-        return mlir::cast<ConcreteOp>(op).getWeightTableSpPtr();
-    }
     mlir::Value getWeightTableScaleOperand(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getWeightTableScale();
     }
@@ -71,6 +65,44 @@ public:
     }
     vpux::VPU::PaddingAttr getPad(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getPad();
+    }
+    mlir::Value getReduceXyMax(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getReduceXyMax();
+    }
+    mlir::Value getReduceXyMin(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getReduceXyMin();
+    }
+    mlir::Value getReduceTensorMinMax(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getReduceTensorMinMax();
+    }
+};
+
+template <typename ConcreteModel, typename ConcreteOp>
+class NCEDepthConvolutionOpModel : public NCEConvolutionOpBaseModel<ConcreteModel, ConcreteOp> {
+public:
+    mlir::Value getWeightsOperand(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getFilter();
+    }
+    mlir::Value getWeightTableDataPtrOperand(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getWeightTableDataPtr();
+    }
+    mlir::Value getWeightTableScaleOperand(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getWeightTableScale();
+    }
+    mlir::Value getWeightTableBiasOperand(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getWeightTableBias();
+    }
+    vpux::VPU::PaddingAttr getPad(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getPad();
+    }
+    mlir::Value getReduceXyMax(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getReduceXyMax();
+    }
+    mlir::Value getReduceXyMin(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getReduceXyMin();
+    }
+    mlir::Value getReduceTensorMinMax(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getReduceTensorMinMax();
     }
 };
 
@@ -94,17 +126,11 @@ public:
     mlir::Value getWeightTableDataPtrOperand(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getWeightTableDataPtr();
     }
-    mlir::Value getWeightTableSpPtrOperand(mlir::Operation* op) const {
-        return mlir::cast<ConcreteOp>(op).getWeightTableSpPtr();
-    }
     mlir::Value getWeightTableScaleOperand(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getWeightTableScale();
     }
     mlir::Value getWeightTableBiasOperand(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getWeightTableBias();
-    }
-    mlir::Value getWeightZeroPointsOperand(mlir::Operation* op) const {
-        return mlir::cast<ConcreteOp>(op).getWeightZeroPoints();
     }
     vpux::VPU::PaddingAttr getPad(mlir::Operation* op) const {
         return vpux::VPU::getPaddingAttr(mlir::cast<ConcreteOp>(op).getContext(), 0, 0, 0, 0);
@@ -117,12 +143,6 @@ public:
     mlir::Value getWeightsOperand(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getWeights();
     }
-    mlir::Value getWeightTableDataPtrOperand(mlir::Operation* op) const {
-        return mlir::cast<ConcreteOp>(op).getWeightTableDataPtr();
-    }
-    mlir::Value getWeightTableSpPtrOperand(mlir::Operation* op) const {
-        return mlir::cast<ConcreteOp>(op).getWeightTableSpPtr();
-    }
     mlir::Value getWeightTableScaleOperand(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getWeightTableScale();
     }
@@ -134,6 +154,15 @@ public:
     }
     vpux::VPU::PaddingAttr getPad(mlir::Operation* op) const {
         return vpux::VPU::getPaddingAttr(mlir::cast<ConcreteOp>(op).getContext(), 0, 0, 0, 0);
+    }
+    mlir::Value getReduceXyMax(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getReduceXyMax();
+    }
+    mlir::Value getReduceXyMin(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getReduceXyMin();
+    }
+    mlir::Value getReduceTensorMinMax(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getReduceTensorMinMax();
     }
 };
 
@@ -161,23 +190,11 @@ public:
 template <typename ConcreteModel, typename ConcreteOp>
 class NCEAveragePoolOpModel : public NCEPoolOpBaseModel<ConcreteModel, ConcreteOp> {
 public:
-    mlir::Value getWeightsTableOperand(mlir::Operation*) const {
-        return nullptr;
-    }
-    mlir::Value getWeightTableDataPtrOperand(mlir::Operation*) const {
-        return nullptr;
-    }
-    mlir::Value getWeightTableSpPtrOperand(mlir::Operation*) const {
-        return nullptr;
-    }
     mlir::Value getWeightTableScaleOperand(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getWeightTableScale();
     }
     mlir::Value getWeightTableBiasOperand(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getWeightTableBias();
-    }
-    mlir::Value getWeightZeroPointsOperand(mlir::Operation*) const {
-        return nullptr;
     }
 };
 
@@ -186,6 +203,12 @@ class NCEMaxPoolOpModel : public NCEPoolOpBaseModel<ConcreteModel, ConcreteOp> {
 public:
     mlir::Value getWeightsTableOperand(mlir::Operation* op) const {
         return mlir::cast<ConcreteOp>(op).getWeightsTable();
+    }
+    mlir::Value getWeightTableScaleOperand(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getWeightTableScale();
+    }
+    mlir::Value getWeightTableBiasOperand(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getWeightTableBias();
     }
 
     SmallVector<vpux::VPU::ODUDimScale> getODUScaling(mlir::Operation* op) const {
@@ -201,6 +224,15 @@ public:
         }
         return VPU::getODUS2DD2SScaling(*transformInfo, rank);
     }
+    mlir::Value getReduceXyMax(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getReduceXyMax();
+    }
+    mlir::Value getReduceXyMin(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getReduceXyMin();
+    }
+    mlir::Value getReduceTensorMinMax(mlir::Operation* op) const {
+        return mlir::cast<ConcreteOp>(op).getReduceTensorMinMax();
+    }
 };
 
 //
@@ -210,24 +242,6 @@ public:
 template <typename ConcreteModel, typename ConcreteOp>
 class NCEEltwiseOpModel : public VPU::NCEOpInterface::ExternalModel<ConcreteModel, ConcreteOp> {
 public:
-    mlir::Value getWeightsTableOperand(mlir::Operation*) const {
-        return nullptr;
-    }
-    mlir::Value getWeightTableDataPtrOperand(mlir::Operation*) const {
-        return nullptr;
-    }
-    mlir::Value getWeightTableSpPtrOperand(mlir::Operation*) const {
-        return nullptr;
-    }
-    mlir::Value getWeightTableScaleOperand(mlir::Operation*) const {
-        return nullptr;
-    }
-    mlir::Value getWeightTableBiasOperand(mlir::Operation*) const {
-        return nullptr;
-    }
-    mlir::Value getWeightZeroPointsOperand(mlir::Operation*) const {
-        return nullptr;
-    }
     SmallVector<int64_t> getKernelSizeVal(mlir::Operation*) const {
         return {1, 1};
     }
@@ -260,9 +274,6 @@ public:
     }
     VPU::MPEMode getMpeMode(mlir::Operation* op, mlir::Type inElemType, mlir::Type outElemType, ShapeRef shape) const {
         return static_cast<const ConcreteModel*>(this)->getMpeModeImpl(op, inElemType, outElemType, shape);
-    }
-    mlir::Value getWeightsTableOperand(mlir::Operation*) const {
-        return nullptr;
     }
 };
 

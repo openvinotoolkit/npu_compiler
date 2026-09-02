@@ -50,9 +50,6 @@ else()
         set_target_properties(npu_elf PROPERTIES
             ARCHIVE_OUTPUT_DIRECTORY ${OV_ARCHIVE_OUTPUT_DIRECTORY})
     endif()
-    target_include_directories(npu_elf PRIVATE
-        "${PROJECT_SOURCE_DIR}/src/vpux_compiler/include/vpux/compiler/NPU37XX/dialect/NPUReg37XX/firmware_headers/details"
-        "${PROJECT_SOURCE_DIR}/src/vpux_compiler/include/vpux/compiler/NPU40XX/dialect/NPUReg40XX/firmware_headers/details")
 endif()
 
 #
@@ -81,7 +78,29 @@ set_directory_properties(PROPERTIES COMPILE_DEFINITIONS "${dir_defs}")
 
 if(NOT ENABLE_PREBUILT_LLVM_MLIR_LIBS)
     set_llvm_flags()
+
+    # GCC has a bug that causes a compilation failure in llvm::bind_back
+    # (STLForwardCompat.h) when -fno-delete-null-pointer-checks is provided.
+    # Strip this flag for the LLVM build only, then restore.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set(_saved_c_flags "${CMAKE_C_FLAGS}")
+        set(_saved_cxx_flags "${CMAKE_CXX_FLAGS}")
+        set(_saved_c_flags_release "${CMAKE_C_FLAGS_RELEASE}")
+        set(_saved_cxx_flags_release "${CMAKE_CXX_FLAGS_RELEASE}")
+        string(REPLACE "-fno-delete-null-pointer-checks" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+        string(REPLACE "-fno-delete-null-pointer-checks" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+        string(REPLACE "-fno-delete-null-pointer-checks" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+        string(REPLACE "-fno-delete-null-pointer-checks" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+    endif()
+
     add_subdirectory(llvm-project/llvm EXCLUDE_FROM_ALL)
+
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set(CMAKE_C_FLAGS "${_saved_c_flags}")
+        set(CMAKE_CXX_FLAGS "${_saved_cxx_flags}")
+        set(CMAKE_C_FLAGS_RELEASE "${_saved_c_flags_release}")
+        set(CMAKE_CXX_FLAGS_RELEASE "${_saved_cxx_flags_release}")
+    endif()
     set(MLIR_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/llvm-project/mlir/include")
     set(MLIR_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/llvm-project/llvm/tools/mlir/include")
     include_directories(SYSTEM ${MLIR_SOURCE_DIR} ${MLIR_BINARY_DIR})

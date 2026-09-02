@@ -31,22 +31,21 @@ public:
     }
 
     static void setupOptionsImpl(DefaultHWOptions50XX& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
+                                 const vpux::OV::Config& config) {
         Base::setupOptionsImpl(options, initCompilerOptions, config);
-        if (config.get<intel_npu::TURBO>()) {
+        if (config.get<vpux::OV::TURBO>()) {
             overwriteIfUnset(options.enableReduceNumTilesForSmallModelsPass, true);
             overwriteIfUnset(options.workloadManagementMode, WorkloadManagementMode::FWLM_V1_PAGES);
         }
-        setupOptionsCommon(options, initCompilerOptions, getLogLevel(config));
+        setupOptionsCommon(options, initCompilerOptions, config.get<vpux::OV::LOG_LEVEL>());
 
         const auto dynamicQuantization = getCompilerDynamicQuantization(config);
-        if ((dynamicQuantization.has_value() && dynamicQuantization.value()) ||
-            (options.enableDynamicQuantizationForStaticCase)) {
+        if ((dynamicQuantization.has_value() && dynamicQuantization.value())) {
             options.weightsTableReuseMode = vpux::WeightsTableReuseMode::ENABLED;
         }
     }
 
-    static void setupOptionsCommon(DefaultHWOptions50XX& options, const VPU::InitCompilerOptions& initCompilerOptions,
+    static void setupOptionsCommon(DefaultHWOptions50XX& options, VPU::InitCompilerOptions& initCompilerOptions,
                                    LogLevel logLevel = LogLevel::None) {
         setupPWLMParams50XX(options, logLevel);
         if (options.enableSCFTiling) {
@@ -58,6 +57,11 @@ public:
             const auto platformOption = platformOpt.getValue();
             const auto platform = config::symbolizeEnum<config::Platform>(platformOption);
             VPUX_THROW_UNLESS(platform.has_value(), "Unsupported platform: {0}", platformOption);
+            if (platform.value() == config::Platform::NPU5010) {
+                // NPU5010 prefers spatial (H W) alignment of 8 for better DPU efficiency.
+                overwriteIfUnset(options.preferredSpatialAlignment, static_cast<int64_t>(8));
+                overwriteIfUnset(initCompilerOptions.preferredSpatialAlignment, static_cast<int64_t>(8));
+            }
             // PTL supports pipeline-aware convolution split-over-IC in EnsureNCEOpsSizeRequirements, while WCL still
             // needs the legacy heuristic split pass scheduled in the tiling pipeline. TODO: E#208499 - remove the
             // platform split once IC splitting is handled uniformly by EnsureNCEOpsSizeRequirements and cost-based
@@ -74,9 +78,9 @@ public:
     using Base::Base;
 
     static void setupOptionsImpl(DefaultHWOptions50XX& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
+                                 const vpux::OV::Config& config) {
         Base::setupOptionsImpl(options, initCompilerOptions, config);
-        setupOptionsCommon(options, getLogLevel(config));
+        setupOptionsCommon(options, config.get<vpux::OV::LOG_LEVEL>());
     }
 
     static void setupOptionsCommon(DefaultHWOptions50XX& options, LogLevel logLevel = LogLevel::None) {
@@ -95,7 +99,6 @@ public:
 
         overwriteIfUnset(options.enableConvertFFTToConv, false);
         overwriteIfUnset(options.enableConvertToAttention, false);
-        overwriteIfUnset(options.enableFuseSoftwareSDPA, false);
         overwriteIfUnset(options.enableConvertToReduceSquare, true);
         overwriteIfUnset(options.enableDecomposeGRUSequence, false);
         overwriteIfUnset(options.enableAutoPaddingIDU, false);
@@ -115,7 +118,7 @@ public:
     }
 
     static void setupOptionsImpl(DefaultHWOptions50XX& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
+                                 const vpux::OV::Config& config) {
         setupHostPipelineOptionsCommon<DefaultHWOptions50XX>(options);
         DefaultHWSetup50XX::setupOptionsImpl(options, initCompilerOptions, config);
     }
@@ -132,7 +135,7 @@ public:
     }
 
     static void setupOptionsImpl(DefaultHWOptions50XX& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
+                                 const vpux::OV::Config& config) {
         setupWSInitOptionsCommon<DefaultHWOptions50XX>(options);
         DefaultHWSetup50XX::setupOptionsImpl(options, initCompilerOptions, config);
     }
@@ -148,7 +151,7 @@ public:
     }
 
     static void setupOptionsImpl(DefaultHWOptions50XX& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
+                                 const vpux::OV::Config& config) {
         setupWSMainOptionsCommon<DefaultHWOptions50XX>(options);
         DefaultHWSetup50XX::setupOptionsImpl(options, initCompilerOptions, config);
     }
@@ -161,7 +164,7 @@ public:
 template <class OptionsContainerType>
 class DialectPipelineStrategy50XX final : public IDialectPipelineStrategy {
 public:
-    explicit DialectPipelineStrategy50XX(const intel_npu::Config& config)
+    explicit DialectPipelineStrategy50XX(const vpux::OV::Config& config)
             : _optionsContainer(std::make_unique<OptionsContainerType>(config)) {
     }
 
@@ -211,7 +214,7 @@ private:
 
 class DialectPipelineStrategyReferenceSW50XX final : public IDialectPipelineStrategy {
 public:
-    explicit DialectPipelineStrategyReferenceSW50XX(const intel_npu::Config& config)
+    explicit DialectPipelineStrategyReferenceSW50XX(const vpux::OV::Config& config)
             : _optionsContainer(std::make_unique<ReferenceSWSetup50XX>(config)) {
     }
 
@@ -260,7 +263,7 @@ private:
 //
 
 std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy50XX(
-        config::CompilationMode compilationMode, const intel_npu::Config& config) {
+        config::CompilationMode compilationMode, const vpux::OV::Config& config) {
     switch (compilationMode) {
     case config::CompilationMode::DefaultHW: {
         return std::make_unique<DialectPipelineStrategy50XX<DefaultHWSetup50XX>>(config);
@@ -317,7 +320,7 @@ std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy50X
 
 template <>
 std::tuple<std::unique_ptr<VPU::InitCompilerOptions>, std::unique_ptr<DefaultHWOptions50XX>>
-vpux::createOptionsDefaultHW(const intel_npu::Config& config) {
+vpux::createOptionsDefaultHW(const vpux::OV::Config& config) {
     // NOTE: DefaultHWSetup50XX is defined in this file which is why helper is called
     auto defaultHWSetup = std::make_unique<DefaultHWSetup50XX>(config);
     return createOptionsDefaultHWHelper<DefaultHWSetup50XX, DefaultHWOptions50XX>(std::move(defaultHWSetup));

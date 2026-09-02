@@ -29,11 +29,6 @@ OverlapDistributionParams getExplicitOverlapParamsForSWOpInput(
         SWOpInterface swOp, ShapeRef outShape, ArrayRef<int64_t> numTiles, ArrayRef<int64_t> alignment,
         const vpux::TileInfo& origOutTile = vpux::TileInfo(ShapeRef()));
 
-DistributionInfoAttr getSWExplicitDistributionInfoAttr(SWOpInterface swOp, ShapeRef shape,
-                                                       DistributionMode distributionMode, mlir::ArrayAttr numTiles,
-                                                       mlir::IntegerAttr numClusters, mlir::ArrayAttr alignment,
-                                                       mlir::UnitAttr uniformDistributedSegments,
-                                                       const vpux::VPU::OverlapDistributionParams& overlapParams);
 DistributionInfoAttr getNCEExplicitDistributionInfoAttr(
         NCEOpInterface nceOp, ShapeRef shape, VPU::DistributionMode distributionMode, mlir::ArrayAttr numTiles,
         mlir::IntegerAttr numClusters, mlir::ArrayAttr alignment, mlir::UnitAttr uniformDistributedSegments,
@@ -44,13 +39,12 @@ DistributionInfoAttr getConcatExplicitDistributedAttr(ShapeRef shape, VPU::Distr
                                                       mlir::ArrayAttr alignment,
                                                       mlir::UnitAttr uniformDistributedSegments,
                                                       const vpux::VPU::OverlapDistributionParams& overlapParams,
-                                                      mlir::Type elementType, mlir::MLIRContext* ctx);
+                                                      mlir::MLIRContext* ctx);
 DistributionInfoAttr getConcatExplicitDistributedAttrForNewShape(VPU::DistributionInfoAttr originDistribution,
-                                                                 ShapeRef newShape, mlir::Type elementType,
-                                                                 mlir::MLIRContext* ctx);
+                                                                 ShapeRef newShape, mlir::MLIRContext* ctx);
 DistributionInfoAttr getExplicitDistrAttrForSliceLikeOps(VPU::DistributionInfoAttr distributionWithProperAlignment,
                                                          ArrayRef<int64_t> sliceShape, ArrayRef<int64_t> originShape,
-                                                         mlir::Type elementType, mlir::MLIRContext* ctx);
+                                                         mlir::MLIRContext* ctx);
 DistributionInfoAttr getSegmentedExplicitDistrAttrForSliceLikeOps(VPU::DistributionInfoAttr distributionAttr,
                                                                   ArrayRef<int64_t> sliceOutputShape,
                                                                   mlir::ArrayAttr explicitOutputShapes,
@@ -58,8 +52,7 @@ DistributionInfoAttr getSegmentedExplicitDistrAttrForSliceLikeOps(VPU::Distribut
 DistributionInfoAttr getNonOverlappedDistributedAttr(ShapeRef shape, VPU::DistributionModeAttr distrModeAttr,
                                                      mlir::ArrayAttr numTiles, mlir::IntegerAttr numClusters,
                                                      mlir::ArrayAttr alignment,
-                                                     mlir::UnitAttr uniformDistributedSegments, mlir::Type elementType,
-                                                     mlir::MLIRContext* ctx);
+                                                     mlir::UnitAttr uniformDistributedSegments, mlir::MLIRContext* ctx);
 NDTypeInterface changeShapeElemTypeForDuplicatedDistributedBuffers(NDTypeInterface buff, ShapeRef shape,
                                                                    mlir::Type elemType);
 
@@ -76,8 +69,7 @@ DistributionInfo getSWExplicitDistributionInfo(VPU::SWOpInterface swOp, ShapeRef
                                                VPU::DistributionMode distributionMode, ArrayRef<int64_t> numTiles,
                                                const int64_t numClusters, ArrayRef<int64_t> alignment,
                                                bool uniformDistributedSegments,
-                                               const vpux::VPU::OverlapDistributionParams& overlapParams,
-                                               mlir::Type elementType = nullptr);
+                                               const vpux::VPU::OverlapDistributionParams& overlapParams);
 
 VPU::DistributionInfo getNCEExplicitDistributionInfo(
         VPU::NCEOpInterface nceOp, ShapeRef shape, VPU::DistributionMode distributionMode, ArrayRef<int64_t> numTiles,
@@ -88,12 +80,11 @@ VPU::DistributionInfo getNCEExplicitDistributionInfo(
 VPU::DistributionInfo getConcatExplicitDistributedNative(ShapeRef shape, VPU::DistributionMode distributionMode,
                                                          ArrayRef<int64_t> numTiles, int64_t numClusters,
                                                          ArrayRef<int64_t> alignment, bool uniformDistributedSegments,
-                                                         const vpux::VPU::OverlapDistributionParams& overlapParams,
-                                                         mlir::Type elementType);
+                                                         const vpux::VPU::OverlapDistributionParams& overlapParams);
 
 VPU::DistributionInfo getExplicitDistrNativeForSliceLikeOps(
         const VPU::DistributionInfo& distributionWithProperAlignment, ArrayRef<int64_t> sliceShape,
-        ArrayRef<int64_t> originShape, mlir::Type elementType);
+        ArrayRef<int64_t> originShape);
 
 VPU::DistributionInfo getSegmentedExplicitDistrNativeForSliceLikeOps(const VPU::DistributionInfo& distribution,
                                                                      ArrayRef<int64_t> sliceOutputShape,
@@ -101,11 +92,10 @@ VPU::DistributionInfo getSegmentedExplicitDistrNativeForSliceLikeOps(const VPU::
 
 DistributionInfo getNonOverlappedDistributedNative(ShapeRef shape, VPU::DistributionMode distrMode,
                                                    ArrayRef<int64_t> numTiles, int64_t numClusters,
-                                                   ArrayRef<int64_t> alignment, bool uniformDistributedSegments,
-                                                   mlir::Type elementType);
+                                                   ArrayRef<int64_t> alignment, bool uniformDistributedSegments);
 
 VPU::DistributionInfo getConcatExplicitDistributedNativeForNewShape(const VPU::DistributionInfo& originDistribution,
-                                                                    vpux::ShapeRef newShape, mlir::Type elementType);
+                                                                    vpux::ShapeRef newShape);
 
 DistributionInfoAttr getExplicitDistrAttrForActualDataFromSparseType(mlir::Type origType);
 

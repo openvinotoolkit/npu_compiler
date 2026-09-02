@@ -5,6 +5,8 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
+#include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
@@ -59,6 +61,151 @@ void changeDimsOrder(mlir::Value val, const DimsOrder& newOrder, Logger log) {
     val.setType(newType);
 }
 
+// Predicate for the dedicated per-tensor quantized 1x1 convolution path: both input and filter must be
+// per-tensor (uniform) quantized, the output must not be quantized, the kernel must be 1x1 and there must
+// be no fused post-op. Convolutions matching this are handled by getPerTensorQuant1x1ShapeParams instead of
+// the generic algorithm.
+static bool isPerTensorQuant1x1Convolution(IE::ConvolutionOp convOp, vpux::NDTypeInterface inNDInterface,
+                                           vpux::NDTypeInterface filterNDInterface,
+                                           vpux::NDTypeInterface outNDInterface, ShapeRef filterShape) {
+    const auto isPerTensorQuantizedType = [](vpux::NDTypeInterface ndType) {
+        return mlir::isa<mlir::quant::UniformQuantizedType>(ndType.getElementType());
+    };
+    const auto isQuantizedType = [](vpux::NDTypeInterface ndType) {
+        return mlir::isa<mlir::quant::QuantizedType>(ndType.getElementType());
+    };
+    const auto isKernel1x1 = filterShape[Dims4D::Filter::KX] == 1 && filterShape[Dims4D::Filter::KY] == 1;
+    const auto bothPerTensorQuantized =
+            isPerTensorQuantizedType(inNDInterface) && isPerTensorQuantizedType(filterNDInterface);
+    return isKernel1x1 && bothPerTensorQuantized && !isQuantizedType(outNDInterface) &&
+           convOp.getPostOpAttr() == nullptr;
+}
+
+// Dedicated, deliberately strict shape-adjustment path for per-tensor quantized 1x1 convolutions.
+// It is kept separate from the generic algorithm in getAdjustConvShapeParameters on purpose: the generic
+// path is more permissive (it pads inputs, has no borrow-factor cap and sizes the CMX budget for a single
+// tile), so reusing it here would start shapecasting convolutions this feature must leave untouched (or
+// leave incorrectly-shaped ones). Every check below is a guard that keeps the transform as strict as the
+// original inline path. Callers must confirm isPerTensorQuant1x1Convolution() first; a matching
+// convolution is either transformed here or rejected outright, it never falls through to the generic path.
+static mlir::FailureOr<vpux::AdjustConvShapeParams> getPerTensorQuant1x1ShapeParams(IE::ConvolutionOp convOp,
+                                                                                    mlir::Value filter,
+                                                                                    ShapeRef outputShape, Logger _log) {
+    const auto inNDInterface = mlir::cast<vpux::NDTypeInterface>(convOp.getInput().getType());
+    const auto outNDInterface = mlir::cast<vpux::NDTypeInterface>(convOp.getOutput().getType());
+    const auto filterNDInterface = mlir::cast<vpux::NDTypeInterface>(filter.getType());
+    const auto filterShape = vpux::getShape(filter);
+    const auto strides = Shape(parseIntArrayAttr<int64_t>(convOp.getStrides()));
+
+    // The rewrite path expands filter/bias constants; bail out early if either is non-constant.
+    const auto filterCst = filter.getDefiningOp<Const::DeclareOp>();
+    const auto biasVal = convOp.getBias();
+    const auto biasCst = biasVal != nullptr ? biasVal.getDefiningOp<Const::DeclareOp>() : nullptr;
+    if (filterCst == nullptr || (biasVal != nullptr && biasCst == nullptr)) {
+        _log.trace("Per-tensor quant 1x1: filter/bias must be constant, skipping");
+        return mlir::failure();
+    }
+
+    auto ifaceQ = mlir::cast<IE::AlignedChannelsOpInterface>(convOp.getOperation());
+    const int64_t alignedICQ = ifaceQ.getInputChannelAlignment();
+    const int64_t alignedOCQ = ifaceQ.getOutputChannelAlignment();
+    const auto inputShapeQ = inNDInterface.getShape();
+
+    // Reject if IC is already aligned: transform only benefits OC, and the overhead
+    // (large filter expansion, e.g. IC=64 OC=1) is not justified.
+    if ((filterShape[Dims4D::Filter::IC] % alignedICQ) == 0) {
+        _log.trace("Per-tensor quant 1x1: IC already aligned ({0}), skipping", filterShape[Dims4D::Filter::IC]);
+        return mlir::failure();
+    }
+
+    // Reject if IC requires too large a borrow factor to align, which causes
+    // extreme filter size growth (e.g. IC=3 -> borrowIn=16 -> filter x256).
+    const auto borrowInQ = std::lcm(inputShapeQ[Dims4D::Act::C], alignedICQ) / inputShapeQ[Dims4D::Act::C];
+    if (borrowInQ > alignedICQ / 2) {
+        _log.trace("Per-tensor quant 1x1: borrowIn {0} exceeds cap {1}, skipping", borrowInQ, alignedICQ / 2);
+        return mlir::failure();
+    }
+
+    // Reject if W*C is not divisible by alignedIC (would need end-padding; skip for simplicity).
+    const auto wcInDimSizeQ = inputShapeQ[Dims4D::Act::C] * inputShapeQ[Dims4D::Act::W];
+    if (wcInDimSizeQ % alignedICQ != 0) {
+        _log.trace("Per-tensor quant 1x1: W*C={0} not divisible by alignedIC={1}, skipping", wcInDimSizeQ, alignedICQ);
+        return mlir::failure();
+    }
+
+    const auto borrowOutQ = std::lcm(outputShape[Dims4D::Act::C], alignedOCQ) / outputShape[Dims4D::Act::C];
+    const auto borrowFactorQ = std::max(borrowInQ, borrowOutQ);
+
+    // Guard the W divisions below: borrowFactorQ may be driven by borrowOutQ (e.g. OC=1 -> 16),
+    // which the earlier IC*W check does not constrain. Without this, integer division would
+    // truncate the new W dimension and produce a size-mismatched (invalid) ShapeCast.
+    const auto wDivisorQ = borrowFactorQ * strides[Dims4D::Strides::X];
+    if (inputShapeQ[Dims4D::Act::W] % wDivisorQ != 0 || outputShape[Dims4D::Act::W] % borrowFactorQ != 0) {
+        _log.trace("Per-tensor quant 1x1: incompatible W for borrowFactor (inW={0}, outW={1}, divisor={2}), "
+                   "skipping",
+                   inputShapeQ[Dims4D::Act::W], outputShape[Dims4D::Act::W], wDivisorQ);
+        return mlir::failure();
+    }
+
+    // Check W padding is zero: the path reshapes the W dimension, so any left/right padding on W
+    // would be applied to the reshaped tensor and change results.
+    const auto padBeginQ = Shape(parseIntArrayAttr<int64_t>(convOp.getPadsBegin()));
+    const auto padEndQ = Shape(parseIntArrayAttr<int64_t>(convOp.getPadsEnd()));
+    if (padBeginQ[Dims4D::PadsBegin::Left] != 0 || padEndQ[Dims4D::PadsEnd::Right] != 0) {
+        _log.trace("Per-tensor quant 1x1: non-zero W padding, skipping");
+        return mlir::failure();
+    }
+
+    Shape newInputShapeQ(inputShapeQ.raw());
+    Shape newOutputShapeQ(outputShape.raw());
+    Shape newFilterShapeQ(filterShape.raw());
+    newInputShapeQ[Dims4D::Act::W] /= borrowFactorQ * strides[Dims4D::Strides::X];
+    newInputShapeQ[Dims4D::Act::C] *= borrowFactorQ * strides[Dims4D::Strides::X];
+    newFilterShapeQ[Dims4D::Filter::IC] = newInputShapeQ[Dims4D::Act::C];
+    newFilterShapeQ[Dims4D::Filter::OC] *= borrowFactorQ;
+    newOutputShapeQ[Dims4D::Act::W] /= borrowFactorQ;
+    newOutputShapeQ[Dims4D::Act::C] = newFilterShapeQ[Dims4D::Filter::OC];
+
+    // CMX check: reject if expanded activations already fit (no memory pressure).
+    auto calcExpandQ = [](ShapeRef shape, int64_t aligned) {
+        auto s = shape.toValues();
+        s[Dims4D::Act::C] = alignValUp(shape[Dims4D::Act::C], aligned);
+        return s.totalSize();
+    };
+    const auto expandedInputQ = calcExpandQ(inputShapeQ, alignedICQ);
+    const auto expandedOutputQ = calcExpandQ(outputShape, alignedOCQ);
+    const auto inputElemQ = inNDInterface.getCompactAllocSize().count() / inputShapeQ.totalSize();
+    // Use the conv's own output shape (which matches getCompactAllocSize()) for the per-element
+    // byte size. The outputShape parameter may differ from the conv's output type (e.g. a caller
+    // passing a Slice result shape), which would skew this ratio.
+    const auto outputElemQ = outNDInterface.getCompactAllocSize().count() / outNDInterface.getShape().totalSize();
+    const auto expandedBytesQ = expandedInputQ * inputElemQ + expandedOutputQ * outputElemQ;
+    const auto cmxQ = VPU::getTotalCMXSize(convOp.getOperation());
+    // Filter size in bytes: totalSize() is an element count, so scale by the per-element byte
+    // size (the expanded filter keeps the original element type) before comparing to the cap.
+    const auto filterElemBytesQ = filterNDInterface.getCompactAllocSize().count() / filterShape.totalSize();
+    const auto newFilterBytesQ = newFilterShapeQ.totalSize() * filterElemBytesQ;
+
+    // Scale the CMX budget by the configured tile count. Only transform when the expansion does not
+    // already fit in the total available CMX.
+    const auto numConfiguredTiles = config::getTileExecutor(getModuleOp(convOp.getOperation())).getCount();
+    const auto totalCmxQ = cmxQ.count() * numConfiguredTiles;
+    if (expandedBytesQ < totalCmxQ || newFilterBytesQ > Byte(1_MB).count()) {
+        _log.trace("Per-tensor quant 1x1: CMX check failed or filter too large (tiles={0})", numConfiguredTiles);
+        return mlir::failure();
+    }
+
+    _log.trace("Per-tensor quant 1x1: narrow path, borrowFactor={0}", borrowFactorQ);
+    vpux::AdjustConvShapeParams result;
+    result.filterShape = std::move(newFilterShapeQ);
+    result.inputShape = std::move(newInputShapeQ);
+    result.outputShape = std::move(newOutputShapeQ);
+    result.borrowFactor = borrowFactorQ;
+    result.filterPading = 0;
+    result.padNum = 0;
+    return result;
+}
+
 mlir::FailureOr<vpux::AdjustConvShapeParams> getAdjustConvShapeParameters(IE::ConvolutionOp convOp, mlir::Value filter,
                                                                           ShapeRef outputShape, Logger _log) {
     auto inNDInterface = mlir::dyn_cast<vpux::NDTypeInterface>(convOp.getInput().getType());
@@ -76,133 +223,24 @@ mlir::FailureOr<vpux::AdjustConvShapeParams> getAdjustConvShapeParameters(IE::Co
         return mlir::isa<mlir::quant::QuantizedType>(elementType);
     };
 
-    auto isPerTensorQuantizedType = [](NDTypeInterface ndType) {
-        const auto elementType = ndType.getElementType();
-        return mlir::isa<mlir::quant::UniformQuantizedType>(elementType);
-    };
-
     auto filterNDInterface = mlir::dyn_cast<vpux::NDTypeInterface>(filter.getType());
-
     auto filterShape = vpux::getShape(filter);
-    const auto isKernel1x1 = filterShape[Dims4D::Filter::KX] == 1 && filterShape[Dims4D::Filter::KY] == 1;
 
-    const auto bothPerTensorQuantized =
-            isPerTensorQuantizedType(inNDInterface) && isPerTensorQuantizedType(filterNDInterface);
-    const auto isPerTensorQuant1x1 = isKernel1x1 && bothPerTensorQuantized && !isQuantizedType(outNDInterface) &&
-                                     convOp.getPostOpAttr() == nullptr;
-    if (isPerTensorQuant1x1) {
-        // The rewrite path expands filter/bias constants; bail out early if either is non-constant.
-        const auto filterCst = filter.getDefiningOp<Const::DeclareOp>();
-        const auto biasVal = convOp.getBias();
-        const auto biasCst = biasVal != nullptr ? biasVal.getDefiningOp<Const::DeclareOp>() : nullptr;
-        if (filterCst == nullptr || (biasVal != nullptr && biasCst == nullptr)) {
-            _log.trace("Per-tensor quant 1x1: filter/bias must be constant, skipping");
-            return mlir::failure();
-        }
-
-        auto ifaceQ = mlir::cast<IE::AlignedChannelsOpInterface>(convOp.getOperation());
-        const int64_t alignedICQ = ifaceQ.getInputChannelAlignment();
-        const int64_t alignedOCQ = ifaceQ.getOutputChannelAlignment();
-        const auto inputShapeQ = inNDInterface.getShape();
-
-        // Reject if IC is already aligned: transform only benefits OC, and the overhead
-        // (large filter expansion, e.g. IC=64 OC=1) is not justified.
-        if ((filterShape[Dims4D::Filter::IC] % alignedICQ) == 0) {
-            _log.trace("Per-tensor quant 1x1: IC already aligned ({0}), skipping", filterShape[Dims4D::Filter::IC]);
-            return mlir::failure();
-        }
-
-        // Reject if IC requires too large a borrow factor to align, which causes
-        // extreme filter size growth (e.g. IC=3 -> borrowIn=16 -> filter x256).
-        const auto borrowInQ = std::lcm(inputShapeQ[Dims4D::Act::C], alignedICQ) / inputShapeQ[Dims4D::Act::C];
-        if (borrowInQ > alignedICQ / 2) {
-            _log.trace("Per-tensor quant 1x1: borrowIn {0} exceeds cap {1}, skipping", borrowInQ, alignedICQ / 2);
-            return mlir::failure();
-        }
-
-        // Reject if W*C is not divisible by alignedIC (would need end-padding; skip for simplicity).
-        const auto wcInDimSizeQ = inputShapeQ[Dims4D::Act::C] * inputShapeQ[Dims4D::Act::W];
-        if (wcInDimSizeQ % alignedICQ != 0) {
-            _log.trace("Per-tensor quant 1x1: W*C={0} not divisible by alignedIC={1}, skipping", wcInDimSizeQ,
-                       alignedICQ);
-            return mlir::failure();
-        }
-
-        const auto borrowOutQ = std::lcm(outputShape[Dims4D::Act::C], alignedOCQ) / outputShape[Dims4D::Act::C];
-        const auto borrowFactorQ = std::max(borrowInQ, borrowOutQ);
-
-        // Guard the W divisions below: borrowFactorQ may be driven by borrowOutQ (e.g. OC=1 -> 16),
-        // which the earlier IC*W check does not constrain. Without this, integer division would
-        // truncate the new W dimension and produce a size-mismatched (invalid) ShapeCast.
-        const auto wDivisorQ = borrowFactorQ * strides[Dims4D::Strides::X];
-        if (inputShapeQ[Dims4D::Act::W] % wDivisorQ != 0 || outputShape[Dims4D::Act::W] % borrowFactorQ != 0) {
-            _log.trace("Per-tensor quant 1x1: incompatible W for borrowFactor (inW={0}, outW={1}, divisor={2}), "
-                       "skipping",
-                       inputShapeQ[Dims4D::Act::W], outputShape[Dims4D::Act::W], wDivisorQ);
-            return mlir::failure();
-        }
-
-        // Check W padding is zero: the path reshapes the W dimension, so any left/right padding on W
-        // would be applied to the reshaped tensor and change results.
-        const auto padBeginQ = Shape(parseIntArrayAttr<int64_t>(convOp.getPadsBegin()));
-        const auto padEndQ = Shape(parseIntArrayAttr<int64_t>(convOp.getPadsEnd()));
-        if (padBeginQ[Dims4D::PadsBegin::Left] != 0 || padEndQ[Dims4D::PadsEnd::Right] != 0) {
-            _log.trace("Per-tensor quant 1x1: non-zero W padding, skipping");
-            return mlir::failure();
-        }
-
-        Shape newInputShapeQ(inputShapeQ.raw());
-        Shape newOutputShapeQ(outputShape.raw());
-        Shape newFilterShapeQ(filterShape.raw());
-        newInputShapeQ[Dims4D::Act::W] /= borrowFactorQ * strides[Dims4D::Strides::X];
-        newInputShapeQ[Dims4D::Act::C] *= borrowFactorQ * strides[Dims4D::Strides::X];
-        newFilterShapeQ[Dims4D::Filter::IC] = newInputShapeQ[Dims4D::Act::C];
-        newFilterShapeQ[Dims4D::Filter::OC] *= borrowFactorQ;
-        newOutputShapeQ[Dims4D::Act::W] /= borrowFactorQ;
-        newOutputShapeQ[Dims4D::Act::C] = newFilterShapeQ[Dims4D::Filter::OC];
-
-        // CMX check: reject if expanded activations already fit (no memory pressure).
-        // Compute byte sizes from the channel-aligned ND types via getCompactAllocSize() so packed
-        // sub-byte element types (e.g. i4) are accounted for correctly instead of truncating a
-        // per-element byte ratio to zero.
-        auto calcExpandBytesQ = [](NDTypeInterface type, int64_t aligned) -> int64_t {
-            auto expandedShape = type.getShape().toValues();
-            expandedShape[Dims4D::Act::C] = alignValUp(type.getShape()[Dims4D::Act::C], aligned);
-            return type.changeShape(expandedShape).getCompactAllocSize().count();
-        };
-        const auto expandedInputBytesQ = calcExpandBytesQ(inNDInterface, alignedICQ);
-        const auto expandedOutputBytesQ = calcExpandBytesQ(outNDInterface, alignedOCQ);
-        const auto expandedBytesQ = expandedInputBytesQ + expandedOutputBytesQ;
-        const auto cmxQ = VPU::getTotalCMXSize(convOp.getOperation());
-        // Expanded filter size in bytes, taken from the reshaped filter type so packed sub-byte
-        // element types are measured correctly before comparing against the 1MB cap.
-        const auto newFilterBytesQ = filterNDInterface.changeShape(newFilterShapeQ).getCompactAllocSize().count();
-
-        // Scale the CMX budget by the configured tile count. Only transform when the expansion does not
-        // already fit in the total available CMX.
-        const auto numConfiguredTiles = config::getTileExecutor(getModuleOp(convOp.getOperation())).getCount();
-        const auto totalCmxQ = cmxQ.count() * numConfiguredTiles;
-        if (expandedBytesQ < totalCmxQ || newFilterBytesQ > Byte(1_MB).count()) {
-            _log.trace("Per-tensor quant 1x1: CMX check failed or filter too large (tiles={0})", numConfiguredTiles);
-            return mlir::failure();
-        }
-
-        _log.trace("Per-tensor quant 1x1: narrow path, borrowFactor={0}", borrowFactorQ);
-        vpux::AdjustConvShapeParams result;
-        result.filterShape = std::move(newFilterShapeQ);
-        result.inputShape = std::move(newInputShapeQ);
-        result.outputShape = std::move(newOutputShapeQ);
-        result.borrowFactor = borrowFactorQ;
-        result.filterPading = 0;
-        result.padNum = 0;
-        return result;
+    // Per-tensor quantized 1x1 convolutions take a dedicated, deliberately strict path. It is intentionally
+    // kept out of the generic algorithm below: a matching convolution is either transformed by the helper or rejected,
+    // it never falls through.
+    if (isPerTensorQuant1x1Convolution(convOp, inNDInterface, filterNDInterface, outNDInterface, filterShape)) {
+        return getPerTensorQuant1x1ShapeParams(convOp, filter, outputShape, _log);
     }
 
-    // Reject all remaining quantized convolutions that are not handled by the per-tensor 1x1 path
-    // above (per-axis filters, large kernels, etc.).
+    // Check remaining quantized convolutions that are not handled by the per-tensor 1x1 path above
+    // (per-axis filters, large kernels, etc.) via the strategy-factory verifier.
     if (isQuantizedType(inNDInterface) || isQuantizedType(filterNDInterface) || isQuantizedType(outNDInterface)) {
-        _log.trace("Unsupported Convolution with Quantized Type");
-        return mlir::failure();
+        const auto& strategyFactory = IE::getIEStrategyFactory(convOp.getContext());
+        const auto adjustQuantizedConvShapeVerifier = strategyFactory->getAdjustQuantizedConvShapeVerifier();
+        if (!adjustQuantizedConvShapeVerifier->isBeneficialConversion(convOp, filter, _log)) {
+            return mlir::failure();
+        }
     }
 
     auto isConst = [](mlir::Value value) {

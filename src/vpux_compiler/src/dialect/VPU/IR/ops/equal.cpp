@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/comparison.hpp"
+#include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -50,6 +51,25 @@ vpux::VPU::DistributionInfo vpux::VPU::EqualOp::getExplicitDistributionInfoAttr(
 //
 // SWOpInterface
 //
+
+bool vpux::VPU::EqualOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& outputTile) {
+    return VPU::isEltwiseSWOpSplitOverHeightCompatible(getOperation(), outputTile.shape);
+}
+
+bool vpux::VPU::EqualOp::isOperationSplitOverWidthCompatible(ShapeRef outputShape, ShapeRef /*offset*/,
+                                                             ShapeRef /*axis*/) {
+    // #E179535: Experimental results show SOW may bring regression for EqualOp with small width
+    constexpr int64_t MIN_WIDTH_FOR_SOW_EQUAL = 256;
+
+    const auto outShape = outputShape.empty() ? getBoundedShape(getResult()) : outputShape;
+    const auto OW = outShape[Dims4D::Act::W];
+
+    if (OW <= MIN_WIDTH_FOR_SOW_EQUAL) {
+        return false;
+    }
+
+    return VPU::isEltwiseSWOpSplitOverWidthCompatible(getOperation(), outShape);
+}
 
 bool vpux::VPU::EqualOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {
     VPUX_THROW_UNLESS(buffers.size() == 3, "EqualOp requires 2 inputs and 1 outputs, but the number of buffer is {0}",

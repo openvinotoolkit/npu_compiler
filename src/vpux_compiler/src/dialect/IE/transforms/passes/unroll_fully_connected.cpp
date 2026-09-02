@@ -12,10 +12,13 @@
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/locations.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
 
@@ -331,8 +334,8 @@ mlir::Value UnrollFullyConnected::reduceSumForAccumulateMatMuls(const mlir::Valu
 
     auto axesAttr = getIntArrayAttr(rewriter, SmallVector<int32_t>{vpux::Dims4D::Act::C.ind()});
     const auto reduceSumLoc = appendLoc(matMuls.front().getLoc(), "reduceSum_for_accumulate");
-    auto newReduceSumOp = rewriter.create<IE::ReduceSumOp>(reduceSumLoc, concat.getOutput(), nullptr, axesAttr, false,
-                                                           nullptr, nullptr);
+    auto newReduceSumOp =
+            rewriter.create<IE::ReduceSumOp>(reduceSumLoc, concat.getOutput(), axesAttr, false, nullptr, nullptr);
 
     auto newMatMulShape = getShape(newReduceSumOp.getOutput());
     SmallVector<int64_t> newShapeOut{newMatMulShape[Dim(1)], newMatMulShape[Dim(2)]};
@@ -390,19 +393,40 @@ bool UnrollFullyConnected::isUnrollingBeneficial(IE::FullyConnectedOp origOp, ml
             nestedLog.trace("Weights have U2 subbyte type (levels=4), unrolling is always beneficial.");
             return true;
         }
+
+        // Constant sub-byte grouped weights: unroll into per-group quantized convolutions to keep the weights at 4
+        // bits, since otherwise they are dequantized to fp16 whose DMA is 4x larger and dominates memory-bound decode.
+        // Gated on a constant weight (with spatial very small) so non-const, activation-like inputs
+        // still defer to the profiled cost model below.
+        constexpr int64_t MEMORY_BOUND_DECODE_SPATIAL_LIMIT = 16;
+        if (fcInputShape[Dim(0)] <= MEMORY_BOUND_DECODE_SPATIAL_LIMIT &&
+            fqParent.getInput().getDefiningOp<Const::DeclareOp>() != nullptr) {
+            nestedLog.trace("Constant sub-byte grouped weights in memory-bound regime, unrolling is beneficial.");
+            return true;
+        }
     }
 
     if (auto dynamicDequant = concatInputs.front().getDefiningOp<IE::DynamicDequantizeOp>()) {
         auto inputType = mlir::dyn_cast<vpux::NDTypeInterface>(dynamicDequant.getInput().getType());
-        if (auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(inputType.getElementType())) {
+        auto elemType = inputType.getElementType();
+        if (auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(elemType)) {
             if (uniformType.getStorageTypeIntegralWidth() != 4 && uniformType.getStorageTypeIntegralWidth() != 2) {
                 return false;
             }
+        } else if (auto intType = mlir::dyn_cast<mlir::IntegerType>(elemType)) {
+            if (intType.getWidth() != 4 && intType.getWidth() != 2) {
+                return false;
+            }
+        } else if (isLowFpType(elemType) && !isFloat4(elemType)) {
+            return false;
         }
 
-        // If input is dynamic dequant operation, it is always beneficial to unroll for KV cache model
-        if (fcInputShape[Dim(0)] == 1) {
-            return true;
+        // Synthetic WAC DynDeqs should not bypass the cost model
+        if (!dynamicDequant->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
+            // Non-synth DynDeq: always beneficial to unroll for KV cache decode
+            if (fcInputShape[Dim(0)] == 1) {
+                return true;
+            }
         }
     }
 

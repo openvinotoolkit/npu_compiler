@@ -3,10 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <vpux/compiler/dialect/IE/utils/reshape_utils.hpp>
 #include <vpux/compiler/dialect/core/IR/ops.hpp>
 #include <vpux/compiler/dialect/core/transforms/passes.hpp>
 #include <vpux/compiler/dialect/core/types.hpp>
 #include <vpux/compiler/utils/func_dialect.hpp>
+#include <vpux/compiler/utils/shape_utils.hpp>
 #include <vpux/compiler/utils/types.hpp>
 #include "vpux/compiler/dialect/HostExec/params.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
@@ -106,20 +108,94 @@ vpux::NDTypeInterface getDynamicTypeFromReinterpretInputs(mlir::Value root) {
     return nullptr;
 }
 
-vpux::NDTypeInterface getInputNetworkInfoType(mlir::func::FuncOp funcOp, unsigned argIndex) {
+// Projects bounds from `sourceBoundedType` onto `targetType` skipping across
+// inserted/removed size-1 dims (dim-expansion reshape).
+vpux::NDTypeInterface projectBoundsOntoTargetType(vpux::NDTypeInterface sourceBoundedType,
+                                                  vpux::NDTypeInterface targetType, vpux::Logger& log) {
+    const auto sourceShape = sourceBoundedType.getShape();
+    const auto sourceOrder = sourceBoundedType.getDimsOrder();
+    const auto targetShape = targetType.getShape();
+    const auto targetOrder = targetType.getDimsOrder();
+
+    VPUX_THROW_UNLESS(hasDynamicTypeMetadata(sourceBoundedType), "Type '{0}' does not have dynamic metadata",
+                      sourceBoundedType);
+    const auto sourceBoundedTensorType = mlir::cast<Core::BoundedTensorType>(sourceBoundedType);
+    const auto sourceBounds = sourceBoundedTensorType.getBounds();
+
+    // Core.ReinterpretCastOp guarantees rank preservation - the following check should never fail
+    VPUX_THROW_UNLESS(sourceBoundedType.getShape().size() == targetShape.size(),
+                      "Rank mismatch: source has rank {0}, target has rank {1}", sourceBoundedType.getShape().size(),
+                      targetShape.size());
+
+    auto getTargetType = [&]() -> vpux::NDTypeInterface {
+        llvm::SmallVector<int64_t> dynDimBounds;
+        for (const auto& dimAndSize : llvm::enumerate(sourceShape)) {
+            if (mlir::ShapedType::isDynamic(dimAndSize.value())) {
+                dynDimBounds.push_back(sourceBounds[vpux::Dim(dimAndSize.index())]);
+            }
+        }
+
+        vpux::Shape targetBounds(targetShape.raw());
+        auto remainingBounds = ArrayRef(dynDimBounds);
+        for (const auto& dimAndSize : llvm::enumerate(targetShape)) {
+            if (mlir::ShapedType::isDynamic(dimAndSize.value())) {
+                VPUX_THROW_WHEN(remainingBounds.empty(), "Not enough dynamic bounds to project onto target type");
+                targetBounds[vpux::Dim(dimAndSize.index())] = remainingBounds.front();
+                remainingBounds = remainingBounds.drop_front();
+            }
+        }
+
+        const auto typeComponents = TypeComponents().setBounds(Bounds(targetBounds.raw()));
+        return targetType.changeTypeComponents(typeComponents);
+    };
+
+    // Handle dim-expansion reshape at same rank: shapes differ only by value changes in size-1 dims.
+    // Example: 1 x 512 x 1 x 1500 -> 1 x 1 x 512 x 1500 (both rank-4)
+    if (!vpux::isNotDimExpansionReshape(sourceShape, targetShape)) {
+        return getTargetType();
+    }
+
+    // FinalizeComputeFunctionBoundariesPass uses this same toMemoryOrder conversion, but on shape.
+    // Identical conversion is equally valid for bounds, since bounds are indexed per-dimension exactly like shape is.
+    auto memBounds = sourceOrder.toMemoryOrder(sourceBounds);
+    auto targetBounds = targetOrder.toLogicalOrder(memBounds);
+
+    // Verify that the projected bounds are compatible with the target shape.
+    bool targetShapeHasCompatibleBounds = true;
+    for (const auto& [idx, dimSize] : llvm::enumerate(targetShape)) {
+        if (!mlir::ShapedType::isDynamic(dimSize) && targetBounds[vpux::Dim(idx)] != dimSize) {
+            targetShapeHasCompatibleBounds = false;
+            break;
+        }
+    }
+    if (targetShapeHasCompatibleBounds) {
+        const auto typeComponents = TypeComponents().setBounds(Bounds(targetBounds.raw()));
+        return targetType.changeTypeComponents(typeComponents);
+    }
+
+    log.warning("Could not deduce bounds from source layout. Falling back to heuristic based approach for projecting "
+                "bounds onto target type.");
+
+    // Fall back to heuristic based approach. Assume that the order of dynamic dimensions remains same and map the
+    // bounds from source to target based on the order of dynamic dimensions. This is a best effort approach and may not
+    // be correct in all cases.
+    return getTargetType();
+}
+
+vpux::NDTypeInterface getInputNetworkInfoType(mlir::func::FuncOp funcOp, unsigned argIndex, vpux::Logger& log) {
     VPUX_THROW_WHEN(argIndex >= funcOp.getNumArguments(), "Input index {0} is out of range for function '{1}'",
                     argIndex, funcOp.getSymName());
 
     // This pass only propagates dynamic bounds into NetworkInfo when they can be recovered from the
     // reinterpret-cast.
-    if (auto dynamicType = getDynamicTypeFromReinterpretUsers(funcOp.getArgument(argIndex)); dynamicType != nullptr) {
-        return dynamicType;
+    if (auto resultType = getDynamicTypeFromReinterpretUsers(funcOp.getArgument(argIndex)); resultType != nullptr) {
+        return projectBoundsOntoTargetType(resultType, funcOp.getArgument(argIndex).getType(), log);
     }
 
     return nullptr;
 }
 
-vpux::NDTypeInterface getOutputNetworkInfoType(mlir::func::FuncOp funcOp, unsigned resultIndex) {
+vpux::NDTypeInterface getOutputNetworkInfoType(mlir::func::FuncOp funcOp, unsigned resultIndex, vpux::Logger& log) {
     VPUX_THROW_WHEN(resultIndex >= funcOp.getNumResults(), "Output index {0} is out of range for function '{1}'",
                     resultIndex, funcOp.getSymName());
 
@@ -133,7 +209,7 @@ vpux::NDTypeInterface getOutputNetworkInfoType(mlir::func::FuncOp funcOp, unsign
         // Return operands may be wrapped by reinterpret casts; recover dynamic metadata.
         auto current = returnOp.getOperand(resultIndex);
         if (auto dynamicType = getDynamicTypeFromReinterpretInputs(current); dynamicType != nullptr) {
-            return dynamicType;
+            return projectBoundsOntoTargetType(dynamicType, returnOp.getOperand(resultIndex).getType(), log);
         }
     }
 
@@ -562,7 +638,7 @@ void PackNestedModules::createNetInfoForFuncOp(mlir::OpBuilder& builder, mlir::f
 
     for (unsigned i = 0; i < funcType.getNumInputs(); ++i) {
         auto argType = mlir::cast<vpux::NDTypeInterface>(funcType.getInput(i));
-        auto netInfoArgType = getInputNetworkInfoType(funcOp, i);
+        auto netInfoArgType = getInputNetworkInfoType(funcOp, i, _log);
         auto name = formatv("in_{0}", i).str();
         auto dataInfoOp = createDataInfoOp(name, argType, netInfoArgType);
 
@@ -581,7 +657,7 @@ void PackNestedModules::createNetInfoForFuncOp(mlir::OpBuilder& builder, mlir::f
 
     for (unsigned i = 0; i < funcType.getNumResults(); ++i) {
         auto resType = mlir::cast<vpux::NDTypeInterface>(funcType.getResult(i));
-        auto netInfoResType = getOutputNetworkInfoType(funcOp, i);
+        auto netInfoResType = getOutputNetworkInfoType(funcOp, i, _log);
         auto name = formatv("out_{0}", i).str();
         auto dataInfoOp = createDataInfoOp(name, resType, netInfoResType);
 

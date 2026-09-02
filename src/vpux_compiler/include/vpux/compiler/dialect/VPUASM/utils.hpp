@@ -2,8 +2,8 @@
 // Copyright (C) 2023-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
+#pragma once
 
-#include "vpux/compiler/dialect/ELF/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUASM/types.hpp"
 
@@ -36,6 +36,7 @@ bool isWorkLoadManagementDMA(mlir::Operation* op);
 uint32_t getTileSelectMaskForBuffer(VPUASM::DeclareBufferOp buffer);
 uint32_t getTileSelectMaskForBuffer(VPUASM::DeclareTaskBufferOp taskBuffer);
 uint32_t getActCompressionEntryTileMask(VPUASM::NNDMAOp dmaOp, ELF::SymbolReferenceMap& symRefMap);
+uint32_t getDynamicSequenceLengthBuffTileMask(VPUASM::NNDMAOp dmaOp, ELF::SymbolReferenceMap& symRefMap);
 SparsityMap getSparsityMapBuffTileMask(VPUASM::NNDMAOp dmaOp, ELF::SymbolReferenceMap& symRefMap);
 
 void setResourceRequirement(mlir::ModuleOp moduleOp, elf::NetworkMetadata& metadata);

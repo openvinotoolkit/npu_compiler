@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -30,8 +31,16 @@ mlir::LogicalResult vpux::IE::ShapeCastOp::inferReturnTypeComponents(
 
     VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
                       IE::ShapeCastOp::getOperationName());
+
+    auto outputElementType = inType.getElementType();
+
+    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outputElementType) &&
+        inType.getDimsOrder() == DimsOrder::NHWC) {
+        outputElementType = vpux::inferPerAxisQuantizedTypeAfterShapeCast(inType, outShape);
+    }
+
     const auto outDesc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace());
-    inferredReturnTypes.emplace_back(outShape, inType.getElementType(), outDesc);
+    inferredReturnTypes.emplace_back(outShape, outputElementType, outDesc);
     return mlir::success();
 }
 
@@ -44,7 +53,8 @@ mlir::OpFoldResult vpux::IE::ShapeCastOp::fold(FoldAdaptor adaptor) {
     }
 
     VPUX_THROW_UNLESS(!operands.empty(), "Wrong number of operands : {0}", operands.size());
-    if (mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>(inputType.getElementType())) {
+    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inputType.getElementType()) &&
+        inputType.getDimsOrder() != DimsOrder::NHWC) {
         return nullptr;
     }
     if (const auto attr = mlir::dyn_cast_or_null<Const::ContentAttr>(operands[0])) {

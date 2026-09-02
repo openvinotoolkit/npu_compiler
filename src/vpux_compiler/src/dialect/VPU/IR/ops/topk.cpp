@@ -160,6 +160,11 @@ vpux::OutputTiling vpux::VPU::TopKOp::getOutputTiling(const vpux::TileInfo& firs
     return OutputTiling{firstOutputTile, firstOutputTile};
 }
 
+vpux::TileInfo vpux::VPU::TopKOp::getMainOutputTile(mlir::OpResult /*secondaryOutput*/,
+                                                    const vpux::TileInfo& secondaryOutputTile, vpux::Logger /*log*/) {
+    return secondaryOutputTile;
+}
+
 void vpux::VPU::TopKOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const TileInfo& /*outputTile*/) {
     // Do nothing
 }

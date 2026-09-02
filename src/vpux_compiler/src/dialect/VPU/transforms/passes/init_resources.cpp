@@ -132,6 +132,7 @@ void InitResourcesPass::safeRunOnModule() {
             config::setRevisionID(module, config::RevisionID::REVISION_NONE);
         }
     }
+    _log.info("Current revision: {}", stringifyRevisionID(config::getRevisionID(module)));
 
     if (config::getElfAbiVersion(module) == std::nullopt) {
         if (const auto& baseElfAbiVersion = config::getNPUConstraints(ctx).baseElfAbiVersion) {

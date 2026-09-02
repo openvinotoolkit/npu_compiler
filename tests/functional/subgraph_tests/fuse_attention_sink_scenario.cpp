@@ -11,12 +11,18 @@
 
 namespace ov::test::subgraph {
 
+// Attention-with-sink scenario covering both self-attention and Grouped-Query-Attention (GQA).
+// FuseAttention distributes the query heads across N (kv-group) and C (head-in-group), so a
+// per-head sink packs its logits along the C axis (numQHeads entries). For GQA (numQHeads >
+// numKVHeads) the reference applies repeat_kv to broadcast K/V from numKVHeads to numQHeads.
+// Tiling over N then requires each kv-group tile to read its own sink slice; a distinct-per-head
+// sink diverges from the decompose reference if any tile reads the wrong slice.
 struct AttentionSinkPatternParams {
-    ov::Shape inputQ;
-    ov::Shape inputKTranspose;
-    ov::Shape inputV;
-    ov::Shape inputMask;
-    ov::Shape inputSink;
+    size_t numQHeads;
+    size_t numKVHeads;
+    size_t seqLen;
+    size_t headDim;
+    bool broadcastSink;
 };
 
 class FuseAttentionSinkPatternTestCommon :
@@ -43,33 +49,57 @@ class FuseAttentionSinkPatternTestCommon :
         inType = outType = elementType;
 
         const auto testParams = GetParam();
-        const auto& inputQShape = testParams.inputQ;
-        const auto& inputKTransposeShape = testParams.inputKTranspose;
-        const auto& inputVShape = testParams.inputV;
-        const auto& inputMaskShape = testParams.inputMask;
-        const auto& inputSinkShape = testParams.inputSink;
+        const auto numQHeads = static_cast<int64_t>(testParams.numQHeads);
+        const auto numKVHeads = static_cast<int64_t>(testParams.numKVHeads);
+        const auto seqLen = static_cast<int64_t>(testParams.seqLen);
+        const auto headDim = static_cast<int64_t>(testParams.headDim);
+        const auto groupSize = numQHeads / numKVHeads;
 
-        init_input_shapes(ov::test::static_shapes_to_test_representation(
-                {inputQShape, inputKTransposeShape, inputVShape, inputMaskShape, inputSinkShape}));
+        const ov::Shape qShape{1, testParams.numQHeads, testParams.seqLen, testParams.headDim};
+        const ov::Shape kvShape{1, testParams.numKVHeads, testParams.seqLen, testParams.headDim};
+        const ov::Shape maskShape{1, 1, testParams.seqLen, testParams.seqLen};
+        const ov::Shape sinkShape = testParams.broadcastSink ? ov::Shape{1, testParams.numQHeads, 1, 1}
+                                                             : ov::Shape{1, testParams.numQHeads, testParams.seqLen, 1};
+
+        init_input_shapes(
+                ov::test::static_shapes_to_test_representation({qShape, kvShape, kvShape, maskShape, sinkShape}));
 
         const auto inputQ = std::make_shared<ov::opset3::Parameter>(inType, inputDynamicShapes.at(0));
-        const auto inputKTranspose = std::make_shared<ov::opset3::Parameter>(inType, inputDynamicShapes.at(1));
+        const auto inputK = std::make_shared<ov::opset3::Parameter>(inType, inputDynamicShapes.at(1));
         const auto inputV = std::make_shared<ov::opset3::Parameter>(inType, inputDynamicShapes.at(2));
         const auto inputMask = std::make_shared<ov::opset3::Parameter>(inType, inputDynamicShapes.at(3));
-        auto inputSink = std::make_shared<ov::opset3::Parameter>(inType, inputDynamicShapes.at(4));
+        const auto inputSink = std::make_shared<ov::opset3::Parameter>(inType, inputDynamicShapes.at(4));
 
-        const auto scores = std::make_shared<ov::opset14::MatMul>(inputQ, inputKTranspose, false, true);
+        // repeat_kv broadcasts K/V from numKVHeads to numQHeads for GQA; self-attention keeps K/V as-is:
+        // [1, numKVHeads, S, D] -> [1, numKVHeads, 1, S, D] -> broadcast [1, numKVHeads, groupSize, S, D]
+        // -> [1, numQHeads, S, D].
+        const auto repeatKV = [&](const std::shared_ptr<ov::Node>& kv) -> std::shared_ptr<ov::Node> {
+            const auto expandShape = ov::opset3::Constant::create(
+                    ov::element::i64, ov::Shape{5}, std::vector<int64_t>{1, numKVHeads, 1, seqLen, headDim});
+            const auto expanded = std::make_shared<ov::opset3::Reshape>(kv, expandShape, false);
+            const auto broadcastShape = ov::opset3::Constant::create(
+                    ov::element::i64, ov::Shape{5}, std::vector<int64_t>{1, numKVHeads, groupSize, seqLen, headDim});
+            const auto broadcasted = std::make_shared<ov::opset14::Broadcast>(expanded, broadcastShape,
+                                                                              ov::op::BroadcastType::BIDIRECTIONAL);
+            const auto mergeShape = ov::opset3::Constant::create(ov::element::i64, ov::Shape{4},
+                                                                 std::vector<int64_t>{1, numQHeads, seqLen, headDim});
+            return std::make_shared<ov::opset3::Reshape>(broadcasted, mergeShape, false);
+        };
+
+        const std::shared_ptr<ov::Node> keyFull = numQHeads > numKVHeads ? repeatKV(inputK) : inputK;
+        const std::shared_ptr<ov::Node> valueFull = numQHeads > numKVHeads ? repeatKV(inputV) : inputV;
+
+        const auto scores = std::make_shared<ov::opset14::MatMul>(inputQ, keyFull, false, true);
         const auto maskedScores =
                 std::make_shared<ov::opset14::Add>(scores, inputMask, ov::op::AutoBroadcastType::NUMPY);
 
-        // broadcast sink resolution if need
+        // A per-head sink packs one logit per query head along C; broadcast it across S before concat.
         std::shared_ptr<ov::op::v0::Concat> scoresWithSink;
-        if (inputSinkShape[2] == 1) {
-            const auto broadcastShape =
-                    ov::Shape{inputSinkShape[0], inputSinkShape[1], inputQShape[2], inputSinkShape[3]};
-            const auto target_shape_input =
-                    std::make_shared<ov::opset3::Constant>(ov::element::i32, ov::Shape{4}, broadcastShape);
-            const auto broadcastedSink = std::make_shared<ov::opset14::Broadcast>(inputSink, target_shape_input);
+        if (testParams.broadcastSink) {
+            const ov::Shape sinkBroadcastShape{1, testParams.numQHeads, testParams.seqLen, 1};
+            const auto sinkTargetShape =
+                    std::make_shared<ov::opset3::Constant>(ov::element::i32, ov::Shape{4}, sinkBroadcastShape);
+            const auto broadcastedSink = std::make_shared<ov::opset14::Broadcast>(inputSink, sinkTargetShape);
             broadcastedSink->set_friendly_name("sdp_sink_pattern");
             scoresWithSink = std::make_shared<ov::opset14::Concat>(ov::OutputVector{maskedScores, broadcastedSink}, 3);
         } else {
@@ -77,14 +107,10 @@ class FuseAttentionSinkPatternTestCommon :
         }
 
         const auto normalizedScores = std::make_shared<ov::opset14::Softmax>(scoresWithSink, 3);
-        const auto qShape = inputQShape;
-        const auto kTShape = inputKTransposeShape;
         const auto beginConst =
                 ov::opset3::Constant::create(ov::element::i64, ov::Shape{4}, std::vector<int64_t>{0, 0, 0, 0});
-        const auto endConst = ov::opset3::Constant::create(
-                ov::element::i64, ov::Shape{4},
-                std::vector<int64_t>{static_cast<int64_t>(qShape[0]), static_cast<int64_t>(qShape[1]),
-                                     static_cast<int64_t>(qShape[2]), static_cast<int64_t>(kTShape[2])});
+        const auto endConst = ov::opset3::Constant::create(ov::element::i64, ov::Shape{4},
+                                                           std::vector<int64_t>{1, numQHeads, seqLen, seqLen});
         const auto stridesConst =
                 ov::opset3::Constant::create(ov::element::i64, ov::Shape{4}, std::vector<int64_t>{1, 1, 1, 1});
         const auto slicedScores = std::make_shared<ov::opset3::StridedSlice>(
@@ -92,10 +118,10 @@ class FuseAttentionSinkPatternTestCommon :
                 std::vector<int64_t>{0, 0, 0, 0}, std::vector<int64_t>{0, 0, 0, 0}, std::vector<int64_t>{0, 0, 0, 0},
                 std::vector<int64_t>{0, 0, 0, 0});
 
-        const auto output = std::make_shared<ov::opset14::MatMul>(slicedScores, inputV, false, false);
+        const auto output = std::make_shared<ov::opset14::MatMul>(slicedScores, valueFull, false, false);
         output->set_friendly_name("sdp_sink_pattern");
 
-        ov::ParameterVector inputParams{inputQ, inputKTranspose, inputV, inputMask, inputSink};
+        ov::ParameterVector inputParams{inputQ, inputK, inputV, inputMask, inputSink};
         auto results = ov::ResultVector{std::make_shared<ov::opset3::Result>(output)};
 
         function = std::make_shared<ov::Model>(results, inputParams, "SDPSinkPattern");
@@ -108,12 +134,11 @@ public:
         std::ostringstream result;
         const auto& p = obj.param;
         result << "TestKind" << ov::test::utils::testKind(__FILE__) << sep;
-        result << "TestIdx=" << obj.index << sep;
-        result << "Q=" << p.inputQ << sep;
-        result << "KT=" << p.inputKTranspose << sep;
-        result << "V=" << p.inputV << sep;
-        result << "Mask=" << p.inputMask << sep;
-        result << "SinkBase=" << p.inputSink;
+        result << "QHeads=" << p.numQHeads << sep;
+        result << "KVHeads=" << p.numKVHeads << sep;
+        result << "SeqLen=" << p.seqLen << sep;
+        result << "HeadDim=" << p.headDim << sep;
+        result << "BroadcastSink=" << p.broadcastSink;
         return result.str();
     };
 };
@@ -124,13 +149,18 @@ TEST_P(FuseAttentionSinkPatternTestCommon, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-        smoke_AttentionWithSink_model_scenario, FuseAttentionSinkPatternTestCommon,
-        ::testing::ValuesIn({
-                AttentionSinkPatternParams{
-                        {1, 64, 1024, 64}, {1, 64, 1024, 64}, {1, 64, 1024, 64}, {1, 1, 1024, 1024}, {1, 64, 1024, 1}},
-                AttentionSinkPatternParams{
-                        {1, 64, 1024, 64}, {1, 64, 1024, 64}, {1, 64, 1024, 64}, {1, 1, 1024, 1024}, {1, 64, 1, 1}},
-        }),
-        FuseAttentionSinkPatternTestCommon::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_AttentionWithSink_model_scenario, FuseAttentionSinkPatternTestCommon,
+                         ::testing::ValuesIn({
+                                 AttentionSinkPatternParams{64, 64, 1024, 64, /*broadcastSink=*/false},
+                                 AttentionSinkPatternParams{64, 64, 1024, 64, /*broadcastSink=*/true},
+                         }),
+                         FuseAttentionSinkPatternTestCommon::getTestCaseName);
+
+// Grouped-Query-Attention scenario (numQHeads > numKVHeads) reuses the unified test class; the
+// KV broadcasting is applied through repeat_kv in SetUp.
+INSTANTIATE_TEST_SUITE_P(smoke_AttentionGQAWithSink_kvgroup_tiling, FuseAttentionSinkPatternTestCommon,
+                         ::testing::ValuesIn({
+                                 AttentionSinkPatternParams{32, 8, 1024, 64, /*broadcastSink=*/true},
+                         }),
+                         FuseAttentionSinkPatternTestCommon::getTestCaseName);
 }  // namespace ov::test::subgraph

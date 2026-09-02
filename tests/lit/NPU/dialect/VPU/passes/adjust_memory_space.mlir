@@ -15,7 +15,7 @@ func.func @ConvNCEtoCMX(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>) -> tenso
     %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1]
     } : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}> -> tensor<1x16x16x16xf16, {order = #NHWC}>
 
@@ -47,10 +47,10 @@ func.func @ConvNCEtoCMX(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>) -> tenso
 func.func @DepthConvNCEtoCMX(%arg0: tensor<1x16x40x80xf16, {order = #NHWC}>) -> tensor<1x16x37x73xf16, {order = #NHWC}> {
     %weights = const.Declare tensor<16x1x4x8xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<16x1x4x8xf16>, [#const.Reorder<#NHWC>]
 
-    %0 = VPU.NCE.DepthConvolution(%arg0, %weights) rawFilterShape [16, 1, 4, 8] {
+    %0 = VPU.NCE.DepthConvolution(%arg0, %weights) rawFilterShape [16, 1, 4, 8] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1]
     } -> tensor<1x16x37x73xf16, {order = #NHWC}>
 
@@ -123,7 +123,7 @@ func.func @MaxPoolNCEtoCMX(%arg0: tensor<1x16x1x4xf16, {order = #NHWC}>) -> tens
 func.func @EltwiseAddNCEtoCMX(%arg0: tensor<1x64x28x28xf16, {order = #NHWC}>,
                          %arg1: tensor<1x64x28x28xf16, {order = #NHWC}>)
                         -> tensor<1x64x28x28xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>
     } -> tensor<1x64x28x28xf16, {order = #NHWC}>
 
@@ -152,7 +152,7 @@ func.func @EltwiseAddNCEtoCMX(%arg0: tensor<1x64x28x28xf16, {order = #NHWC}>,
 // CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x64x28x28xf16, {order = #NHWC}>)
 func.func @EltwiseAndSameInputsNCEtoCMX(%arg0: tensor<1x64x28x28xf16, {order = #NHWC}>)
                                   -> tensor<1x64x28x28xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<AND>, ppe = #VPU.PPEStub<>
     } -> tensor<1x64x28x28xf16, {order = #NHWC}>
 
@@ -214,7 +214,7 @@ func.func @InterpolateBilinearNCEtoCMX(%arg0: tensor<1x64x5x10xf16, {order = #NH
 
     %interpolate = VPU.NCE.Interpolate(%input, %weights) rawFilterShape [64, 64, 2, 2] {
         strides = [1, 1],
-        
+
         mode = #VPU.nce_interpolate_mode<BILINEAR>,
         scales_attr = [2, 2],
         ppe = #VPU.PPEStub<>
@@ -341,7 +341,7 @@ func.func @InterpolateNearestNCEtoCMX(%arg0: tensor<1x64x5x10xf16, {order = #NHW
 
     %interpolate = VPU.NCE.Interpolate(%input, %weights) rawFilterShape [64, 64, 1, 1] {
         strides = [1, 1],
-        
+
         mode = #VPU.nce_interpolate_mode<NEAREST>,
         scales_attr = [2, 2],
         ppe = #VPU.PPEStub<>

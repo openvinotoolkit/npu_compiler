@@ -48,6 +48,9 @@ struct InputRange {
     int64_t stride;
 };
 
+// Bound resolver installed by OpChainAnalysis for a tensor.extract whose source is not a constant
+TensorBoundResolver getInterpolateScalesBoundResolver();
+
 /**
  * @brief Utility class for analyzing and processing operation chains in MLIR
  *
@@ -93,7 +96,8 @@ public:
 
     std::optional<int64_t> getIntegerFromValue(mlir::Value value, bool processOpChain = false);
 
-    std::tuple<int64_t, int64_t, int64_t> getLoopBoundsAndStep(mlir::scf::ForOp forOp);
+    std::tuple<int64_t, int64_t, int64_t> getLoopBoundsAndStep(mlir::scf::ForOp forOp,
+                                                               ValueRangeMap* valueHints = nullptr);
 
     SmallVector<int64_t> getForallInductionDimRange(mlir::scf::ForallOp forallOp, mlir::BlockArgument& dimInductionArg,
                                                     ValueRangeMap& valueMap);

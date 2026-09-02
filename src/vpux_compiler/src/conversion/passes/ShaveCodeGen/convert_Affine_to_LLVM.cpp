@@ -117,9 +117,29 @@ void ConvertAffine2LLVMPass::getArgMemRefNoAliasMask(mlir::func::FuncOp funcOp, 
         // another memref.
         llvm::DenseMap<mlir::Value, unsigned> rootBufferCount;
         llvm::SmallVector<AliasesInfoBase::ValuesVector> argRoots;
-        auto addArgInfo = [&](mlir::Value arg) {
+
+        // Calling convention: the SwKernelOp's inputs followed by its outputs correspond
+        // one-to-one, in order, to the leading memref arguments of the kernel function.
+        SmallVector<mlir::Value> memrefFuncArgs;
+        for (auto funcArg : funcOp.getArguments()) {
+            if (mlir::isa<mlir::MemRefType>(funcArg.getType())) {
+                memrefFuncArgs.push_back(funcArg);
+            }
+        }
+        VPUX_THROW_UNLESS(memrefFuncArgs.size() == swKern.getInputs().size() + swKern.getOutputs().size(),
+                          "SwKernelOp input/output operand count does not match the number of memref arguments of "
+                          "kernel function '{0}'",
+                          funcOp.getName());
+
+        auto addArgInfo = [&](mlir::Value callArg, mlir::Value calleeArg) {
+            // If the corresponding funcOp argument is unused, treat it as having no roots.
+            // This allows other arguments that do alias it to still have noalias.
+            if (calleeArg.use_empty()) {
+                argRoots.emplace_back();
+                return;
+            }
             // Record the set of roots for this argument.
-            argRoots.emplace_back(aliasesInfo.getRoots(arg));
+            argRoots.emplace_back(aliasesInfo.getRoots(callArg));
             // Bump the counter for every root of this argument.
             for (auto buf : argRoots.back()) {
                 rootBufferCount.try_emplace(buf, 0).first->second++;
@@ -128,11 +148,12 @@ void ConvertAffine2LLVMPass::getArgMemRefNoAliasMask(mlir::func::FuncOp funcOp, 
 
         // Record roots for every input/output memrefs. Note that all
         // inputs and outputs for a SwKernelOp are known to be memrefs.
+        size_t argIdx = 0;
         for (auto input : swKern.getInputs()) {
-            addArgInfo(input);
+            addArgInfo(input, memrefFuncArgs[argIdx++]);
         }
         for (auto output : swKern.getOutputs()) {
-            addArgInfo(output);
+            addArgInfo(output, memrefFuncArgs[argIdx++]);
         }
 
         // Construct the bitmask for this invocation and &-it to

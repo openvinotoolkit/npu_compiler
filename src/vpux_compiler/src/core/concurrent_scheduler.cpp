@@ -29,12 +29,15 @@ void ConcurrentMemorySchedulerRunner::runTasks(std::vector<SchedulerTask> tasks)
     auto executeTask = [&](size_t i) {
         try {
             auto scheduleResult = tasks[i].taskFunc(tasks[i].depsInfo, tasks[i].scan, tasks[i].liveRange);
-            if (_schedulersCosts.contains(tasks[i].friendlyName)) {
-                // Schedulers should be named properly. Repeating name makes statistic log confusing.
-                // It's not a severe blocker for scheduling result but better to avoid it.
-                _log.warning("Repeating name of {0}", stringifySchedulerType(tasks[i].friendlyName));
-            } else {
-                _schedulersCosts[tasks[i].friendlyName] = scheduleResult.back().cycleEnd_;
+            {
+                std::lock_guard<std::mutex> lock(_schedulersCostsMutex);
+                if (_schedulersCosts.contains(tasks[i].friendlyName)) {
+                    // Schedulers should be named properly. Repeating name makes statistic log confusing.
+                    // It's not a severe blocker for scheduling result but better to avoid it.
+                    _log.warning("Repeating name of {0}", stringifySchedulerType(tasks[i].friendlyName));
+                } else {
+                    _schedulersCosts[tasks[i].friendlyName] = scheduleResult.back().cycleEnd_;
+                }
             }
             _results[i].result = SchedulerResult{std::move(scheduleResult), std::move(tasks[i].depsInfo),
                                                  std::move(tasks[i].scan), std::move(tasks[i].friendlyName)};

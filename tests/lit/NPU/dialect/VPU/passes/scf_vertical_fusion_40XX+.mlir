@@ -43,11 +43,11 @@ func.func @MergeVFChain3Tiles(%arg0: tensor<1x256x540x120xf16, {order = #NHWC}>)
     %1 = VPU.NCE.Convolution(%0, %cst) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 22]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %2 = VPU.NCE.Convolution(%1, %cst_0) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 22]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %3 = VPU.NCE.Convolution(%2, %cst_1) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 21]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
-    %4 = VPU.NCE.DepthConvolution(%3, %cst_9) rawFilterShape [32, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 21]} -> tensor<1x32x540x960xf16, {order = #NHWC}>
+    %4 = VPU.NCE.DepthConvolution(%3, %cst_9) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 21]} -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %5 = VPU.NCE.Convolution(%4, %cst_2) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 22]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %6 = VPU.NCE.Convolution(%5, %cst_3) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 22]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %7 = VPU.NCE.Convolution(%6, %cst_4) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 21]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
-    %8 = VPU.NCE.DepthConvolution(%7, %cst_5) rawFilterShape [32, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 20]} -> tensor<1x32x540x960xf16, {order = #NHWC}>
+    %8 = VPU.NCE.DepthConvolution(%7, %cst_5) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 20]} -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %9 = VPU.ShapeCast {shape = [1, 128, 540, 240]} inputs(%8 : tensor<1x32x540x960xf16, {order = #NHWC}>) -> tensor<1x128x540x240xf16, {order = #NHWC}>
 
     return %9: tensor<1x128x540x240xf16, {order = #NHWC}>
@@ -184,11 +184,11 @@ func.func @MergeVFChain6Tiles(%arg0: tensor<1x256x540x120xf16, {order = #NHWC}>)
     %1 = VPU.NCE.Convolution(%0, %cst) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 22]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %2 = VPU.NCE.Convolution(%1, %cst_0) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 22]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %3 = VPU.NCE.Convolution(%2, %cst_1) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 21]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
-    %4 = VPU.NCE.DepthConvolution(%3, %cst_6) rawFilterShape [32, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 21]} -> tensor<1x32x540x960xf16, {order = #NHWC}>
+    %4 = VPU.NCE.DepthConvolution(%3, %cst_6) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 21]} -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %5 = VPU.NCE.Convolution(%4, %cst_2) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 22]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %6 = VPU.NCE.Convolution(%5, %cst_3) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 22]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %7 = VPU.NCE.Convolution(%6, %cst_4) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 21]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
-    %8 = VPU.NCE.DepthConvolution(%7, %cst_5) rawFilterShape [32, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 20]} -> tensor<1x32x540x960xf16, {order = #NHWC}>
+    %8 = VPU.NCE.DepthConvolution(%7, %cst_5) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 20]} -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %9 = VPU.ShapeCast {shape = [1, 128, 540, 240]} inputs(%8 : tensor<1x32x540x960xf16, {order = #NHWC}>) -> tensor<1x128x540x240xf16, {order = #NHWC}>
 
     return %9: tensor<1x128x540x240xf16, {order = #NHWC}>
@@ -302,7 +302,7 @@ config.Resources 6 of @NCE at 1.850000e+03 MHz {
 func.func @MergeDynamicEltwise(
          %arg0: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
 ) -> tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}> {
-     %0 = VPU.NCE.Eltwise(%arg0, %arg0) {
+     %0 = VPU.NCE.Eltwise(%arg0, %arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
          is_inplace = true,
          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
          op_type = #VPU.eltwise_type<ADD>,
@@ -318,7 +318,7 @@ func.func @MergeDynamicEltwise(
          tilingStrategy = [1, 1, 1, 2]
      } -> tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
 
-     %1 = VPU.NCE.Eltwise(%0, %0) {
+     %1 = VPU.NCE.Eltwise(%0, %0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
          is_inplace = true,
          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
          op_type = #VPU.eltwise_type<ADD>,
@@ -392,7 +392,7 @@ func.func @MergeVF2Chains(%arg0: tensor<1x32x540x960xf16, {order = #NHWC}>) -> t
     %cst_1 = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.0> : tensor<32x32x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
     %cst_2 = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<1x32x1x1xf32>, [#const.Reshape<[32, 1, 1, 1]>, #const.CastElemType<f16>, #const.PadWithZero<[0, 0, 0, 0], [0, 15, 0, 0]>, #const.Reorder<#NHWC>]
 
-    %0 = VPU.NCE.DepthConvolution(%arg0, %cst_2) rawFilterShape [32, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 21]} -> tensor<1x32x540x960xf16, {order = #NHWC}>
+    %0 = VPU.NCE.DepthConvolution(%arg0, %cst_2) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 21]} -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %1 = VPU.NCE.Convolution(%0, %cst) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<HKSwitch>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 22]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %2 = VPU.Sign(%1) : tensor<1x32x540x960xf16, {order = #NHWC}>  -> tensor<1x32x540x960xf16, {order = #NHWC}>
     %3 = VPU.NCE.Convolution(%2, %cst_0) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 22]} : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x960xf16, {order = #NHWC}>
@@ -487,7 +487,7 @@ func.func @MergeVF2Chains(%arg0: tensor<1x32x540x960xf16, {order = #NHWC}>) -> t
  ) -> tensor<1x16x256x140xf16> {
     %0 = VPU.LayoutCast(%arg0) {dst_order = #NHWC} : tensor<1x16x256x140xf16> -> tensor<1x16x256x140xf16, {order = #NHWC}>
     %1 = VPU.LayoutCast(%arg1) {dst_order = #NHWC} : tensor<1x16x256x140xf16> -> tensor<1x16x256x140xf16, {order = #NHWC}>
-     %2 = VPU.NCE.Eltwise(%0, %1) {
+     %2 = VPU.NCE.Eltwise(%0, %1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
          is_inplace = true,
          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
          op_type = #VPU.eltwise_type<ADD>,
@@ -596,7 +596,7 @@ config.Resources 3 of @NCE at 1.700000e+03 MHz {
 func.func @Merge2DDynamicEltwise(
          %arg0: tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
 ) -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}> {
-     %0 = VPU.NCE.Eltwise(%arg0, %arg0) {
+     %0 = VPU.NCE.Eltwise(%arg0, %arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
          is_inplace = true,
          op_type = #VPU.eltwise_type<ADD>,
          ppe = #VPU.PPEInt<
@@ -611,7 +611,7 @@ func.func @Merge2DDynamicEltwise(
          tilingStrategy = [1, 1, 2, 4]
      } -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
 
-     %1 = VPU.NCE.Eltwise(%0, %0) {
+     %1 = VPU.NCE.Eltwise(%0, %0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
          is_inplace = true,
          op_type = #VPU.eltwise_type<ADD>,
          ppe = #VPU.PPEInt<
@@ -703,7 +703,7 @@ func.func @Merge2DVFChain3Tiles(%arg0: tensor<1x32x?x?xf16, {bounds = #const.Opa
           tensor<32x32x3x3xf16, {order = #NHWC}>
         -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}>
 
-    %1 = VPU.NCE.DepthConvolution(%0, %cst_0) rawFilterShape [32, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+    %1 = VPU.NCE.DepthConvolution(%0, %cst_0) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                                                        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                                                        ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
                                                        lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
@@ -884,7 +884,7 @@ func.func @MergeLoopWithEltwise(
     }  : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}>
       -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
 
-    %1 = VPU.NCE.DepthConvolution(%0, %cst_1) rawFilterShape [32, 1, 1, 1] {
+    %1 = VPU.NCE.DepthConvolution(%0, %cst_1) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         tilingStrategy = [1, 1, 1, 20],
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
@@ -915,7 +915,7 @@ func.func @MergeLoopWithEltwise(
     } : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}>
       -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
 
-    %4 = VPU.NCE.DepthConvolution(%3, %cst_7) rawFilterShape [32, 1, 1, 1] {
+    %4 = VPU.NCE.DepthConvolution(%3, %cst_7) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         tilingStrategy = [1, 1, 1, 20],
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
@@ -924,7 +924,7 @@ func.func @MergeLoopWithEltwise(
          strides = [1, 1]
     } -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 800, 1280]> : tensor<4xsi64>, order = #NHWC}>
 
-    %5 = VPU.NCE.Eltwise(%4, %1) {
+    %5 = VPU.NCE.Eltwise(%4, %1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         op_type = #VPU.eltwise_type<ADD>, tilingStrategy = [1, 1, 1, 20],
         ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
@@ -1137,7 +1137,7 @@ module @QuantizeCastSCFVerticalFusionBlock {
 
         %13 = VPU.NCE.Convolution(%arg0, %cst_36) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = 0 : i64, clamp_high = 255 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 0.1 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 24]} : tensor<1x32x800x1280xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>, tensor<32x32x3x3x!quant.uniform<i8:f16, 5.1E-4>, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> -> tensor<1x32x800x1280x!quant.uniform<u8:f16, 0.123:106>, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
         %14 = VPU.QuantizeCast(%13) {dstElemType = !quant.uniform<u8:f16, 1.000000e+00>} : tensor<1x32x800x1280x!quant.uniform<u8:f16, 0.123:106>, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> -> tensor<1x32x800x1280x!quant.uniform<u8:f16, 1.000000e+00>, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
-        %15 = VPU.NCE.DepthConvolution(%14, %cst_24) rawFilterShape [32, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 18]} -> tensor<1x32x800x1280xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+        %15 = VPU.NCE.DepthConvolution(%14, %cst_24) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 1, 18]} -> tensor<1x32x800x1280xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
         return %15 : tensor<1x32x800x1280xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
     }
     // CHECK:   func.func @main([[ARG0:%.+]]: tensor<1x32x800x1280xf16, {order = #NHWC}>
@@ -1344,13 +1344,13 @@ func.func @PermuteEltwiseFusion(%arg0: tensor<1x16x?x?xf16, {bounds = #const.Opa
         tilingStrategy = [1, 1, 13, 2]
         } -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1280, 1280]> : tensor<4xsi64>, order = #NHWC}>
 
-    %1 = VPU.NCE.Eltwise(%0, %0) {
+    %1 = VPU.NCE.Eltwise(%0, %0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         tilingStrategy = [1, 1, 13, 2],
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>}
         -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1280, 1280]> : tensor<4xsi64>, order = #NHWC}>
 
-    %2 = VPU.NCE.Eltwise(%0, %1) {
+    %2 = VPU.NCE.Eltwise(%0, %1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         tilingStrategy = [1, 1, 13, 2],
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>}
@@ -1431,7 +1431,7 @@ func.func @Merge2DVFChainCompressConv(%arg0: tensor<1x4x?x?xf16, {bounds = #cons
           tensor<32x4x3x3xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32>
         -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}>
 
-    %1 = VPU.NCE.DepthConvolution(%0, %cst_0) rawFilterShape [32, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+    %1 = VPU.NCE.DepthConvolution(%0, %cst_0) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                                                        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                                                        ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
                                                        lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
@@ -1563,7 +1563,7 @@ func.func @Merge1DVFChainCompressConv(%arg0: tensor<1x4x540x?xf16, {bounds = #co
           tensor<32x4x3x3xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32>
         -> tensor<1x32x540x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}>
 
-    %1 = VPU.NCE.DepthConvolution(%0, %cst_0) rawFilterShape [32, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+    %1 = VPU.NCE.DepthConvolution(%0, %cst_0) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                                                        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                                                        ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
                                                        lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
@@ -1654,7 +1654,7 @@ func.func @Merge2DVFChainAvgPool(%arg0: tensor<1x16x?x?x!quant.uniform<u8:f16, 0
   %cst = const.Declare tensor<16x16x3x3x!quant.uniform<u8:f16, 0.0060863536946913774:128>, {order = #NHWC}> = dense<1> : tensor<16x16x3x3xui8, {order = #NHWC}>, [#const.SubView<[0, 0, 0, 0], [16, 16, 3, 3]>, #const.CastElemType<!quant.uniform<u8:f16, 0.0060863536946913774:128>>]
   %19 = VPU.NCE.Convolution(%arg0, %cst) rawFilterShape [16, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, input_padding = [0, 0, 0, 0], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -1.290000e+02 : f64, clamp_high = 1.260000e+02 : f64, prelu_alpha = [1.000000e+00], adder = 1.290000e+02 : f64>,  strides = [1, 1], tilingStrategy = [1, 1, 5, 2]} : tensor<1x16x?x?x!quant.uniform<u8:f16, 0.0013198380376778396:130>, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>, tensor<16x16x3x3x!quant.uniform<u8:f16, 0.0060863536946913774:128>, {order = #NHWC}> -> tensor<1x16x?x?x!quant.uniform<u8:f16, 0.0029174812868529676:129>, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>
   %21 = VPU.NCE.AveragePool(%19) {kernel_size = [1, 1], multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 0.0029174812868529676 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>, strides = [1, 1], tilingStrategy = [1, 1, 63, 2]} -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>
-  %24 = VPU.NCE.Eltwise(%21, %21) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>, tilingStrategy = [1, 1, 32, 2]} -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>
+  %24 = VPU.NCE.Eltwise(%21, %21) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>, tilingStrategy = [1, 1, 32, 2]} -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>
   return %24 : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>
 
     // CHECK-DAG: [[I8_CAST:%.+]] = arith.constant -126 : i8
@@ -2219,7 +2219,7 @@ module {
             adder = 0.000000e+00 : f64>,
             tilingStrategy = [1, 1, 6, 3]}
                 -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}>
-    %3 = VPU.NCE.DepthConvolution(%2, %cst_2) rawFilterShape [32, 1, 1, 1] {
+    %3 = VPU.NCE.DepthConvolution(%2, %cst_2) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
@@ -2274,7 +2274,7 @@ module {
             tilingStrategy = [1, 1, 9, 2]}
                 : tensor<1x128x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 128, 270, 480]> : tensor<4xsi64>, order = #NHWC}>
                     -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}>
-    %7 = VPU.NCE.Eltwise(%6, %3) {
+    %7 = VPU.NCE.Eltwise(%6, %3) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             op_type = #VPU.eltwise_type<ADD>,
             ppe = #VPU.PPEFp<mode = <NOOP>,
@@ -2291,11 +2291,22 @@ module {
     // CHECK-LABEL: @Merge2DVFSkipConnection
     // CHECK-SAME:    [[ARG0:%arg[0-9]+]]: tensor<1x32x?x?xf32
 
-    // CHECK:       [[PERMUTED_RESULT:%.*]] = scf.for
+    // Reduced-fusion expectation is intentional and matches default-VF semantics.
+    // The DepthConvolution is the producer of the main tiled chain (stridedConv -> conv ->
+    // depthToSpace) AND the source of the skip connection consumed by the final Eltwise, so it has
+    // multiple users. In collectTiledAndFusedOps the BFS only fuses a producer when every one of its
+    // users is part of the fused set (checkProducersUsers). Because DepthConvolution has a user (the
+    // skip Eltwise) outside the first tiled chain, it cannot be fully fused into a single tiled loop.
+    // It is therefore kept in its own loop, feeding two separate scf.for regions, and the Eltwise is
+    // applied after the second loop. The previous single-loop form fused a multi-user producer that
+    // the aligned compatibility checks now correctly keep out.
+
+    // CHECK:       [[DEPTH_CONVOLUTION:%.*]] = scf.for
     // CHECK:         scf.for
     // CHECK:           tensor.extract_slice
     // CHECK:           VPU.Convert
     // CHECK:           VPU.NCE.Permute
+    // CHECK:           VPU.NCE.DepthConvolution
     // CHECK:           tensor.insert_slice
     // CHECK:         scf.yield
     // CHECK:       scf.yield
@@ -2303,20 +2314,17 @@ module {
     // CHECK:       [[RESULT:%.*]] = scf.for
     // CHECK:         scf.for
     // CHECK:           [[DATA_SLICE:%.*]] = tensor.extract_slice
-    // CHECK:           [[MUL:%.*]] = VPU.NCE.DepthConvolution([[DATA_SLICE]]
-    // CHECK:           [[PADDED:%.*]] = tensor.pad [[MUL]]
+    // CHECK:           [[PADDED:%.*]] = tensor.pad [[DATA_SLICE]]
     // CHECK:           [[CONV_1:%.*]] = VPU.NCE.Convolution([[PADDED]]
     // CHECK:           [[PADDED_2:%.*]] = tensor.pad [[CONV_1]]
     // CHECK:           [[CONV_2:%.*]] = VPU.NCE.Convolution([[PADDED_2]]
     // CHECK:           [[DEPTH_TO_SPACE:%.*]] = VPU.DepthToSpace([[CONV_2]]
-    // CHECK:           [[SKIP_CONNECTION_OPERAND:%.*]] = tensor.extract_slice [[MUL]]
-    // CHECK-SAME:          {skip_connection_slice}
-    // CHECK:           [[ELTWISE:%.*]] = VPU.NCE.Eltwise([[DEPTH_TO_SPACE]], [[SKIP_CONNECTION_OPERAND]])
-    // CHECK:           tensor.insert_slice [[ELTWISE]]
+    // CHECK:           tensor.insert_slice [[DEPTH_TO_SPACE]]
     // CHECK:         scf.yield
     // CHECK:       scf.yield
+    // CHECK:       [[ELTWISE:%.*]] = VPU.NCE.Eltwise([[RESULT]], [[DEPTH_CONVOLUTION]])
 
-    // CHECK:       return [[RESULT]] : tensor<1x32x?x?xf32
+    // CHECK:       return [[ELTWISE]] : tensor<1x32x?x?xf32
     }
 }
 
@@ -2359,7 +2367,7 @@ func.func @MergeSlice(
          #const.Reshape<[32, 1, 1, 27]>,
          #const.PadWithZero<[0, 0, 0, 0], [0, 0, 0, 5]>]
 
-    %depth = VPU.NCE.DepthConvolution(%arg0, %weights) rawFilterShape [16, 1, 1, 1] {
+    %depth = VPU.NCE.DepthConvolution(%arg0, %weights) rawFilterShape [16, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
       multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
       pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
       ppe = #VPU.PPEInt<
@@ -2495,7 +2503,7 @@ func.func @MergeConvertWithInterpolate(%arg0: tensor<1x32x?x64xf32, {bounds = #c
     %1 = VPU.Interpolate(%0) {
             attr = #IE.Interpolate<antialias = false, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01 : f64, mode = <NEAREST>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>,
             axes_attr = [2, 3],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
             scales_attr = [2.000000e+00, 2.000000e+00],
             tilingStrategy = [1, 1, 2, 1]
         } : tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 64, 64]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x32x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 128, 128]> : tensor<4xsi64>, order = #NHWC}>
@@ -2535,7 +2543,7 @@ func.func @MergeConvertWithInterpolate(%arg0: tensor<1x32x?x64xf32, {bounds = #c
     // CHECK:                [[IN_SIZE:%.+]] = affine.apply {{.+}}([[IN_START]], [[IN_END]])
     // CHECK:                [[SLICE:%.+]] = tensor.extract_slice [[INPUT]]{{\[}}0, 0, [[IN_START]], 0] [1, 32, [[IN_SIZE]], 64]
     // CHECK:                [[CONVERT:%.+]] = VPU.Convert([[SLICE]]) {dstElemType = f16}
-    // CHECK:                [[INTERP:%.+]] = VPU.Interpolate([[CONVERT]])
+    // CHECK:                [[INTERP:%.+]] = VPU.Interpolate([[CONVERT]], {{%.+}}, {{%.+}})
     // CHECK-SAME:           attr = #IE.Interpolate<{{.*}}mode = <NEAREST>{{.*}}>
     // CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[INTERP]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER]], 0] [1, 32, [[OUT_TILE]], 128]
     // CHECK:                scf.yield [[INSERT]]
@@ -2641,7 +2649,7 @@ func.func @MergeEltwiseSoftMax(
         %arg0: tensor<1x16x256x140xf16, {order = #NHWC}>,
         %arg1: tensor<1x16x256x140xf16, {order = #NHWC}>
 ) -> tensor<1x16x256x140xf16> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         is_inplace = true,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         op_type = #VPU.eltwise_type<ADD>,
@@ -2937,7 +2945,7 @@ func.func @MixedTilingFusionStatic(%arg0: tensor<1x16x480x960xf16>)
         tensor<16x16x1x1xf16, {order = #NHWC}>
      -> tensor<1x16x480x960xf16, {order = #NHWC}>
 
-    %4 = VPU.NCE.Eltwise(%3, %3) {
+    %4 = VPU.NCE.Eltwise(%3, %3) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
@@ -3572,25 +3580,6 @@ func.func @MergeConvertHardSigmoid(%arg0: tensor<1x16x128x256xf32>) -> tensor<1x
 
 // -----
 
-// CHECK-LABEL: @MergeConvertHSigmoid
-// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf32>
-func.func @MergeConvertHSigmoid(%arg0: tensor<1x16x128x256xf32>) -> tensor<1x16x128x256xf16> {
-    %0 = VPU.Convert(%arg0) {dstElemType = f16, tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf32> -> tensor<1x16x128x256xf16>
-    %1 = VPU.HSigmoid(%0) {tilingStrategy = [1, 1, 2, 1]} : tensor<1x16x128x256xf16> -> tensor<1x16x128x256xf16>
-    return %1 : tensor<1x16x128x256xf16>
-
-// CHECK:        [[EMPTY:%.+]] = tensor.empty() : tensor<1x16x128x256xf16>
-// CHECK:        [[SCF:%.+]] = scf.for {{%.+}} = {{%.+}} to {{%.+}} step {{%.+}} iter_args([[OUT:%.+]] = [[EMPTY]]) -> (tensor<1x16x128x256xf16>)
-// CHECK:            [[SLICE:%.+]] = tensor.extract_slice [[INPUT]]
-// CHECK:            [[CONVERT:%.+]] = VPU.Convert([[SLICE]]) {dstElemType = f16}
-// CHECK:            [[HSIGMOID:%.+]] = VPU.HSigmoid([[CONVERT]])
-// CHECK:            [[INSERT:%.+]] = tensor.insert_slice [[HSIGMOID]] into [[OUT]]
-// CHECK:            scf.yield [[INSERT]] : tensor<1x16x128x256xf16>
-// CHECK:        return [[SCF]] : tensor<1x16x128x256xf16>
-}
-
-// -----
-
 // CHECK-LABEL: @MergeConvertHSwish
 // CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x128x256xf32>
 func.func @MergeConvertHSwish(%arg0: tensor<1x16x128x256xf32>) -> tensor<1x16x128x256xf16> {
@@ -3671,7 +3660,7 @@ func.func @MergeSliceStaticInput(
        #const.PadWithZero<[0, 0, 0, 0], [0, 0, 0, 5]>]
   %bias_cc = const.Declare tensor<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
 
-  %depth = VPU.NCE.DepthConvolution(%arg0, %weights_dw) rawFilterShape [16, 1, 1, 1] {
+  %depth = VPU.NCE.DepthConvolution(%arg0, %weights_dw) rawFilterShape [16, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = 0 : i64, clamp_high = 255 : i64,
@@ -3724,3 +3713,852 @@ func.func @MergeSliceStaticInput(
 // CHECK:         [[INSERT:%.+]] = tensor.insert_slice {{%.+}} into [[ARG_ITER]][0, 0, 0, [[OUT_OFF_W:%.+]]] [1, 32, 540, [[TILE_W:.+]]] [1, 1, 1, 1]
 // CHECK:         scf.yield [[INSERT]] : tensor<1x32x540x960x!qElemType, {order = #NHWC}>
 // CHECK:       return [[LOOP]] : tensor<1x32x540x960x!qElemType, {order = #NHWC}>
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @SCFVFSliceAxisConflict
+// CHECK-SAME:    [[INPUT:%[^:]+]]: tensor<1x5120x1024x1xf16>
+func.func @SCFVFSliceAxisConflict(%arg0: tensor<1x5120x1024x1xf16>) -> tensor<1x2560x1024x1xf16> {
+    %0 = VPU.Slice %arg0 [0, 2560, 0, 0] [1, 2560, 1024, 1] : tensor<1x5120x1024x1xf16> to tensor<1x2560x1024x1xf16>
+    %1 = VPU.SoftMax(%0) {axisInd = 1 : i64, tilingStrategy = [1, 8, 1, 1]} : tensor<1x2560x1024x1xf16> -> tensor<1x2560x1024x1xf16>
+    return %1 : tensor<1x2560x1024x1xf16>
+}
+
+
+// CHECK-DAG:   [[C0:%.+]] = arith.constant 0 : index
+// CHECK-DAG:   [[C1024:%.+]] = arith.constant 1024 : index
+// CHECK:       [[EMPTY:%.+]] = tensor.empty() : tensor<1x2560x1024x1xf16>
+// CHECK:       [[LOOP:%.+]] = scf.for [[IV:%.+]] = [[C0]] to [[C1024]]
+// CHECK-SAME:    iter_args([[ARG_ITER:%.+]] = [[EMPTY]])
+// CHECK:         [[EXTRACT:%.+]] = tensor.extract_slice [[INPUT]][0, 0, {{%[^,]+}}, 0] [1, 5120, {{%[^,]+}}, 1]
+// CHECK-SAME:      tensor<1x5120x1024x1xf16> to tensor<1x5120x?x1xf16, {{.+}}>
+// CHECK:         [[SLICE:%.+]] = VPU.Slice [[EXTRACT]] [0, 2560, 0, 0] [1, 2560, -9223372036854775808, 1]
+// CHECK-SAME:      to tensor<1x2560x?x1xf16, {{.+}}>
+// CHECK:         [[SOFTMAX:%.+]] = VPU.SoftMax([[SLICE]]) {axisInd = 1 : i64}
+// CHECK-NOT:     tilingStrategy
+// CHECK:         [[INSERT:%.+]] = tensor.insert_slice [[SOFTMAX]] into [[ARG_ITER]]
+// CHECK:         scf.yield [[INSERT]]
+// CHECK:       return [[LOOP]] : tensor<1x2560x1024x1xf16>
+
+// -----
+
+// Tests for MC strategy alignment checks ported from VF default pipeline
+// (isLegalFusion + isMCStrategyAligned):
+//
+// 1. @NoFusionMismatchedMCStrategy — one op has MC strategy, the other does not
+// 2. @NoFusionSWOpWithTrueOverlapped (E#92130) — SW op without DMA lowering
+//    paired with a true-overlapped consumer
+// 3. @NoFusionSparseOperandTrueOverlapped (E#112803) — sparse activation operand
+//    feeding a true-overlapped consumer
+// 4. @FusionClusteringToSOHEltwise — Clustering → SOH eltwise (fuses in SCF;
+//    eltwise segmented-like guard not applied in SCF path)
+// 5. @FusionWithMCStrategyAdjustment / @NoMutationOnRejectedAdjustment /
+//    @ChainedMCStrategyAdjustment / @MultiUserProducerNoAccumulation — producer MC
+//    strategy adjustment (planFusion + applyFusionPlan): applied when fusion is
+//    accepted, never applied when rejected, transitively consistent across chained
+//    producers, and committed exactly once for multi-user producers
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+config.Resources 3 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: @NoFusionMismatchedMCStrategy
+func.func @NoFusionMismatchedMCStrategy(%arg0: tensor<1x32x540x960xf16, {order = #NHWC}>) -> tensor<1x32x540x960xf16, {order = #NHWC}> {
+    %weights = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    // First op has MC strategy
+    %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 1, 22]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Second op does NOT have MC strategy — should not fuse with the first
+    %1 = VPU.NCE.Convolution(%0, %weights) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 1, 22]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    return %1 : tensor<1x32x540x960xf16, {order = #NHWC}>
+}
+
+// MC strategy mismatch prevents fusion — ops remain untiled
+// CHECK-NOT: scf.for
+// CHECK: VPU.NCE.Convolution
+// CHECK: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK: VPU.NCE.Convolution
+// CHECK-NOT: multiClusterStrategy
+// CHECK: return
+
+// -----
+
+// E#92130: SW ops that do not support DMA lowering must not be fused with ops
+// that produce true-overlapped distributions (memory shapes != compute shapes).
+// Gelu does not support DMA lowering, and NCE.Convolution with kernel 3x3 and
+// SplitOverHeight requires OVERLAPPED input distribution with halo, creating a
+// true-overlapped consumer. This pair must remain unfused.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+config.Resources 3 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: @NoFusionSWOpWithTrueOverlapped
+func.func @NoFusionSWOpWithTrueOverlapped(%arg0: tensor<1x32x540x960xf16, {order = #NHWC}>) -> tensor<1x32x540x960xf16, {order = #NHWC}> {
+    %weights = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    // Gelu - SW op that does not support lowering as DMA
+    %0 = VPU.Gelu(%arg0) {
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        tilingStrategy = [1, 1, 6, 1]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // NCE Conv with kernel 3x3 and SOH — consumer input requires OVERLAPPED (true overlap)
+    %1 = VPU.NCE.Convolution(%0, %weights) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 6, 1]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    return %1 : tensor<1x32x540x960xf16, {order = #NHWC}>
+}
+
+// SW op without DMA lowering + true-overlapped consumer prevents fusion
+// CHECK-NOT: scf.for
+// CHECK: VPU.Gelu
+// CHECK: VPU.NCE.Convolution
+// CHECK: return
+
+// -----
+
+// E#112803: True-overlapped consumer with sparse activation operand must not be
+// fused. NCE.MaxPool produces a sparse activation tensor that flows into
+// NCE.Convolution whose 3x3 kernel + SplitOverHeight creates a true-overlapped
+// input distribution. The sparse operand type triggers the rejection path.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+config.Resources 3 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: @NoFusionSparseOperandTrueOverlapped
+func.func @NoFusionSparseOperandTrueOverlapped(
+        %arg0: tensor<1x32x540x960xf16, {order = #NHWC}>,
+        %arg1: tensor<1x32x540x960xi1, {order = #NHWC}>)
+        -> tensor<1x32x540x960xf16, {order = #NHWC}> {
+    %wt = const.Declare tensor<32x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<32x1x1x4xsi32>
+    %weights = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    %sparse_in = VPU.GroupSparseTensor(%arg0, %arg1)
+        -> !VPU.SparseTensor<data=tensor<1x32x540x960xf16, {order = #NHWC}>,
+                             sparsity_map=tensor<1x32x540x960xi1, {order = #NHWC}>>
+
+    // Producer: NCE.MaxPool with SOH, activation sparsity in/out
+    %pool = VPU.NCE.MaxPool(%sparse_in, %wt) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        kernel_size = [3, 3],
+        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 6, 1]
+      } -> !VPU.SparseTensor<data=tensor<1x32x540x960xf16, {order = #NHWC}>,
+                             sparsity_map=tensor<1x32x540x960xi1, {order = #NHWC}>>
+
+    // Consumer: NCE.Convolution with 3x3 kernel + SOH — true-overlapped input
+    %conv = VPU.NCE.Convolution(%pool, %weights) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 6, 1]}
+      : !VPU.SparseTensor<data=tensor<1x32x540x960xf16, {order = #NHWC}>,
+                          sparsity_map=tensor<1x32x540x960xi1, {order = #NHWC}>>,
+        tensor<32x32x3x3xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    return %conv : tensor<1x32x540x960xf16, {order = #NHWC}>
+}
+
+// Sparse operand + true-overlapped consumer prevents fusion
+// CHECK-NOT: scf.for
+// CHECK: VPU.GroupSparseTensor
+// CHECK: VPU.NCE.MaxPool
+// CHECK: VPU.NCE.Convolution
+// CHECK: return
+
+// -----
+
+// Default VF: NCE eltwise consumer where input distribution is not segmented-like but
+// output IS segmented-like is rejected (DMA cost accuracy guard).
+// SCF VF: this guard is intentionally not applied, so this topology should fuse.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+config.Resources 3 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: @FusionClusteringToSOHEltwise
+func.func @FusionClusteringToSOHEltwise(
+        %arg0: tensor<1x32x540x960xf16, {order = #NHWC}>)
+        -> tensor<1x32x540x960xf16, {order = #NHWC}> {
+    %weights1 = const.Declare tensor<32x32x1x1xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %weights2 = const.Declare tensor<32x32x1x1xf16, {order = #NHWC}> = dense<2.0>
+        : tensor<32x32x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    // Branch A: Clustering producer → DUPLICATED output
+    %convA = VPU.NCE.Convolution(%arg0, %weights1) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 6, 1]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Branch B: Clustering producer → DUPLICATED output
+    %convB = VPU.NCE.Convolution(%arg0, %weights2) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 6, 1]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Consumer: Eltwise with SOH — input becomes DUPLICATED, output is segmented-like
+    %eltwise = VPU.NCE.Eltwise(%convA, %convB) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        op_type = #VPU.eltwise_type<ADD>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        tilingStrategy = [1, 1, 6, 1]}
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    return %eltwise : tensor<1x32x540x960xf16, {order = #NHWC}>
+}
+
+// Clustering → SOH eltwise: previously rejected by the eltwise segmented-like guard (which was
+// inadvertently applied in the SCF path). After the fix aligning SCF with develop semantics
+// (areDistributionAttrsCompatible only, no eltwise guard), this topology fuses. The eltwise
+// segmented-like guard remains in the default VF isMCStrategyAligned path (cost-model concern)
+// but is not applied in SCF's per-edge planFusion check.
+// CHECK: scf.for
+// CHECK: VPU.NCE.Convolution
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>
+// CHECK: VPU.NCE.Convolution
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>
+// CHECK: VPU.NCE.Eltwise
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK: return
+
+// -----
+
+// Test for MC strategy adjustment in SCF fusion (findProducerStrategyForFusion + applyFusionPlan):
+// Producer Conv has SOK strategy, consumer Conv has SOH. The producer SOK output
+// distribution is incompatible with the consumer SOH input. planFusion computes a
+// compatible producer strategy via findProducerStrategyForFusion (without mutating IR),
+// and applyFusionPlan commits it once fusion is accepted. Here the producer is adjusted
+// from SOK to HKSwitch so that fusion can proceed.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+config.Resources 3 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: @FusionWithMCStrategyAdjustment
+func.func @FusionWithMCStrategyAdjustment(%arg0: tensor<1x32x540x960xf16, {order = #NHWC}>) -> tensor<1x32x540x960xf16, {order = #NHWC}> {
+    %weights = const.Declare tensor<32x32x1x1xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %weights2 = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    // Producer: Conv 1x1 with SOK — will be adjusted to HKSwitch
+    %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 1, 22]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Consumer: Conv 3x3 with SOH — requires OVERLAPPED input
+    %1 = VPU.NCE.Convolution(%0, %weights2) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 1, 22]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    return %1 : tensor<1x32x540x960xf16, {order = #NHWC}>
+}
+
+// Strategy adjustment enables fusion — producer adjusted from SOK to HKSwitch.
+// Exactly one tiled loop is emitted (single fused region).
+// CHECK-COUNT-1: scf.for
+// CHECK: VPU.NCE.Convolution
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<HKSwitch>
+// CHECK: VPU.NCE.Convolution
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK-NOT: scf.for
+
+// -----
+
+// CORE non-mutation regression test: planFusion plans a producer strategy adjustment,
+// but fusion is then rejected by checkProducersUsers because the producer has a user
+// outside the fusion set. The planned adjustment must NOT be applied.
+//
+// Producer Conv 1x1 has SOK; consumer/anchor Conv 3x3 has SOH. The producer SOK output is
+// incompatible with the consumer SOH input, so planFusion computes a compatible producer
+// strategy (HKSwitch) via findProducerStrategyForFusion — but returns it as a PLANNED
+// adjustment only, without mutating IR. The producer result also escapes as a function
+// output, so the producer has an external user. In collectTiledAndFusedOps the BFS rejects
+// the fusion (checkProducersUsers) before applyFusionPlan runs, so no mutation is committed.
+//
+// This is the exact scenario the planFusion/applyFusionPlan split fixed. On the old eager
+// implementation checkFusion mutated the producer to HKSwitch BEFORE the multi-user
+// rejection, leaving the wrong strategy in the IR. The assertion below requires the producer
+// to retain SplitOverKernel, so this test FAILS on the buggy code and PASSES on the fix.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+config.Resources 3 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: @NoMutationOnRejectedAdjustment
+func.func @NoMutationOnRejectedAdjustment(%arg0: tensor<1x32x540x960xf16, {order = #NHWC}>)
+        -> (tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<1x32x540x960xf16, {order = #NHWC}>) {
+    %weights = const.Declare tensor<32x32x1x1xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %weights2 = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    // Producer: Conv 1x1 with SOK — an adjustment to HKSwitch would be planned, but must NOT be applied
+    %0 = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 1, 22]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Consumer/anchor: Conv 3x3 with SOH — requires OVERLAPPED input
+    %1 = VPU.NCE.Convolution(%0, %weights2) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 1, 22]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // %0 escapes as a second function output -> external (out-of-fusion-set) user of the producer
+    return %1, %0 : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<1x32x540x960xf16, {order = #NHWC}>
+}
+
+// Fusion rejected (producer has an external user) AND producer strategy left unchanged.
+// CHECK-NOT: scf.for
+// CHECK: VPU.NCE.Convolution
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+// CHECK: VPU.NCE.Convolution
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK-NOT: scf.for
+// CHECK: return
+
+// -----
+
+// Chained MC strategy adjustment with transitive visibility. Two stacked SOK Conv 1x1
+// producers feed an SOH Conv 3x3 anchor. The BFS in collectTiledAndFusedOps walks up from
+// the anchor: it first commits the lower producer (closest to the anchor) with an HKSwitch
+// adjustment, then processes the upper producer. Because applyFusionPlan is committed inline
+// before the next BFS step, planFusion for the upper producer observes the already-adjusted
+// lower producer and plans a consistent HKSwitch strategy for it as well.
+//
+// This guards the transitive-visibility property of the planFusion/applyFusionPlan split: a
+// committed producer adjustment must be visible to the planning of its own producers. Both
+// producers end at HKSwitch, the anchor stays SplitOverHeight, and the whole chain fuses into
+// a single scf.for. Each producer is adjusted exactly once — there is no double application.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+config.Resources 3 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: @ChainedMCStrategyAdjustment
+func.func @ChainedMCStrategyAdjustment(%arg0: tensor<1x32x540x960xf16, {order = #NHWC}>)
+        -> tensor<1x32x540x960xf16, {order = #NHWC}> {
+    %w1 = const.Declare tensor<32x32x1x1xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %w2 = const.Declare tensor<32x32x1x1xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %w3 = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    // Upper producer: Conv 1x1 with SOK — transitively adjusted to HKSwitch
+    %0 = VPU.NCE.Convolution(%arg0, %w1) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 1, 22]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Lower producer: Conv 1x1 with SOK — adjusted to HKSwitch first, then made visible upstream
+    %1 = VPU.NCE.Convolution(%0, %w2) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 1, 22]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Anchor: Conv 3x3 with SOH — stays SplitOverHeight
+    %2 = VPU.NCE.Convolution(%1, %w3) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 1, 22]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    return %2 : tensor<1x32x540x960xf16, {order = #NHWC}>
+}
+
+// Whole chain fuses into a single tiled loop; both SOK producers transitively adjusted to
+// HKSwitch, anchor stays SOH.
+// CHECK-COUNT-1: scf.for
+// CHECK: VPU.NCE.Convolution
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<HKSwitch>
+// CHECK: VPU.NCE.Convolution
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<HKSwitch>
+// CHECK: VPU.NCE.Convolution
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK-NOT: scf.for
+
+// -----
+
+// Repeated-producer BFS test: a multi-user producer that is REJECTED on its first BFS
+// encounter and COMMITTED on a later retry must end with exactly one strategy value — the
+// re-evaluation must not accumulate or corrupt the producer's MC strategy.
+//
+// Topology forces the reject-then-retry path deterministically. The producer %p feeds the
+// anchor Eltwise directly (skip input) AND a deeper branch %p -> %b -> %a -> Eltwise. The BFS
+// in collectTiledAndFusedOps starts at the anchor and processes its operands: %a is fused
+// first, then %p is encountered while %b (its other user) is NOT yet in the producers set, so
+// checkProducersUsers REJECTS %p (planFusion is computed and discarded, no mutation). %b and
+// %a are then walked in; on the second encounter all of %p's users (%b and the anchor) are in
+// the set, so %p is committed. planFusion is side-effect-free, and applyFusionPlan runs only
+// after acceptance, so the discarded first attempt leaves no residue.
+//
+// All ops are SOH (no adjustment needed), so the single committed strategy must remain exactly
+// SplitOverHeight on every op. The whole graph fuses into ONE scf.for; the producer %p appears
+// once and is read by both its deep consumer chain and the skip operand of the Eltwise.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+config.Resources 3 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: @MultiUserProducerNoAccumulation
+func.func @MultiUserProducerNoAccumulation(%arg0: tensor<1x32x540x960xf16, {order = #NHWC}>)
+        -> tensor<1x32x540x960xf16, {order = #NHWC}> {
+    %w = const.Declare tensor<32x32x1x1xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    // Producer %p: feeds the anchor Eltwise directly (skip) AND the deeper branch %b -> %a
+    %p = VPU.NCE.Convolution(%arg0, %w) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1], tilingStrategy = [1, 1, 6, 1]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Deep branch op %b reading %p
+    %b = VPU.NCE.Convolution(%p, %w) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1], tilingStrategy = [1, 1, 6, 1]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Deep branch op %a reading %b
+    %a = VPU.NCE.Convolution(%b, %w) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1], tilingStrategy = [1, 1, 6, 1]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Anchor Eltwise reading %a (deep) and %p (skip) — the multi-user edge on %p
+    %eltwise = VPU.NCE.Eltwise(%a, %p) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        op_type = #VPU.eltwise_type<ADD>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        tilingStrategy = [1, 1, 6, 1]}
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    return %eltwise : tensor<1x32x540x960xf16, {order = #NHWC}>
+}
+
+// Whole graph fuses into a single loop; %p committed exactly once with SOH unchanged, and the
+// Eltwise skip operand is the same fused %p value (multi-user producer not duplicated/mutated).
+// CHECK: [[LOOP:%.+]] = scf.for
+// CHECK: [[P:%.+]] = VPU.NCE.Convolution
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK: [[B:%.+]] = VPU.NCE.Convolution([[P]]
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK: [[A:%.+]] = VPU.NCE.Convolution([[B]]
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK: VPU.NCE.Eltwise([[A]], [[P]])
+// CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK: return
+// Exactly one tiled loop — no second scf.for is produced by the multi-user producer.
+// CHECK-NOT: scf.for
+
+// -----
+
+// Multi-user producer MC-strategy-adjustment SUPPRESSION guard. This validates the
+// collectTiledAndFusedOps guard `plan.newProducerStrategy.has_value() && !producer->hasOneUse()`.
+//
+// Producer %p (Conv 1x1, SplitOverKernel) feeds a deep branch %p -> %b -> %a -> Eltwise AND the
+// Eltwise skip input directly, so %p has two users. Both users (%b and the Eltwise) are pulled
+// into the fused region, so checkProducersUsers PASSES for %p. When the BFS reaches %p through the
+// %p->%b edge, planFusion plans an SplitOverKernel->HKSwitch adjustment (SOK producer is
+// incompatible with the SOH consumer). Because %p has more than one use, the suppression guard
+// rejects the adjustment: %p is left hoisted with its ORIGINAL SplitOverKernel strategy and is not
+// mutated. Removing the guard would adjust %p to HKSwitch and pull it into the loop, failing the
+// SplitOverKernel assertion below.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+config.Resources 3 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: @NoAdjustmentForMultiUserProducer
+func.func @NoAdjustmentForMultiUserProducer(%arg0: tensor<1x32x540x960xf16, {order = #NHWC}>)
+        -> tensor<1x32x540x960xf16, {order = #NHWC}> {
+    %w = const.Declare tensor<32x32x1x1xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    // Producer %p: Conv 1x1 with SOK — multi-user (feeds %b and the anchor Eltwise skip)
+    %p = VPU.NCE.Convolution(%arg0, %w) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1], tilingStrategy = [1, 1, 6, 1]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Deep branch %b: Conv 1x1 SOH reading %p — SOK producer vs SOH consumer forces an adjustment plan
+    %b = VPU.NCE.Convolution(%p, %w) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1], tilingStrategy = [1, 1, 6, 1]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Deep branch %a: Conv 1x1 SOH reading %b
+    %a = VPU.NCE.Convolution(%b, %w) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1], tilingStrategy = [1, 1, 6, 1]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Anchor Eltwise SOH reading %a (deep) and %p (skip) — the multi-user edge on %p
+    %eltwise = VPU.NCE.Eltwise(%a, %p) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        op_type = #VPU.eltwise_type<ADD>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        tilingStrategy = [1, 1, 6, 1]}
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    return %eltwise : tensor<1x32x540x960xf16, {order = #NHWC}>
+}
+
+// The multi-user producer keeps its original SplitOverKernel (adjustment suppressed, not mutated).
+// CHECK:       [[P:%.+]] = VPU.NCE.Convolution(%arg0
+// CHECK-SAME:  multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+// CHECK:       scf.for
+// CHECK:       VPU.NCE.Convolution
+// CHECK-SAME:  multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK:       VPU.NCE.Convolution
+// CHECK-SAME:  multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK:       VPU.NCE.Eltwise
+// CHECK-SAME:  multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK:       return
+// The suppressed producer must never be mutated to the planned HKSwitch strategy.
+// CHECK-NOT:   multiClusterStrategy = #VPU.multi_cluster_strategy<HKSwitch>
+
+// -----
+
+// Exhausted MC-strategy-adjustment search leaves IR unchanged. This validates that a failed
+// findProducerStrategyForFusion (returning nullopt) does NOT mutate any strategy.
+//
+// Producer NCE.MaxPool (SplitOverKernel) consumes a sparse activation, so
+// supportMultiClusterStrategyAdjustmentInVF returns false and findCompatibleMCStrategyForVF /
+// findProducerStrategyForFusion cannot find any compatible producer strategy (nullopt). The
+// consumer Conv 1x1 is SplitOverHeight, so the current strategies are incompatible and planFusion
+// enters the adjustment search; with the search exhausted it returns SCFFusionPlan::rejected().
+// applyFusionPlan is never reached, so the producer keeps its original SplitOverKernel strategy and
+// no fusion is emitted. A regression that mutates IR during a failed search would change the
+// MaxPool strategy and fail this test.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+config.Resources 3 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: @NoMutationOnExhaustedAdjustmentSearch
+func.func @NoMutationOnExhaustedAdjustmentSearch(
+        %arg0: tensor<1x32x540x960xf16, {order = #NHWC}>,
+        %arg1: tensor<1x32x540x960xi1, {order = #NHWC}>)
+        -> tensor<1x32x540x960xf16, {order = #NHWC}> {
+    %wt = const.Declare tensor<32x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<32x1x1x4xsi32>
+    %weights = const.Declare tensor<32x32x1x1xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    %sparse_in = VPU.GroupSparseTensor(%arg0, %arg1)
+        -> !VPU.SparseTensor<data=tensor<1x32x540x960xf16, {order = #NHWC}>,
+                             sparsity_map=tensor<1x32x540x960xi1, {order = #NHWC}>>
+
+    // Producer: NCE.MaxPool with SOK and a sparse activation input -> not adjustable (search exhausts)
+    %pool = VPU.NCE.MaxPool(%sparse_in, %wt) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+        kernel_size = [1, 1],
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 6, 1]
+      } -> !VPU.SparseTensor<data=tensor<1x32x540x960xf16, {order = #NHWC}>,
+                             sparsity_map=tensor<1x32x540x960xi1, {order = #NHWC}>>
+
+    // Consumer: NCE.Convolution 1x1 with SOH — strategy incompatible with the SOK producer
+    %conv = VPU.NCE.Convolution(%pool, %weights) rawFilterShape [32, 32, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1],
+        tilingStrategy = [1, 1, 6, 1]}
+      : !VPU.SparseTensor<data=tensor<1x32x540x960xf16, {order = #NHWC}>,
+                          sparsity_map=tensor<1x32x540x960xi1, {order = #NHWC}>>,
+        tensor<32x32x1x1xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    return %conv : tensor<1x32x540x960xf16, {order = #NHWC}>
+}
+
+// Fusion rejected (adjustment search exhausted) — producer strategy left unchanged, no loop emitted.
+// CHECK-NOT:   scf.for
+// CHECK:       VPU.GroupSparseTensor
+// CHECK:       VPU.NCE.MaxPool
+// CHECK-SAME:  multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+// CHECK:       VPU.NCE.Convolution
+// CHECK-SAME:  multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK:       return
+// CHECK-NOT:   scf.for
+
+// -----
+
+// REGRESSION characterization: skip-connection topology where the eltwise segmented-like guard
+// in checkCurrentMCStrategyCompatibility was rejecting Conv→Eltwise edges. The root cause was that
+// SCF's planFusion and findProducerStrategyForFusion used the full checkCurrentMCStrategyCompatibility
+// (which includes the eltwise guard) instead of the narrower areDistributionAttrsCompatible used by
+// develop and default VF's alignMCStrategy. Fixed by aligning SCF's compatibility criterion to match
+// develop: areDistributionAttrsCompatible for both the initial check and the adjustment search.
+//
+// Topology:
+//     NCE.Permute (SOHO)
+//         |
+//     Conv1 (SOH, 3x3)   ← multi-user producer: feeds BOTH Conv2 AND Eltwise
+//       |         \
+//       |          \
+//   Conv2 (SOH)    |  (skip connection)
+//       |          |
+//       +--- Eltwise(Add, SOH) ---+
+//
+// Expected behavior: Conv1 is the skip-connection source. Conv2 and Eltwise fuse into a tiled
+// loop. Conv1 feeds the loop via a skip extract_slice with the {skip_connection_slice} marker.
+// A regression that re-introduces the overly-strict eltwise guard in planFusion would reject the
+// Conv→Eltwise edges and produce no scf.for, failing the CHECK below.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+config.Resources 3 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: @SkipConnectionEltwiseSegmentedLikeRegression
+func.func @SkipConnectionEltwiseSegmentedLikeRegression(%arg0: tensor<1x3x540x960xf16>) -> tensor<1x32x540x960xf16, {order = #NHWC}> {
+    %w1 = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %w2 = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<32x32x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    // NCE.Permute: layout change NCHW -> NHWC
+    %permute = VPU.NCE.Permute(%arg0) {
+        dstElemType = f16,
+        dstOrder = #NHWC,
+        expandedChannels = 32 : i64,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>,
+        ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
+                         clamp_high = 3.4028234663852886E+38 : f64, scale = 5.000000e-01 : f64,
+                         prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
+        tilingStrategy = [1, 1, 6, 1]}
+      : tensor<1x3x540x960xf16>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Conv1 (SOH, 3x3): multi-user producer — consumed by Conv2 AND Eltwise (skip connection source)
+    %conv1 = VPU.NCE.Convolution(%permute, %w1) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1], tilingStrategy = [1, 1, 6, 1]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Conv2 (SOH, 3x3): deep branch consuming Conv1
+    %conv2 = VPU.NCE.Convolution(%conv1, %w2) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        strides = [1, 1], tilingStrategy = [1, 1, 6, 1]}
+      : tensor<1x32x540x960xf16, {order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}>
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    // Eltwise(Add, SOH): skip connection — consumes Conv1 (skip) and Conv2 (deep)
+    %add = VPU.NCE.Eltwise(%conv1, %conv2) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        op_type = #VPU.eltwise_type<ADD>,
+        ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+        tilingStrategy = [1, 1, 6, 1]}
+      -> tensor<1x32x540x960xf16, {order = #NHWC}>
+
+    return %add : tensor<1x32x540x960xf16, {order = #NHWC}>
+}
+
+// Fusion succeeds: the whole graph fuses into a single scf.for. NCE.Permute stays hoisted;
+// Conv1, Conv2, and Eltwise are all inside the loop. Conv1's output feeds the Eltwise skip
+// connection via a {skip_connection_slice} extract_slice within the loop body.
+// CHECK:       VPU.NCE.Permute
+// CHECK:       scf.for
+// CHECK:         VPU.NCE.Convolution
+// CHECK-SAME:    multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK:         VPU.NCE.Convolution
+// CHECK-SAME:    multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK:         tensor.extract_slice
+// CHECK-SAME:    skip_connection_slice
+// CHECK:         VPU.NCE.Eltwise
+// CHECK-SAME:    multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+// CHECK:       return

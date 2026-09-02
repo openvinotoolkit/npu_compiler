@@ -235,6 +235,7 @@ mlir::LogicalResult vpux::VPUIP::verifyLayer(mlir::Operation* op) {
 mlir::OperandRange vpux::VPUIP::getLayerInputs(mlir::Operation* op) {
     const auto inNum = getLastMemRefPosition(op->getOperands());
     const auto outNum = getLastMemRefPosition(op->getResults());
+    assert(inNum >= outNum && "Operands are expected to include output buffers");
 
     return op->getOperands().take_front(inNum - outNum);
 }
@@ -242,6 +243,7 @@ mlir::OperandRange vpux::VPUIP::getLayerInputs(mlir::Operation* op) {
 mlir::OperandRange vpux::VPUIP::getLayerOutputs(mlir::Operation* op) {
     const auto inNum = getLastMemRefPosition(op->getOperands());
     const auto outNum = getLastMemRefPosition(op->getResults());
+    assert(inNum >= outNum && "Operands are expected to include output buffers");
 
     return op->getOperands().slice(inNum - outNum, outNum);
 }

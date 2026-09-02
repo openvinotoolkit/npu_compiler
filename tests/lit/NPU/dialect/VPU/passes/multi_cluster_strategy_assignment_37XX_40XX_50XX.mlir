@@ -19,7 +19,7 @@ func.func @ConvKeepsSOHWhenOutputSlicedOnNonHighestDim(%arg0: tensor<1x16x180x16
     %conv = VPU.NCE.Convolution(%arg0, %wt_conv, %bias_conv) rawFilterShape [16, 16, 2, 1] {
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         strides = [2, 1]
     } : tensor<1x16x180x160xf16, {order = #NHWC}>, tensor<16x16x2x1xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32>
@@ -32,7 +32,7 @@ func.func @ConvKeepsSOHWhenOutputSlicedOnNonHighestDim(%arg0: tensor<1x16x180x16
         cm_sp_pattern = 15 : i64,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1]
     } : tensor<1x4x90x160xf16, {order = #NHWC}>, tensor<32x1x1x48xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32>
       -> tensor<1x32x90x160xf16, {order = #NHWC}>

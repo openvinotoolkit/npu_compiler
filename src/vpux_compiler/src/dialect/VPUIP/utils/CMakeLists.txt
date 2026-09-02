@@ -26,7 +26,6 @@ add_npu_library(${TARGET_NAME}
         npu_costmodel
       PRIVATE
         npu_elf
-        openvino::npu_al
         npu_compiler_dialect_ie
         npu_compiler_dialect_ie_utils
         npu_compiler_dialect_net

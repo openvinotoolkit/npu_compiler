@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/IE/transforms/rewriters.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -401,9 +402,11 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
     }
     auto newFilterConcatOp =
             rewriter.create<IE::ConcatOp>(appendLoc(convOp.getLoc(), "filter"), filterConst, Dims4D::Filter::OC);
-    auto newFilterType = mlir::dyn_cast<vpux::NDTypeInterface>(filter.getType()).changeShape(newFilterShape);
-    auto newFilter = rewriter.create<IE::ShapeCastOp>(convOp.getLoc(), newFilterType, newFilterConcatOp.getOutput(),
-                                                      getIntArrayAttr(ctx, newFilterShape.raw()));
+    auto newFilterConcatType = mlir::dyn_cast<vpux::NDTypeInterface>(newFilterConcatOp.getOutput().getType());
+    auto newFilterType = newFilterConcatType.changeShape(newFilterShape);
+
+    auto newFilter = rewriter.createOrFold<IE::ShapeCastOp>(
+            convOp.getLoc(), newFilterType, newFilterConcatOp.getOutput(), getIntArrayAttr(ctx, newFilterShape.raw()));
 
     // Pading on the Dim W already handled by the const construct
     auto newBeginAttr = convOp.getPadsBeginAttr();
@@ -446,8 +449,15 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
             /*inputPadding=*/nullptr);
 
     auto newConvType = mlir::cast<vpux::NDTypeInterface>(newConvOp.getOutput().getType());
-    newConvType = newConvType.changeDimsOrder(outDimOrder);
-    newConvType = newConvType.changeElemType(outNDInterface.getElementType());
+    newConvType = newConvType.changeDimsOrder(std::move(outDimOrder));
+
+    auto outElemType = outNDInterface.getElementType();
+    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outElemType)) {
+        newConvType = newConvType.changeElemType(
+                vpux::inferPerAxisQuantizedTypeAfterShapeCast(outNDInterface, newConvType.getShape().raw()));
+    } else {
+        newConvType = newConvType.changeElemType(outElemType);
+    }
 
     rewriter.modifyOpInPlace(newConvOp, [&] {
         newConvOp.getOutput().setType(mlir::cast<mlir::RankedTensorType>(newConvType));
@@ -549,18 +559,13 @@ mlir::LogicalResult AdjustDWConvShape::matchAndRewrite(IE::GroupConvolutionOp or
     // Tile filter
     SmallVector<int32_t> repeats(getShape(origOp.getFilter()).size(), 1);
     repeats[Dims4D::Act::N.ind()] = alignment;
-    const auto dataType = mlir::RankedTensorType::get({checked_cast<int64_t>(repeats.size())}, getSInt32Type(ctx));
-    const auto repeatsConstOp =
-            Const::createConst(rewriter, takeOpLoc(origOp, "repeats_const"), dataType, ArrayRef(repeats));
-    auto filterTile = rewriter.create<IE::TileOp>(takeOpLoc(origOp, "filter_repeats"), origOp.getFilter(),
-                                                  repeatsConstOp, nullptr /*repeats_value*/);
+    const auto repeatsAttr = getIntArrayAttr(ctx, repeats);
+    auto filterTile = rewriter.create<IE::TileOp>(takeOpLoc(origOp, "filter_repeats"), origOp.getFilter(), repeatsAttr);
 
     // Tile bias
     auto bias = origOp.getBias();
     if (bias != nullptr) {
-        bias = rewriter.create<IE::TileOp>(takeOpLoc(origOp, "bias_repeats"), bias, repeatsConstOp,
-                                           nullptr /*repeats_value*/)
-                       .getOutput();
+        bias = rewriter.create<IE::TileOp>(takeOpLoc(origOp, "bias_repeats"), bias, repeatsAttr).getOutput();
     }
 
     auto newGroupAttr = getIntAttr(ctx, alignment);

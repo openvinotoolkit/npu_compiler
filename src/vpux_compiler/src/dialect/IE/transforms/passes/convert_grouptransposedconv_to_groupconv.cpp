@@ -110,6 +110,73 @@ mlir::LogicalResult GroupTransposedConvConverter::matchAndRewrite(IE::GroupTrans
         return matchFailed(rewriter, origOp, "GroupTransposedConvolutionOp has no filter Op");
     }
 
+    // convert filter shape from 5D to 4D
+    auto groups = origFilterShape[IE::GROUP_TRANSPOSED_CONV_GROUPS_DIM_INDEX];
+    origFilterShape[IE::GROUP_TRANSPOSED_CONV_C_OUT_DIM_INDEX] *= groups;
+    origFilterShape.erase(origFilterShape.begin());
+
+    const auto filter4DShapeAttr = getIntArrayAttr(rewriter.getContext(), origFilterShape);
+
+    const auto postOp = origOp.getPostOpAttr();
+    const auto clampOp = origOp.getClampAttr();
+    const auto outputChannels = origOp.getOutputPaddingAttr();
+    const auto inputChannels = origOp.getInputPaddingAttr();
+
+    auto dilations = origOp.getDilationsAttr();
+
+    const auto stridesVector = Shape(parseIntArrayAttr<int64_t>(origOp.getStrides()));
+    const auto dilationsVector = Shape(parseIntArrayAttr<int64_t>(origOp.getDilations()));
+    const auto padsBeginVec = Shape(parseIntArrayAttr<int64_t>(origOp.getPadsBegin()));
+    const auto padsEndVec = Shape(parseIntArrayAttr<int64_t>(origOp.getPadsEnd()));
+    const auto inputC = featureShape[Dims4D::Act::C];
+    const auto outputC = outputShape[Dims4D::Act::C];
+    const bool isStride1 = stridesVector[Dims4D::Strides::Y] == 1 && stridesVector[Dims4D::Strides::X] == 1;
+    const bool isDilated = dilationsVector[Dims4D::Dilation::Y] > 1 || dilationsVector[Dims4D::Dilation::X] > 1;
+    const bool isDepthwise = (groups == inputC) && (groups == outputC);
+    const bool noOutputPadding = padsOutput[Dims4D::PadsOutput::Y] == 0 && padsOutput[Dims4D::PadsOutput::X] == 0;
+    const bool useDirectDepthwisePath =
+            isStride1 && isDilated && isDepthwise && noOutputPadding && origOp.getOutputShape() == nullptr;
+
+    if (useDirectDepthwisePath) {
+        const auto dilY = dilationsVector[Dims4D::Dilation::Y];
+        const auto dilX = dilationsVector[Dims4D::Dilation::X];
+        const auto kY = origFilterShape[Dims4D::Filter::KY.ind()];
+        const auto kX = origFilterShape[Dims4D::Filter::KX.ind()];
+        const auto effKYMinus1 = (kY - 1) * dilY;
+        const auto effKXMinus1 = (kX - 1) * dilX;
+        const auto newPadTop = effKYMinus1 - padsBeginVec[Dims4D::PadsBegin::Top];
+        const auto newPadLeft = effKXMinus1 - padsBeginVec[Dims4D::PadsBegin::Left];
+        const auto newPadBottom = effKYMinus1 - padsEndVec[Dims4D::PadsEnd::Bottom];
+        const auto newPadRight = effKXMinus1 - padsEndVec[Dims4D::PadsEnd::Right];
+        if (newPadTop < 0 || newPadLeft < 0 || newPadBottom < 0 || newPadRight < 0) {
+            _log.trace("Direct depthwise-dilated GroupConv conversion skipped at '{0}' due to negative equivalent "
+                       "padding; falling back to generic upsampling-based conversion",
+                       origOp.getLoc());
+        } else {
+            auto directPadsBegin = getIntArrayAttr(getContext(), SmallVector<int64_t>{newPadTop, newPadLeft});
+            auto directPadsEnd = getIntArrayAttr(getContext(), SmallVector<int64_t>{newPadBottom, newPadRight});
+            auto directStrides = getIntArrayAttr(getContext(), SmallVector<int64_t>{1, 1});
+            auto reshaped4DFilter = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_filter"),
+                                                                         dwConvFilter->getResult(0), filter4DShapeAttr);
+            // LegalizeDilatedConvolution runs before this pass in the pipeline, so we must expand
+            // dilation here explicitly instead of relying on that pass to do it later.  E#222712
+            auto expandedFilter = rewriter.create<IE::ExpandDilatedOp>(takeOpLoc(origOp, "expand_dilated_filter"),
+                                                                       reshaped4DFilter, dilations);
+            auto noDilations = getIntArrayAttr(getContext(), SmallVector<int64_t>{1, 1});
+            auto directResult = rewriter.create<IE::GroupConvolutionOp>(origOp->getLoc(), origOp.getInput(),
+                                                                        expandedFilter.getResult(), nullptr,
+                                                                        directStrides, directPadsBegin, directPadsEnd,
+                                                                        noDilations, getIntAttr(rewriter, groups),
+                                                                        postOp, clampOp, outputChannels, inputChannels)
+                                        .getOutput();
+            const auto origOpLoc = origOp.getLoc();
+            rewriter.replaceOp(origOp, directResult);
+            _log.trace("Replaced GroupTransposedConvolutionOp at '{0}' with direct depthwise-dilated GroupConv",
+                       origOpLoc);
+            return mlir::success();
+        }
+    }
+
     auto featureUpScale = IE::createUpsampling(rewriter, takeOpLoc(origOp, "upscale_in"), origOp, padsOutput, true);
     if (mlir::failed(featureUpScale)) {
         _log.nest().trace("Failed to create Upsampling for {0}", origOp->getLoc());
@@ -120,21 +187,6 @@ mlir::LogicalResult GroupTransposedConvConverter::matchAndRewrite(IE::GroupTrans
     auto strides = getIntArrayAttr(getContext(), SmallVector<int64_t>{1, 1});
     auto padsBegin = getIntArrayAttr(getContext(), SmallVector<int64_t>{0, 0});
     auto padsEnd = getIntArrayAttr(getContext(), SmallVector<int64_t>{0, 0});
-    auto dilations = getIntArrayAttr(getContext(), SmallVector<int64_t>{1, 1});
-
-    // convert filter shape from 5D to 4D
-    auto groups = origFilterShape[IE::GROUP_TRANSPOSED_CONV_GROUPS_DIM_INDEX];
-    origFilterShape[IE::GROUP_TRANSPOSED_CONV_C_OUT_DIM_INDEX] *= groups;
-    origFilterShape.erase(origFilterShape.begin());
-
-    const auto filter4DShapeAttr = getIntArrayAttr(rewriter.getContext(), origFilterShape);
-    auto reshaped4DFilter = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_filter"),
-                                                                 dwConvFilter->getResult(0), filter4DShapeAttr);
-
-    const auto postOp = origOp.getPostOpAttr();
-    const auto clampOp = origOp.getClampAttr();
-    const auto outputChannels = origOp.getOutputPaddingAttr();
-    const auto inputChannels = origOp.getInputPaddingAttr();
 
     if (padsOutput[Dims4D::PadsOutput::Y] > 0) {
         paddingOutput = IE::createPadding(rewriter, takeOpLoc(origOp, "height"), paddingOutput, Dims4D::Act::H,
@@ -145,15 +197,19 @@ mlir::LogicalResult GroupTransposedConvConverter::matchAndRewrite(IE::GroupTrans
                                           padsOutput[Dims4D::PadsOutput::X], nullptr);
     }
 
+    auto reshaped4DFilter = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_filter"),
+                                                                 dwConvFilter->getResult(0), filter4DShapeAttr);
+
     auto resultOP =
             rewriter.create<IE::GroupConvolutionOp>(origOp->getLoc(), paddingOutput, reshaped4DFilter, nullptr, strides,
                                                     padsBegin, padsEnd, dilations, getIntAttr(rewriter, groups), postOp,
                                                     clampOp, outputChannels, inputChannels)
                     .getOutput();
 
+    const auto origOpLoc = origOp.getLoc();
     rewriter.replaceOp(origOp, resultOP);
 
-    _log.trace("Replaced GroupTransposedConvolutionOp at '{0}' with 'IE::GroupConvolutionOp' (2D)", origOp.getLoc());
+    _log.trace("Replaced GroupTransposedConvolutionOp at '{0}' with 'IE::GroupConvolutionOp' (2D)", origOpLoc);
 
     return mlir::success();
 }

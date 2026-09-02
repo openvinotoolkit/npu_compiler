@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
@@ -245,6 +247,96 @@ private:
 };
 
 //
+// PropagateThroughSwish
+//
+// Pushes PermuteCast backward through an element-wise SwishOp:
+//
+//   Swish(x) → PermuteCast   =>   PermuteCast(x) → Swish
+//
+// When x itself is Slice(PermuteCast_inverse), the existing PropagateThroughSlice
+// pattern further pushes the new PermuteCast through the Slice, and createOrFold
+// cancels the back-to-back inverse PermuteCasts, yielding a zero-copy Slice on the
+// original NHWC tensor feeding into a Swish that runs in NHWC.
+//
+class PropagateThroughSwish final : public mlir::OpRewritePattern<IE::PermuteCastOp> {
+public:
+    PropagateThroughSwish(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::PermuteCastOp>(ctx), _log(log) {
+        this->setDebugName("PropagateThroughSwish");
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(IE::PermuteCastOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+    Logger _log;
+};
+
+mlir::LogicalResult PropagateThroughSwish::matchAndRewrite(IE::PermuteCastOp origOp,
+                                                           mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
+
+    // Input to PermuteCast must be a Swish with a single use
+    auto swishOp = origOp.getInput().getDefiningOp<IE::SwishOp>();
+    if (swishOp == nullptr || !swishOp.getResult().hasOneUse()) {
+        return mlir::failure();
+    }
+
+    // Only propagate when the Swish input has N > 1 (batched tokens).
+    // For N == 1 the shape rearrangement brings no benefit.
+    const auto swishInShape = mlir::cast<vpux::NDTypeInterface>(swishOp.getInput().getType()).getShape();
+    if (swishInShape.size() < 4 || swishInShape[Dims4D::Act::N] == 1) {
+        return mlir::failure();
+    }
+
+    // If the PermuteCast is followed by a single-use AffineReshape, absorb it so
+    // the Swish runs at the Multiply input shape and enables VerticalFusion:
+    //
+    //   Swish(x) → PermuteCast → AffineReshape → Multiply
+    //   =>  AffineReshape(PermuteCast(x)) → Swish → Multiply
+    //
+    IE::AffineReshapeOp arOp = nullptr;
+    if (origOp.getResult().hasOneUse()) {
+        arOp = mlir::dyn_cast<IE::AffineReshapeOp>(*origOp.getResult().getUsers().begin());
+    }
+
+    // Push PermuteCast before Swish
+    auto newPermuteCast = rewriter.createOrFold<IE::PermuteCastOp>(origOp.getLoc(), swishOp.getInput(),
+                                                                   origOp.getDstOrder(), origOp.getMemPerm());
+
+    // Determine the Swish input and output type:
+    // if an AffineReshape is present, clone it onto the new PermuteCast output
+    // so the Swish operates at the Multiply's shape
+    mlir::Value swishInput = newPermuteCast;
+    mlir::Type swishOutType = newPermuteCast.getType();
+    if (arOp != nullptr) {
+        mlir::IRMapping arMapper;
+        arMapper.map(arOp.getInput(), newPermuteCast);
+        auto* newArRaw = rewriter.clone(*arOp.getOperation(), arMapper);
+        swishInput = newArRaw->getResult(0);
+        swishOutType = arOp.getResult().getType();
+    }
+
+    mlir::IRMapping mapper;
+    mapper.map(swishOp.getInput(), swishInput);
+    auto* newSwishRaw = rewriter.clone(*swishOp.getOperation(), mapper);
+    // Swish is element-wise: output type == input type (including layout)
+    newSwishRaw->getResult(0).setType(swishOutType);
+
+    if (arOp != nullptr) {
+        // Replace the AffineReshape; origOp (PermuteCast) becomes dead
+        rewriter.replaceOp(arOp, newSwishRaw->getResult(0));
+        rewriter.eraseOp(origOp);
+    } else {
+        rewriter.replaceOp(origOp, newSwishRaw->getResult(0));
+    }
+    rewriter.eraseOp(swishOp);
+
+    _log.nest().trace("Propagated PermuteCast{0}through SwishOp at '{1}'", arOp != nullptr ? "+AffineReshape " : " ",
+                      swishOp->getLoc());
+    return mlir::success();
+}
+
+//
 // PropagatePermuteCastPass
 //
 
@@ -266,6 +358,7 @@ void PropagatePermuteCastPass::safeRunOnFunc() {
     patterns.add<PropagateThroughDequantize>(&ctx, _log);
     patterns.add<PropagateThroughConcat>(&ctx, _log);
     patterns.add<PropagateThroughSlice>(&ctx, _log);
+    patterns.add<PropagateThroughSwish>(&ctx, _log);
     IE::PermuteCastOp::getCanonicalizationPatterns(patterns, &ctx);
     if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();

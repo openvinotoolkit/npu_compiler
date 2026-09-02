@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023-2025 Intel Corporation
+// Copyright (C) 2023-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -25,7 +25,6 @@ class FQClampSubGraphTestCommon : public VpuOv2LayerTest, public testing::WithPa
         inputs.clear();
         const auto& funcInputs = function->inputs();
 
-        auto data_size = shape_size(targetInputStaticShapes[0]);
         ov::Tensor tensorData =
                 create_and_fill_tensor(funcInputs[0].get_element_type(), targetInputStaticShapes[0], 100, -50, 1, 1);
         inputs.insert({funcInputs[0].get_node_shared_ptr(), tensorData});

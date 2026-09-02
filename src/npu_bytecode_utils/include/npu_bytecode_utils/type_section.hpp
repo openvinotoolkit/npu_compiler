@@ -141,6 +141,6 @@ uint16_t lookupTypeByteSize(const std::vector<uint16_t>& typeByteSizes, int64_t 
 // Extracts rounded-up primitive byte sizes from the Type section. Non-primitive entries are returned as 0.
 // Returns std::nullopt and prints an error if the type section layout is malformed.
 std::optional<std::vector<uint16_t>> extractTypeByteSizes(const SectionHeaderTable& sectionHeaderTable,
-                                                          const std::vector<std::vector<uint8_t>>& sections);
+                                                          const std::vector<Span<uint8_t>>& sections);
 
 }  // namespace intel_npu::vm

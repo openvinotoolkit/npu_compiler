@@ -272,7 +272,7 @@ func.func @UnrollNCESequence(%input: !Input_DDR, %output: !Output_DDR) -> !Outpu
 
 
     //CHECK:    [[OUT1_CMX_2ND_TASK:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> !VPUIP.ITIBuffer<
-    //CHECK-NEXT:   1x32x32x32xf16, #NHWC, [@CMX_NN, 0]
+    //CHECK-NEXT:   1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]
     //CHECK-NEXT:   inwardHaloRegions = [
     //CHECK-NEXT:        #VPUIP.HaloRegionAttr<shape = [1, 16, 32, 32], offset = [0, 16, 0, 0], cluster_id = 0 : i64>
     //CHECK-NEXT:    ]
@@ -286,7 +286,7 @@ func.func @UnrollNCESequence(%input: !Input_DDR, %output: !Output_DDR) -> !Outpu
     //CHECK-NEXT:       ]>
 
     //CHECK:    [[OUT2_CMX_2ND_TASK:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> !VPUIP.ITIBuffer<
-    //CHECK-NEXT:   1x32x32x32xf16, #NHWC, [@CMX_NN, 1]
+    //CHECK-NEXT:   1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 1]
     //CHECK-NEXT:   inwardHaloRegions = [
     //CHECK-NEXT:       #VPUIP.HaloRegionAttr<shape = [1, 16, 32, 32], offset = [0, 0, 0, 0], cluster_id = 1 : i64>
     //CHECK-NEXT:    ]
@@ -327,9 +327,9 @@ func.func @UnrollNCESequence(%input: !Input_DDR, %output: !Output_DDR) -> !Outpu
     //CHECK-SAME:           weight_table([[WEIGHTS_TABLE1_CMX_2ND_TASK]] : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
     //CHECK-SAME:           parent_input([[IN1_CMX_2ND_TASK]] : memref<1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
     //CHECK:                parent_output([[OUT1_CMX_2ND_TASK]] : !VPUIP.ITIBuffer<
-    //CHECK-NEXT:               1x32x32x32xf16, #NHWC, [@CMX_NN, 0]
+    //CHECK-NEXT:               1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]
     //CHECK:                outputs([[OUT1_CMX_2ND_TASK]] : !VPUIP.ITIBuffer<
-    //CHECK-NEXT:               1x32x32x32xf16, #NHWC, [@CMX_NN, 0]
+    //CHECK-NEXT:               1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]
     //CHECK:            variants :  {
     //CHECK:                DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [31, 31, 15], outStart = [0, 0, 0],
     //CHECK-SAME:               pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
@@ -348,9 +348,9 @@ func.func @UnrollNCESequence(%input: !Input_DDR, %output: !Output_DDR) -> !Outpu
     //CHECK-SAME:           weight_table([[WEIGHTS_TABLE2_CMX_2ND_TASK]] : memref<16x1x1x4xsi32, [@CMX_NN, 1]>)
     //CHECK-SAME:           parent_input([[IN2_CMX_2ND_TASK]] : memref<1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 1]>)
     //CHECK:                parent_output([[OUT2_CMX_2ND_TASK]] : !VPUIP.ITIBuffer<
-    //CHECK-NEXT:               1x32x32x32xf16, #NHWC, [@CMX_NN, 1]
+    //CHECK-NEXT:               1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 1]
     //CHECK:                outputs([[OUT2_CMX_2ND_TASK]] : !VPUIP.ITIBuffer<
-    //CHECK-NEXT:               1x32x32x32xf16, #NHWC, [@CMX_NN, 1]
+    //CHECK-NEXT:               1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 1]
     //CHECK:            variants :  {
     //CHECK:                DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [31, 31, 31], outStart = [0, 0, 16],
     //CHECK-SAME:               pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}

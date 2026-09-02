@@ -16,6 +16,7 @@
 #include <llvm/Support/raw_ostream.h>
 #include <mlir/IR/Value.h>
 
+#include <limits>
 #include <vector>
 
 namespace vpux {
@@ -102,6 +103,10 @@ struct ComputeExplicitSchedule {
     OpAllocationInfo allocInfo;
     SmallVector<mlir::Value> deallocations;
     SmallVector<std::pair<mlir::Value, vpux::AddressType>> allocations;
+    // Position of this entry in `loopBodies[0]` (templateBody) at the time
+    // of allocation. Immutable after construction - survives
+    // any subsequent reorder
+    size_t templatePos = std::numeric_limits<size_t>::max();
 };
 
 using IterationSchedule = std::vector<ComputeExplicitSchedule>;
@@ -290,5 +295,18 @@ struct ComputeRegionsSchedule {
 };
 ComputeRegionVec getComputeRegionsFromAsyncExec(AliasesInfo& aliasInfo, AsyncDepsInfo& depsInfo,
                                                 Logger log = Logger::global());
+
+struct BufferEqualityTopology {
+    SmallVector<uint32_t> inClassIds;
+    SmallVector<uint32_t> outClassIds;
+};
+
+// Build a value-agnostic structural signature for one op's buffers.
+// Equal SSA values map to equal class ids, which captures duplicates and
+// in/out overlap (in-place) without relying on cross-iteration SSA identity.
+BufferEqualityTopology getBufferEqualityTopology(const OpAllocationInfo& op);
+
+// Format the topology class ids as a compact debug string like "[0,1,1]".
+std::string stringifyClassIds(ArrayRef<uint32_t> classIds);
 
 }  // namespace vpux

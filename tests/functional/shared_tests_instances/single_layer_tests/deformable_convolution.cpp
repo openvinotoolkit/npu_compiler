@@ -46,6 +46,7 @@ TEST_P(DeformableConvolutionLayerTestTiling, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(DeformableConvolutionLayerTestCommon, NPU5020_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
@@ -176,4 +177,5 @@ const auto paramsTiling_Padding =
 
 INSTANTIATE_TEST_SUITE_P(smoke_Tiling_padding_DefConv, DeformableConvolutionLayerTestTiling, paramsTiling_Padding,
                          DeformableConvolutionLayerTest::getTestCaseName);
+
 }  // namespace

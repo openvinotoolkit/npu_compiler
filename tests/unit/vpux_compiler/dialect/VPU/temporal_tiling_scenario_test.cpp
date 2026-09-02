@@ -104,7 +104,7 @@ module @main {
                     -> tensor<1x64x56x56xf16, {order = #NHWC}> {
         %weights = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<64x16x1x1xf16, {order = #NHWC}>
         %weights_table = const.Declare tensor<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
-        %dconv = VPU.NCE.DepthConvolution(%input, %weights, %weights_table : tensor<64x1x1x4xsi32>) rawFilterShape [64, 1, 3, 3] {
+        %dconv = VPU.NCE.DepthConvolution(%input, %weights, %weights_table : tensor<64x1x1x4xsi32>) rawFilterShape [64, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,

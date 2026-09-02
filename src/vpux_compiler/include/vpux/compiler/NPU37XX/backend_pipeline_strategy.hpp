@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/pipelines/backend_pipeline_strategy.hpp"
+#include "vpux/utils/ov/config.hpp"
 
 namespace vpux {
 
@@ -15,7 +16,7 @@ namespace vpux {
 
 class BackendPipelineStrategy37XX final : public IBackendPipelineStrategy {
 public:
-    void buildELFPipeline(mlir::OpPassManager& pm, const intel_npu::Config& config, mlir::TimingScope& rootTiming,
+    void buildELFPipeline(mlir::OpPassManager& pm, const vpux::OV::Config& config, mlir::TimingScope& rootTiming,
                           Logger log) final;
 };
 

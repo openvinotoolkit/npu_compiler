@@ -154,7 +154,7 @@ std::shared_ptr<ov::Node> NCETasksHelpers::buildNCETask(const ov::Output<ov::Nod
     case NCETasksHelpers::NCEOpType::MaxPooling:
         return buildMaxPool(param);
     default:
-        OPENVINO_THROW("buildNCETask: unsupported operation type: " + opType);
+        OPENVINO_THROW("buildNCETask: unsupported operation type: ", static_cast<int>(opType));
     }
 }
 
@@ -193,6 +193,6 @@ std::string NCETasksHelpers::NCEOpTypeToString(const NCEOpType& opType) {
     case NCETasksHelpers::NCEOpType::MaxPooling:
         return "MaxPooling";
     default:
-        OPENVINO_THROW("buildNCETask: unsupported operation type: " + opType);
+        OPENVINO_THROW("buildNCETask: unsupported operation type: ", static_cast<int>(opType));
     }
 }

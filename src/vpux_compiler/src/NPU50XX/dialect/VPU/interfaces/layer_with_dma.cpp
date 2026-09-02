@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/common_utils/layer_with_dma.hpp"
 
 using namespace vpux;
@@ -15,7 +16,9 @@ using namespace vpux;
 void vpux::VPU::arch50xx::registerLayerWithDmaInterface(mlir::DialectRegistry& registry) {
     registry.addExtension(+[](mlir::MLIRContext* ctx, IE::IEDialect*) {
         IE::AtanOp::attachInterface<VPU::LayerWithDmaInterfaceActivation<IE::AtanOp>>(*ctx);
+        IE::TopKOp::attachInterface<VPU::LayerWithDmaInterfaceTopK>(*ctx);
         IE::InterpolateOp::attachInterface<VPU::LayerWithDmaInterfaceFwlm<IE::InterpolateOp>>(*ctx);
         IE::ScatterUpdateOp::attachInterface<VPU::LayerWithDmaInterfaceScatterUpdate>(*ctx);
+        IE::AttentionDMAOp::attachInterface<VPU::LayerWithDmaInterfaceFwlm<IE::AttentionDMAOp>>(*ctx);
     });
 }

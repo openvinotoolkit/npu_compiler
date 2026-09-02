@@ -107,23 +107,8 @@ mlir::LogicalResult ConvertScalarToTensorPass::GatherScalarConverter::matchAndRe
     _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
     vpux::IE::GatherOp newOp;
-    if ((origOp.getAxis() != nullptr) &&
-        (mlir::cast<vpux::NDTypeInterface>(origOp.getAxis().getType()).getRank() == 0)) {
-        const std::array<int64_t, 1> tensorShape = {1};
-        const auto shapeAttr = getIntArrayAttr(getContext(), tensorShape);
-
-        _log.nest().trace("New axis type '{0}'", newArgs.getAxis().getType());
-
-        auto axisReshape = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "in_axis"), newArgs.getAxis().getType(),
-                                                          origOp.getAxis(), shapeAttr);
-        newOp = rewriter.create<IE::GatherOp>(takeOpLoc(origOp, "gather_axis"), origOp.getInput(), newArgs.getIndices(),
-                                              axisReshape.getOutput(), origOp.getAxisValueAttr(), origOp.getBatchDims(),
-                                              origOp.getIndicesRankAttr());
-    } else {
-        newOp = rewriter.create<IE::GatherOp>(takeOpLoc(origOp, "gather_axis"), origOp.getInput(), newArgs.getIndices(),
-                                              nullptr, origOp.getAxisValueAttr(), origOp.getBatchDims(),
-                                              origOp.getIndicesRankAttr());
-    }
+    newOp = rewriter.create<IE::GatherOp>(takeOpLoc(origOp, "gather_axis"), origOp.getInput(), newArgs.getIndices(),
+                                          origOp.getAxisValue(), origOp.getBatchDims(), origOp.getIndicesRankAttr());
     _log.nest().trace("New indices type '{0}'", newArgs.getIndices().getType());
 
     const auto origShapeAttr = getIntArrayAttr(origOp->getContext(), getShape(origOp.getOutput()));

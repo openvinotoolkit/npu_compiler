@@ -84,6 +84,12 @@ void HostPipelineStrategy::buildPipeline(mlir::OpPassManager& pm) {
     // instead of the unfused chain of IE ops + const.Declare
     pm.addPass(IE::createFuseColorConversionPass(/*enableYuvToRgbShaveScale=*/true, _log));
 
+    // Recover IE.Transpose from any ShapeOf/Gather/DynamicReshape decomposition
+    // emitted by the frontend for fully-dynamic Transpose ops. IE.Transpose implements
+    // ReifyRankedShapedTypeOpInterface, unlike the individual ops in that chain, which
+    // is required by the output-shape prediction pipeline below.
+    pm.addPass(IE::createFoldShapeOfGatherDynamicReshapeToTransposePass(_log));
+
     // build output shape predict func and pack @main func to a nested @NPU module
     HostExec::buildOutputShapePredictPipeline(pm, _log);
 
@@ -102,6 +108,8 @@ void HostPipelineStrategy::buildPipeline(mlir::OpPassManager& pm) {
     // the top module
     pm.addPass(Core::createUnpackNestedModulesPass(_log, Core::NestingMode::EntryPoint));
     pm.addPass(VPU::createFinalizeComputeFunctionBoundariesPass(_log));
+    // Clean up function boundaries from extra ops (e.g. ReinterpretCast)
+    pm.addPass(mlir::createCanonicalizerPass());
 
     // Link all resolved function calls after module unpacking
     pm.addPass(vpux::HostExec::createWrapFuncCallPass(_log));

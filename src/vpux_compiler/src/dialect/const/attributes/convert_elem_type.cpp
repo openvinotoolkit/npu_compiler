@@ -25,24 +25,6 @@ Const::Content convertQuantizedToQuantizedWithZeroPoint(Const::Content& input, m
 
     return Const::Content::moveBuffer(resultType, valueShifter.transform(input));
 }
-}  // namespace
-
-mlir::LogicalResult vpux::Const::ConvertElemTypeAttr::verify(FuncRef<mlir::InFlightDiagnostic()> emitError,
-                                                             mlir::Type elemType) {
-    if (elemType == nullptr) {
-        return printTo(emitError(), "Got NULL 'elemType' in 'ConvertElemTypeAttr'");
-    }
-
-    return mlir::success();
-}
-
-vpux::NDTypeInterface vpux::Const::ConvertElemTypeAttr::inferOutputType(vpux::NDTypeInterface input) const {
-    return input.changeElemType(getElemType());
-}
-
-bool vpux::Const::ConvertElemTypeAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) const {
-    return inputIsSplat;
-}
 
 template <typename DataType>
 void unpackSubByteData(MutableArrayRef<DataType> targetData, ArrayRef<DataType> sourceData, bool isSplat,
@@ -109,6 +91,24 @@ vpux::Const::Content subByteConversion(vpux::Const::Content& input, vpux::NDType
 
     return output;
 }
+}  // namespace
+
+mlir::LogicalResult vpux::Const::ConvertElemTypeAttr::verify(FuncRef<mlir::InFlightDiagnostic()> emitError,
+                                                             mlir::Type elemType) {
+    if (elemType == nullptr) {
+        return printTo(emitError(), "Got NULL 'elemType' in 'ConvertElemTypeAttr'");
+    }
+
+    return mlir::success();
+}
+
+vpux::NDTypeInterface vpux::Const::ConvertElemTypeAttr::inferOutputType(vpux::NDTypeInterface input) const {
+    return input.changeElemType(getElemType());
+}
+
+bool vpux::Const::ConvertElemTypeAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) const {
+    return inputIsSplat;
+}
 
 Const::Content vpux::Const::ConvertElemTypeAttr::transform(vpux::Const::Content& input) const {
     auto inType = input.getType();
@@ -133,6 +133,7 @@ Const::Content vpux::Const::ConvertElemTypeAttr::transform(vpux::Const::Content&
             (inElementType.isSignedInteger() && outElementType.isSignedInteger()) ||
             (inElementType.isUnsignedInteger() && outElementType.isUnsignedInteger()) ||
             (inElementType.isSignlessIntOrIndex() && outElementType.isSignlessIntOrIndex()) ||
+            (inElementType.isFloat(4) && outElementType.isUnsignedInteger(8)) ||
             bitWidth == 1;  // Don't care sign type when bitWidth is 1
 
     // For subbyte type, we unpack the data

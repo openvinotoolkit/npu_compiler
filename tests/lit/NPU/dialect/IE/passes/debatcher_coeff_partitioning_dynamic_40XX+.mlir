@@ -24,6 +24,13 @@ func.func @SingleInputSingleOutputBatched(%arg: tensor<?x3x62x62xf32, {bounds = 
     // CHECK: return [[CASTED_CONST]] : tensor<?x48x60x57xf32, [[ANY_MATCH:{.+}]]>
 }
 
+net.NetworkInfo entryPoint : @SingleInputSingleOutputBatched inputsInfo : {
+    DataInfo "input0" : tensor<?x3x62x62xf32, {bounds = #const.OpaqueI64Elements<[6, 3, 62, 62]> : tensor<4xsi64>}>
+} outputsInfo : {
+    DataInfo "output" : tensor<?x48x60x57xf32, {bounds = #const.OpaqueI64Elements<[6, 48, 60, 57]> : tensor<4xsi64>}>
+}
+
+
 // -----
 
 // CHECK-LABEL: @MultipleInputSingleOutputBatched
@@ -56,4 +63,11 @@ func.func @MultipleInputSingleOutputBatched(%arg0: tensor<?x3x62x62xf32, {bounds
         // CHECK: [[SOFTM_RES1:%.+]] = IE.SoftMax([[ADD_RES]]) {axisInd = 1 : i64} : tensor<2x48x60x57xf32> -> tensor<2x48x60x57xf32>
         // CHECK: [[CASTED_RES:%.+]] = builtin.unrealized_conversion_cast [[SOFTM_RES1]] : tensor<2x48x60x57xf32> to tensor<?x48x60x57xf32, [[ANY_MATCH:{.+}]]>
         // CHECK: return [[CASTED_RES]] : tensor<?x48x60x57xf32, [[ANY_MATCH:{.+}]]>
+}
+
+net.NetworkInfo entryPoint : @MultipleInputSingleOutputBatched inputsInfo : {
+    DataInfo "input0" : tensor<?x3x62x62xf32, {bounds = #const.OpaqueI64Elements<[6, 3, 62, 62]> : tensor<4xsi64>}>
+    DataInfo "input1" : tensor<?x48x60x57xf32, {bounds = #const.OpaqueI64Elements<[6, 48, 60, 57]> : tensor<4xsi64>}>
+} outputsInfo : {
+    DataInfo "output" : tensor<?x48x60x57xf32, {bounds = #const.OpaqueI64Elements<[6, 48, 60, 57]> : tensor<4xsi64>}>
 }

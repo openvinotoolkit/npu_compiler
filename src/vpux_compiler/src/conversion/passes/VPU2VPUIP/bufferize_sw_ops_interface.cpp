@@ -23,6 +23,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/reduce.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/allocate_buffers.hpp"
@@ -43,7 +44,7 @@ using namespace vpux;
 
 bool vpux::canBeBufferizedToCopies(VPU::ConcatOp concatOp) {
     auto outType = concatOp.getOutput().getType();
-    return !mlir::isa<Core::DynamicDimsMaskTensorType>(outType);
+    return !mlir::isa<Core::BoundedTensorType>(outType);
 }
 
 bool vpux::canBeBufferizedToCopies(VPU::StridedSliceOp stridedSliceOp) {
@@ -86,8 +87,7 @@ bool vpux::canBeBufferizedToCopies(VPU::StridedSliceOp stridedSliceOp) {
 bool vpux::canBeBufferizedToCast(VPU::PermuteCastOp op) {
     const auto inputType = op.getInput().getType();
     const auto outputType = op.getOutput().getType();
-    return !mlir::isa<Core::DynamicDimsMaskTensorType>(inputType) &&
-           !mlir::isa<Core::DynamicDimsMaskTensorType>(outputType);
+    return !mlir::isa<Core::BoundedTensorType>(inputType) && !mlir::isa<Core::BoundedTensorType>(outputType);
 }
 
 namespace {
@@ -131,7 +131,7 @@ mlir::LogicalResult vpux::bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir:
         swKernelResults.push_back(newOperands[auxBuffer->getOperandNumber()]);
     }
 
-    VPUIP::createRuntimeKernelDefinition(module, log.nest());
+    VPUIP::initSwKernelRuntime(module, log.nest());
 
     // TODO : tile 0
     const int64_t tileIndex = 0;
@@ -232,7 +232,7 @@ mlir::LogicalResult vpux::bufferizeDistributedSWLayerOp(mlir::RewriterBase& rewr
     auto layerOp = mlir::cast<VPU::LayerOpInterface>(op);
     auto swLayerOp = mlir::cast<VPUIP::SoftwareLayerOpInterface>(op);
 
-    VPUIP::createRuntimeKernelDefinition(module, log.nest());
+    VPUIP::initSwKernelRuntime(module, log.nest());
 
     SmallVector<mlir::OpOperand*> auxBuffers;
     if (auto auxBuffOp = mlir::dyn_cast<VPU::AuxiliaryBufferOpInterface>(op)) {
@@ -403,10 +403,12 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::AcosOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AcosOp>>(*ctx);
         VPU::AtanOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AtanOp>>(*ctx);
         VPU::AtanDmaOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AtanDmaOp>>(*ctx);
+        VPU::AttentionDMAOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AttentionDMAOp>>(*ctx);
         VPU::AsinhOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AsinhOp>>(*ctx);
         VPU::AcoshOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AcoshOp>>(*ctx);
         VPU::AtanhOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AtanhOp>>(*ctx);
         VPU::TopKOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::TopKOp>>(*ctx);
+        VPU::TopKDmaOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::TopKDmaOp>>(*ctx);
         VPU::LRNOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::LRNOp>>(*ctx);
         VPU::MemPermuteOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::MemPermuteOp>>(*ctx);
         VPU::PadOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::PadOp>>(*ctx);
@@ -496,6 +498,7 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::LSTMGatesOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::LSTMGatesOp>>(*ctx);
         VPU::LSTMSequenceOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::LSTMSequenceOp>>(*ctx);
         VPU::ErfOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ErfOp>>(*ctx);
+        VPU::ErfInvOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ErfInvOp>>(*ctx);
         VPU::BucketizeOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::BucketizeOp>>(*ctx);
         VPU::MaxPoolOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::MaxPoolOp>>(*ctx);
         VPU::MaxPool8Op::attachInterface<SoftwareLayerOpBufferizeModel<VPU::MaxPool8Op>>(*ctx);
@@ -524,6 +527,7 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::InterpolateDMAOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::InterpolateDMAOp>>(*ctx);
         VPU::DynamicTileOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::DynamicTileOp>>(*ctx);
         VPU::RMSOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::RMSOp>>(*ctx);
+        VPU::GatedDeltaNetOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::GatedDeltaNetOp>>(*ctx);
         VPU::InverseOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::InverseOp>>(*ctx);
         VPU::DeformableConvolutionOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::DeformableConvolutionOp>>(
                 *ctx);

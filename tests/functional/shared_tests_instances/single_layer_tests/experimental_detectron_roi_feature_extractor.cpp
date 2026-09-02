@@ -26,49 +26,34 @@ class ExperimentalDetectronROIFeatureExtractorLayerTestCommon :
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] = "disabled-passes=convert-precision-to-fp";
     }
+
+    void SetUp() override {
+        ExperimentalDetectronROIFeatureExtractorLayerTest::SetUp();
+        // adjusted for differences when rounding to fp16
+        if (std::get<5>(GetParam()) == ov::element::f16) {
+            abs_threshold = 0.05f;
+        }
+    }
 };
 
 TEST_P(ExperimentalDetectronROIFeatureExtractorLayerTestCommon, NPU3720_SW) {
-    const auto type = std::get<5>(GetParam());
-
-    // adjusted for differences when rounding to fp16
-    if (type == ov::element::f16) {
-        abs_threshold = 0.05f;
-    }
     setReferenceSoftwareMode();
     run(Platform::NPU3720);
 }
 
 TEST_P(ExperimentalDetectronROIFeatureExtractorLayerTestCommon, NPU4000_SW) {
-    const auto type = std::get<5>(GetParam());
-
-    // adjusted for differences when rounding to fp16
-    if (type == ov::element::f16) {
-        abs_threshold = 0.05f;
-    }
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
 
 // [E#154893] Tests are not functional on L0. They work locally with IMD.
 TEST_P(ExperimentalDetectronROIFeatureExtractorLayerTestCommon, DISABLED_NPU5010_SW) {
-    const auto type = std::get<5>(GetParam());
-
-    // adjusted for differences when rounding to fp16
-    if (type == ov::element::f16) {
-        abs_threshold = 0.05f;
-    }
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 // [E#154893] Tests are not functional on L0. They work locally with IMD.
 TEST_P(ExperimentalDetectronROIFeatureExtractorLayerTestCommon, DISABLED_NPU5020_SW) {
-    const auto type = std::get<5>(GetParam());
-
-    // adjusted for differences when rounding to fp16
-    if (type == ov::element::f16) {
-        abs_threshold = 0.05f;
-    }
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
 }

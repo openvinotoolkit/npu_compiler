@@ -13,7 +13,7 @@ include "mlir/IR/BuiltinAttributes.td"
 def Bytecode_CmpI64Op : Bytecode_ThreeOperandsPlusImmInstructionBase<"cmp.i64", [], "1.0.0", "intel_npu::vm::OpCode::CMP_I64"> {
     let summary = "Compare two 64-bit integers";
 
-    let opDescription = [{
+    let description = [{
         This operation compares two 64-bit integers (`lhs`, `rhs`) and stores 1 (true) or 0 (false) in `dst`.
 
         The `flag` attribute is a 16-bit immediate encoding the comparison predicate and sign:
@@ -35,7 +35,7 @@ def Bytecode_CmpI64Op : Bytecode_ThreeOperandsPlusImmInstructionBase<"cmp.i64", 
 def Bytecode_CmpF64Op : Bytecode_ThreeOperandsPlusImmInstructionBase<"cmp.f64", [], "1.0.0", "intel_npu::vm::OpCode::CMP_F64"> {
     let summary = "Compare two 64-bit floating-point numbers";
 
-    let opDescription = [{
+    let description = [{
         This operation compares two 64-bit IEEE 754 floating-point numbers (`lhs`, `rhs`) and stores 1 (true) or 0 (false) in `dst`.
 
         The `flag` attribute is a 16-bit immediate encoding the comparison predicate:

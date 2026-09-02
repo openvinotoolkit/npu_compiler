@@ -7,9 +7,7 @@
 // REQUIRES: platform-NPU4000
 
 module @SimpleGraphAddFirstResMem {
-  config.Resources 1 of @NCE at 1.300000e+03 MHz {
-    config.MemoryResource 1473536 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
-  }
+  config.Resources 1 of @NCE at 1.300000e+03 MHz
 
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "data" : tensor<1x16x4x4xf16>
@@ -24,17 +22,16 @@ module @SimpleGraphAddFirstResMem {
     // CHECK:     config.Resources
     // CHECK:         ReservedMemory
     // CHECK-NEXT:         DummySWKernelsForInstructionPrefetchReservedMemory
-    // CHECK-NEXT:         config.MemoryResource 16 bytes of @CMX_NN offset 1473520
+    // CHECK-NEXT:         config.MemoryResource 16 bytes of @CMX_NN offset 1571824
 }
 
 // -----
 
 module @SimpleGraphAddSecondResMem {
   config.Resources 1 of @NCE at 1.300000e+03 MHz {
-    config.MemoryResource 1473536 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
     builtin.module @ReservedMemory {
         module @CustomReservedMemory {
-            config.MemoryResource 512 bytes of @CMX_NN offset 1473024
+            config.MemoryResource 512 bytes of @CMX_NN offset 1571328
         }
     }
   }
@@ -52,17 +49,15 @@ module @SimpleGraphAddSecondResMem {
     // CHECK:     config.Resources
     // CHECK:         ReservedMemory
     // CHECK-NEXT:         DummySWKernelsForInstructionPrefetchReservedMemory
-    // CHECK-NEXT:         config.MemoryResource 16 bytes of @CMX_NN offset 1473008
+    // CHECK-NEXT:         config.MemoryResource 16 bytes of @CMX_NN offset 1571312
     // CHECK:              CustomReservedMemory
-    // CHECK-NEXT:         config.MemoryResource 512 bytes of @CMX_NN offset 1473024
+    // CHECK-NEXT:         config.MemoryResource 512 bytes of @CMX_NN offset 1571328
 }
 
 // -----
 
 module @SimpleGraphNotAddResMem {
-  config.Resources 1 of @NCE at 1.300000e+03 MHz {
-    config.MemoryResource 1473536 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
-  }
+  config.Resources 1 of @NCE at 1.300000e+03 MHz
 
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "data" : tensor<1x16x4x4xf16>

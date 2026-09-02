@@ -31,7 +31,7 @@ class NPU_VM_EXPORT LevelZeroAllocator {
 
 public:
     // Chunk-base alignment this backing guarantees: zeMemAllocHost is asked for page-aligned memory.
-    static constexpr size_t alignment = intel_npu::utils::STANDARD_PAGE_SIZE;
+    static constexpr size_t ALIGNMENT = intel_npu::utils::STANDARD_PAGE_SIZE;
 
     explicit LevelZeroAllocator(ze_context_handle_t context);
 

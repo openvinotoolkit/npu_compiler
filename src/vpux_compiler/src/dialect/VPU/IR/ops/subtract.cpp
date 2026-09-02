@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
@@ -56,6 +57,15 @@ void vpux::VPU::SubtractOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::Operati
                                   ::mlir::Value input2, vpux::IE::AutoBroadcastTypeAttr auto_broadcast,
                                   /*optional*/ vpux::IE::PostOpAttr post_op) {
     build(odsBuilder, odsState, input1, input2, auto_broadcast.getValue(), post_op, nullptr);
+}
+
+bool vpux::VPU::SubtractOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& outputTile) {
+    return VPU::isEltwiseSWOpSplitOverHeightCompatible(getOperation(), outputTile.shape);
+}
+
+bool vpux::VPU::SubtractOp::isOperationSplitOverWidthCompatible(ShapeRef outputShape, ShapeRef /*offset*/,
+                                                                ShapeRef /*axis*/) {
+    return VPU::isEltwiseSWOpSplitOverWidthCompatible(getOperation(), outputShape);
 }
 
 bool vpux::VPU::SubtractOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {

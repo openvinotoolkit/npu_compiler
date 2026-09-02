@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024-2025 Intel Corporation
+// Copyright (C) 2024-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -46,8 +46,6 @@ public:
         const auto& actual = actualTensors[0];
         ASSERT_EQ(expected.get_size(), actual.get_size());
 
-        const auto actualData = actual.data<ov::element_type_traits<ov::element::f32>>();
-        const auto expectedData = expected.data<ov::element_type_traits<ov::element::f32>>();
         const float absThreshold = 0.f;
         const float relThreshold = 0.f;
         ov::test::utils::compare(expected, actual, absThreshold, relThreshold);

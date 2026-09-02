@@ -8,18 +8,16 @@
 #include "vpux/compiler/compilation_options.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/pipelines/options_mapper.hpp"
-#include "vpux/utils/ov/config.hpp"
-
-#include "intel_npu/config/options.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 namespace vpux {
 
 /// This class serves two purposes:
-/// 1. Parsing options from an intel_npu::Config object and overriding specific values depending on platform and
+/// 1. Parsing options from an vpux::OV::Config object and overriding specific values depending on platform and
 ///    compilation mode.
 /// 2. From the PipelineStrategy's point of view it is simply a container for a specific type of options.
 ///
-/// OptionsSetup can either parse options from intel_npu::Config or create copies of const VPU::InitCompilerOptions*
+/// OptionsSetup can either parse options from vpux::OV::Config or create copies of const VPU::InitCompilerOptions*
 /// and const OptionsType*. It owns the objects and derived classes can therefore override specific options without
 /// restrictions.
 ///
@@ -41,8 +39,8 @@ class OptionsSetup {
 public:
     using value_type = OptionsType;
 
-    explicit OptionsSetup(const intel_npu::Config& config) {
-        _options = parseCompilationModeParams<OptionsType>(config.get<intel_npu::COMPILATION_MODE_PARAMS>(),
+    explicit OptionsSetup(const vpux::OV::Config& config) {
+        _options = parseCompilationModeParams<OptionsType>(config.get<vpux::OV::COMPILATION_MODE_PARAMS>(),
                                                            getArchKind(config));
         VPUX_THROW_WHEN(_options == nullptr, "Failed to parse COMPILATION_MODE_PARAMS");
 
@@ -88,17 +86,14 @@ protected:
         VPUX_THROW("setupOptionsImpl() is not implemented.");
     }
 
-    static void setupOptionsImpl(OptionsType&, VPU::InitCompilerOptions&, const intel_npu::Config&) {
+    static void setupOptionsImpl(OptionsType&, VPU::InitCompilerOptions&, const vpux::OV::Config&) {
         VPUX_THROW("setupOptionsImpl() is not implemented.");
     }
 
 private:
-    void applyConfig(const intel_npu::Config& config) {
+    void applyConfig(const vpux::OV::Config& config) {
         // Note that all of the following options are explicit OV/Plugin options.
         // Don't parse COMPILATION_MODE_PARAMS again!
-
-        // reuse PSS tests API
-        _initCompilerOptions->setAvailableCMXMemory(getAvailableCmx(config));
 
         maybeSetValue(_initCompilerOptions->revisionID, getRevisionID(config));
         maybeSetValue(_initCompilerOptions->numberOfDPUGroups, getNumberOfDPUGroups(config));
@@ -106,14 +101,10 @@ private:
         const auto dynamicQuantization = getCompilerDynamicQuantization(config);
         maybeSetValue(_initCompilerOptions->enableWeightsDynamicDequantization, dynamicQuantization);
 
-        auto optimizationAggressiveEnabled = getQDQOptimizationAggressive(config);
-        maybeSetValue(_initCompilerOptions->enableQDQOptimizationAggressive, optimizationAggressiveEnabled);
-
-        auto optimizationEnabled = getQDQOptimization(config);
-        _initCompilerOptions->enableAdaptiveStripping =
-                optimizationAggressiveEnabled.value_or(false) || optimizationEnabled.value_or(true);
-
         maybeSetValue(_initCompilerOptions->enableProfiling, getPerfCount(config));
+
+        // Custom Kernel Config path
+        maybeSetValue(_initCompilerOptions->customKernelConfigPath, getCustomKernelConfigPath(config));
 
         auto archKind = vpux::getArchKind(config);
         if (archKind == config::ArchKind::NPU37XX || archKind == config::ArchKind::NPU40XX) {
@@ -127,6 +118,13 @@ private:
                             "NCE clusters ({1})",
                             numOfDMAPorts.getValue(), numOfDPUGroups.getValue());
         }
+
+        auto optimizationAggressiveEnabled = getQDQOptimizationAggressive(config);
+        maybeSetValue(_initCompilerOptions->enableQDQOptimizationAggressive, optimizationAggressiveEnabled);
+
+        auto optimizationEnabled = getQDQOptimization(config);
+        _initCompilerOptions->enableAdaptiveStripping =
+                optimizationAggressiveEnabled.value_or(false) || optimizationEnabled.value_or(true);
     }
 
     template <typename OptionType, typename ValType>
@@ -168,10 +166,10 @@ protected:
     }
 
     static void setupOptionsImpl(ArchSpecificOptionsType& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                 const intel_npu::Config& config) {
-        overwriteIfUnset(options.enableProfiling, config.get<intel_npu::PERF_COUNT>());
+                                 const vpux::OV::Config& config) {
+        overwriteIfUnset(options.enableProfiling, config.get<vpux::OV::PERF_COUNT>());
         options.getBatchCompileAdapter().updateBatchCompileOptionsFromString(
-                config.get<intel_npu::BATCH_COMPILER_MODE_SETTINGS>());
+                config.get<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>());
         setupOptionsCommon(options, initCompilerOptions);
     }
 
@@ -236,6 +234,7 @@ static void setupWSMainOptionsCommon(ArchSpecificOptionsType& options) {
     overwriteIfUnset(options.enableWeightsSparsity, false);
     // E#180631: remove option
     overwriteIfUnset(options.forceConvertGatherTo4D, true);
+    overwriteIfUnset(options.constantTracing, true);
 }
 
 template <class OptionsSetupType, class OptionsType>

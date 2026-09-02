@@ -359,16 +359,17 @@ void ConvertNCEInterpolateToDWPass::convertToDWConv(VPU::NCEInterpolateOp origOp
             VPU::NewWeightsTableTensors(isNewWeightTableFormat, weightsTableParams, builder, origOp->getLoc(), wtShape);
 
     const auto origWeightsShape = getShape(origWeights);
-    const auto rawFilterShape = getIntArrayAttr(
-            builder,
-            SmallVector<int64_t>{OC, 1, origWeightsShape[Dims4D::Filter::KY], origWeightsShape[Dims4D::Filter::KX]});
+    const auto rawFilterShape =
+            SmallVector<int64_t>{OC, 1, origWeightsShape[Dims4D::Filter::KY], origWeightsShape[Dims4D::Filter::KX]};
     const auto padding = VPU::getPaddingAttr(ctx, 0, 0, 0, 0);
     auto dwConv = builder.create<VPU::NCEDepthConvolutionOp>(
-            origOp->getLoc(), outputType, sparseInput, weights, weightsTable, newWeightsTableTensors.dataPointerTensor,
-            newWeightsTableTensors.sparsityPointerTensor, newWeightsTableTensors.scaleTensor,
-            newWeightsTableTensors.biasTensor, newWeightsTableTensors.zeroPointTensor, origOp.getStridesAttr(), padding,
-            origOp.getPpeAttr(), origOp.getMpeEngineAttr(), /*rawFilterShape=*/mlir::ValueRange{},
-            parseIntArrayAttr<int64_t>(rawFilterShape), origOp.getMultiClusterStrategyAttr(), nullptr, nullptr);
+            origOp->getLoc(), outputType, /*reduce_xy_max=*/nullptr, /*reduce_xy_min=*/nullptr,
+            /*reduce_tensor_min_max=*/nullptr, sparseInput, weights, weightsTable,
+            newWeightsTableTensors.dataPointerTensor, newWeightsTableTensors.scaleTensor,
+            newWeightsTableTensors.biasTensor, origOp.getStridesAttr(), padding, origOp.getPpeAttr(),
+            origOp.getMpeEngineAttr(), /*rawFilterShape=*/mlir::ValueRange{}, rawFilterShape,
+            origOp.getMultiClusterStrategyAttr(), nullptr, nullptr,
+            /*axes_value=*/nullptr);
 
     nestedLog.trace("Created DWConv with SEP for Interpolate.");
 

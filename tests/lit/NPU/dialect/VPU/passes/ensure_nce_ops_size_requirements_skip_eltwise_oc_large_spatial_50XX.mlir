@@ -13,7 +13,7 @@
 func.func @SplitEltwiseOCWithSmallSpatialDim(%arg0: tensor<1x16384x1x1xf16, {order = #NHWC}>,
                                         %arg1: tensor<1x16384x1x1xf16, {order = #NHWC}>)
                                         -> tensor<1x16384x1x1xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>
     } -> tensor<1x16384x1x1xf16, {order = #NHWC}>
@@ -33,7 +33,7 @@ func.func @SplitEltwiseOCWithSmallSpatialDim(%arg0: tensor<1x16384x1x1xf16, {ord
 func.func @DontSplitEltwiseOCWithLargeSpatialDim(%arg0: tensor<1x16384x8x8xf16, {order = #NHWC}>,
                                                 %arg1: tensor<1x16384x8x8xf16, {order = #NHWC}>)
                                                 -> tensor<1x16384x8x8xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00], adder = 0.000000e+00 : f64>
     } -> tensor<1x16384x8x8xf16, {order = #NHWC}>

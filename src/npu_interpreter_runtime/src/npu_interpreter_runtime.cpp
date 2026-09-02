@@ -10,11 +10,17 @@
 #include "utils/network_metadata.hpp"
 #include "utils/parameters.hpp"
 
+#include <openvino/core/type/element_type.hpp>
+
+#include <ze_graph_ext.h>
+
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <exception>
 #include <limits>
 #include <memory>
+#include <new>
 #include <string>
 #include <utility>
 #include <vector>
@@ -63,7 +69,7 @@ void copyString(char* dst, size_t dstSize, const std::string& src) {
     }
 
     std::strncpy(dst, src.c_str(), dstSize - 1);
-    dst[dstSize - 1] = '\0';
+    dst[dstSize - 1] = '\0';  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 }
 
 }  // namespace
@@ -141,6 +147,7 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeDestroy(npu
     if (hRuntime->module != nullptr) {
         npu_vm_destroy_module(hRuntime->module);
     }
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
     delete hRuntime;
     return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
@@ -161,10 +168,10 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeGetMetadata
         const auto outputCount = hRuntime->metadata.outputs.size();
 
         if (argIndex < inputCount) {
-            descriptor = &hRuntime->metadata.inputs[argIndex];
+            descriptor = &hRuntime->metadata.inputs.at(argIndex);
             argType = ZE_GRAPH_ARGUMENT_TYPE_INPUT;
         } else if (argIndex < inputCount + outputCount) {
-            descriptor = &hRuntime->metadata.outputs[argIndex - inputCount];
+            descriptor = &hRuntime->metadata.outputs.at(argIndex - inputCount);
             argType = ZE_GRAPH_ARGUMENT_TYPE_OUTPUT;
         } else {
             return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
@@ -182,6 +189,9 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeGetMetadata
         pGraphArgumentProperties->quantZeroPoint = 0;
         pGraphArgumentProperties->associated_tensor_names_count = 0;
 
+        // The ze_graph_* properties expose fixed-size C arrays and `upperBound` is a raw pointer parameter, so
+        // array-to-pointer decay and indexed access are unavoidable when populating them.
+        // NOLINTBEGIN
         copyString(pGraphArgumentProperties->name, ZE_MAX_GRAPH_ARGUMENT_NAME, descriptor->nameFromCompiler);
         copyString(pGraphArgumentProperties->debug_friendly_name, ZE_MAX_GRAPH_ARGUMENT_NAME,
                    descriptor->nodeFriendlyName.empty() ? descriptor->nameFromCompiler : descriptor->nodeFriendlyName);
@@ -197,18 +207,23 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeGetMetadata
             const auto cappedRank = std::min(rankLength, static_cast<size_t>(MAX_GRAPH_ARG_DIMS));
             pGraphArgumentProperties->dims_count = static_cast<uint32_t>(cappedRank);
 
-            for (uint32_t i = 0; i < pGraphArgumentProperties->dims_count; ++i) {
-                const auto dim = descriptor->shapeFromCompiler[i];
+            uint32_t dimIdx = 0;
+            for (const auto& dim : descriptor->shapeFromCompiler) {
+                if (dimIdx >= pGraphArgumentProperties->dims_count) {
+                    break;
+                }
                 if (!dim.is_dynamic() && dim.get_length() >= 0 &&
                     static_cast<uint64_t>(dim.get_length()) <= std::numeric_limits<uint32_t>::max()) {
                     const auto dimVal = static_cast<uint32_t>(dim.get_length());
-                    pGraphArgumentProperties->dims[i] = dimVal;
-                    upperBound[i] = static_cast<int64_t>(dimVal);
+                    pGraphArgumentProperties->dims[dimIdx] = dimVal;
+                    upperBound[dimIdx] = static_cast<int64_t>(dimVal);
                 }
+                ++dimIdx;
             }
         } else {
             pGraphArgumentProperties->dims_count = 0;
         }
+        // NOLINTEND
 
         *pGraphArgumentMetadata = {};
         pGraphArgumentMetadata->stype = ZE_STRUCTURE_TYPE_GRAPH_ARGUMENT_METADATA;
@@ -223,15 +238,18 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeGetMetadata
         const auto tensorNameCount = static_cast<uint32_t>(
                 std::min(tensorNames.size(), static_cast<size_t>(ZE_MAX_GRAPH_TENSOR_NAMES_SIZE)));
         pGraphArgumentMetadata->tensor_names_count = tensorNameCount;
+        // The ze_graph_* metadata exposes fixed-size C arrays, so array-to-pointer decay and indexed access are
+        // unavoidable when populating them.
+        // NOLINTBEGIN
         for (uint32_t i = 0; i < tensorNameCount; ++i) {
-            copyString(pGraphArgumentMetadata->tensor_names[i], ZE_MAX_GRAPH_ARGUMENT_NAME, tensorNames[i]);
+            copyString(pGraphArgumentMetadata->tensor_names[i], ZE_MAX_GRAPH_ARGUMENT_NAME, tensorNames.at(i));
         }
 
         // copy tensors names to associated_tensor_names
         pGraphArgumentProperties->associated_tensor_names_count = pGraphArgumentMetadata->tensor_names_count;
         for (uint32_t i = 0; i < tensorNameCount; i++) {
             copyString(pGraphArgumentProperties->associated_tensor_names[i], ZE_MAX_GRAPH_ARGUMENT_NAME,
-                       tensorNames[i]);
+                       tensorNames.at(i));
         }
 
         const auto friendlyName =
@@ -251,14 +269,19 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeGetMetadata
             const auto cappedRank = std::min(rankLength, static_cast<size_t>(MAX_GRAPH_TENSOR_REF_DIMS));
             pGraphArgumentMetadata->shape_size = static_cast<uint32_t>(cappedRank);
 
-            for (uint32_t i = 0; i < pGraphArgumentMetadata->shape_size; ++i) {
-                const auto dim = metadataShape[i];
-                pGraphArgumentMetadata->shape[i] = dim.is_dynamic() ? std::numeric_limits<uint64_t>::max()
-                                                                    : static_cast<uint64_t>(dim.get_length());
+            uint32_t shapeIdx = 0;
+            for (const auto& dim : metadataShape) {
+                if (shapeIdx >= pGraphArgumentMetadata->shape_size) {
+                    break;
+                }
+                pGraphArgumentMetadata->shape[shapeIdx] = dim.is_dynamic() ? std::numeric_limits<uint64_t>::max()
+                                                                           : static_cast<uint64_t>(dim.get_length());
+                ++shapeIdx;
             }
         } else {
             pGraphArgumentMetadata->shape_size = 0;
         }
+        // NOLINTEND
     } catch (const std::exception& e) {
         NPU_VM_LOG_ERROR("Exception while getting metadata: {}", e.what());
         return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
@@ -276,6 +299,7 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeExecute(npu
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
     try {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         auto engine = reinterpret_cast<npu_vm_engine*>(pParams->executionContext);
         if (npu_vm_reset_state(engine, /*resetExecutionContext=*/true) != NPU_VM_SUCCESS) {
             NPU_VM_LOG_ERROR("Failed to reset engine state before inference");
@@ -345,6 +369,7 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimePredictOutp
     }
 
     try {
+        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
         auto* engine = reinterpret_cast<npu_vm_engine*>(pParams->executionContext);
         // Note: The execution context state is not reset, as it will be reset when the main inference takes place (i.e.
         // when npuVMRuntimeExecute is called)
@@ -369,10 +394,12 @@ npuVMRuntimeCreateMemRef(int64_t dimsCount, npu_vm_runtime_mem_ref_handle_t* phM
     if (phMemRef == nullptr || dimsCount <= 0) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
     auto handle = new (std::nothrow) npu_vm_runtime_mem_ref(dimsCount);
     if (handle == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
     }
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     *phMemRef = reinterpret_cast<npu_vm_runtime_mem_ref_handle_t>(handle);
     return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
@@ -382,7 +409,9 @@ npuVMRuntimeDestroyMemRef(npu_vm_runtime_mem_ref_handle_t hMemRef) {
     if (hMemRef == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     auto memRef = reinterpret_cast<npu_vm_runtime_mem_ref*>(hMemRef);
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
     delete memRef;
     return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
@@ -395,6 +424,7 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeSetMemRef(n
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
 
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     auto memRef = reinterpret_cast<npu_vm_runtime_mem_ref*>(hMemRef);
     if (dimsCount != memRef->dimsCount) {
         return NPU_VM_RUNTIME_RESULT_ERROR_UNSUPPORTED_DIM_COUNT;
@@ -402,8 +432,10 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeSetMemRef(n
     memRef->basePtr = basePtr;
     memRef->data = data;
     memRef->offset = offset;
+    // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     std::copy(pSizes, pSizes + dimsCount, memRef->sizes.begin());
     std::copy(pStrides, pStrides + dimsCount, memRef->strides.begin());
+    // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
     return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
 
@@ -415,6 +447,7 @@ npuVMRuntimeParseMemRef(npu_vm_runtime_mem_ref_handle_t hMemRef, const void** pB
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
 
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     auto memRef = reinterpret_cast<npu_vm_runtime_mem_ref*>(hMemRef);
     *pBasePtr = memRef->basePtr;
     *pData = memRef->data;
@@ -441,6 +474,7 @@ DLLEXPORT npu_vm_runtime_result_t NPU_VM_RUNTIME_APICALL npuVMRuntimeCreateExecu
         npu_vm_destroy_engine(engine);
         return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;
     }
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     *phExecutionHandle = reinterpret_cast<npu_vm_runtime_execution_context_handle_t>(engine);
     return NPU_VM_RUNTIME_RESULT_SUCCESS;
 }
@@ -450,6 +484,7 @@ npuVMRuntimeDestroyExecutionContext(npu_vm_runtime_execution_context_handle_t ph
     if (phExecutionHandle == nullptr) {
         return NPU_VM_RUNTIME_RESULT_ERROR_INVALID_NULL_POINTER;
     }
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     auto engine = reinterpret_cast<npu_vm_engine*>(phExecutionHandle);
     if (npu_vm_destroy_engine(engine) != NPU_VM_SUCCESS) {
         return NPU_VM_RUNTIME_RESULT_ERROR_UNKNOWN;

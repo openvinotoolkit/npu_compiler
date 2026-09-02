@@ -574,7 +574,7 @@ llvm::StringLiteral mixedConsumers = R"(
                     cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3],
                     initial_input_dims_attr = [1, 16, 96, 160],
                     initial_output_dims_attr = [1, 16, 192, 320],
-                    operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+                    operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
                     scales_attr = [2.000000e+00, 2.000000e+00],
                     sizes_attr = [192, 320],
                     tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]}

@@ -84,7 +84,7 @@ mlir::LogicalResult SerializeNetworkMetadataPass::addFuncOpToReturnMetadata(mlir
                                                       /*isVarArg=*/false);
     auto funcOp = builder.create<mlir::LLVM::LLVMFuncOp>(builder.getUnknownLoc(),  // Location
                                                          "_mlir_ciface_get_network_metadata", funcType,
-                                                         mlir::LLVM::Linkage::Internal);
+                                                         mlir::LLVM::Linkage::External);
 
     funcOp.addEntryBlock(builder);
     builder.setInsertionPointToStart(&(*funcOp.getBlocks().begin()));

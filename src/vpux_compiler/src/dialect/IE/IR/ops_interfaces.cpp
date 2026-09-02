@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/IE/utils/shape_legalization.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
@@ -80,6 +81,62 @@ mlir::LogicalResult vpux::IE::verifyLayer(mlir::Operation* op) {
     for (auto res : op->getOpResults()) {
         if (verifyType(res.getType(), "result", res.getResultNumber()).failed()) {
             return mlir::failure();
+        }
+    }
+
+    return mlir::success();
+}
+
+bool vpux::IE::hasToVerifyShape(mlir::Operation* op) {
+    if (op == nullptr) {
+        return false;
+    }
+
+    const auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
+    if (moduleOp == nullptr) {
+        return false;
+    }
+
+    const auto verificationEnabledAttr = moduleOp->getAttr(IE::SHAPE_VERIFICATION_ENABLED);
+    if (verificationEnabledAttr == nullptr) {
+        return false;
+    }
+
+    return mlir::isa<mlir::UnitAttr>(verificationEnabledAttr);
+}
+
+//
+// ShapeInfoOpInterface
+//
+
+mlir::LogicalResult vpux::IE::verifyInputIs4D(mlir::Value input, bool allowNull) {
+    VPUX_THROW_WHEN(input == nullptr && !allowNull, "Input value shouldn't be null.");
+    if (input == nullptr) {
+        return mlir::success();
+    }
+
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+    if (inputType.getRank() != 4) {
+        return errorAt(input.getLoc(), "Expected 4D input, got rank {0}", inputType.getRank());
+    }
+
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::IE::verifyShapeInfo(mlir::Operation* op) {
+    if (!hasToVerifyShape(op)) {
+        return mlir::success();
+    }
+
+    auto shapeInfoOp = mlir::cast<IE::ShapeInfoOpInterface>(op);
+    if (mlir::failed(shapeInfoOp.verifyShapeInfo())) {
+        return mlir::failure();
+    }
+
+    for (const auto result : op->getResults()) {
+        const auto resultType = mlir::cast<vpux::NDTypeInterface>(result.getType());
+        if (resultType.getRank() != 4) {
+            return errorAt(op, "ShapeInfoOpInterface requires NDTypeInterface results with rank 4");
         }
     }
 

@@ -18,6 +18,7 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
+#include <llvm/Support/FormatVariadic.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Operation.h>
@@ -128,8 +129,8 @@ mlir::Value IE::MapBilinearInterpolateOnDPUBaseRewriter::createIdentityPooling(m
     const auto padsAttr = getIntArrayAttr(rewriter, pads);
 
     auto avgPoolOp = rewriter.create<IE::AvgPoolOp>(
-            loc, input, getIntArrayAttr(rewriter, poolKernels), getIntArrayAttr(rewriter, poolStrides), padsAttr,
-            padsAttr, vpux::IE::RoundingTypeAttr::get(rewriter.getContext(), vpux::IE::RoundingType::FLOOR),
+            loc, input, nullptr, getIntArrayAttr(rewriter, poolKernels), getIntArrayAttr(rewriter, poolStrides),
+            padsAttr, padsAttr, vpux::IE::RoundingTypeAttr::get(rewriter.getContext(), vpux::IE::RoundingType::FLOOR),
             mlir::UnitAttr::get(rewriter.getContext()), nullptr, nullptr, nullptr, nullptr, nullptr);
     auto oldOutType = mlir::cast<vpux::NDTypeInterface>(avgPoolOp.getOutput().getType());
     VPUX_THROW_WHEN(oldOutType == nullptr, "Expected NDTypeInterface");
@@ -362,8 +363,8 @@ bool vpux::IE::isLegalInterpolateOp(IE::InterpolateOp op, bool interpolateAsSEOp
     if (interpolateAsSEOp) {
         auto seOp = mlir::dyn_cast<IE::SEOpInterface>(op.getOperation());
         if (seOp && seOp.isSupported(logCb)) {
-            auto convert = mlir::dyn_cast_or_null<IE::ConvertOp>(*(op.getOutput().getUsers().begin()));
-            return convert == nullptr;
+            logCb(llvm::formatv("InterpolateOp '{0}' is legal for DPU execution as SEOp", op->getLoc()));
+            return true;
         }
     }
 
@@ -374,6 +375,9 @@ bool vpux::IE::isLegalInterpolateOp(IE::InterpolateOp op, bool interpolateAsSEOp
     const auto outputShape = getShape(op.getOutput());
 
     if ((interpMode != IE::InterpolateMode::LINEAR_ONNX && interpMode != IE::InterpolateMode::LINEAR) || antiAlias) {
+        logCb(llvm::formatv(
+                "InterpolateOp '{0}' is not legal for DPU execution due to unsupported mode {1} or anti-aliasing {2}",
+                op->getLoc(), interpMode, antiAlias));
         return true;
     }
 
@@ -381,20 +385,24 @@ bool vpux::IE::isLegalInterpolateOp(IE::InterpolateOp op, bool interpolateAsSEOp
     if (auto iface = mlir::dyn_cast<IE::ExecutorOpInterface>(op.getOperation())) {
         auto execs = iface.getPreferredExecutors();
         if (!execs.empty() && execs[0] == config::ExecutorKind::SHAVE_ACT) {
+            logCb(llvm::formatv("InterpolateOp '{0}' is preferred to be executed on SHAVE", op->getLoc()));
             return true;
         }
     }
 
     // Only support interpolation on W and H axes
     const auto axesValue = parseIntArrayAttr<int64_t>(op.getAxesAttrAttr());
-    for (size_t i = 0; i < axesValue.size(); i++) {
-        if (axesValue[i] <= 1 && outputShape[Dim(axesValue[i])] != inputShape[Dim(axesValue[i])]) {
+    for (auto i : axesValue) {
+        if (i <= 1 && outputShape[Dim(i)] != inputShape[Dim(i)]) {
+            logCb(llvm::formatv("InterpolateOp '{0}' has unsupported axis {1}", op->getLoc(), i));
             return true;
         }
     }
 
     // Is more efficient to execute interpolates with one input channel on SHAVE
     if (inputShape[Dims4D::Act::C] == 1) {
+        logCb(llvm::formatv("InterpolateOp '{0}' has one input channel, preferred to be executed on SHAVE",
+                            op->getLoc()));
         return true;
     }
 
@@ -406,6 +414,7 @@ bool vpux::IE::isLegalInterpolateOp(IE::InterpolateOp op, bool interpolateAsSEOp
     Byte totalCMXSize = VPU::getTotalCMXSize(op);
 
     if (quantizedCMXSize <= totalCMXSize) {
+        logCb(llvm::formatv("InterpolateOp '{0}' fits in CMX, preferred to be executed on SHAVE", op->getLoc()));
         return true;
     }
 

@@ -536,19 +536,13 @@ public:
         }
 
         // When ODU D2S/S2D is active, tiles are in post-ODU space.  Each scaled dimension must
-        // produce an integer pre-ODU tile: pre_dim = post_dim * divisor / multiplier, so
-        // (post_dim * divisor) must be divisible by multiplier.
+        // produce an integer pre-ODU tile; invertODUScaling verifies this and returns failure()
+        // if any dimension is not exactly divisible.
         const auto oduScales = VPU::getODUScaling(origOp);
-        if (!oduScales.empty()) {
+        if (!oduScales.empty() && !vpux::VPU::isODUScalingNeutral(oduScales)) {
             for (const auto& tile : tiles) {
-                for (auto d : irange(oduScales.size())) {
-                    const auto& scale = oduScales[d];
-                    if (scale.multiplier == 1) {
-                        continue;
-                    }
-                    if ((tile.shape[Dim(d)] * scale.divisor) % scale.multiplier != 0) {
-                        return false;
-                    }
+                if (mlir::failed(VPU::invertODUScaling(oduScales, tile))) {
+                    return false;
                 }
             }
         }
@@ -822,10 +816,12 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::AcosOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::AtanOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::AtanDmaOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::AttentionDMAOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::AsinhOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::AcoshOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::AtanhOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::TopKOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::TopKDmaOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::LRNOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::MemPermuteOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ConvertOp::attachInterface<SoftwareLayerOpModel>(*ctx);
@@ -915,6 +911,7 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::LSTMGatesOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::LSTMSequenceOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ErfOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::ErfInvOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::BucketizeOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::MaxPoolOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::MaxPool8Op::attachInterface<SoftwareLayerOpModel>(*ctx);
@@ -941,6 +938,7 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::DynamicReshapeOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ConcatOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::RMSOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::GatedDeltaNetOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::InverseOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::DeformableConvolutionOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::DynamicExpandOp::attachInterface<SoftwareLayerOpModel>(*ctx);
@@ -993,6 +991,7 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfacesAdditional(mlir::DialectRegi
         VPU::AdaptiveMaxPoolOp::attachInterface<DummySoftwareLayerOpModel>(*ctx);
         VPU::ClampOp::attachInterface<DummySoftwareLayerOpModel>(*ctx);
         VPU::ErfOp::attachInterface<DummySoftwareLayerOpModel>(*ctx);
+        VPU::ErfInvOp::attachInterface<DummySoftwareLayerOpModel>(*ctx);
         VPU::BroadcastOp::attachInterface<DummySoftwareLayerOpModel>(*ctx);
         VPU::BucketizeOp::attachInterface<DummySoftwareLayerOpModel>(*ctx);
         VPU::LogOp::attachInterface<DummySoftwareLayerOpModel>(*ctx);

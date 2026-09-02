@@ -24,6 +24,7 @@
 #include "vpux/compiler/utils/walk_utils.hpp"
 #include "vpux/utils/core/error.hpp"
 
+#include <mlir/IR/Value.h>
 #include <mlir/Support/LogicalResult.h>
 
 #include <llvm/ADT/ArrayRef.h>
@@ -770,6 +771,8 @@ mlir::LogicalResult OptimizeConvConcat::matchAndRewrite(IE::ConcatOp origOp, mli
     // Create filter
     SmallVector<mlir::Value> newWeights;
     size_t emptyBiasNum = 0;
+    size_t emptyScaleNum = 0;
+    mlir::Type scaleElementType = nullptr;
     for (const auto& input : inputs) {
         convOp = input.getDefiningOp<IE::ConvolutionOp>();
 
@@ -782,10 +785,32 @@ mlir::LogicalResult OptimizeConvConcat::matchAndRewrite(IE::ConcatOp origOp, mli
         if (convOp.getBias() == nullptr) {
             emptyBiasNum++;
         }
+        if (convOp.getScale() == nullptr) {
+            emptyScaleNum++;
+        }
+        if (convOp.getScale() != nullptr) {
+            auto currScaleElementType = mlir::cast<vpux::NDTypeInterface>(convOp.getScale().getType()).getElementType();
+            // first scale element type is nullptr, assign it to the current scale element type
+            if (scaleElementType == nullptr) {
+                scaleElementType = currScaleElementType;
+            }
+            // if the current scale element type has a larger bit width than the previous one, assign it to the scale
+            // element type this is to ensure that the scale element type is the largest one among all the inputs, so
+            // that we can avoid precision loss when converting the scale to the largest one.
+            const auto prevWidth = scaleElementType.getIntOrFloatBitWidth();
+            const auto currWidth = currScaleElementType.getIntOrFloatBitWidth();
+            if (prevWidth < currWidth) {
+                scaleElementType = currScaleElementType;
+            } else if (prevWidth == currWidth && scaleElementType != currScaleElementType) {
+                scaleElementType = mlir::Float32Type::get(rewriter.getContext());
+            }
+        }
     }
     auto concatWeights = rewriter.createOrFold<IE::ConcatOp>(takeOpLoc(origOp, "concat_weights_conv"), newWeights,
                                                              Dims4D::Filter::OC);
-
+    if (scaleElementType == nullptr) {
+        scaleElementType = mlir::Float32Type::get(rewriter.getContext());
+    }
     // Create Bias
     SmallVector<mlir::Value> newBias;
     mlir::Value concatBias = nullptr;
@@ -814,8 +839,39 @@ mlir::LogicalResult OptimizeConvConcat::matchAndRewrite(IE::ConcatOp origOp, mli
                 rewriter.createOrFold<IE::ConcatOp>(takeOpLoc(origOp, "concat_bias_conv"), newBias, Dims4D::Act::C);
     }
 
-    auto newConvOp = IE::cloneConvolutionOp(rewriter, convOp, outputType, root, concatWeights, concatBias,
-                                            convOp.getScale(), convOp.getZeroPoints());
+    // Create Scale
+    SmallVector<mlir::Value> newScale;
+    mlir::Value concatScale = nullptr;
+    if (emptyScaleNum != inputs.size()) {
+        for (auto inputIdx : irange(inputs.size())) {
+            const auto& input = inputs[inputIdx];
+            convOp = input.getDefiningOp<IE::ConvolutionOp>();
+            if (mlir::Value scale = convOp.getScale()) {
+                auto currScaleType = mlir::cast<vpux::NDTypeInterface>(scale.getType());
+                // Convert scale to the largest element type among all the inputs, so that we can avoid precision loss
+                // when converting the scale to the largest one.
+                if (scaleElementType != currScaleType.getElementType()) {
+                    scale = rewriter.createOrFold<IE::ConvertOp>(takeOpLoc(convOp, "convert_scale_{0}", inputIdx),
+                                                                 scale, mlir::TypeAttr::get(scaleElementType));
+                }
+                newScale.push_back(scale);
+            } else {
+                auto inputShape = getShape(input);
+                auto oc = inputShape[Dims4D::Act::C];
+                const Shape scaleShape = {oc, 1, 1, 1};
+
+                const auto scaleType = mlir::RankedTensorType::get(scaleShape.raw(), scaleElementType);
+
+                newScale.push_back(Const::createFloatConst(rewriter, appendLoc(convOp.getLoc(), "scale_{0}", inputIdx),
+                                                           scaleType, 1.0f));
+            }
+        }
+        concatScale =
+                rewriter.createOrFold<IE::ConcatOp>(takeOpLoc(origOp, "concat_scale_conv"), newScale, Dims4D::Act::N);
+    }
+
+    auto newConvOp = IE::cloneConvolutionOp(rewriter, convOp, outputType, root, concatWeights, concatBias, concatScale,
+                                            convOp.getZeroPoints());
     rewriter.replaceOp(origOp, newConvOp.getOutput());
     return mlir::success();
 }

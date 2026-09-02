@@ -158,7 +158,8 @@ TEST_F(MLIR_VPU_VFConfig, VF_GenericConfigPipelined) {
     ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
 
     func->walk([&](VPU::VerticalFusionOp vfOp) {
-        auto config = VPU::VF::v2::VFConfig(vfOp);
+        VPU::VF::v2::VFCacheAnalysis cache(vfOp.getOperation());
+        auto config = VPU::VF::v2::VFConfig(vfOp, cache);
         EXPECT_EQ(config.getVFOperations().size(), 2);
         EXPECT_EQ(config.getInputs().size(), 1);
         EXPECT_EQ(config.getOutputs().size(), 1);
@@ -409,7 +410,7 @@ TEST_F(MLIR_VPU_VFConfig, VF_ManualConfigurationWithViewOp) {
           %1 = VPU.ShapeCast {shape = [1, 16, 1600, 640]} inputs(%0 : tensor<1x4x1600x2560x!qtype, {order = #NHWC}>) -> tensor<1x16x1600x640x!qtype, {order = #NHWC}>
           %2 = VPU.ShapeCast {shape = [1, 16, 1600, 640]} inputs(%arg1 : tensor<1x4x1600x2560x!qtype, {order = #NHWC}>) -> tensor<1x16x1600x640x!qtype, {order = #NHWC}>
           %3 = VPU.VerticalFusion (%1 as %arg2: tensor<1x16x1600x640x!qtype, {order = #NHWC}>, %2 as %arg3: tensor<1x16x1600x640x!qtype, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 8, 1]} -> tensor<1x16x1600x640x!qtype, {order = #NHWC}> {
-            %inner = VPU.NCE.Eltwise(%arg2, %arg3) {
+            %inner = VPU.NCE.Eltwise(%arg2, %arg3) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                       is_inplace = true,
                       multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                       op_type = #VPU.eltwise_type<ADD>,

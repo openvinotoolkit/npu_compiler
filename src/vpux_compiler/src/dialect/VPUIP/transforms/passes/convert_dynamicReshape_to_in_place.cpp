@@ -51,6 +51,8 @@ mlir::LogicalResult ConvertDynamicReshapeToInPlacePass::makeInPlaceDynamicReshap
         return mlir::failure();
     }
 
+    // Note: this relies on a very specific form of dynamic inputs (needs
+    // dynamic shape buffer already).
     bool inputIsDynamic = hasUngroupedInputBoundedBuffers(dynamicReshape);
     auto operands = dynamicReshape.getOperands();
 

@@ -89,6 +89,10 @@ bool hasUseLegacyBarriers(mlir::Operation* op);
 constexpr StringRef VPUNN_PRE_SPLIT = "config.EnableVPUNNPreSplit";
 bool hasVPUNNPreSplit(mlir::Operation* op);
 
+// Preferred Spatial (H W) Alignment
+constexpr StringRef PREFERRED_SPATIAL_ALIGNMENT = "config.PreferredSpatialAlignment";
+int64_t getPreferredSpatialAlignment(mlir::Operation* op);
+
 // ODU Configurations
 constexpr StringRef ODU_LOCAL_REGION = "config.EnableODULocalRegion";
 bool hasODULocalRegion(mlir::Operation* op);
@@ -117,6 +121,6 @@ constexpr StringRef SOFTMAX_MASK_AWARE_THRESHOLD = "config.SoftmaxMaskAwareThres
 bool isSoftmaxMaskAwareEnabled(mlir::Operation* op);
 double getSoftmaxMaskAwareThreshold(mlir::Operation* op);
 bool isBarrierFifoDummyEntrySupported(config::ArchKind arch);
-
+bool isFinalBarrierConsumerRequired(config::ArchKind arch, [[maybe_unused]] bool is4kWlmBarrierProgrammingMode);
 }  // namespace config
 }  // namespace vpux

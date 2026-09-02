@@ -37,6 +37,31 @@ func.func @FuseRMSNormForReduceMean(%arg0: tensor<1x1x3072xf16>, %arg1: tensor<1
 
 // -----
 
+// CHECK-LABEL: @FuseRMSNormForReduceMeanReLUBetweenAddAndSqrt
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x3072xf32>)
+func.func @FuseRMSNormForReduceMeanReLUBetweenAddAndSqrt(%arg0: tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32> {
+    %add_cst = const.Declare tensor<1x1x1xf32> = dense<1.00135803E-5> : tensor<1x1x1xf32>
+    %power_cst = const.Declare tensor<1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1xf32>
+    %divide_cst = const.Declare tensor<1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1xf32>
+    %multiply_cst = const.Declare tensor<1x1x3072xf32> = dense<1.000000e+00> : tensor<1x1x3072xf32>
+
+    %0 = IE.Power(%arg0, %power_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x1xf32> -> tensor<1x1x3072xf32>
+    %1 = IE.ReduceMean(%0) {axes_value = [2], keep_dims} : tensor<1x1x3072xf32> -> tensor<1x1x1xf32>
+    %2 = IE.Add(%1, %add_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+    %3 = IE.ReLU(%2) : tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+    %4 = IE.Sqrt(%3) : tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+    %5 = IE.Divide(%divide_cst, %4) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+    %6 = IE.Multiply(%arg0, %5) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x1xf32> -> tensor<1x1x3072xf32>
+    %7 = IE.Multiply(%6, %multiply_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
+    return %7 : tensor<1x1x3072xf32>
+
+    // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<3072xf32> = dense<1.000000e+00> : tensor<1x1x3072xf32>, [#const.Reshape<[3072]>]
+    // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[CST]]) {eps = 1.0013580322265625E-5 : f64} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
+    // CHECK: return [[RMS]] : tensor<1x1x3072xf32>
+}
+
+// -----
+
 // CHECK-LABEL: @FuseRMSNormForReduceMeanMaximumSqrt
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x3072xf32>)
 func.func @FuseRMSNormForReduceMeanMaximumSqrt(%arg0: tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32> {

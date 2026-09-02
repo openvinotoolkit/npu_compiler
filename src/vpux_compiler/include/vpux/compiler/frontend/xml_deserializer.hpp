@@ -6,6 +6,7 @@
 #pragma once
 
 #include <optional>
+#include <string>
 #include <vector>
 
 #include <openvino/core/extension.hpp>
@@ -23,7 +24,8 @@ namespace vpux {
  */
 std::shared_ptr<ov::Model> deserializeIrModelBase(uint8_t* serializedModel, size_t serializedModelSize,
                                                   const vcl_version_info_t& currentAPIVersion,
-                                                  const std::vector<ov::Extension::Ptr>& extensionsVector);
+                                                  const std::vector<ov::Extension::Ptr>& extensionsVector,
+                                                  const std::string& extensionLibPaths);
 
 /**
  * @brief Deserializes a model from the optimized binary format (weights reconstructed via pointers).
@@ -31,7 +33,8 @@ std::shared_ptr<ov::Model> deserializeIrModelBase(uint8_t* serializedModel, size
  */
 std::shared_ptr<ov::Model> deserializeIrModelOptimized(uint8_t* serializedModel, size_t serializedModelSize,
                                                        const vcl_version_info_t& currentAPIVersion,
-                                                       const std::vector<ov::Extension::Ptr>& extensionsVector);
+                                                       const std::vector<ov::Extension::Ptr>& extensionsVector,
+                                                       const std::string& extensionLibPaths);
 
 /**
  * @brief Deserializer meant to mirror the "intel_npu::XmlSerializer" found in the NPU plugin.

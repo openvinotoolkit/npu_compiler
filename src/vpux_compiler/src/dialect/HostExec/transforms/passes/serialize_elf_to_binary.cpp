@@ -17,6 +17,7 @@
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/passes.hpp"
+#include "vpux/utils/core/common_string_utils.hpp"
 
 #include <mlir/IR/IRMapping.h>
 #include <filesystem>
@@ -126,9 +127,10 @@ mlir::FailureOr<mlir::func::FuncOp> SerializeELFToBinaryPass::serialize(vpux::Co
         if (!std::filesystem::exists(dumpSerializedElfToFile)) {
             std::filesystem::create_directories(dumpSerializedElfToFile);
         }
-        std::ofstream outFile(dumpSerializedElfToFile + "/serialized_kernel_" + funcOp.getName().str() + ".blob",
-                              std::ostream::binary);
-        VPUX_THROW_UNLESS(outFile.good(), "File with Serialzied Kernel File not created correctly");
+        std::ofstream outFile(dumpSerializedElfToFile + "/serialized_kernel_" +
+                                      vpux::sanitizeFilename(funcOp.getName().str()) + ".blob",
+                              std::ios::binary);
+        VPUX_THROW_UNLESS(outFile.good(), "File with Serialized Kernel File not created correctly");
         outFile.write(reinterpret_cast<const char*>(binaryBuffer.data()), binaryBuffer.size());
         outFile.close();
     }

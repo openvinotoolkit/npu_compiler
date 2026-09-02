@@ -14,6 +14,8 @@
 namespace vpux {
 namespace VPU {
 
+class NCEOpInterface;
+
 constexpr std::string_view INPUT_PADDING_ATTR_NAME = "input_padding";
 constexpr std::string_view OUTPUT_PADDING_ATTR_NAME = "output_padding";
 
@@ -28,6 +30,7 @@ bool outputCompatibleWithAutoPad(vpux::NDTypeInterface);
 bool canAutopadInput(mlir::Operation*);
 bool canAutopadOutput(mlir::Operation*, std::optional<vpux::NDTypeInterface> type = std::nullopt);
 bool canConsumeIDUAutopad(VPU::NCEConvolutionOp nceConvOp, LogCb logCb = emptyLogCb);
+bool canConsumeODUAutopad(VPU::NCEOpInterface nceOp, LogCb logCb = emptyLogCb);
 std::optional<int64_t> getWeightsChannelsAutopad(mlir::Operation* op);
 
 }  // namespace VPU

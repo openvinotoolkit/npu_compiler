@@ -29,7 +29,7 @@ class MatMulSoftmaxMatMulTestCommon : public VpuOv2LayerTest, public testing::Wi
             const auto totalSize =
                     std::accumulate(inputStaticShape.begin(), inputStaticShape.end(), 1, std::multiplies<size_t>());
             auto inputData = inputTensor.data<ov::element_type_traits<ov::element::f16>::value_type>();
-            for (size_t i = 0; i < totalSize; i++) {
+            for (int64_t i = 0; i < totalSize; i++) {
                 // too large values may cause overflow, so we use sin function to generate values in range [-1, 1]
                 inputData[i] = std::sin(i);
             }
@@ -78,9 +78,6 @@ public:
         result << "In3=" << obj.param.input3Shape;
         return result.str();
     };
-
-private:
-    const double _relativeThreashold = 0.001;
 };
 
 TEST_P(MatMulSoftmaxMatMulTestCommon, NPU4000_HW) {

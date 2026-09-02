@@ -148,4 +148,79 @@ def Shave_TilingRootOp :
     }];
 }
 
+//
+// KernelRegionOp
+//
+
+def Shave_KernelRegionOp :
+        Shave_Op<
+            "KernelRegion",
+            [
+                IsolatedFromAbove,
+                SingleBlock
+            ]
+        > {
+    let summary = "Isolated region encapsulating a Shave kernel computation";
+
+    let description = [{
+        Encapsulates a body region of operations computing Shave kernel results.
+        The region is isolated from above; all required values must be passed
+        explicitly through $inputs. Results are produced by a terminating
+        Shave.KernelRegion.Yield op inside the body.
+
+        Example:
+        ```mlir
+        %out = Shave.KernelRegion(%val : f32) -> f32 {
+        ^bb0(%arg0: f32):
+            Shave.KernelRegion.Yield %arg0 : f32
+        }
+        ```
+    }];
+
+    let arguments = (ins
+        Variadic<AnyType>:$inputs
+    );
+
+    let results = (outs
+        Variadic<AnyType>:$outputs
+    );
+
+    let regions = (region SizedRegion<1>:$body);
+
+    let hasVerifier = 1;
+    let assemblyFormat = [{
+        (`(` $inputs^ `:` type($inputs) `)`)? (`->` type($outputs)^)? attr-dict-with-keyword $body
+    }];
+}
+
+//
+// KernelRegionYieldOp
+//
+
+def Shave_KernelRegionYieldOp :
+        Shave_Op<
+            "KernelRegion.Yield",
+            [
+                HasParent<"KernelRegionOp">,
+                Pure,
+                Terminator
+            ]
+        > {
+    let summary = "Terminator for Shave.KernelRegion that yields results";
+
+    let description = [{
+        Terminates and yields values from a Shave.KernelRegion body region.
+        The number and types of yielded values must match the result types
+        of the enclosing KernelRegionOp.
+    }];
+
+    let arguments = (ins
+        Variadic<AnyType>:$values
+    );
+
+    let assemblyFormat = [{
+        attr-dict ($values^ `:` type($values))?
+    }];
+}
+
 #endif

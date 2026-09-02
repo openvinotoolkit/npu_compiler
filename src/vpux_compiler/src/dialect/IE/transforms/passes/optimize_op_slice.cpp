@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/transforms/rewriters/propagate_transpose_affine_reshape_common.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -132,7 +133,7 @@ mlir::LogicalResult TileSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mlir:
     newShape[tileAxis.value()] = newRepeatValue;
     const auto newOutputType = outputType.changeShape(newShape);
     auto newTileOp = rewriter.create<IE::TileOp>(takeOpLoc(origOp, "tile_in"), newOutputType, tileOp.getInput(),
-                                                 nullptr, getIntArrayAttr(ctx, repeatsOnNewShape));
+                                                 getIntArrayAttr(ctx, repeatsOnNewShape));
     if (hasReshape) {
         const auto sliceOutShape = getShape(origOp.getResult()).raw();
         rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(origOp, newTileOp.getOutput(), reshapeOp.getDimMappingAttr(),
@@ -467,28 +468,86 @@ private:
 mlir::LogicalResult RMSSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("Rewrite RMS Slice operation '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
-    auto rmsOp = origOp.getSource().getDefiningOp<IE::RMSOp>();
-    if (rmsOp == nullptr || !rmsOp->hasOneUse()) {
-        return matchFailed(rewriter, origOp, "The parent operation is not RMSOp with one user");
+    // Case 1: direct RMS -> Slice
+    if (auto rmsOp = origOp.getSource().getDefiningOp<IE::RMSOp>()) {
+        if (!rmsOp->hasOneUse()) {
+            return matchFailed(rewriter, origOp, "The parent RMSOp has multiple users");
+        }
+        const auto rmsInputShape = getShape(rmsOp.getInput());
+        const auto sliceOffsets = parseIntArrayAttr<int64_t>(origOp.getStaticOffsets());
+        const auto sliceSizes = parseIntArrayAttr<int64_t>(origOp.getStaticSizes());
+        const auto normDim = rmsInputShape.size() - 1;
+        if (sliceOffsets[normDim] != 0 || sliceSizes[normDim] != rmsInputShape[Dim(normDim)]) {
+            return matchFailed(rewriter, origOp, "Slice affects normalization dimension");
+        }
+        auto inputSliceOp = rewriter.create<IE::SliceOp>(origOp.getLoc(), rmsOp.getInput(),
+                                                         origOp.getStaticOffsetsAttr(), origOp.getStaticSizesAttr());
+        auto newRMSOp = rewriter.create<IE::RMSOp>(rmsOp.getLoc(), inputSliceOp.getResult(), rmsOp.getGamma(),
+                                                   rmsOp.getEpsAttr());
+        rewriter.replaceOp(origOp, newRMSOp.getResult());
+        _log.trace("Optimize RMS and Slice operations successfully");
+        return mlir::success();
     }
 
-    const auto rmsInputShape = getShape(rmsOp.getInput());
+    // Case 2: RMS -> AffineReshape -> Slice
+    auto reshapeOp = origOp.getSource().getDefiningOp<IE::AffineReshapeOp>();
+    if (reshapeOp == nullptr || !reshapeOp->hasOneUse()) {
+        return matchFailed(rewriter, origOp, "Parent is not AffineReshapeOp with one use");
+    }
+    auto rmsOp = reshapeOp.getInput().getDefiningOp<IE::RMSOp>();
+    if (rmsOp == nullptr || !rmsOp->hasOneUse()) {
+        return matchFailed(rewriter, origOp, "AffineReshape source is not RMSOp with one use");
+    }
+
     const auto sliceOffsets = parseIntArrayAttr<int64_t>(origOp.getStaticOffsets());
     const auto sliceSizes = parseIntArrayAttr<int64_t>(origOp.getStaticSizes());
-    const auto normDim = rmsInputShape.size() - 1;
-    if (sliceOffsets[normDim] != 0 || sliceSizes[normDim] != rmsInputShape[Dim(normDim)]) {
-        return matchFailed(rewriter, origOp, "Slice affects normalization dimension");
+    const auto rmsOutputShape = getShape(rmsOp.getResult());
+    const auto reshapeOutShape = getShape(reshapeOp.getResult());
+    const auto dimMappingList = parseIntArrayOfArrayAttr<int64_t>(reshapeOp.getDimMapping());
+
+    // Collect reshape output dims where slicing is non-trivial
+    mlir::DenseSet<int64_t> modifiedAxes;
+    for (size_t i = 0; i < sliceOffsets.size(); i++) {
+        if (sliceOffsets[i] != 0 || sliceSizes[i] != reshapeOutShape[Dim(i)]) {
+            modifiedAxes.insert(static_cast<int64_t>(i));
+        }
+    }
+    if (modifiedAxes.empty()) {
+        return matchFailed(_log, rewriter, origOp, "Slice is a no-op");
     }
 
-    // Propagate Slice before RMS
-    auto inputSliceOp = rewriter.create<IE::SliceOp>(origOp.getLoc(), rmsOp.getInput(), origOp.getStaticOffsetsAttr(),
-                                                     origOp.getStaticSizesAttr());
+    // Reject if any sliced axis is split or merged by AffineReshape
+    if (IE::areModifiedAxesSplitOrMerged(dimMappingList, rmsOutputShape, reshapeOutShape, modifiedAxes, false,
+                                         _log.nest())) {
+        return matchFailed(_log, rewriter, origOp, "Sliced axis is split or merged in AffineReshape");
+    }
 
+    // Map Slice offsets/sizes through AffineReshape into RMS output (= input) space
+    const auto invertedDimMapping =
+            IE::invertDimMappingWithAxesNotSplitOrMerged(dimMappingList, rmsOutputShape, reshapeOutShape);
+    SmallVector<int64_t> rmsOffsets(rmsOutputShape.size(), 0);
+    SmallVector<int64_t> rmsSizes(rmsOutputShape.raw().begin(), rmsOutputShape.raw().end());
+    for (auto outDim : modifiedAxes) {
+        const auto inDim = invertedDimMapping[outDim];
+        rmsOffsets[inDim] = sliceOffsets[outDim];
+        rmsSizes[inDim] = sliceSizes[outDim];
+    }
+
+    // The normalization dimension (last dim) of RMS must not be sliced
+    const auto normDim = static_cast<int64_t>(rmsOutputShape.size()) - 1;
+    if (rmsOffsets[normDim] != 0 || rmsSizes[normDim] != rmsOutputShape[Dim(normDim)]) {
+        return matchFailed(_log, rewriter, origOp, "Slice affects RMS normalization dimension");
+    }
+
+    const auto ctx = rewriter.getContext();
+    auto inputSliceOp = rewriter.create<IE::SliceOp>(origOp.getLoc(), rmsOp.getInput(),
+                                                     getIntArrayAttr(ctx, rmsOffsets), getIntArrayAttr(ctx, rmsSizes));
     auto newRMSOp =
             rewriter.create<IE::RMSOp>(rmsOp.getLoc(), inputSliceOp.getResult(), rmsOp.getGamma(), rmsOp.getEpsAttr());
-
-    rewriter.replaceOp(origOp, newRMSOp.getResult());
-    _log.trace("Optimize RMS and Slice operations successfully");
+    const auto newOutShape = getShape(origOp.getResult()).raw();
+    rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(origOp, newRMSOp.getResult(), reshapeOp.getDimMappingAttr(),
+                                                     getIntArrayAttr(ctx, newOutShape));
+    _log.trace("Optimize RMS->AffineReshape->Slice operations successfully");
     return mlir::success();
 }
 

@@ -252,13 +252,13 @@ void AlignDimensionsForDPUPass::safeRunOnFunc() {
         if (inOrder != DimsOrder::NCHW || outOrder != DimsOrder::NHWC) {
             return true;
         }
-        const ShapeRef inShape = inType.getShape();
+        const auto inShape = getBoundedShape(inType);
         const auto inputElemType = inType.getElementType();
         const auto inAlignment = VPU::NCEInvariant::getAlignment(inputElemType);
         if (!IE::isODUPermuteEffectiveForShape(inShape, inAlignment)) {
             return true;
         }
-        const ShapeRef outShape = outType.getShape();
+        const auto outShape = getBoundedShape(outType);
         const auto outputElemType = outType.getElementType();
         const auto outAlignment = VPU::NCEInvariant::getAlignment(outputElemType);
         if (!IE::isODUPermuteEffectiveForShape(outShape, outAlignment)) {

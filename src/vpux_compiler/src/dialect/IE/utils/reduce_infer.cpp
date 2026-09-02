@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
+#include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/IE/utils/type_padding.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -15,14 +16,15 @@ mlir::LogicalResult vpux::IE::inferReduceReturnTypeComponents(
         SmallVectorImpl<mlir::ShapedTypeComponents>& inferredReturnShapes, mlir::ArrayAttr inputPadding,
         mlir::ArrayAttr outputPadding) {
     const auto inType = mlir::cast<mlir::ShapedType>(input.getType());
-    const auto inRank = inType.getRank();
     auto inShape = SmallVector<int64_t>(inType.getShape());
 
-    for (auto& axis : axes) {
-        if (axis < 0) {
-            axis += inRank;
-        }
-    }
+    // expect axes to be normalized - easily done during import
+    assert(std::all_of(axes.begin(), axes.end(),
+                       [&](int64_t axis) {
+                           return axis >= 0 && axis < static_cast<int64_t>(inShape.size());
+                       }) &&
+           "Axes must already be non-negative");
+    assert(std::is_sorted(axes.begin(), axes.end()) && "Axes must already be sorted");
 
     bool isAllUnique = std::unique(axes.begin(), axes.end()) == axes.end();
     if (!isAllUnique) {
@@ -152,4 +154,21 @@ bool vpux::IE::isChannelAxisReductionWithDPUParent(mlir::Operation* op, ArrayRef
     const auto parentOutputType = mlir::cast<vpux::NDTypeInterface>(parentOp->getResult(0).getType());
 
     return isChannelAxisReductionWithMatchingLayout(parentInputType, parentOutputType, axes, log);
+}
+
+mlir::FailureOr<mlir::SmallVector<int64_t>> vpux::IE::getReduceAxes(mlir::Location loc, mlir::Value axesInput,
+                                                                    size_t inputRank) {
+    auto axesValue = IE::constInputToData(loc, axesInput);
+    if (mlir::failed(axesValue)) {
+        return mlir::failure();
+    }
+
+    auto& axes = *axesValue;
+    for (auto& axis : axes) {
+        if (axis < 0) {
+            axis += static_cast<int64_t>(inputRank);
+        }
+    }
+    std::sort(axes.begin(), axes.end());
+    return axesValue;
 }

@@ -35,9 +35,20 @@ struct VFMergeConfiguration {
     /// Callback to determine if view like operation can be processed by vertical fusion.
     using ViewLikePolicyFn = std::function<bool(mlir::Operation*)>;
 
+    /// Callback comparing the current best VFCase with a newly found candidate
+    /// during the input-shrinking search. Returns true when the candidate is more
+    /// beneficial and should replace the incumbent. When unset, the search keeps
+    /// the most recently accepted candidate (greedy behavior).
+    using SelectBetterCaseFn = std::function<bool(VFCase& current, VFCase& candidate)>;
+
+    /// Callback to check if the given operation is allowed to be processed by vertical fusion.
+    using VFOperationsRestriction = std::function<bool(mlir::Operation*)>;
+
     OptimalSplitGetterFn splitGetter;
     MergeDecisionFn mergeDecision;
     ViewLikePolicyFn viewLikePolicy;
+    SelectBetterCaseFn selectBetterCase;
+    VFOperationsRestriction vfOpsRestriction;
 };
 
 }  // namespace vpux::VPU::VF::v2

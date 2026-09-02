@@ -16,29 +16,22 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 
 def IE_BatchToSpace :
         IE_LayerOp<
-            "BatchToSpace",
-            [
-                AttrSizedOperandSegments
-            ]
+            "BatchToSpace"
         > {
     let summary = "InferenceEngine BatchToSpace layer";
 
     let arguments = (ins
         AnyRankedTensor:$input,
-        Optional<1DTensorOf<[AnyInteger]>>:$block_shape,
-        Optional<1DTensorOf<[AnyInteger]>>:$crops_begin,
-        Optional<1DTensorOf<[AnyInteger]>>:$crops_end,
 
-        OptionalAttr<I64ArrayAttr>:$block_shape_value,
-        OptionalAttr<I64ArrayAttr>:$crops_begin_value,
-        OptionalAttr<I64ArrayAttr>:$crops_end_value
+        I64ArrayAttr:$block_shape_value,
+        I64ArrayAttr:$crops_begin_value,
+        I64ArrayAttr:$crops_end_value
     );
 
     let results = (outs
         AnyRankedTensor:$output
     );
 
-    let hasCanonicalizer = 1;
 }
 
 def IE_BroadcastOp :
@@ -312,8 +305,7 @@ def IE_GatherOp :
     let arguments = (ins
         AnyRankedTensor:$input,
         RankedTensorOf<[AnyInteger]>:$indices,
-        Optional<RankedTensorOf<[AnyInteger]>>:$axis,
-        OptionalAttr<IntAttr>:$axis_value,
+        IntAttr:$axis_value,
         IntAttr:$batch_dims,
 
         OptionalAttr<IntAttr>:$indices_rank
@@ -818,8 +810,7 @@ def IE_TileOp :
 
     let arguments = (ins
         AnyRankedTensor:$input,
-        Optional<RankedTensorOf<[AnyInteger]>>:$repeats,
-        OptionalAttr<I64ArrayAttr>:$repeats_values
+        I64ArrayAttr:$repeats_values
     );
 
     let results = (outs

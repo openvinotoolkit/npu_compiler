@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 
 #include <mlir/IR/BuiltinTypes.h>

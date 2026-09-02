@@ -154,6 +154,7 @@ func.func @SplitNCEConvOverIC2Convs(%arg0: tensor<1x9728x4x1xf16, {order = #NHWC
   // CHECK-SAME: -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0:%.+]], [[CONV_OUT1:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
   // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.425000e+01], fp_prelu_alpha = 1.000000e+00 : f64>
@@ -219,6 +220,7 @@ func.func @SplitNCEConvWithDequantizeOverIC2Convs(%arg0: tensor<1x9728x4x1xf16, 
   // CHECK-SAME: -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0]], [[CONV_OUT1]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1037483647 : i64, clamp_high = 1037483647 : i64,
   // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.425000e+01], fp_prelu_alpha = 3.000000e-01 : f64>
@@ -380,10 +382,12 @@ func.func @SplitNCEConvOverIC3Convs(%arg0: tensor<1x16640x4x1xf16, {order = #NHW
   // CHECK-SAME:   -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   // CHECK:      [[ADD_OUT0:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0:%.+]], [[CONV_OUT1:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME: } -> tensor<1x512x4x1xf16, {order = #NHWC}>
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[ADD_OUT0:%.+]], [[CONV_OUT2:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.4012984643248171E-44], fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME: } -> tensor<1x512x4x1xf16, {order = #NHWC}>
@@ -449,12 +453,14 @@ func.func @SplitNCEConvOverIC3ConvsWithOutNCHW(%arg0: tensor<1x16640x4x1xf16, {o
   // CHECK-SAME:   -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   // CHECK:      [[ADD_OUT0:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0:%.+]], [[CONV_OUT1:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
   // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
   // CHECK-SAME:                      fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME: } -> tensor<1x512x4x1xf16, {order = #NHWC}>
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[ADD_OUT0:%.+]], [[CONV_OUT2:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
   // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
@@ -545,6 +551,7 @@ func.func @SplitNCEConvOverICandOC(%arg0: tensor<1x16640x4x1xf16, {order = #NHWC
   // CHECK:       [[INPUT_SLICE3:%.+]] = VPU.Slice [[CONCAT_OUT0:%.+]] [0, 0, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[INPUT_SLICE4:%.+]] = VPU.Slice [[CONCAT_OUT1:%.+]] [0, 0, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[ADD_OUT0:%.+]] = VPU.NCE.Eltwise([[INPUT_SLICE3:%.+]], [[INPUT_SLICE4:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
   // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
@@ -553,6 +560,7 @@ func.func @SplitNCEConvOverICandOC(%arg0: tensor<1x16640x4x1xf16, {order = #NHWC
   // CHECK:       [[INPUT_SLICE5:%.+]] = VPU.Slice [[CONCAT_OUT0:%.+]] [0, 4608, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[INPUT_SLICE6:%.+]] = VPU.Slice [[CONCAT_OUT1:%.+]] [0, 4608, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[INPUT_SLICE5:%.+]], [[INPUT_SLICE6:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
   // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
@@ -563,6 +571,7 @@ func.func @SplitNCEConvOverICandOC(%arg0: tensor<1x16640x4x1xf16, {order = #NHWC
   // CHECK:       [[INPUT_SLICE7:%.+]] = VPU.Slice [[CONCAT_OUT3:%.+]] [0, 0, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[INPUT_SLICE8:%.+]] = VPU.Slice [[CONCAT_OUT2:%.+]] [0, 0, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[ADD_OUT2:%.+]] = VPU.NCE.Eltwise([[INPUT_SLICE7:%.+]], [[INPUT_SLICE8:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1020231680 : i64, clamp_high = 1128988672 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.4012984643248171E-44], fp_prelu_alpha = 2.000000e-01 : f64>
   // CHECK-SAME:  } -> tensor<1x4608x4x1xf16, {order = #NHWC}>
@@ -570,6 +579,7 @@ func.func @SplitNCEConvOverICandOC(%arg0: tensor<1x16640x4x1xf16, {order = #NHWC
   // CHECK:       [[INPUT_SLICE9:%.+]] = VPU.Slice [[CONCAT_OUT3:%.+]] [0, 4608, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[INPUT_SLICE10:%.+]] = VPU.Slice [[CONCAT_OUT2:%.+]] [0, 4608, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[ADD_OUT3:%.+]] = VPU.NCE.Eltwise([[INPUT_SLICE9:%.+]], [[INPUT_SLICE10:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1020231680 : i64, clamp_high = 1128988672 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.4012984643248171E-44], fp_prelu_alpha = 2.000000e-01 : f64>
   // CHECK-SAME:  } -> tensor<1x4608x4x1xf16, {order = #NHWC}>
@@ -665,12 +675,14 @@ func.func @SplitNCEConvOverIC3ConvsMixedPrecision(%arg0: tensor<1x16640x1x1xf16,
   // CHECK-SAME:   -> tensor<1x16x1x1xf16, {order = #NHWC}>
 
   // CHECK:      [[ADD_OUT0:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0]], [[CONV_OUT1]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
   // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
   // CHECK-SAME:                     fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME: } -> tensor<1x16x1x1xf16, {order = #NHWC}
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[ADD_OUT0]], [[CONV_OUT2]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1020231680 : i64, clamp_high = 1128988672 : i64,
   // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [14.249999855283427],
@@ -758,12 +770,14 @@ func.func @SplitNCEConvOverIC3ConvsMixedPrecisionI4(%arg0: tensor<1x16416x1x1xf1
   // CHECK-SAME:   -> tensor<1x16x1x1xf16, {order = #NHWC}>
 
   // CHECK:      [[ADD_OUT0:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0]], [[CONV_OUT1]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
   // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
   // CHECK-SAME:                     fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME: } -> tensor<1x16x1x1xf16, {order = #NHWC}>
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[ADD_OUT0]], [[CONV_OUT2]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1020231680 : i64, clamp_high = 1128988672 : i64,
   // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
@@ -815,6 +829,7 @@ func.func @SplitNCEConvWithPerTensorQuantScale(%arg0: tensor<1x16384x1x1xf16, {o
   // CHECK-SAME:   -> tensor<1x4096x1x1xf16, {order = #NHWC}>
 
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0:%.+]], [[CONV_OUT1:%.+]]) {
+  // CHECK-NOT:  mpe_engine
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
   // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [0.2474365234375], fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME: } -> tensor<1x4096x1x1xf16, {order = #NHWC}>

@@ -11,10 +11,10 @@
 
 #include "common/utils.hpp"
 #include "frontend/utils.hpp"
-#include "intel_npu/config/options.hpp"
-#include "intel_npu/npu_private_properties.hpp"
 #include "vpux/compiler/frontend/ov_batch_detection.hpp"
 #include "vpux/compiler/utils/batch.hpp"
+#include "vpux/utils/ov/config.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 namespace {
 
@@ -78,12 +78,12 @@ struct AutoBatchCompilerDetectionTestsBase :
 
         ov_stub_model = create_multi_input_model(netIoDescriptions);
         if (!optionDescPtr) {
-            optionDescPtr = std::make_shared<intel_npu::OptionsDesc>();
+            optionDescPtr = std::make_shared<vpux::OV::OptionsDesc>();
         }
-        optionDescPtr->add<intel_npu::BATCH_COMPILER_MODE_SETTINGS>();
-        optionDescPtr->add<intel_npu::BATCH_MODE>();
-        optionDescPtr->add<intel_npu::LOG_LEVEL>();
-        configurationPtr.reset(new intel_npu::Config(optionDescPtr));
+        optionDescPtr->add<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>();
+        optionDescPtr->add<vpux::OV::BATCH_MODE>();
+        optionDescPtr->add<vpux::OV::LOG_LEVEL>();
+        configurationPtr.reset(new vpux::OV::Config(optionDescPtr));
         configurationPtr->update(configuration);
     }
 
@@ -121,8 +121,8 @@ struct AutoBatchCompilerDetectionTestsBase :
     }
 
 protected:
-    std::shared_ptr<intel_npu::OptionsDesc> optionDescPtr;
-    std::unique_ptr<intel_npu::Config> configurationPtr;
+    std::shared_ptr<vpux::OV::OptionsDesc> optionDescPtr;
+    std::unique_ptr<vpux::OV::Config> configurationPtr;
     std::shared_ptr<ov::Model> ov_stub_model;
     vpux::Logger logger = vpux::Logger::global();
 };
@@ -286,15 +286,15 @@ TEST_P(AutoBatchCompilerDetectionModelSuitableForDebatchTests, testModel) {
 
 CfgMap modelDebatchSuitableDefaultConfig;
 CfgMap modelNoLimitsDebatchSuitableConfig{
-        {std::make_pair(ov::intel_npu::batch_compiler_mode_settings.name(),
+        {std::make_pair(vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data(),
                         "batch-compile-method=debatch debatcher-settings={model-ops-number-enable-threshold=0 "
                         "max-batch-number-disable-limit=-1}")}};
 CfgMap modelOpThresholdNotReachedDebatchSuitableConfig{
-        {std::make_pair(ov::intel_npu::batch_compiler_mode_settings.name(),
+        {std::make_pair(vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data(),
                         "batch-compile-method=debatch debatcher-settings={model-ops-number-enable-threshold=0 "
                         "max-batch-number-disable-limit=10}")}};
 CfgMap modelBatchLimitExceedDebatchSuitableConfig{
-        {std::make_pair(ov::intel_npu::batch_compiler_mode_settings.name(),
+        {std::make_pair(vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data(),
                         "batch-compile-method=debatch debatcher-settings={model-ops-number-enable-threshold=1000 "
                         "max-batch-number-disable-limit=-1}")}};
 INSTANTIATE_TEST_SUITE_P(
@@ -330,11 +330,11 @@ public:
         return Base::getBasicParamSize();
     }
     void SetUp() override {
-        optionDescPtr = std::make_shared<intel_npu::OptionsDesc>();
+        optionDescPtr = std::make_shared<vpux::OV::OptionsDesc>();
         // allow any other additional config params to be passed as an external option into the plugin config
         // required for checking that auto-batch detection is non-intrusive methof of options processing
-        optionDescPtr->add<intel_npu::PERFORMANCE_HINT>();
-        optionDescPtr->add<intel_npu::COMPILATION_MODE>();
+        optionDescPtr->add<vpux::OV::PERFORMANCE_HINT>();
+        optionDescPtr->add<vpux::OV::COMPILATION_MODE>();
 
         Base::SetUp();
         refinedCompileParams = std::get<getFirstParamTupleIndex()>(this->GetParam());
@@ -353,7 +353,7 @@ protected:
 };
 
 TEST_P(AutoBatchCompilerDebatchCoefficientsDeterminingTests, makeDebatchCoeffExtraction) {
-    intel_npu::Config refinedConfig =
+    vpux::OV::Config refinedConfig =
             std::get<0>(vpux::autoDetectBatchedModelIfPossible(ov_stub_model, *configurationPtr));
     // check equality of modified string and expected string.
     // As it's expected that modified string will contain some extra spaces,
@@ -363,32 +363,32 @@ TEST_P(AutoBatchCompilerDebatchCoefficientsDeterminingTests, makeDebatchCoeffExt
     // We don't use EXPECT_TRUE here, because the macro won't print compared values, which are beneficial for test
     // results analysis rather than just true/false provided by EXPECT_TRUE. Once `isStrEqualSpaceAgnostic` has failed,
     // a macro EXPECT_EQ will print failed values which are not met space-symbol agnostic comparison condition above
-    if (!test_utils::isStrEqualSpaceAgnostic(refinedConfig.get<intel_npu::BATCH_COMPILER_MODE_SETTINGS>(),
+    if (!test_utils::isStrEqualSpaceAgnostic(refinedConfig.get<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>(),
                                              refinedCompileParams)) {
-        EXPECT_EQ(refinedConfig.get<intel_npu::BATCH_COMPILER_MODE_SETTINGS>(), refinedCompileParams);
+        EXPECT_EQ(refinedConfig.get<vpux::OV::BATCH_COMPILER_MODE_SETTINGS>(), refinedCompileParams);
     }
 }
 
 const CfgMap coeffDeterminingConfigBatchEmpty;
-const CfgMap coeffDeterminingConfigBatchInAuto{{std::make_pair(ov::intel_npu::batch_mode.name(), "AUTO")}};
+const CfgMap coeffDeterminingConfigBatchInAuto{{std::make_pair(vpux::OV::BATCH_MODE::key().data(), "AUTO")}};
 const std::string turnOffDebatchDisableConditions{
         "batch-compile-method=debatch debatcher-settings={model-ops-number-enable-threshold=0 "
         "max-batch-number-disable-limit=-1}"};
 const CfgMap coeffDeterminingConfigBatchInCompiler{
-        {std::make_pair(ov::intel_npu::batch_mode.name(), "COMPILER"),
-         std::make_pair(ov::intel_npu::batch_compiler_mode_settings.name(), turnOffDebatchDisableConditions)}};
+        {std::make_pair(vpux::OV::BATCH_MODE::key().data(), "COMPILER"),
+         std::make_pair(vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data(), turnOffDebatchDisableConditions)}};
 const CfgMap coeffDeterminingConfigBatchInCompilerForHostCompile{
-        {std::make_pair(ov::intel_npu::batch_mode.name(), "COMPILER"),
-         std::make_pair(ov::intel_npu::compilation_mode.name(), "HostCompile"),
-         std::make_pair(ov::intel_npu::batch_compiler_mode_settings.name(), turnOffDebatchDisableConditions)}};
-const CfgMap coeffDeterminingConfigBatchInPlugin{{std::make_pair(ov::intel_npu::batch_mode.name(), "PLUGIN")}};
+        {std::make_pair(vpux::OV::BATCH_MODE::key().data(), "COMPILER"),
+         std::make_pair(vpux::OV::COMPILATION_MODE::key().data(), "HostCompile"),
+         std::make_pair(vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data(), turnOffDebatchDisableConditions)}};
+const CfgMap coeffDeterminingConfigBatchInPlugin{{std::make_pair(vpux::OV::BATCH_MODE::key().data(), "PLUGIN")}};
 const std::string predefinedDebatchCoefficients{
         "batch-compile-method=debatch batch-unroll-settings=" + vpux::BatchUnrollOptions::getDefaultOptions() +
         " debatcher-settings={debatcher-input-coefficients-partitions=[10-10], "
         "debatching-inlining-method=naive}"};
 const CfgMap coeffDeterminingConfigBatchInCompilerWithOverridedCoefficients{
-        {std::make_pair(ov::intel_npu::batch_mode.name(), "COMPILER"),
-         std::make_pair(ov::intel_npu::batch_compiler_mode_settings.name(), predefinedDebatchCoefficients)}};
+        {std::make_pair(vpux::OV::BATCH_MODE::key().data(), "COMPILER"),
+         std::make_pair(vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data(), predefinedDebatchCoefficients)}};
 
 const vpux::DebatchCoefficients sixCoefficientsWithBatchByOne =
         vpux::DebatchCoefficients::create("[0-1],[0-1],[0-1],[0-1],[0-1],[0-1]").value();
@@ -485,16 +485,16 @@ TEST_P(AutoBatchCompilerDetectionCompatTests, OptionsCompatibility) {
 }
 
 const CfgMap cfgDiscrepancy{
-        {std::make_pair(ov::intel_npu::batch_mode.name(), "PLUGIN"),
-         std::make_pair(ov::intel_npu::batch_compiler_mode_settings.name(), predefinedDebatchCoefficients)}};
+        {std::make_pair(vpux::OV::BATCH_MODE::key().data(), "PLUGIN"),
+         std::make_pair(vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data(), predefinedDebatchCoefficients)}};
 const CfgMap cfgCompilerBatchSuccess{
-        {std::make_pair(ov::intel_npu::batch_mode.name(), "COMPILER"),
-         std::make_pair(ov::intel_npu::batch_compiler_mode_settings.name(), predefinedDebatchCoefficients)}};
+        {std::make_pair(vpux::OV::BATCH_MODE::key().data(), "COMPILER"),
+         std::make_pair(vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data(), predefinedDebatchCoefficients)}};
 const CfgMap cfgAutoBatchSuccess{
-        {std::make_pair(ov::intel_npu::batch_mode.name(), "AUTO"),
-         std::make_pair(ov::intel_npu::batch_compiler_mode_settings.name(), predefinedDebatchCoefficients)}};
+        {std::make_pair(vpux::OV::BATCH_MODE::key().data(), "AUTO"),
+         std::make_pair(vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data(), predefinedDebatchCoefficients)}};
 const CfgMap cfgDefaultBatchSuccess{
-        {std::make_pair(ov::intel_npu::batch_compiler_mode_settings.name(), predefinedDebatchCoefficients)}};
+        {std::make_pair(vpux::OV::BATCH_COMPILER_MODE_SETTINGS::key().data(), predefinedDebatchCoefficients)}};
 INSTANTIATE_TEST_SUITE_P(smoke_BehaviorTest, AutoBatchCompilerDetectionCompatTests,
                          testing::Values(AutoBatchCompilerDetectionCompatTestsParams(
                                                  IODescriptions({IODescription(ov::PartialShape({2, 3, 100, 200}), {}),

@@ -9,9 +9,6 @@
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dynamic_shape_propagation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
-#include "vpux/compiler/dialect/VPU/utils/auxiliary_buffers.hpp"
-#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
@@ -116,26 +113,6 @@ mlir::LogicalResult vpux::VPU::InterpolateDMAOp::inferReturnTypes(
 }
 
 //
-// SWOpInterface
-//
-
-bool vpux::VPU::InterpolateDMAOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {
-    // This op uses DDR buffers exclusively.
-    // The SHAVE kernel will manage its own DMA transfers from DDR to CMX in runtime.
-    VPUX_UNUSED(buffers);
-    VPUX_UNUSED(reservedMem);
-    return false;
-}
-
-bool vpux::VPU::InterpolateDMAOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers) {
-    return fitIntoCMX(buffers, Byte(0));
-}
-
-bool vpux::VPU::InterpolateDMAOp::supportCycleCostCalculation() {
-    return false;
-}
-
-//
 // ReifyRankedShapedTypeOpInterface
 //
 
@@ -147,51 +124,4 @@ mlir::LogicalResult vpux::VPU::InterpolateDMAOp::reifyResultShapes(
 
     return reifyInterpolateResultShape(builder, loc, getInput(), getScales(), std::nullopt, axesVal, outputShapedType,
                                        reifiedReturnShapes);
-}
-
-//
-// AuxiliaryBufferOpInterface
-//
-
-SmallVector<mlir::OpOperand*> VPU::InterpolateDMAOp::getAuxiliaryBuffers() {
-    return {&getAuxBufferMutable()};
-}
-
-//
-// ClusteredOpInterface
-//
-
-bool vpux::VPU::InterpolateDMAOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t) {
-    return strategy == VPU::MultiClusterStrategy::Clustering;
-}
-
-vpux::VPU::DistributionInfo vpux::VPU::InterpolateDMAOp::getExplicitDistributionInfoAttr(
-        vpux::ShapeRef shape, vpux::VPU::DistributionMode distributionMode, ArrayRef<int64_t> numTiles,
-        const int64_t numClusters, ArrayRef<int64_t> alignment, const bool uniformDistributedSegments,
-        const vpux::VPU::OverlapDistributionParams& overlapParams,
-        const std::optional<ArrayRef<int64_t>> /* memoryNumTiles */) {
-    return VPU::getSWExplicitDistributionInfo(mlir::cast<VPU::SWOpInterface>(getOperation()), shape, distributionMode,
-                                              numTiles, numClusters, alignment, uniformDistributedSegments,
-                                              overlapParams);
-}
-
-vpux::NDTypeInterface vpux::VPU::InterpolateDMAOp::getDistributedTypeForOpOperand(
-        mlir::OpOperand& operand, bool hasExplicitDistributedAttr, SiblingOpsAnalysis& siblingsAnalysis) {
-    auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(getOperation());
-    auto origOp = mlir::cast<InterpolateDMAOp>(getOperation());
-    // aux_buffer is DUPLICATED across all clusters for CMX workspace
-    if (operand.get() == origOp.getAuxBuffer()) {
-        return getDistributedTypeFromInput(clusteredOp, operand.get(), VPU::DistributionMode::DUPLICATED, {}, {},
-                                           VPU::MultiClusterStrategy::Clustering, hasExplicitDistributedAttr,
-                                           siblingsAnalysis);
-    }
-    // input and scales stay in DDR
-    return mlir::cast<NDTypeInterface>(operand.get().getType());
-}
-
-vpux::NDTypeInterface vpux::VPU::InterpolateDMAOp::getDistributedTypeForOpResult(
-        mlir::Value result, [[maybe_unused]] VPU::MultiClusterStrategy strategy,
-        [[maybe_unused]] SiblingOpsAnalysis& siblingsAnalysis, [[maybe_unused]] bool hasExplicitDistributedAttr) {
-    // output stays in DDR — kernel manages DMA from DDR to CMX internally
-    return mlir::dyn_cast<NDTypeInterface>(result.getType());
 }

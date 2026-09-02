@@ -9,6 +9,7 @@
 #include <mlir/Support/LogicalResult.h>
 #include <algorithm>
 #include <cmath>
+#include <numeric>
 #include <optional>
 
 #include "vpu/utils.h"
@@ -17,6 +18,7 @@
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/utils/roll_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
@@ -27,14 +29,17 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_reduce_output_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
+#include "vpux/compiler/dialect/VPU/utils/precomputed_strategy_table_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tiling_pass_config_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
@@ -145,6 +150,7 @@ bool vpux::requiresDimsGroups5D(mlir::Operation* op) {
     return false;
 }
 
+namespace {
 // Arguments:
 // dividedTiles - final array of computed tiles
 // divisors - array with the tile divisors for each dimension
@@ -198,7 +204,6 @@ mlir::LogicalResult divideTiles(OutputTiling& dividedTiles, ShapeRef divisors, S
 
     return mlir::success();
 }
-
 mlir::FailureOr<OutputTiling> fillDividedTilesMVN1MeanVarOp(mlir::Operation* op, ShapeRef divisors, ShapeRef shape) {
     auto mvn1MeanVarOp = mlir::dyn_cast<VPU::MVN1MeanVarOp>(op);
     VPUX_THROW_UNLESS(mvn1MeanVarOp != nullptr, "Only support MVN1MeanVarOp, but got {0}", op->getName());
@@ -217,6 +222,7 @@ mlir::FailureOr<OutputTiling> fillDividedTilesMVN1MeanVarOp(mlir::Operation* op,
 
     return vpux::fillDividedTiles(divisors, shape, optionalAlignment, /*unrollSpatialFirst = */ false);
 }
+}  // namespace
 
 mlir::FailureOr<OutputTiling> vpux::fillDividedTiles(ShapeRef divisors, ShapeRef shape,
                                                      std::optional<ArrayRef<int64_t>> alignment,
@@ -397,10 +403,50 @@ void alignToOptimizeForBatchedLoadDynamicShape(const vpux::NDTypeInterface& outp
     alignment[dimAlignV.ind()] = closestGreaterMultiplier(factor, alignment[dimAlignV.ind()]);
     log.trace("Alignment for dim {0} set to {1} to optimize for batched load", dimAlignV, alignment);
 }
+
+void applyClusterSpatialAlignmentForNCEConvolution(mlir::Operation* op, ShapeRef divisors, ShapeRef shape,
+                                                   SmallVector<int64_t>& alignment) {
+    auto moduleOp = getModuleOp(op);
+    const auto numClusters = config::getTileExecutor(moduleOp).getCount();
+    const auto preferredSpatialAlignment = config::getPreferredSpatialAlignment(op);
+
+    auto hNumClusters = int64_t{1};
+    auto wNumClusters = int64_t{1};
+    const auto mcStrategy = VPU::getMultiClusterStrategyFromOp(op);
+    if (mcStrategy == VPU::MultiClusterStrategy::SplitOverHeight ||
+        mcStrategy == VPU::MultiClusterStrategy::SplitOverHeightOverlapped) {
+        hNumClusters = static_cast<int64_t>(numClusters);
+    } else if (mcStrategy == VPU::MultiClusterStrategy::SplitOverWidth) {
+        wNumClusters = static_cast<int64_t>(numClusters);
+    }
+
+    const auto hAlignment = hNumClusters * preferredSpatialAlignment;
+    const auto wAlignment = wNumClusters * preferredSpatialAlignment;
+
+    auto canApplyAlignment = [&](Dim dim, int64_t spatialAlignment) -> bool {
+        const auto dimAlignment = std::lcm(spatialAlignment, alignment[dim.ind()]);
+        const auto shapeVal = shape[dim];
+        const auto divisorVal = divisors[dim];
+        if (divisorVal <= 1) {
+            return true;
+        }
+        const auto tileSize = alignValUp(divUp(shapeVal, divisorVal), dimAlignment);
+        const auto remainder = shapeVal - tileSize * (divisorVal - 1);
+        return remainder > 0;
+    };
+
+    if (canApplyAlignment(Dims4D::Act::H, hAlignment)) {
+        alignment[Dims4D::Act::H.ind()] = std::lcm(hAlignment, alignment[Dims4D::Act::H.ind()]);
+    }
+    if (canApplyAlignment(Dims4D::Act::W, wAlignment)) {
+        alignment[Dims4D::Act::W.ind()] = std::lcm(wAlignment, alignment[Dims4D::Act::W.ind()]);
+    }
+}
 }  // namespace
 
 SmallVector<int64_t> vpux::getAlignment(mlir::Operation* op, const ShapeRef divisors, const ShapeRef shape,
-                                        const bool canUseDynamicAlignment, const bool enableOptimizationAlignment) {
+                                        const bool canUseDynamicAlignment, const bool enableSWOptimizationAlignment,
+                                        const bool efficientWorkloadAlign) {
     if (mlir::isa<VPU::FlashSDPAOp>(op)) {
         auto moduleOp = getModuleOp(op);
         auto numTiles = config::getTileExecutor(moduleOp).getCount();
@@ -460,8 +506,19 @@ SmallVector<int64_t> vpux::getAlignment(mlir::Operation* op, const ShapeRef divi
         return alignment;
     }
 
+    if (auto gdnOp = mlir::dyn_cast<VPU::GatedDeltaNetOp>(op)) {
+        const auto qkHeads = getShape(gdnOp.getQuery())[Dims4D::Act::H];
+        const auto vHeads = getShape(gdnOp.getValue())[Dims4D::Act::H];
+        if (!mlir::ShapedType::isDynamic(qkHeads) && !mlir::ShapedType::isDynamic(vHeads) && qkHeads > 0 &&
+            vHeads % qkHeads == 0 && vHeads / qkHeads > 1) {
+            SmallVector<int64_t> alignment(shape.size(), 1);
+            alignment[Dims4D::Act::H.ind()] = vHeads / qkHeads;
+            return alignment;
+        }
+    }
+
     if (mlir::isa<VPU::SWOpInterface>(op)) {
-        auto alignment = VPU::getSWAlignment(op, divisors, shape, enableOptimizationAlignment);
+        auto alignment = VPU::getSWAlignment(op, divisors, shape, enableSWOptimizationAlignment);
         if (alignment.has_value()) {
             return alignment.value();
         }
@@ -523,49 +580,319 @@ SmallVector<int64_t> vpux::getAlignment(mlir::Operation* op, const ShapeRef divi
     if (canUseDynamicAlignment && VPU::hasDynamicDimAlignment(op) && outputType.getShape().isDynamic()) {
         // Special treatment for Permute as it has Layout change and Out Innermost Static dim should be skipped
         alignToOptimizeForBatchedLoadDynamicShape(outputType, divisors, alignment, mlir::isa<VPU::NCEPermuteOp>(op));
+        return alignment;
+    }
+
+    // Align H and W dimensions to numClusters * preferredSpatialAlignment
+    // to ensure uniform tile distribution across clusters.
+    // Skip the alignment for a dimension if it would cause tile division to fail
+    // (i.e. aligned tile size * (numTiles - 1) >= shape).
+    // Reasons for the limitations:
+    //   - efficientWorkloadAlign: only apply H/W alignment for global search to avoid legacy tiling changes
+    //   - NCEConvolutionOp: only apply H/W alignment for NCEConvolutionOp (other ops are unvalidated)
+    if (efficientWorkloadAlign && mlir::isa<VPU::NCEConvolutionOp>(op)) {
+        applyClusterSpatialAlignmentForNCEConvolution(op, divisors, shape, alignment);
     }
 
     return alignment;
 }
 
-mlir::FailureOr<std::optional<SmallVector<int64_t>>> calculateAlignmentLCM(ArrayRef<SmallVector<int64_t>> alignments) {
-    if (alignments.empty()) {
-        return std::optional<SmallVector<int64_t>>(std::nullopt);
+bool vpux::nceOpNeedsTilingAxisInference(mlir::Operation* curOp, mlir::Value operand) {
+    if (auto nceOp = mlir::dyn_cast_if_present<VPU::NCEOpInterface>(curOp)) {
+        // nce op with weights, and the current operand is not the main activation input,
+        // therefore, we treat it as a weights-like
+        if (nceOp.getWeightsOperand() != nullptr && nceOp->getOperand(0) != operand) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::optional<Dim> vpux::nceBackInferWeightsTilingAxisFromOut(const Dim& outDim, bool is5DTensor) {
+    const auto isTilingOnChannel = is5DTensor ? outDim == DimsGroups5D::Act::C : outDim == Dims4D::Act::C;
+    if (!isTilingOnChannel) {
+        return std::nullopt;
+    }
+    return is5DTensor ? DimsGroups5D::Filter::OC : Dims4D::Filter::OC;
+}
+
+std::optional<Dim> vpux::nceInferOutTilingAxisFromWeights(const Dim& weightsDim, bool is5DTensor) {
+    const auto isTilingOnChannel =
+            is5DTensor ? weightsDim == DimsGroups5D::Filter::OC : weightsDim == Dims4D::Filter::OC;
+    if (!isTilingOnChannel) {
+        return std::nullopt;
+    }
+    return is5DTensor ? DimsGroups5D::Act::C : Dims4D::Act::C;
+}
+
+SmallVector<int64_t> vpux::nceBackInferWeightsTilingStrategyFromOut(ArrayRef<int64_t> outStrategy) {
+    VPUX_THROW_WHEN(outStrategy.size() != 4 && outStrategy.size() != 5, "Out strategy has invalid shape: {0}",
+                    outStrategy);
+    auto inStrategy = SmallVector<int64_t>(outStrategy.size(), 1);
+    const auto is5DTensor = outStrategy.size() == 5;
+    const auto outChannelDim = is5DTensor ? DimsGroups5D::Act::C : Dims4D::Act::C;
+    const auto weightsChannelDim = vpux::nceBackInferWeightsTilingAxisFromOut(outChannelDim, is5DTensor);
+    VPUX_THROW_WHEN(!weightsChannelDim.has_value(),
+                    "Could not back-infer weights tiling strategy from output strategy; outChannelDim = {0}.",
+                    outChannelDim);
+    inStrategy[weightsChannelDim.value().ind()] = outStrategy[outChannelDim.ind()];
+    return inStrategy;
+}
+
+SmallVector<int64_t> vpux::nceInferOutTilingStrategyFromWeights(ArrayRef<int64_t> weightsStrategy) {
+    VPUX_THROW_WHEN(weightsStrategy.size() != 4 && weightsStrategy.size() != 5,
+                    "Weights strategy has invalid shape: {0}", weightsStrategy);
+    auto outStrategy = SmallVector<int64_t>(weightsStrategy.size(), 1);
+    const auto is5DTensor = weightsStrategy.size() == 5;
+    const auto weightsChannelDim = is5DTensor ? DimsGroups5D::Filter::OC : Dims4D::Filter::OC;
+    const auto outChannelDim = vpux::nceInferOutTilingAxisFromWeights(weightsChannelDim, is5DTensor);
+    VPUX_THROW_WHEN(!outChannelDim.has_value(),
+                    "Could not back-infer output tiling strategy from weights strategy; weightsChannelDim = {0}.",
+                    outChannelDim);
+    outStrategy[outChannelDim.value().ind()] = weightsStrategy[weightsChannelDim.ind()];
+    return outStrategy;
+}
+
+namespace {
+// Sequentially apply forward alignment transformations through a precomputed chain of ops that may move axes.
+// Transforms the alignment from the producer's output space to lastOp's output space without
+// re-traversing the graph. The forwardOps list is accumulated during the backward BFS.
+mlir::FailureOr<SmallVector<int64_t>> applyForwardTransformations(ArrayRef<int64_t> alignment,
+                                                                  ArrayRef<mlir::OpOperand*> forwardOpOperands) {
+    auto current = SmallVector<int64_t>(alignment.begin(), alignment.end());
+    // Apply each intermediate view-like op's forward transform in sequence toward lastOp
+    for (const auto opOperand : forwardOpOperands) {
+        auto op = opOperand->getOwner();
+        if (auto viewOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(op)) {
+            auto next = viewOp.inferTilingStrategy(current);
+            if (mlir::failed(next)) {
+                return mlir::failure();
+            }
+
+            current = std::move(next.value());
+        } else if (nceOpNeedsTilingAxisInference(op, opOperand->get())) {
+            // Special case: NCE ops with weights-like operands should transform
+            // from filter space to activation space
+            current = nceInferOutTilingStrategyFromWeights(current);
+        } else {
+            return mlir::failure();
+        }
+        if (current.empty()) {
+            return mlir::failure();
+        }
     }
 
-    const auto numDimensions = alignments[0].size();
-    if (std::any_of(alignments.begin(), alignments.end(), [&](auto alignment) {
-            return alignment.size() != numDimensions;
-        })) {
+    return current;
+}
+
+int64_t updateDepthToSpaceBlockAlignmentMultiplier(mlir::Operation* op, const int64_t multiplier,
+                                                   const bool isSingleLayer) {
+    if (!mlir::isa_and_present<VPU::LayerOpInterface>(op)) {
+        return multiplier;
+    }
+
+    // Block-size tile alignment is required for dynamic shapes (all paths) and for the isolated
+    // single-layer static DepthToSpace case (E-220308). It must NOT be forced on a static DepthToSpace
+    // fused inside a VF chain: there the pre-existing tiling is already block-compatible, and forcing
+    // the lcm(blockSize, ...) multiplier perturbs the cost-model tile-axis selection into an H+W split
+    // whose DepthToSpace output tile is malformed when a fused producer introduces a dynamic (halo)
+    // spatial dim, producing an invalid op that fails type inference.
+    if (!isSingleLayer && !getShape(op->getResult(0)).isDynamic()) {
+        return multiplier;
+    }
+
+    auto depthToSpaceOp = mlir::dyn_cast<VPU::DepthToSpaceOp>(op);
+    if (depthToSpaceOp == nullptr) {
+        return multiplier;
+    }
+
+    // DepthToSpace tile boundaries must be aligned to blockSize so that
+    // back-inferred input tiles (output / blockSize) produce integer offsets
+    // and sizes. Without this alignment, the last tile can overflow the
+    // input extent when offset + size > inputDim.
+    if (depthToSpaceOp.getBlockSizeAttr() == nullptr) {
+        return multiplier;
+    }
+
+    const auto blockSize = depthToSpaceOp.getBlockSizeAttr().getValue().getSExtValue();
+    if (blockSize == 0) {
+        return multiplier;
+    }
+
+    // Evaluate the H/W % blockSize check against the DepthToSpace op's own bounded output shape.
+    // This is read from the current op here -- after the DepthToSpace cast -- rather than being
+    // passed in from the fillDividedTiles walk: that walk also visits ops with non-shaped results
+    // (index/scalar producers such as affine.min/max and tensor.dim), and getBoundedShape() would
+    // abort in cast<NDTypeInterface> if invoked on those. Deferring the query keeps it confined to
+    // an actual DepthToSpace tensor result while still using the current op's bounded shape.
+    const auto shape = getBoundedShape(op->getResult(0));
+    if ((shape[Dims4D::Act::H] % blockSize) != 0 || (shape[Dims4D::Act::W] % blockSize) != 0) {
+        return multiplier;
+    }
+
+    return std::lcm(blockSize, multiplier);
+}
+}  // namespace
+
+mlir::FailureOr<OutputTiling> vpux::fillDividedTiles(mlir::Operation* lastOp, ArrayRef<mlir::Operation*> targetOps,
+                                                     ShapeRef divisors, ShapeRef shape,
+                                                     const std::function<bool(mlir::Operation*)>& isOpNeedDynAlignment,
+                                                     bool enableSWOptimizationAlignment, bool efficientWorkloadAlign) {
+    int64_t multiplier = 1;
+    auto unrollSpatialFirst = false;
+    SmallVector<SmallVector<int64_t>> alignments;
+
+    // Each work item carries the ordered chain of view-like ops from the current position
+    // toward lastOp, enabling sequential alignment transformation without graph re-traversal.
+    using ForwardViewOps = SmallVector<mlir::OpOperand*>;
+    using WorkItem = std::tuple<mlir::Operation*, Shape, SmallVector<int64_t>, ForwardViewOps>;
+    std::queue<WorkItem> workQueue;
+    if (lastOp == nullptr) {
         return mlir::failure();
     }
 
-    SmallVector<int64_t> alignmentLCM(numDimensions, 1);
-    for (size_t dim = 0; dim < numDimensions; ++dim) {
+    // disable alignment for performance optimizations to let cost model decide
+    // if VF with less strict alignment is better with isolated operation with additional alignment requirements
+    alignments.emplace_back(getAlignment(lastOp, divisors, getBoundedShape(lastOp->getResult(0)),
+                                         isOpNeedDynAlignment(lastOp), enableSWOptimizationAlignment,
+                                         efficientWorkloadAlign));
+    workQueue.emplace(lastOp, divisors, alignments.back(), ForwardViewOps{});
+
+    while (!workQueue.empty()) {
+        auto [pastOp, pastDivisors, pastAlignment, fwdOpOperands] = workQueue.front();
+        workQueue.pop();
+
+        unrollSpatialFirst = unrollSpatialFirst || isSpatialFirstNestedTiling(pastOp, pastDivisors);
+        // targetOps.size() == 1 is the isolated single-layer tiling path; size > 1 is a fused VF chain.
+        // The block-size multiplier only affects DepthToSpace ops; the helper reads the current op's own
+        // bounded output shape internally (guarded by the DepthToSpace cast) so it is never queried on the
+        // non-shaped results of other ops in the walk.
+        multiplier = updateDepthToSpaceBlockAlignmentMultiplier(pastOp, multiplier,
+                                                                /*isSingleLayer=*/targetOps.size() == 1);
+
+        auto viewOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(pastOp);
+        auto crtDivisors =
+                Shape(viewOp != nullptr ? viewOp.backInferTilingStrategy(pastDivisors.raw()) : pastDivisors.raw());
+
+        // Build the forward view-like op chain for predecessors of pastOp.
+        // Prepend pastOp (if view-like or if they modify the tiling axis) to the inherited forward chain.
+        if (viewOp != nullptr) {
+            fwdOpOperands.insert(fwdOpOperands.begin(), &viewOp->getOpOperand(0));
+        }
+
+        for (auto& operand : pastOp->getOpOperands()) {
+            auto operandDivisors = crtDivisors;
+            auto operandFwdChain = fwdOpOperands;
+            auto producer = operand.get().getDefiningOp();
+            if (producer == nullptr) {
+                continue;
+            }
+
+            if (nceOpNeedsTilingAxisInference(pastOp, operand.get())) {
+                operandDivisors = Shape(nceBackInferWeightsTilingStrategyFromOut(operandDivisors.raw()));
+                operandFwdChain.insert(operandFwdChain.begin(), &operand);
+            }
+
+            if (!mlir::isa<VPU::LayerOpInterface>(producer) ||
+                (viewOp != nullptr && mlir::isa<VPU::TilingViewLikeOpInterface>(producer))) {
+                const auto crtAlignment =
+                        viewOp != nullptr ? viewOp.backInferTilingStrategy(pastAlignment) : pastAlignment;
+                workQueue.emplace(producer, operandDivisors, crtAlignment, operandFwdChain);
+                continue;
+            }
+
+            if (!llvm::is_contained(targetOps, producer)) {
+                continue;
+            }
+
+            auto alignment =
+                    getAlignment(producer, operandDivisors, getBoundedShape(producer->getResult(0)),
+                                 isOpNeedDynAlignment(producer), enableSWOptimizationAlignment, efficientWorkloadAlign);
+
+            const auto alignmentResult = applyForwardTransformations(alignment, operandFwdChain);
+            if (mlir::failed(alignmentResult)) {
+                return mlir::failure();
+            }
+
+            if (alignmentResult.value().size() != divisors.size()) {
+                // alignmentResult should have the same number of dimensions as the output tensor divisors;
+                // otherwise, it's an error in the alignment inference of the producer or one of the view-like ops, and
+                // we cannot continue
+                return mlir::failure();
+            }
+
+            alignments.emplace_back(alignmentResult.value());
+            workQueue.emplace(producer, operandDivisors, alignment, operandFwdChain);
+        }
+    }
+
+    SmallVector<int64_t> alignmentLCM(divisors.size(), 1);
+    for (size_t dim = 0; dim < divisors.size(); ++dim) {
         for (auto alignment : alignments) {
             alignmentLCM[dim] = std::lcm(alignmentLCM[dim], alignment[dim]);
         }
     }
 
-    return std::optional<SmallVector<int64_t>>(alignmentLCM);
+    Shape modifiedShape(shape.raw());
+    VPUX_THROW_WHEN(multiplier == 0, "Multiplier cannot be zero");
+
+    if (multiplier != 1) {
+        modifiedShape[Dims4D::Act::H] /= multiplier;
+        modifiedShape[Dims4D::Act::W] /= multiplier;
+
+        int64_t minAlignment = 1;
+        alignmentLCM[Dims4D::Act::H.ind()] = std::max(alignmentLCM[Dims4D::Act::H.ind()] / multiplier, minAlignment);
+        alignmentLCM[Dims4D::Act::W.ind()] = std::max(alignmentLCM[Dims4D::Act::W.ind()] / multiplier, minAlignment);
+    }
+
+    auto tiles = vpux::fillDividedTiles(divisors, modifiedShape, alignmentLCM, unrollSpatialFirst, std::nullopt);
+    if (mlir::failed(tiles)) {
+        return mlir::failure();
+    }
+
+    if (multiplier != 1) {
+        for (auto& tile : tiles.value()) {
+            tile.shape[Dims4D::Act::H] *= multiplier;
+            tile.shape[Dims4D::Act::W] *= multiplier;
+            tile.offsets[Dims4D::Act::H] *= multiplier;
+            tile.offsets[Dims4D::Act::W] *= multiplier;
+        }
+    }
+
+    return tiles;
 }
 
-mlir::FailureOr<OutputTiling> fillDividedTilesBase(mlir::Operation* op, ShapeRef divisors, ShapeRef shape) {
-    std::optional<SmallVector<int64_t>> optionalAlignment = std::nullopt;
+namespace {
+mlir::FailureOr<OutputTiling> fillDividedTilesBase(mlir::Operation* op, ShapeRef divisors, ShapeRef shape,
+                                                   bool efficientWorkloadAlign = false) {
     if (auto vfOp = mlir::dyn_cast<VPU::VerticalFusionOp>(op)) {
-        SmallVector<SmallVector<int64_t>> alignments;
-        for (auto& innerOp : vfOp.getBody()->without_terminator()) {
-            const auto outShape = getShape(innerOp.getResult(0));
-            alignments.emplace_back(getAlignment(&innerOp, divisors, outShape));
-        }
-        auto alignmentLCMResult = calculateAlignmentLCM(alignments);
-        if (mlir::failed(alignmentLCMResult)) {
+        auto lastOp = vfOp.getBody()->getTerminator()->getOperands().back().getDefiningOp();
+        const auto alignmentFunc = [&](mlir::Operation* /*op*/) {
+            return true;
+        };
+
+        const auto vfBodyOpsVec =
+                llvm::to_vector(llvm::map_range(vfOp.getBody()->without_terminator(), [](mlir::Operation& nestedOp) {
+                    return &nestedOp;
+                }));
+        return vpux::fillDividedTiles(lastOp, vfBodyOpsVec, divisors, shape, alignmentFunc,
+                                      /*enableSWOptimizationAlignment=*/true, efficientWorkloadAlign);
+    }
+
+    if (shape.size() != divisors.size()) {
+        return mlir::failure();
+    }
+
+    // fail fast is divisors are larger than size
+    for (auto idx : irange(divisors.size())) {
+        const auto dim = Dim(idx);
+        if (divisors[dim] > shape[dim]) {
             return mlir::failure();
         }
-        optionalAlignment = alignmentLCMResult.value();
-    } else {
-        optionalAlignment = getAlignment(op, divisors, shape);
     }
+
+    const auto optionalAlignment = getAlignment(op, divisors, shape, /*canUseDynamicAlignment=*/true,
+                                                /*enableSWOptimizationAlignment=*/true, efficientWorkloadAlign);
 
     auto unrollSpatialFirst = isSpatialFirstNestedTiling(op, divisors);
 
@@ -630,6 +957,7 @@ bool isSupportedChannelSizeForSEPDwConv(mlir::Operation* op, int64_t channelSize
     return isSupportedChannelSizeWithMultiCluster(channelSize, numCluster, 0, 0, maxValidChannelSize,
                                                   supportedChannels);
 }
+}  // namespace
 
 SmallVector<int64_t> vpux::divideChannelForSEPDWConv(mlir::Operation* op, int64_t channelSize, int64_t channelDivisor) {
     VPUX_THROW_WHEN(channelDivisor == 0, "Invalid channel divisor: {0}", channelDivisor);
@@ -675,6 +1003,7 @@ SmallVector<int64_t> vpux::divideChannelForSEPDWConv(mlir::Operation* op, int64_
     return result;
 }
 
+namespace {
 /*
  * For SEP DWConv, only specific workload channel sizes are supported
  * Because of hardware limitation, only one workload is permitted per cluster
@@ -742,8 +1071,10 @@ mlir::FailureOr<OutputTiling> fillDividedTilesDepthToSpaceOp(mlir::Operation* op
 
     return tiles;
 }
+}  // namespace
 
-mlir::FailureOr<OutputTiling> vpux::fillDividedTiles(mlir::Operation* op, ShapeRef divisors, ShapeRef shape) {
+mlir::FailureOr<OutputTiling> vpux::fillDividedTiles(mlir::Operation* op, ShapeRef divisors, ShapeRef shape,
+                                                     bool efficientWorkloadAlign) {
     if (mlir::isa<VPU::MVN1MeanVarOp>(op)) {
         return fillDividedTilesMVN1MeanVarOp(op, divisors, shape);
     }
@@ -756,168 +1087,7 @@ mlir::FailureOr<OutputTiling> vpux::fillDividedTiles(mlir::Operation* op, ShapeR
         return fillDividedTilesDepthToSpaceOp(op, divisors, shape);
     }
 
-    return fillDividedTilesBase(op, divisors, shape);
-}
-
-// Sequentially apply forward alignment transformations through a precomputed chain of view-like ops.
-// Transforms the alignment from the producer's output space to lastOp's output space without
-// re-traversing the graph. The forwardViewOps list is accumulated during the backward BFS.
-mlir::FailureOr<SmallVector<int64_t>> applyForwardTransformations(
-        ArrayRef<int64_t> alignment, ArrayRef<VPU::TilingViewLikeOpInterface> forwardViewOps) {
-    auto current = SmallVector<int64_t>(alignment.begin(), alignment.end());
-    // Apply each intermediate view-like op's forward transform in sequence toward lastOp
-    for (auto viewOp : forwardViewOps) {
-        auto next = viewOp.inferTilingStrategy(current);
-        if (mlir::failed(next)) {
-            return mlir::failure();
-        }
-        current = std::move(next.value());
-        if (current.empty()) {
-            return mlir::failure();
-        }
-    }
-
-    return current;
-}
-
-int64_t updateDynamicShapesAdaptationParams(mlir::Operation* op, ShapeRef shape, const int64_t multiplier) {
-    if (!mlir::isa_and_present<VPU::LayerOpInterface>(op) || !getShape(op->getResult(0)).isDynamic()) {
-        return multiplier;
-    }
-
-    auto depthToSpaceOp = mlir::dyn_cast<VPU::DepthToSpaceOp>(op);
-    if (depthToSpaceOp == nullptr) {
-        return multiplier;
-    }
-
-    // due to incorrect cost, do additional steps only for dynamic shapes support
-    if (depthToSpaceOp.getBlockSizeAttr() == nullptr) {
-        return multiplier;
-    }
-
-    const auto blockSize = depthToSpaceOp.getBlockSizeAttr().getValue().getSExtValue();
-    if (blockSize == 0) {
-        return multiplier;
-    }
-
-    if ((shape[Dims4D::Act::H] % blockSize) != 0 || (shape[Dims4D::Act::W] % blockSize) != 0) {
-        return multiplier;
-    }
-
-    return std::lcm(blockSize, multiplier);
-}
-
-mlir::FailureOr<OutputTiling> vpux::fillDividedTiles(
-        mlir::Operation* lastOp, ArrayRef<mlir::Operation*> targetOps, ShapeRef divisors, ShapeRef shape,
-        const std::function<bool(mlir::Operation*)>& isOpNeedDynAlignment) {
-    int64_t multiplier = 1;
-    auto unrollSpatialFirst = false;
-    SmallVector<SmallVector<int64_t>> alignments;
-
-    // Each work item carries the ordered chain of view-like ops from the current position
-    // toward lastOp, enabling sequential alignment transformation without graph re-traversal.
-    using ForwardViewOps = SmallVector<VPU::TilingViewLikeOpInterface>;
-    using WorkItem = std::tuple<mlir::Operation*, Shape, SmallVector<int64_t>, ForwardViewOps>;
-    std::queue<WorkItem> workQueue;
-    if (lastOp == nullptr) {
-        return mlir::failure();
-    }
-
-    // disable alignment for performance optimizations to let cost model deside
-    // if VF with less strict alignment is better with isolated operation with additional alignment requirements
-    alignments.emplace_back(
-            getAlignment(lastOp, divisors, getBoundedShape(lastOp->getResult(0)), isOpNeedDynAlignment(lastOp), false));
-    workQueue.emplace(lastOp, divisors, alignments.back(), ForwardViewOps{});
-
-    while (!workQueue.empty()) {
-        auto [pastOp, pastDivisors, pastAlignment, forwardOps] = workQueue.front();
-        workQueue.pop();
-
-        unrollSpatialFirst = unrollSpatialFirst || isSpatialFirstNestedTiling(pastOp, pastDivisors);
-        multiplier = updateDynamicShapesAdaptationParams(pastOp, shape, multiplier);
-
-        auto viewOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(pastOp);
-        const auto crtDivisors =
-                Shape(viewOp != nullptr ? viewOp.backInferTilingStrategy(pastDivisors.raw()) : pastDivisors.raw());
-
-        // Build the forward view-like op chain for predecessors of pastOp.
-        // Prepend pastOp (if view-like) to the inherited forward chain.
-        if (viewOp != nullptr) {
-            forwardOps.insert(forwardOps.begin(), viewOp);
-        }
-
-        for (auto operand : pastOp->getOperands()) {
-            auto producer = operand.getDefiningOp();
-            if (producer == nullptr) {
-                continue;
-            }
-
-            if (!mlir::isa<VPU::LayerOpInterface>(producer) ||
-                (viewOp != nullptr && mlir::isa<VPU::TilingViewLikeOpInterface>(producer))) {
-                const auto crtAlignment =
-                        viewOp != nullptr ? viewOp.backInferTilingStrategy(pastAlignment) : pastAlignment;
-                workQueue.emplace(producer, crtDivisors, crtAlignment, forwardOps);
-                continue;
-            }
-
-            if (!llvm::is_contained(targetOps, producer)) {
-                continue;
-            }
-
-            auto alignment = getAlignment(producer, crtDivisors, getBoundedShape(producer->getResult(0)),
-                                          isOpNeedDynAlignment(producer), false);
-
-            const auto alignmentResult = applyForwardTransformations(alignment, forwardOps);
-            if (mlir::failed(alignmentResult)) {
-                return mlir::failure();
-            }
-
-            if (alignmentResult.value().size() != divisors.size()) {
-                // alignementResult should have the same number of dimensions as the output tensor divisors;
-                // otherwise, it's an error in the alignment inference of the producer or one of the view-like ops, and
-                // we cannot continue
-                return mlir::failure();
-            }
-
-            alignments.emplace_back(alignmentResult.value());
-            workQueue.emplace(producer, crtDivisors, alignment, forwardOps);
-        }
-    }
-
-    SmallVector<int64_t> alignmentLCM(divisors.size(), 1);
-    for (size_t dim = 0; dim < divisors.size(); ++dim) {
-        for (auto alignment : alignments) {
-            alignmentLCM[dim] = std::lcm(alignmentLCM[dim], alignment[dim]);
-        }
-    }
-
-    Shape modifiedShape(shape.raw());
-    VPUX_THROW_WHEN(multiplier == 0, "Multiplier cannot be zero");
-
-    if (multiplier != 1) {
-        modifiedShape[Dims4D::Act::H] /= multiplier;
-        modifiedShape[Dims4D::Act::W] /= multiplier;
-
-        int64_t minAlignment = 1;
-        alignmentLCM[Dims4D::Act::H.ind()] = std::max(alignmentLCM[Dims4D::Act::H.ind()] / multiplier, minAlignment);
-        alignmentLCM[Dims4D::Act::W.ind()] = std::max(alignmentLCM[Dims4D::Act::W.ind()] / multiplier, minAlignment);
-    }
-
-    auto tiles = vpux::fillDividedTiles(divisors, modifiedShape, alignmentLCM, unrollSpatialFirst, std::nullopt);
-    if (mlir::failed(tiles)) {
-        return mlir::failure();
-    }
-
-    if (multiplier != 1) {
-        for (auto& tile : tiles.value()) {
-            tile.shape[Dims4D::Act::H] *= multiplier;
-            tile.shape[Dims4D::Act::W] *= multiplier;
-            tile.offsets[Dims4D::Act::H] *= multiplier;
-            tile.offsets[Dims4D::Act::W] *= multiplier;
-        }
-    }
-
-    return tiles;
+    return fillDividedTilesBase(op, divisors, shape, efficientWorkloadAlign);
 }
 
 //
@@ -1079,8 +1249,6 @@ PlaneTileSolution solutionForOutputTile(const PlaneTile& output, int64_t kernelX
     return solution;
 }
 
-}  // namespace
-
 // inputTile planar H/W size should keep the same with original input H/W when no tiling over those axis.
 // However the back inferring size may become smaller, e.g., OutputTile 7x7, Kernel 1x1, Stride 2x2.
 // The inferring inputTile planar shape is 13x13 however original planar input shape may be 14x14, which will cause
@@ -1096,6 +1264,7 @@ void restorePlanarShapeForInputTile(TileInfo& inputTile, ShapeRef origInputShape
 
     inputTile.shape[planarDim] = origInputShape[planarDim];
 }
+}  // namespace
 
 //
 // Convolution tiling
@@ -1467,59 +1636,39 @@ SmallVector<int64_t> propagateOffsetForInterpolate(
         ArrayRef<int64_t> axes, ArrayRef<int64_t> offset, ArrayRef<int64_t> initialInputDims,
         ArrayRef<int64_t> initialOutputDims, ArrayRef<int64_t> initialInputOffsets,
         ArrayRef<int64_t> initialOutputOffsets, ArrayRef<int64_t> currentInputDims,
-        vpux::IE::InterpolateCalcMode calcMode, vpux::IE::InterpolateMode interpolateMode,
-        vpux::IE::InterpolateCoordMode coordMode, vpux::IE::InterpolateNearestMode nearestMode, ArrayRef<int64_t> sizes,
-        ArrayRef<double> scales, bool roundUp, SmallVector<int64_t>&& tiledIndices, vpux::Logger log) {
+        vpux::IE::InterpolateMode interpolateMode, vpux::IE::InterpolateCoordMode coordMode,
+        vpux::IE::InterpolateNearestMode nearestMode, ArrayRef<int64_t> sizes, ArrayRef<double> scales, bool roundUp,
+        SmallVector<int64_t>&& tiledIndices, vpux::Logger log) {
     log.trace("Interp propagate offset: input = {0}", offset);
 
     SmallVector<int64_t> inferedOffset(offset.begin(), offset.end());
-    if (calcMode == IE::InterpolateCalcMode::SIZES) {
-        VPUX_THROW_WHEN(sizes.size() != axes.size(),
-                        "Num of elements in sizes tensor: {0} should be equal to number of indices in axes: {1}",
-                        sizes.size(), axes.size());
-        VPUX_THROW_WHEN(scales.size() != axes.size(),
-                        "Num of elements in scales tensor: {0} should be equal to number of indices in axes: {1}",
-                        scales.size(), axes.size());
-        auto scalesIter = scales.begin();
-        for (const auto& i : axes) {
-            log.trace("Interp sizes - axis: {0}", i);
+    // The coordinate back-inference is identical for SIZES- and SCALES-authored ops: it always
+    // walks the interpolated axes and maps each output offset back through `inferInCoord` using
+    // the supplied per-axis backward scale. The only thing that differs between the two is how
+    // that backward scale was computed (dim ratio vs 1/originalScales), which the caller decides
+    // via `useScaleAttr`. There is therefore no shape_calc_mode branch here.
+    VPUX_THROW_WHEN(sizes.size() != axes.size(),
+                    "Num of elements in sizes tensor: {0} should be equal to number of indices in axes: {1}",
+                    sizes.size(), axes.size());
+    VPUX_THROW_WHEN(scales.size() != axes.size(),
+                    "Num of elements in scales tensor: {0} should be equal to number of indices in axes: {1}",
+                    scales.size(), axes.size());
+    auto scalesIter = scales.begin();
+    for (const auto& i : axes) {
+        log.trace("Interp - axis: {0}", i);
 
-            if (std::find(tiledIndices.begin(), tiledIndices.end(), i) == tiledIndices.end()) {
-                inferedOffset[i] = roundUp ? currentInputDims[i] - 1 : 0;
-                scalesIter++;
-            } else {
-                double inCoord = inferInCoord(coordMode, offset[i] + initialOutputOffsets[i], initialInputDims[i],
-                                              initialOutputDims[i], *scalesIter) -
-                                 initialInputOffsets[i];
-                int64_t inCoordInt = getNearestCoord(interpolateMode, nearestMode, inCoord, *scalesIter, roundUp);
+        if (std::find(tiledIndices.begin(), tiledIndices.end(), i) == tiledIndices.end()) {
+            inferedOffset[i] = roundUp ? currentInputDims[i] - 1 : 0;
+            scalesIter++;
+        } else {
+            double inCoord = inferInCoord(coordMode, offset[i] + initialOutputOffsets[i], initialInputDims[i],
+                                          initialOutputDims[i], *scalesIter) -
+                             initialInputOffsets[i];
+            int64_t inCoordInt = getNearestCoord(interpolateMode, nearestMode, inCoord, *scalesIter, roundUp);
 
-                inferedOffset[i] = std::clamp(inCoordInt, static_cast<int64_t>(0), currentInputDims[i] - 1);
-                scalesIter++;
-            }
+            inferedOffset[i] = std::clamp(inCoordInt, static_cast<int64_t>(0), currentInputDims[i] - 1);
+            scalesIter++;
         }
-    } else if (calcMode == IE::InterpolateCalcMode::SCALES) {
-        VPUX_THROW_WHEN(scales.size() != axes.size(),
-                        "Num of elements in scales tensor: {0} should be equal to number of indices in axes: {1}",
-                        scales.size(), axes.size());
-        auto scalesIter = scales.begin();
-        for (const auto& i : axes) {
-            log.trace("Interp scales - axis: {0}", i);
-
-            if (std::find(tiledIndices.begin(), tiledIndices.end(), i) == tiledIndices.end()) {
-                inferedOffset[i] = roundUp ? currentInputDims[i] - 1 : 0;
-                scalesIter++;
-            } else {
-                double inCoord = inferInCoord(coordMode, offset[i] + initialOutputOffsets[i], initialInputDims[i],
-                                              initialOutputDims[i], *scalesIter) -
-                                 initialInputOffsets[i];
-                int64_t inCoordInt = getNearestCoord(interpolateMode, nearestMode, inCoord, *scalesIter, roundUp);
-
-                inferedOffset[i] = std::clamp(inCoordInt, static_cast<int64_t>(0), currentInputDims[i] - 1);
-                scalesIter++;
-            }
-        }
-    } else {
-        VPUX_THROW("Doesn't support shape_calculation_mode: {0}", calcMode);
     }
 
     log.trace("Interp propagate offset: output = {0}", inferedOffset);
@@ -1530,8 +1679,8 @@ SmallVector<int64_t> backInferOffsetForInterpolate(
         ArrayRef<int64_t> offset, IE::InterpolateMode interpolateMode, IE::InterpolateCoordMode coordMode,
         IE::InterpolateNearestMode nearestMode, ArrayRef<int64_t> initialInputDims, ArrayRef<int64_t> initialOutputDims,
         ArrayRef<int64_t> initialInputOffsets, ArrayRef<int64_t> initialOutputOffsets,
-        ArrayRef<int64_t> currentInputDims, bool roundUp, SmallVector<int64_t>&& tiledIndices,
-        IE::InterpolateCalcMode calcMode, ArrayRef<double> originalScales, ArrayRef<int64_t> axesAttr, Logger log) {
+        ArrayRef<int64_t> currentInputDims, bool roundUp, SmallVector<int64_t>&& tiledIndices, bool useScaleAttr,
+        ArrayRef<double> originalScales, ArrayRef<int64_t> axesAttr, Logger log) {
     SmallVector<int64_t> axes;
     for (auto i : irange(initialInputDims.size())) {
         if (initialInputDims[i] != initialOutputDims[i]) {
@@ -1539,21 +1688,21 @@ SmallVector<int64_t> backInferOffsetForInterpolate(
         }
     }
 
-    // Detect tiled scenario: when initial_input_dims_attr differs from the actual input shape
-    // or initial_input_offset_attr is non-zero, the Interpolate op is a tiled slice of a larger
-    // global operation. In tiled scenarios, originalScales represent the LOCAL tile scale factor
-    // (e.g., 1.9) which differs from the GLOBAL dimension ratio (e.g., 95/190 = 0.5 backward).
-    // Since inferInCoord() uses global initial dims for coordinate transformation, the backward
-    // scale must also be derived from global dims to maintain consistency.
-    const bool isTiledScenario = (SmallVector<int64_t>(initialInputDims.begin(), initialInputDims.end()) !=
-                                  SmallVector<int64_t>(currentInputDims.begin(), currentInputDims.end())) ||
-                                 (SmallVector<int64_t>(initialInputOffsets.begin(), initialInputOffsets.end()) !=
-                                  SmallVector<int64_t>(initialInputOffsets.size(), 0));
-
-    // Compute scale-factors based on calc mode
+    // Use 1/originalScales whenever the op uses scales (useScaleAttr) and the scales attribute is
+    // populated, regardless of whether the op is currently a tile of a larger global op.
+    // `scales_attr` is preserved as the *global* forward scale across VF tiling / SOH multi-cluster
+    // / SHAVE split, so `originalScales` is always the global forward scale (e.g., 1.6133) —
+    // never a local tile scale. The SHAVE kernel computes coordinates as
+    //     fh = (y + initial_OHOffset + 0.5) * (1/originalScales) - 0.5 - initial_IHOffset
+    // so back-inference here MUST use the same `1/originalScales` to stay consistent. The
+    // alternative `initialInputDims / initialOutputDims` ratio (used in the else branch) only
+    // matches `1/originalScales` for integer scales; for non-integer scales the two differ in
+    // the 4th decimal (e.g., 150/241=0.62241 vs 1/1.6133=0.61985), causing off-by-one input
+    // rows at multi-cluster / multi-shave sub-tile boundaries.
+    // useScaleAttr is the sole signal here — shape_calc_mode is never consulted.
     SmallVector<int64_t> fullOutSize;
     SmallVector<double> backwardScale;
-    if (calcMode == IE::InterpolateCalcMode::SCALES && !originalScales.empty() && !isTiledScenario) {
+    if (useScaleAttr && !originalScales.empty()) {
         // Use 1/originalScales (backward scale is inverse of forward scale)
         // Filter scales to only include values for the interpolated axes.
         // originalScales may contain values for all tensor dimensions (e.g., [1.0, 1.0, 2.0, 2.0]
@@ -1586,8 +1735,9 @@ SmallVector<int64_t> backInferOffsetForInterpolate(
         }
         log.trace("Tiling: using 1/originalScales (backward scale is inverse of forward scale)");
     } else {
-        // Tiled scenario or SIZES mode: derive backward scale from global dimension ratio
-        // to stay consistent with inferInCoord which uses initialInputDims/initialOutputDims
+        // SIZES-authored op (no useScaleAttr, or empty originalScales): derive backward scale
+        // from the global dimension ratio to stay consistent with inferInCoord which uses
+        // initialInputDims / initialOutputDims.
         for (size_t i = 0; i < axes.size(); i++) {
             backwardScale.push_back(static_cast<double>(initialInputDims[axes[i]]) / initialOutputDims[axes[i]]);
             fullOutSize.push_back(initialOutputDims[axes[i]]);
@@ -1595,7 +1745,7 @@ SmallVector<int64_t> backInferOffsetForInterpolate(
     }
 
     return propagateOffsetForInterpolate(axes, offset, initialInputDims, initialOutputDims, initialInputOffsets,
-                                         initialOutputOffsets, currentInputDims, calcMode, interpolateMode, coordMode,
+                                         initialOutputOffsets, currentInputDims, interpolateMode, coordMode,
                                          nearestMode, fullOutSize, backwardScale, roundUp, std::move(tiledIndices),
                                          log);
 }
@@ -1605,16 +1755,13 @@ SmallVector<int64_t> backInferOffsetForInterpolate(
 // Interpolate tiling
 //
 
-InputTiling vpux::backInferInterpolateTile(const vpux::TileInfo& outputTile, ArrayRef<int64_t> initialInputDims,
-                                           ArrayRef<int64_t> initialOutputDims, ArrayRef<int64_t> initialInputOffsets,
-                                           ArrayRef<int64_t> initialOutputOffsets, ArrayRef<int64_t> currentInputDims,
-                                           std::optional<ArrayRef<int64_t>> coordinatesDims,
-                                           std::optional<ArrayRef<int64_t>> lambdasDims,
-                                           vpux::IE::InterpolateMode interpolateMode,
-                                           vpux::IE::InterpolateCoordMode coordMode,
-                                           vpux::IE::InterpolateNearestMode nearestMode,
-                                           vpux::IE::InterpolateCalcMode calcMode, ArrayRef<double> originalScales,
-                                           ArrayRef<int64_t> axesAttr, vpux::Logger log) {
+InputTiling vpux::backInferInterpolateTile(
+        const vpux::TileInfo& outputTile, ArrayRef<int64_t> initialInputDims, ArrayRef<int64_t> initialOutputDims,
+        ArrayRef<int64_t> initialInputOffsets, ArrayRef<int64_t> initialOutputOffsets,
+        ArrayRef<int64_t> currentInputDims, std::optional<ArrayRef<int64_t>> coordinatesDims,
+        std::optional<ArrayRef<int64_t>> lambdasDims, vpux::IE::InterpolateMode interpolateMode,
+        vpux::IE::InterpolateCoordMode coordMode, vpux::IE::InterpolateNearestMode nearestMode, bool useScaleAttr,
+        ArrayRef<double> originalScales, ArrayRef<int64_t> axesAttr, vpux::Logger log) {
     log.trace("Try to back infer input tiling for Interpolate, output tile: {0}", outputTile);
 
     auto outputOffsetBegin = to_small_vector(outputTile.offsets);
@@ -1633,11 +1780,11 @@ InputTiling vpux::backInferInterpolateTile(const vpux::TileInfo& outputTile, Arr
     auto tiledIndicesCopy = tiledIndices;
     auto inferedInputOffsetBegin = backInferOffsetForInterpolate(
             outputOffsetBegin, interpolateMode, coordMode, nearestMode, initialInputDims, initialOutputDims,
-            initialInputOffsets, initialOutputOffsets, currentInputDims, false, std::move(tiledIndicesCopy), calcMode,
-            originalScales, axesAttr, log);
+            initialInputOffsets, initialOutputOffsets, currentInputDims, false, std::move(tiledIndicesCopy),
+            useScaleAttr, originalScales, axesAttr, log);
     auto inferedInputOffsetEnd = backInferOffsetForInterpolate(
             outputOffsetEnd, interpolateMode, coordMode, nearestMode, initialInputDims, initialOutputDims,
-            initialInputOffsets, initialOutputOffsets, currentInputDims, true, std::move(tiledIndices), calcMode,
+            initialInputOffsets, initialOutputOffsets, currentInputDims, true, std::move(tiledIndices), useScaleAttr,
             originalScales, axesAttr, log);
 
     SmallVector<int64_t> inferedInputShape(inferedInputOffsetEnd.size(), 0);
@@ -2189,6 +2336,7 @@ DimArr vpux::getTileDimOrderND(MemShape memShape, const DimsOrder& dimOrder) {
     return returntileDimOrder;
 }
 
+namespace {
 bool isTilingOverDimFit(mlir::Operation* op, Dim dimToTile, TilingMode tilingMode, Logger log) {
     auto tilingInfo = mlir::dyn_cast<VPU::TilingInfoOpInterface>(op);
     auto tilingBuilder = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(op);
@@ -2294,6 +2442,7 @@ DimArr getTileDimOrderByShape(mlir::Operation* op, Dim filterDimToCompare, Dim a
     return isFilterLargerToTile ? DimArr{Dims4D::Act::C, Dims4D::Act::H, Dims4D::Act::W}
                                 : DimArr{Dims4D::Act::H, Dims4D::Act::C, Dims4D::Act::W};
 }
+}  // namespace
 
 DimArr vpux::stripChannelsDimIfAutopadIsUsed(mlir::Operation* op, DimArr dims) {
     assert((mlir::isa<VPU::NCEDepthConvolutionOp, VPU::NCEMaxPoolOp, VPU::NCEAveragePoolOp, VPU::NCEEltwiseOp>(op)) &&
@@ -2337,9 +2486,56 @@ DimArr vpux::removeAxes(DimArrRef dims, ArrayRef<int64_t> axes) {
     return removeDims(dims, forbiddenDims);
 }
 
+// E220898: Workaround. Remove the channel dimension from the tiling order for NCE
+// operations that carry a Weight Table when compiling in HostCompile mode.
+// In HostCompile, tiling over channels causes the Weight Table to be sliced per tile by SCF
+// tiling and passed into the outlined compute kernel as a function argument. The subsequent
+// PatchWeightsTable pass can only patch a Weight Table whose buffer originates from a
+// Const::DeclareOp and aborts on a function-argument Weight Table. Forcing spatial (H/W)
+// tiling keeps the Weight Table whole and patchable. DefaultHW is unaffected: it patches the
+// Weight Table as a constant regardless of the split-over-channels strategy.
+// Remove this workaround once PatchWeightsTable supports a function-argument Weight Table.
+DimArr stripChannelsDimForUnsupportedHostCompileWeightsTableTiling(mlir::Operation* op, DimArr dims) {
+    if (!config::isHostCompileMode(op)) {
+        return dims;
+    }
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
+    if (nceOp == nullptr) {
+        return dims;
+    }
+    // Match every Weight Table operand that SCF tiling slices over channels (see
+    // VPU::SCFTilingInterface models). Sometimes is stored in the split
+    // format (scale/bias/data_ptr), so the unified getWeightsTableOperand() can be null while
+    // the op still carries a sliceable Weight Table.
+    const auto hasWeightsTable =
+            nceOp.getWeightsTableOperand() != nullptr || nceOp.getWeightTableDataPtrOperand() != nullptr ||
+            nceOp.getWeightTableScaleOperand() != nullptr || nceOp.getWeightTableBiasOperand() != nullptr ||
+            nceOp.getWeightZeroPointsOperand() != nullptr;
+    if (!hasWeightsTable) {
+        return dims;
+    }
+    const auto outputRank = mlir::cast<NDTypeInterface>(op->getResult(0).getType()).getRank();
+    VPUX_THROW_UNLESS(outputRank == 4 || outputRank == 5, "Unsupported output rank '{0}', expected 4 or 5", outputRank);
+    const auto channelDim = outputRank == 5 ? DimsGroups5D::Act::C : Dims4D::Act::C;
+    dims.erase(std::remove(dims.begin(), dims.end(), channelDim), dims.end());
+    return dims;
+}
+
 DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger log) {
-    // For prefetching mode, only weights can be pre-fetched to the parent op
+    // For prefetching mode, only weights can be pre-fetched to the parent op.
+    // Ops with active reduce outputs cannot tile over C — their reduce results have C=1
+    // and all C-axis tile offsets would be zero, producing an empty concat-axis set that
+    // crashes cmx_concat. Return an empty order to signal that no prefetch search should
+    // be attempted; getHWLayerTilingStrategiesWithTileDimOrder() treats an empty order as
+    // mlir::failure() and the caller falls back gracefully (e.g. to ISOLATED tiling).
     if (tilingMode == TilingMode::PREFETCHING) {
+        if (VPU::hasReduceOutputs(op)) {
+            // C-axis prefetching is unsafe for reduce-output ops (reduce tiles have C=1,
+            // producing overlapping Concat offsets). Return an empty order to signal
+            // that no prefetch search should be attempted; the caller treats an empty
+            // tileDimOrder as mlir::failure() and falls back gracefully.
+            return SmallVector<Dim>{};
+        }
         return SmallVector<Dim>({Dims4D::Act::C});
     }
 
@@ -2367,7 +2563,12 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
                         if (VPU::isNCEWithInt4Weights(op) && !costModelUtils.isNCEWithInt4WeightsSupported()) {
                             return getTileDimOrderByShape(op, Dims4D::Filter::OC, Dims4D::Act::H);
                         }
-                        return getTileDimOrderByShape(op, Dims4D::Filter::IC, Dims4D::Act::C);
+                        auto dims = getTileDimOrderByShape(op, Dims4D::Filter::IC, Dims4D::Act::C);
+                        // TODO(E#207252): Remove once applyTileStrategy supports split-over-C reconstruction.
+                        if (VPU::hasReduceOutputs(op)) {
+                            llvm::erase(dims, Dims4D::Act::C);
+                        }
+                        return dims;
                     })
                     .Case<VPU::NCEDepthConvolutionOp>([&](mlir::Operation* op) {
                         auto dims = getTileDimOrderByShape(op, Dims4D::Filter::OC, Dims4D::Act::H);
@@ -2378,7 +2579,12 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
                         const auto isChannelValid = VPU::doesNCEOpChannelSatisfyWorkload(op, TileInfo(outputShape));
                         auto dims = isChannelValid ? DimArr{Dims4D::Act::H, Dims4D::Act::C, Dims4D::Act::W}
                                                    : DimArr{Dims4D::Act::C, Dims4D::Act::H, Dims4D::Act::W};
-                        return stripChannelsDimIfAutopadIsUsed(op, std::move(dims));
+                        dims = stripChannelsDimIfAutopadIsUsed(op, std::move(dims));
+                        // TODO(E#207252): Remove once applyTileStrategy supports split-over-C reconstruction.
+                        if (VPU::hasReduceOutputs(op)) {
+                            llvm::erase(dims, Dims4D::Act::C);
+                        }
+                        return dims;
                     })
                     .Case<VPU::NCEMatMulOp>([&](mlir::Operation* op) {
                         const auto outputShape = getShape(op->getResult(0));
@@ -2387,6 +2593,10 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
                                                                          DimsGroups5D::Act::C, DimsGroups5D::Act::W}
                                                                 : DimArr{DimsGroups5D::Act::G, DimsGroups5D::Act::C,
                                                                          DimsGroups5D::Act::H, DimsGroups5D::Act::W};
+                        // TODO(E#207252): Remove once applyTileStrategy supports split-over-C reconstruction.
+                        if (VPU::hasReduceOutputs(op)) {
+                            llvm::erase(curTileDimOrder, DimsGroups5D::Act::C);
+                        }
 
                         auto tilingInfo = mlir::dyn_cast<VPU::TilingInfoOpInterface>(op);
                         auto tilingBuilder = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(op);
@@ -2592,7 +2802,7 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
                         if (mlir::failed(shiftAndAxesOrFail)) {
                             return DimArr{};
                         }
-                        const auto shiftAndAxes = shiftAndAxesOrFail.value();
+                        const auto& shiftAndAxes = shiftAndAxesOrFail.value();
                         for (auto axis : shiftAndAxes.axes) {
                             auto dimIt = std::find(tileDimOrder.begin(), tileDimOrder.end(), Dim(axis));
                             if (dimIt != tileDimOrder.end()) {
@@ -2676,11 +2886,55 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
 
                         return tileDimOrder;
                     })
+                    .Case<VPU::GenericSwLayerOp>([&](mlir::Operation* op) {
+                        auto layerOp = mlir::cast<VPU::GenericSwLayerOp>(op);
+
+                        if (!layerOp.getTilingProperties().has_value()) {
+                            return DimArr{};
+                        }
+
+                        const auto outputType = mlir::cast<vpux::NDTypeInterface>(layerOp->getResult(0).getType());
+                        auto defaultTileDimOrder =
+                                getTileDimOrderND(getBoundedMemShape(outputType), outputType.getDimsOrder());
+
+                        auto moduleOp = layerOp->getParentOfType<mlir::ModuleOp>();
+                        if (!moduleOp) {
+                            return DimArr{};
+                        }
+                        auto calleeFunc = moduleOp.lookupSymbol<mlir::func::FuncOp>(layerOp.getCallee());
+                        if (!calleeFunc) {
+                            return DimArr{};
+                        }
+                        auto kernelInfo =
+                                calleeFunc->getAttrOfType<VPU::KernelInfoAttr>(VPU::KernelInfoAttr::kFuncAttrName);
+                        if (!kernelInfo) {
+                            return DimArr{};
+                        }
+
+                        const auto tilingAxes = kernelInfo.getTilingAxes().asArrayRef();
+
+                        const auto dimsOrder = outputType.getDimsOrder();
+                        llvm::SmallSetVector<int64_t, 4> tilingAxesSet;
+                        for (const auto memAxis : tilingAxes) {
+                            tilingAxesSet.insert(dimsOrder.toDim(MemDim(memAxis)).ind());
+                        }
+
+                        DimArr returnedTileDimOrder;
+                        for (auto dim : defaultTileDimOrder) {
+                            if (tilingAxesSet.contains(dim.ind())) {
+                                returnedTileDimOrder.push_back(dim);
+                            }
+                        }
+
+                        return returnedTileDimOrder;
+                    })
 
                     .Default([&](mlir::Operation* op) -> DimArr {
                         const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
                         return getTileDimOrderND(getBoundedMemShape(outputType), outputType.getDimsOrder());
                     });
+
+    tileDimOrder = stripChannelsDimForUnsupportedHostCompileWeightsTableTiling(op, std::move(tileDimOrder));
 
     if (useCache) {
         cache.updateDimOrder(opHash, tileDimOrder);
@@ -2737,49 +2991,65 @@ SmallVector<int64_t> vpux::getMinNumTiles(mlir::Operation* op) {
     const auto outputShape = getBoundedShape(op->getResult(0));
     auto minNumTiles = SmallVector<int64_t>(outputShape.size(), 1);
 
-    if (mlir::isa<VPU::NCEOpInterface>(op)) {
-        // #E152765 - generic support for GNCHW
-        const auto dimH = requiresDimsGroups5D(op) ? DimsGroups5D::Act::H : Dims4D::Act::H;
-        const auto dimW = requiresDimsGroups5D(op) ? DimsGroups5D::Act::W : Dims4D::Act::W;
-        const auto dimC = requiresDimsGroups5D(op) ? DimsGroups5D::Act::C : Dims4D::Act::C;
-        const auto tilingDimCandidates = {dimC, dimW, dimH};
-
-        // No minNumTiles if none is larger than VPU_DIMENSION_LIMIT
-        if (llvm::all_of(tilingDimCandidates, [&](Dim dim) {
-                return inputShape[dim] <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT &&
-                       outputShape[dim] <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
-            })) {
-            return minNumTiles;
-        }
-
-        auto minInputNumTiles = SmallVector<int64_t>(inputShape.size(), 1);
-        auto minOutputNumTiles = SmallVector<int64_t>(outputShape.size(), 1);
-        for (auto dim : tilingDimCandidates) {
-            minInputNumTiles[dim.ind()] = divUp(inputShape[dim], VPU::NCEInvariant::VPU_DIMENSION_LIMIT);
-            minOutputNumTiles[dim.ind()] = divUp(outputShape[dim], VPU::NCEInvariant::VPU_DIMENSION_LIMIT);
-            minNumTiles[dim.ind()] = std::max(minInputNumTiles[dim.ind()], minOutputNumTiles[dim.ind()]);
-        }
-
-        if (op->hasAttr(VPU::multiClusterStrategy)) {
-            VPUX_THROW_UNLESS(outputShape.size() == 4 || outputShape.size() == DimsGroups5D::Act::numDims,
-                              "Unsupported shape rank: {0}", outputShape.size());
-
-            auto strategy = op->getAttrOfType<VPU::MultiClusterStrategyAttr>(VPU::multiClusterStrategy).getValue();
-            auto module = op->getParentOfType<mlir::ModuleOp>();
-            auto tileCount = config::getTileExecutor(module).getCount();
-            VPUX_THROW_WHEN(tileCount <= 0, "Number of tiles should be a positive integer, while it is {0}", tileCount);
-
-            auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(op);
-            VPUX_THROW_WHEN(clusteredOp == nullptr, "Operation '{0}' doesn't implement ClusteredOpInterface",
-                            op->getName());
-
-            auto inputTile = getActivationTensorNumTiles(clusteredOp, tileCount, strategy);
-            auto outputTile = getOutputTensorNumTiles(clusteredOp, tileCount, strategy);
-            for (auto dim : tilingDimCandidates) {
-                minInputNumTiles[dim.ind()] = divUp(minInputNumTiles[dim.ind()], inputTile[dim.ind()]);
-                minOutputNumTiles[dim.ind()] = divUp(minOutputNumTiles[dim.ind()], outputTile[dim.ind()]);
-                minNumTiles[dim.ind()] = std::max(minInputNumTiles[dim.ind()], minOutputNumTiles[dim.ind()]);
+    const auto rawOutputShape = getShape(op->getResult(0));
+    if (rawOutputShape.isDynamic() && config::isHostCompileMode(op)) {
+        auto tilingBuilder = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(op);
+        VPUX_THROW_WHEN(tilingBuilder == nullptr, "Operation '{0}' doesn't implement TilingBuilderOpInterface",
+                        op->getName());
+        const auto maxNumTiles = tilingBuilder.getMaxNumTiles();
+        for (size_t i = 0; i < outputShape.size(); ++i) {
+            if (rawOutputShape[Dim(i)] == mlir::ShapedType::kDynamic && maxNumTiles[i] >= VPU::MIN_REQUIRED_TILES) {
+                minNumTiles[i] = std::max(VPU::MIN_REQUIRED_TILES, minNumTiles[i]);
             }
+        }
+    }
+
+    if (!mlir::isa<VPU::NCEOpInterface>(op)) {
+        return minNumTiles;
+    }
+    // NCE specific logic
+
+    // #E152765 - generic support for GNCHW
+    const auto dimH = requiresDimsGroups5D(op) ? DimsGroups5D::Act::H : Dims4D::Act::H;
+    const auto dimW = requiresDimsGroups5D(op) ? DimsGroups5D::Act::W : Dims4D::Act::W;
+    const auto dimC = requiresDimsGroups5D(op) ? DimsGroups5D::Act::C : Dims4D::Act::C;
+    const auto tilingDimCandidates = {dimC, dimW, dimH};
+
+    // No minNumTiles if none is larger than VPU_DIMENSION_LIMIT
+    if (llvm::all_of(tilingDimCandidates, [&](Dim dim) {
+            return inputShape[dim] <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT &&
+                   outputShape[dim] <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
+        })) {
+        return minNumTiles;
+    }
+
+    auto minInputNumTiles = SmallVector<int64_t>(inputShape.size(), 1);
+    auto minOutputNumTiles = SmallVector<int64_t>(outputShape.size(), 1);
+    for (auto dim : tilingDimCandidates) {
+        minInputNumTiles[dim.ind()] = divUp(inputShape[dim], VPU::NCEInvariant::VPU_DIMENSION_LIMIT);
+        minOutputNumTiles[dim.ind()] = divUp(outputShape[dim], VPU::NCEInvariant::VPU_DIMENSION_LIMIT);
+        minNumTiles[dim.ind()] = std::max(minInputNumTiles[dim.ind()], minOutputNumTiles[dim.ind()]);
+    }
+
+    if (op->hasAttr(VPU::multiClusterStrategy)) {
+        VPUX_THROW_UNLESS(outputShape.size() == 4 || outputShape.size() == DimsGroups5D::Act::numDims,
+                          "Unsupported shape rank: {0}", outputShape.size());
+
+        auto strategy = op->getAttrOfType<VPU::MultiClusterStrategyAttr>(VPU::multiClusterStrategy).getValue();
+        auto module = op->getParentOfType<mlir::ModuleOp>();
+        auto tileCount = config::getTileExecutor(module).getCount();
+        VPUX_THROW_WHEN(tileCount <= 0, "Number of tiles should be a positive integer, while it is {0}", tileCount);
+
+        auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(op);
+        VPUX_THROW_WHEN(clusteredOp == nullptr, "Operation '{0}' doesn't implement ClusteredOpInterface",
+                        op->getName());
+
+        auto inputTile = getActivationTensorNumTiles(clusteredOp, tileCount, strategy);
+        auto outputTile = getOutputTensorNumTiles(clusteredOp, tileCount, strategy);
+        for (auto dim : tilingDimCandidates) {
+            minInputNumTiles[dim.ind()] = divUp(minInputNumTiles[dim.ind()], inputTile[dim.ind()]);
+            minOutputNumTiles[dim.ind()] = divUp(minOutputNumTiles[dim.ind()], outputTile[dim.ind()]);
+            minNumTiles[dim.ind()] = std::max(minInputNumTiles[dim.ind()], minOutputNumTiles[dim.ind()]);
         }
     }
 
@@ -2824,17 +3094,24 @@ void vpux::adjustMaxNumTilesForSubByteAlignment(SmallVector<int64_t>& maxNumTile
 
 void vpux::updateTilingSizeForOpAlignment(mlir::Operation* op, ShapeRef outputShape, int64_t& minChannelSize,
                                           int64_t& minHeightSize, int64_t& minWidthSize, bool checkWorkloadEfficiency) {
-    if (mlir::isa<VPU::NCEPermuteOp>(op)) {
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
+    if (mlir::isa_and_present<VPU::NCEPermuteOp>(op)) {
         VPUX_THROW_UNLESS(outputShape.size() == 4, "Unsupported shape rank: {0}", outputShape.size());
 
-        const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
         minWidthSize = std::max<int64_t>({minWidthSize, VPU::NCEInvariant::getAlignment(outputType.getElementType())});
-    } else if (VPU::isSWEltwiseAndNeedsAlignment(op)) {
+    } else if (VPU::isSWOpAndNeedsAlignment(op)) {
         VPUX_THROW_UNLESS(outputShape.size() == 4, "Unsupported shape rank: {0}", outputShape.size());
-        // For eltwise operations whose inputs' innermost dimension size are different,
-        // the innermost dimension need alignment for best kernel performance.
+        // For Sw eltwise operation alignment reqs may come from 2 sources:
+        //     *  when inputs' innermost dimension size are different,
+        //        the innermost dimension need alignment for best kernel performance (optimization)
+        //     *  when data type is subbyte, the tile must be of byte aligned size (legality requirement)
         Shape tilesOnDim(outputShape.size(), 2);
-        auto optionalAlignment = VPU::getSWEltwiseAlignment(op, tilesOnDim);
+        for (auto dim : irange(tilesOnDim.size())) {
+            // ensure the tile number is not larger than output shape
+            tilesOnDim[Dim(dim)] = std::min(outputShape[Dim(dim)], tilesOnDim[Dim(dim)]);
+        }
+        auto optionalAlignment = VPU::getSWOpAlignment(op, tilesOnDim, /*inputType=*/nullptr,
+                                                       /*outputType=*/outputType.changeShape(outputShape));
         if (optionalAlignment.has_value()) {
             auto alignment = optionalAlignment.value();
             minWidthSize = std::max<int64_t>({minWidthSize, alignment[Dims4D::Act::W.ind()]});
@@ -2842,7 +3119,7 @@ void vpux::updateTilingSizeForOpAlignment(mlir::Operation* op, ShapeRef outputSh
             minHeightSize = std::max<int64_t>({minHeightSize, alignment[Dims4D::Act::H.ind()]});
         }
     } else {
-        if (auto channelsInfo = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(op)) {
+        if (auto channelsInfo = mlir::dyn_cast_if_present<IE::AlignedChannelsOpInterface>(op)) {
             VPUX_THROW_UNLESS(outputShape.size() == 4 || outputShape.size() == DimsGroups5D::Act::numDims,
                               "Unsupported shape rank: {0}", outputShape.size());
             minChannelSize = std::max<int64_t>({minChannelSize, channelsInfo.getOutputChannelAlignment()});
@@ -2859,7 +3136,7 @@ void vpux::updateTilingSizeForOpAlignment(mlir::Operation* op, ShapeRef outputSh
         // Some ops (e.g. DW/Pool) implement both AlignedChannelsOpInterface and
         // AlignedWorkloadChannelsOpInterface. Apply both constraints: first generic channel alignment
         // (and optional efficiency heuristic), then workload-supported channels as an extra lower bound.
-        if (auto channelAlignedIface = mlir::dyn_cast<VPU::AlignedWorkloadChannelsOpInterface>(op)) {
+        if (auto channelAlignedIface = mlir::dyn_cast_if_present<VPU::AlignedWorkloadChannelsOpInterface>(op)) {
             const auto supportedChannels = channelAlignedIface.getSupportedWorkLoadChannels();
             const auto minSupportedChannel = supportedChannels.back();
             if (minChannelSize < minSupportedChannel) {
@@ -2947,7 +3224,7 @@ SmallVector<int64_t> vpux::getMaxNumTiles(mlir::Operation* op, bool checkMinimal
 
     updateTilingSizeForOpAlignment(op, outputShape, minChannelSize, minHeightSize, minWidthSize,
                                    checkWorkloadEfficiency);
-    if (!mlir::isa<VPU::NCEPermuteOp>(op) && !VPU::isSWEltwiseAndNeedsAlignment(op)) {
+    if (!mlir::isa<VPU::NCEPermuteOp>(op) && !VPU::isSWOpAndNeedsAlignment(op)) {
         const auto maxChannelTiles = outputShape[dimC] / minChannelSize;
         if (maxChannelTiles < maxNumTiles[dimC.ind()]) {
             maxNumTiles[dimC.ind()] = maxChannelTiles;
@@ -3025,6 +3302,33 @@ SmallVector<int64_t> vpux::getMaxNumTiles(mlir::Operation* op, bool checkMinimal
         maxNumTiles[i] = std::min(maxTilesPerDim[i], maxNumTiles[i]);
     }
 
+    const auto opOutputShape = getShape(op->getResult(0));
+    if (opOutputShape.isDynamic() && config::isHostCompileMode(op)) {
+        // TODO: this alignment is optional; rework to also try the search without it.
+        const auto getMaxAlignedDivision = [](int64_t dimSize, int64_t maxTiles, int64_t alignment) {
+            if (maxTiles <= 1 || alignment <= 1) {
+                return maxTiles;
+            }
+            const auto alignedTileSize = alignValUp(divUp(dimSize, maxTiles), alignment);
+            return std::min(maxTiles, divUp(dimSize, alignedTileSize));
+        };
+
+        const auto dynamicDimAlignment = getAlignment(op, ShapeRef(maxNumTiles), outputShape);
+        for (size_t i = 0; i < maxNumTiles.size(); ++i) {
+            if (opOutputShape[Dim(i)] != mlir::ShapedType::kDynamic) {
+                continue;
+            }
+            const auto alignment = dynamicDimAlignment[i];
+            if (alignment <= 1) {
+                continue;
+            }
+            const auto dim = Dim(i);
+            const auto minNumTiles = std::min<int64_t>(maxNumTiles[i], VPU::MIN_REQUIRED_TILES);
+            const auto maxAlignedDivision = getMaxAlignedDivision(outputShape[dim], maxNumTiles[i], alignment);
+            maxNumTiles[i] = std::max(minNumTiles, maxAlignedDivision);
+        }
+    }
+
     return maxNumTiles;
 }
 
@@ -3065,6 +3369,7 @@ InputTiling vpux::backInferEltwiseTile(mlir::Operation* op, const vpux::TileInfo
     return TilingInfo{inputTiles};
 }
 
+namespace {
 SmallVector<Dim> getValidNonOneDim(ShapeRef inputShape, DimArrRef tileDimOrder) {
     SmallVector<Dim> nonOneDims;
     for (auto dim : tileDimOrder) {
@@ -3074,6 +3379,7 @@ SmallVector<Dim> getValidNonOneDim(ShapeRef inputShape, DimArrRef tileDimOrder) 
     }
     return nonOneDims;
 }
+}  // namespace
 
 // SWLayer
 
@@ -3118,11 +3424,15 @@ mlir::FailureOr<OutputTiling> vpux::getSWLayerTilingStrategyWithTileDimOrder(mli
         return tilingInfo.isSupportedTiling(tiles.value(), tilingMode, log);
     };
 
-    const auto maxNumTiles = tilingBuilder.getMaxNumTiles();
+    auto maxNumTiles = tilingBuilder.getMaxNumTiles();
+    const auto alignInfo = getAlignDimAndSize(op);
+    const auto dimToAlign = alignInfo.first;
+    const auto dimAlignment = alignInfo.second;
 
     // Step1. get an feasible isolated tiling strategy
     auto optionalTilesOnDim = [&]() -> std::optional<vpux::Shape> {
-        auto tilingStrategy = Shape(outputShape.size(), 1);
+        const auto minNumTiles = getMinNumTiles(op);
+        auto tilingStrategy = Shape(minNumTiles.begin(), minNumTiles.end());
         for (auto tileDim : tileDimOrder) {
             while (true) {
                 if (isSupportedTileSize(tilingStrategy, TilingMode::ISOLATED)) {
@@ -3130,7 +3440,7 @@ mlir::FailureOr<OutputTiling> vpux::getSWLayerTilingStrategyWithTileDimOrder(mli
                 }
 
                 if (isDimLeftToTile(tilingStrategy, maxNumTiles, tileDim)) {
-                    ++tilingStrategy[tileDim];
+                    dimPlus(tilingStrategy, tileDim, dimToAlign, dimAlignment, outputShape, maxNumTiles, log);
                 } else {
                     break;
                 }
@@ -3589,6 +3899,13 @@ mlir::FailureOr<OutputTiling> vpux::getHWLayerTilingStrategyWithTileDimOrderForP
     // For pipelining, continue to increase on the dimension of isolated tiling or on the channel dimension in case
     // of neutral tiling to cover cases with large constants #E152765 - generic support for GNCHW
     auto dimActC = requiresDimsGroups5D(op) ? DimsGroups5D::Act::C : Dims4D::Act::C;
+    // When the isolated strategy is neutral (fits in a single tile), large-filter pipelining normally
+    // increases along C. However ops with active reduce outputs have C=1 reduce results and cannot be
+    // tiled over C. In that case there is no suitable large-filter pipelining target — return the
+    // neutral tiling to avoid generating forbidden C-axis splits.
+    if (dimsToTile.size() == 0 && VPU::hasReduceOutputs(op)) {
+        return fillDividedTiles(op, nTilesOnDim, outputShape);
+    }
     const auto targetDim = dimsToTile.size() == 0 ? dimActC : dimsToTile[0];
     Shape prefetchableTilesOnDim = nTilesOnDim;
     auto increaseDimForAlign = [&](Shape& tilesOnDim, vpux::Dim curDim) -> bool {
@@ -3743,6 +4060,13 @@ mlir::FailureOr<HWTilingStrategies> vpux::getHWLayerTilingStrategiesWithTileDimO
                                                                                      TilingMode tilingMode,
                                                                                      DimArrRef tileDimOrder,
                                                                                      Logger log) {
+    // An empty tileDimOrder means no axis is eligible for tiling (e.g. PREFETCHING on a
+    // reduce-output op where C is forbidden). Treat it as a graceful failure so callers
+    // can fall back to a safe strategy without crashing on tileDimOrder.begin().
+    if (tileDimOrder.empty()) {
+        return mlir::failure();
+    }
+
     const auto outputShape = getBoundedShape(op->getResult(0));
 
     // In case of pipelining, an isolated tiling strategy is first created
@@ -3781,6 +4105,7 @@ mlir::FailureOr<OutputTiling> vpux::getHWLayerTilingStrategyWithTileDimOrder(mli
 mlir::FailureOr<OutputTiling> vpux::getHWLayerTilingStrategy(mlir::Operation* op, TilingMode tilingMode, Logger log) {
     const auto tileDimOrder = getTileDimOrder(op, tilingMode, log);
     log.nest(2).trace("HW Tile Dim order is {0}", tileDimOrder);
+
     return getHWLayerTilingStrategyWithTileDimOrder(op, tilingMode, tileDimOrder, log);
 }
 

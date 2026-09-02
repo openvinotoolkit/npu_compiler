@@ -96,6 +96,40 @@ public:
     mlir::LogicalResult matchAndRewrite(IE::QuantizeOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
+    // Walk through leading view-only ops to recover the semantic producer value.
+    mlir::Value peelLeadingPureViewOps(mlir::Value value) const;
+
+    // Walk through trailing single-use view-only users to recover the semantic consumer value.
+    mlir::Value peelTrailingPureViewOps(mlir::Value value) const;
+
+    // Checks whether a producer operand originates from the conv-lowered SDPA chain:
+    // Convolution -> Softmax -> (view ops) -> Convolution consumer operand.
+    // This intentionally excludes MatMul-form SDPA currently seen in decoder paths.
+    bool isSdpaSoftmaxConsumerOperand(mlir::Value operand) const;
+
+    // Reject Quantize+NCE fusion only for conv-lowered SDPA outputs with non-zero zero-point.
+    // Keeping these outputs unfused preserves eligibility for downstream softmax decomposition.
+    // The MatMul -> Softmax -> MatMul variant is intentionally not matched here.
+    bool shouldRejectQuantizeFusionForSdpaSoftmax(mlir::Operation* producerOp,
+                                                  mlir::quant::QuantizedType qElemType) const;
+
+private:
+    Logger _log;
+};
+
+// Fuses a trailing IE.QuantizeOp into a float-input IE.MultiplyOp, producing a
+// quantized-output Multiply. This handles the pattern IE.Multiply(fp16, fp16) -> fp16 -> IE.Quantize -> quant,
+// which is intended to remain a MultiplyOp with quantized output, that will be executed on SHAVE.
+class QuantizeWithMultiplyRewriter final : public mlir::OpRewritePattern<IE::QuantizeOp> {
+public:
+    QuantizeWithMultiplyRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::QuantizeOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::QuantizeOp quantizeOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
     Logger _log;
 };
 
@@ -123,8 +157,8 @@ mlir::LogicalResult MixedFloatInQuantWeightsRewriter<ConcreteOp>::matchAndRewrit
 
     auto op = convOp.getOperation();
 
-    const auto dequantizeType = IE::findQuantizedInput(op->getOperand(0), false);
-    const auto filterDequantizeType = IE::findQuantizedInput(op->getOperand(1), true);
+    const auto dequantizeType = IE::findQuantizedInput(op->getOperand(0), {});
+    const auto filterDequantizeType = IE::findQuantizedInput(op->getOperand(1), IE::getLegalWeightsQuantAxes(convOp));
 
     // Not fit for input weights mixed precision, other rewriters will apply
     if (dequantizeType != nullptr || filterDequantizeType == nullptr) {

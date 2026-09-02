@@ -9,6 +9,7 @@
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg50XX/act_shave_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg50XX/barrier_configure_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg50XX/dma_rewriter.hpp"
+#include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg50XX/dpu_pvp_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg50XX/managed_barrier_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg50XX/managed_mapped_inference_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg50XX/mapped_inference_rewriter.hpp"
@@ -16,7 +17,6 @@
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg50XX/nnrt_rewriter.hpp"
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg50XX/work_item_rewriter.hpp"
 #include "vpux/compiler/dialect/ELF/utils/utils.hpp"
-#include "vpux/compiler/dialect/VPUIPDPU/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
@@ -65,10 +65,6 @@ void ConvertVPUASM2NPUReg50XXPass::safeRunOnModule() {
 
     ELF::SymbolReferenceMap symRefMap(elfMain, true);
 
-    if (_log.isActive(LogLevel::Info)) {
-        VPUIPDPU::computeDpuPvpCounts(elfMain, _log);
-    }
-
     mlir::RewritePatternSet patternNNDMA(&ctx);
     patternNNDMA.add<NNDMARewriter>(&ctx, _log, symRefMap);
     target.addIllegalOp<VPUASM::NNDMAOp>();
@@ -87,6 +83,7 @@ void ConvertVPUASM2NPUReg50XXPass::safeRunOnModule() {
     patterns.add<ManagedBarrierRewriter>(&ctx, _log);
     patterns.add<BarrierRewriter>(&ctx, _log);
     patterns.add<MappedInferenceVersionRewriter>(&ctx, _log);
+    patterns.add<DpuPVPRewriter>(&ctx, _log, elfMain);
 
     target.addIllegalOp<VPUASM::MappedInferenceVersionOp>();
     target.addIllegalOp<VPUASM::ConfigureBarrierOp>();
@@ -98,6 +95,7 @@ void ConvertVPUASM2NPUReg50XXPass::safeRunOnModule() {
     target.addIllegalOp<VPUASM::ActShaveRtOp>();
     target.addIllegalOp<VPUASM::ActKernelInvocationOp>();
     target.addIllegalOp<VPUASM::ActKernelRangeOp>();
+    target.addIllegalOp<VPUASM::DpuPVPOp>();
 
     target.addDynamicallyLegalOp<VPUASM::PlatformInfoOp>([&](VPUASM::PlatformInfoOp op) {
         return config::getArch(op) != config::ArchKind::UNKNOWN;

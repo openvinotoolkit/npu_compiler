@@ -9,6 +9,7 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/scf/scf_analysis_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_merge_configuration.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
@@ -189,6 +190,71 @@ inline mlir::Value createQuantizedPaddingValue(mlir::Location loc, mlir::OpBuild
     return paddingValue;
 }
 
+namespace {
+
+/** @brief Casts a freshly generated tiled operation's result to the statically known
+    tile shape when padding left some spatial dims dynamic in the inferred type.
+
+    Uses the static tile sizes from @p outputTile where available and keeps the inferred
+    dims otherwise; preserves the inferred bounds for the remaining dynamic dims.
+*/
+template <class ConcreteOp>
+mlir::Operation* castCreatedOperation(mlir::OpBuilder& builder, const SCFTileInfo& outputTile, ConcreteOp generatedOp) {
+    auto firstResult = generatedOp->getResult(0);
+    auto generatedType = mlir::cast<vpux::NDTypeInterface>(firstResult.getType());
+
+    // Build target shape: use static tile sizes where available, keep inferred dims otherwise.
+    // This handles the case where padding makes spatial dims dynamic in the inferred type,
+    // but the tile size computation guarantees a known static size.
+    SmallVector<int64_t> staticOutputShape;
+    bool needsCast = false;
+    for (auto idx : irange(outputTile.shape.size())) {
+        auto constVal = mlir::getConstantIntValue(outputTile.shape[idx]);
+        auto inferredDim = generatedType.getShape()[Dim(idx)];
+        if (constVal.has_value()) {
+            staticOutputShape.push_back(*constVal);
+            if (inferredDim == mlir::ShapedType::kDynamic) {
+                needsCast = true;
+            }
+        } else {
+            staticOutputShape.push_back(inferredDim);
+        }
+    }
+
+    if (!needsCast) {
+        return generatedOp.getOperation();
+    }
+
+    // Preserve bounds from the inferred type for remaining dynamic dims
+    auto bounds = Bounds();
+    if (auto boundedType = mlir::dyn_cast<vpux::Core::BoundedTensorType>(firstResult.getType())) {
+        auto origBounds = boundedType.getBounds().toValues();
+        SmallVector<int64_t> boundsVec;
+        for (auto idx : irange(staticOutputShape.size())) {
+            boundsVec.push_back(staticOutputShape[idx] != mlir::ShapedType::kDynamic ? staticOutputShape[idx]
+                                                                                     : origBounds[Dim(idx)]);
+        }
+        bounds = Bounds(ArrayRef<int64_t>(boundsVec));
+    }
+
+    bool hasDynamicDim = llvm::any_of(staticOutputShape, [](int64_t d) {
+        return d == mlir::ShapedType::kDynamic;
+    });
+    auto correctedTensorDesc = (hasDynamicDim && !bounds.raw().empty())
+                                       ? vpux::getTensorAttr(generatedType.getContext(), generatedType.getDimsOrder(),
+                                                             generatedType.getMemSpace(), bounds)
+                                       : vpux::getTensorAttr(generatedType.getContext(), generatedType.getDimsOrder(),
+                                                             generatedType.getMemSpace());
+
+    mlir::Type correctedTiledOutputType =
+            mlir::RankedTensorType::get(staticOutputShape, generatedType.getElementType(), correctedTensorDesc);
+    return builder
+            .create<mlir::tensor::CastOp>(generatedOp.getLoc(), correctedTiledOutputType, generatedOp->getResult(0))
+            .getOperation();
+}
+
+}  // namespace
+
 /** @brief create operation with padding adjustment
 
     @note If operation has paddings which are not 0, they have to be corrected based on
@@ -290,34 +356,12 @@ mlir::Operation* createTiledPaddedOperation(OpGeneratorFunc opGenerator, OpTilin
         return generatedOp;
     };
 
-    const auto castCreatedOperation = [&](ConcreteOp generatedOp) {
-        SmallVector<int64_t> staticOutputShape;
-        llvm::transform(outputTile.shape, std::back_inserter(staticOutputShape), [&](mlir::OpFoldResult val) {
-            auto shapeDimValue = mlir::getConstantIntValue(val);
-            return shapeDimValue.value();
-        });
-        auto firstResult = generatedOp->getResult(0);
-        auto generatedType = mlir::cast<vpux::NDTypeInterface>(firstResult.getType());
-        auto correctedTensorDesc = vpux::getTensorAttr(generatedType.getContext(), generatedType.getDimsOrder(),
-                                                       generatedType.getMemSpace());
-
-        mlir::Type correctedTiledOutputType =
-                mlir::RankedTensorType::get(staticOutputShape, generatedType.getElementType(), correctedTensorDesc);
-        return builder.create<mlir::tensor::CastOp>(generatedOp.getLoc(), correctedTiledOutputType,
-                                                    generatedOp->getResult(0));
-    };
-
-    // check if next operation has static shape then we cast current dynamic shape to static shape.
-    auto nextOperationIsStaticallyShaped = llvm::all_of(outputTile.shape, [](mlir::OpFoldResult ofr) {
-        return mlir::getConstantIntValue(ofr).has_value();
-    });
-
     auto nextOperationIsNotLastOperationInFusion = llvm::any_of(operation->getUsers(), [](mlir::Operation* userOp) {
         return !mlir::isa<mlir::tensor::InsertSliceOp>(userOp);
     });
 
-    if (nextOperationIsStaticallyShaped && nextOperationIsNotLastOperationInFusion) {
-        return castCreatedOperation(createOperation());
+    if (nextOperationIsNotLastOperationInFusion) {
+        return castCreatedOperation(builder, outputTile, createOperation());
     }
 
     return createOperation();
@@ -361,13 +405,48 @@ void correctPaddedOutput(mlir::OpBuilder& builder, ConcreteOp operation, SmallVe
     }
 }
 
-/** @brief Checks if two operations might be vertically fused
+/** @brief Result of a side-effect-free SCF fusion feasibility check.
+    Indicates whether fusion is possible and, if a producer MC strategy adjustment is needed,
+    which strategy to apply. The caller must apply the adjustment only after all remaining
+    fusion preconditions (e.g. multi-user checks) pass. */
+struct SCFFusionPlan {
+    bool canFuse = false;
+    mlir::Operation* producerToAdjust = nullptr;
+    std::optional<VPU::MultiClusterStrategy> newProducerStrategy = std::nullopt;
+
+    static SCFFusionPlan rejected() {
+        return {};
+    }
+    static SCFFusionPlan accepted() {
+        SCFFusionPlan plan;
+        plan.canFuse = true;
+        return plan;
+    }
+    static SCFFusionPlan acceptedWithAdjustment(mlir::Operation* producer, VPU::MultiClusterStrategy strategy) {
+        SCFFusionPlan plan;
+        plan.canFuse = true;
+        plan.producerToAdjust = producer;
+        plan.newProducerStrategy = strategy;
+        return plan;
+    }
+};
+
+/** @brief Pure predicate: checks if two operations might be vertically fused.
+    Does NOT mutate IR. If MC strategy adjustment is needed, the planned adjustment
+    is returned in the SCFFusionPlan but not applied.
 
     The function checks if there are some spills already between operations
     To be extended to more complex checks
 */
-bool checkFusion(mlir::OpOperand& consumer, mlir::OpResult producerCandidate,
-                 const llvm::SetVector<mlir::Operation*>& producers, const MergeConfiguration& mergeConfig);
+SCFFusionPlan planFusion(mlir::OpOperand& consumer, mlir::OpResult producerCandidate,
+                         const llvm::SetVector<mlir::Operation*>& producers, const MergeConfiguration& mergeConfig);
+
+/** @brief Apply a planned MC strategy adjustment from a successful SCFFusionPlan.
+    This is the ONLY place where the SCF fusion path mutates a producer's MC strategy; all
+    feasibility helpers (planFusion/findProducerStrategyForFusion) stay side-effect-free.
+    Call only after every fusion precondition (including multi-user checks) has been validated, so
+    no speculative mutation is introduced. A no-op when the plan carries no adjustment. */
+void applyFusionPlan(const SCFFusionPlan& plan);
 
 /** @brief Returns the padded dim of @p op if it is a VPU.Expand with single-dim
     end-padding (`pads_begin == 0`, exactly one `pads_end[i] > 0`); `std::nullopt`

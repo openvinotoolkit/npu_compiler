@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <optional>
 #include <type_traits>
 
@@ -96,6 +97,9 @@ enum class OpCode : uint16_t {
     BUFFER_STORE = 0x4E,
     SET = 0x4F,
     SET_IMM = 0x50,
+
+    // v1.1.0
+    BUFFER_LOAD = 0x51,
 };
 
 enum class RoundingMode : int16_t {
@@ -127,16 +131,11 @@ inline constexpr uint16_t makeCmpFlag(CmpPredicate pred, bool isSigned) {
 // Get the byte size of an instruction that has a static number of operands
 std::optional<size_t> getStaticInstructionSize(OpCode opcode);
 
-// Get the byte size of an instruction that has a variadic number of operands (e.g. RETV)
-std::optional<size_t> getVariadicInstructionSize(OpCode opcode, const uint8_t* instructionBegin, size_t availableBytes);
-
 // Get the byte size of an instruction. This supports both instructions that have a static or variadic number of
-// operands
+// operands. For variadic opcodes, 'availableBytes' is validated internally against the decode header before any operand
+// is read. Callers still have to verify that 'availableBytes' is at least equal to the returned size before advancing
+// past the instruction.
 std::optional<size_t> getInstructionSize(OpCode opcode, const uint8_t* instructionBegin, size_t availableBytes);
-
-// Get the byte size required before decoding an instruction safely. Static opcodes return the full instruction size;
-// variadic opcodes return the prefix size needed to read the operand count.
-std::optional<size_t> getInstructionSizeDecodeByteSize(OpCode opcode);
 
 // Get the opcode of the instruction whose binary representation starts at 'instructionBegin'
 inline OpCode getOpcode(const uint8_t* instructionBegin) {
@@ -149,13 +148,15 @@ inline OpCode getOpcode(const uint8_t* instructionBegin) {
 // This util is intended to be used only for instructions that have operands represented as 16-bit signed integers
 inline int16_t getOperand(const uint8_t* instructionBegin, size_t operandIndex) {
     int16_t value = 0;
-    std::memcpy(&value, instructionBegin + OPCODE_SIZE + operandIndex * OPERAND_SIZE, sizeof(value));
+    const auto byteOffset = static_cast<std::ptrdiff_t>(OPCODE_SIZE + operandIndex * OPERAND_SIZE);
+    std::memcpy(&value, std::next(instructionBegin, byteOffset), sizeof(value));
     return value;
 }
 
 inline int64_t get64BitImm(const uint8_t* instructionBegin, size_t operandIndex) {
     int64_t value = 0;
-    std::memcpy(&value, instructionBegin + OPCODE_SIZE + operandIndex * OPERAND_SIZE, sizeof(value));
+    const auto byteOffset = static_cast<std::ptrdiff_t>(OPCODE_SIZE + operandIndex * OPERAND_SIZE);
+    std::memcpy(&value, std::next(instructionBegin, byteOffset), sizeof(value));
     return value;
 }
 
@@ -163,37 +164,8 @@ template <typename T>
 inline T getAsOperand(const uint8_t* instructionBegin, size_t byteOffset) {
     static_assert(std::is_trivially_copyable_v<T>, "getAsOperand requires a trivially copyable type");
     T value = {};
-    std::memcpy(&value, instructionBegin + byteOffset, sizeof(value));
+    std::memcpy(&value, std::next(instructionBegin, static_cast<std::ptrdiff_t>(byteOffset)), sizeof(value));
     return value;
-}
-
-// Returns the byte size of a CALL instruction starting at 'instructionBegin'.
-// CALL has a variable-length encoding: opcode(2) + rs(2) + N(2) + N*2 + M(2) + M*2
-// N is the destination register count and M is the argument register count,
-// both read as 16-bit immediate values from the instruction stream
-// In case `availableBytes` is provided, this function also verifies that the instruction can be fully read within the
-// available bytes, and returns std::nullopt if the instruction is incomplete
-inline std::optional<size_t> getCallInstructionSize(const uint8_t* instructionBegin,
-                                                    std::optional<size_t> availableBytes) {
-    // operand index 0 = rs (function identifier register)
-    // operand index 1 = N  (return-value / destination register count)
-    // Need at least opcode + rs + N to start decoding
-    if (availableBytes.has_value() && availableBytes < OPCODE_SIZE + 2 * OPERAND_SIZE) {
-        return std::nullopt;
-    }
-    const auto n = static_cast<uint16_t>(getOperand(instructionBegin, 1));
-    // operand index 2 + N = M (argument register count)
-    // Need at least opcode + rs + N + dst regs + M to read M
-    if (availableBytes.has_value() && availableBytes < OPCODE_SIZE + (3 + n) * OPERAND_SIZE) {
-        return std::nullopt;
-    }
-    const auto m = static_cast<uint16_t>(getOperand(instructionBegin, 2 + n));
-    return sizeof(uint16_t)        // opcode
-           + sizeof(int16_t)       // rs
-           + sizeof(int16_t)       // N
-           + n * sizeof(int16_t)   // destination registers
-           + sizeof(int16_t)       // M
-           + m * sizeof(int16_t);  // argument registers
 }
 
 }  // namespace intel_npu::vm

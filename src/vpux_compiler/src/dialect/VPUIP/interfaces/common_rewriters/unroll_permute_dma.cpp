@@ -269,7 +269,7 @@ mlir::LogicalResult SingleClusterPermuteDMARewriter::unroll(VPUIP::PermuteDMAOp 
             if (VPU::isDistributedAttrWithExplicitShapesAndOffsets(distributionAttr)) {
                 distributionAttr = VPU::getNonOverlappedDistributedAttr(
                         newShape, distributionAttr.getMode(), nullptr, distributionAttr.getNumClusters(), nullptr,
-                        distributionAttr.getUniformDistributedSegments(), newElementType, ctx);
+                        distributionAttr.getUniformDistributedSegments(), ctx);
             }
 
             const auto layout = mlir::AffineMapAttr::get(origType.getDimsOrder().toAffineMap(ctx));
@@ -679,7 +679,7 @@ mlir::LogicalResult MultiClusterPermuteDMARewriter::unrollDuplicatedOutput(VPUIP
                             "DistributedBuffer has mode different from DUPLICATED after unrolling");
             auto newDistribution = VPU::getNonOverlappedDistributedAttr(
                     shape, distribution.getMode(), nullptr, distribution.getNumClusters(), nullptr,
-                    distribution.getUniformDistributedSegments(), elemType, buff.getContext());
+                    distribution.getUniformDistributedSegments(), buff.getContext());
             return buff.changeShapeElemTypeForExplicitDistribution(shape, elemType, newDistribution);
         }
 

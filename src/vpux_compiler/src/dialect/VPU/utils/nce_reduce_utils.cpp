@@ -6,13 +6,14 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 using namespace vpux;
 
 bool vpux::VPU::isNCEReduceSupported(mlir::Operation* op, LogCb logCb) {
     return llvm::TypeSwitch<mlir::Operation*, bool>(op)
             .Case<IE::ReduceMeanOp, IE::ReduceSumOp>([&](auto reduceOp) {
-                auto axes = IE::extractAxes(reduceOp->getLoc(), reduceOp);
+                auto axes = parseIntArrayAttr<int64_t>(reduceOp.getAxesValue());
                 if (axes.size() != 1 || axes.front() != Dims4D::Act::C.ind()) {
                     logCb(formatv("Axes attribute must be a scalar containing channel dimension index {0}, but got {1}",
                                   Dims4D::Act::C.ind(), axes.front()));

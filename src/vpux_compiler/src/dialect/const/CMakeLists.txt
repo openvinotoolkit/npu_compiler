@@ -18,7 +18,6 @@ add_npu_library(npu_compiler_dialect_const
         npu_logger
         npu_compiler_utils
         MLIRTransformUtils
-        openvino::threading  # TBB exposed in constant_folding_cache.hpp
     PRIVATE
         # npu_compiler_dialect_const should not depend on other dialects (IE, VPU, VPUIP...),
         # to avoid circular dependencies.

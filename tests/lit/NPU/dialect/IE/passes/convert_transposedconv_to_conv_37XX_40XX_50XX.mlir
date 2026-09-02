@@ -10,7 +10,7 @@
 module @DoNotConvertTransposedConvToConv {
 
 config.PipelineOptions @Options {
-    config.Option @config.EnableSEPtrsOperations : true 
+    config.Option @config.EnableSEPtrsOperations : true
 }
 
 // CHECK: func.func @main
@@ -36,7 +36,7 @@ func.func @main(%input: tensor<1x32x23x30xf16>) -> tensor<1x16x46x60xf16> {
 module @DoNotConvertTransposedConvToConvNonConstFilter {
 
 config.PipelineOptions @Options {
-    config.Option @config.EnableSEPtrsOperations : true 
+    config.Option @config.EnableSEPtrsOperations : true
 }
 
 // CHECK: func.func @main
@@ -61,7 +61,7 @@ func.func @main(%input: tensor<1x16x30x30xf16>, %weights: tensor<16x1x16x16xf16>
 module @DoNotConvertTransposedConvToConvWithOutputPadding {
 
 config.PipelineOptions @Options {
-    config.Option @config.EnableSEPtrsOperations : true 
+    config.Option @config.EnableSEPtrsOperations : true
 }
 
 // CHECK: func.func @main

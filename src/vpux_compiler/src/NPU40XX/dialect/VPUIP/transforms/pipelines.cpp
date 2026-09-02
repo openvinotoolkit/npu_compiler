@@ -166,7 +166,7 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     VPUIP::buildHardwareAdaptationPipeline(pm, log);
 
     // Level 1 : VPU RunTime
-    pm.addPass(VPUIP::createAssignLogicalTaskIndexPass(log));
+    pm.addPass(VPUIP::createAssignShvLogicalTaskIndexPass(log));
     pm.addPass(VPUIP::createUnrollSwKernelPass(log));
 
     pm.addPass(VPUIP::createUnrollDistributedOpsPass(log, options.enableSegmentedDmaFusion));
@@ -215,6 +215,7 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         }
     }
 
+    pm.addPass(VPUIP::createLegalizeNNDMADimSizesPass(log));
     if (options.enableProfiling) {
         pm.addPass(VPUIP::createDMATaskProfilingHwDdrPass(options.enableDMAProfiling, log));
     }
@@ -229,7 +230,7 @@ void vpux::VPUIP::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
             VPURT::createSimplifySchedulePass(options.reduceParallelControlFlows, options.workloadManagementMode, log));
 
     auto dpuDryRunMode = VPU::getDPUDryRunMode(options.dpuDryRun);
-    if (dpuDryRunMode == VPU::DPUDryRunMode::STRIP || options.shaveDryRun == true) {
+    if (dpuDryRunMode == VPU::DPUDryRunMode::STRIP || options.shaveDryRun) {
         pm.addPass(VPUIP::createComputeTaskStrippingPass(log, dpuDryRunMode, options.shaveDryRun));
     }
 

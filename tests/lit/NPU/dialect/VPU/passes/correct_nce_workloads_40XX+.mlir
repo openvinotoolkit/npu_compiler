@@ -17,7 +17,7 @@ func.func @ConvLargeSparseOutput(%input_ddr: tensor<1x64x40x40xf16, {order = #NH
     %conv_out = VPU.NCE.Convolution(%input, %weights) rawFilterShape [384, 64, 4, 4] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x64x40x40xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<384x64x4x4xf16, {mem_space = @CMX_NN, order = #NHWC}> -> !VPU.SparseTensor<data=tensor<1x384x37x37xf16, {mem_space = @CMX_NN, order = #NHWC}>, sparsity_map=tensor<1x384x37x37xi1, {mem_space = @CMX_NN, order = #NHWC}>> {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 384, 40, 80] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_4x16>
@@ -203,7 +203,7 @@ func.func @DepthConvSparseInputWithoutL1aOpt(
     %FILT: tensor<64x16x1x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 ) -> tensor<1x64x16x16xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> {
     // CHECK:   [[ACT:%.+]]: !VPU.SparseTensor{{.+}}, [[FILT:%.+]]: tensor<64x16x1x1xf16{{.+}}>
-    %DWCONV = VPU.NCE.DepthConvolution(%ACT, %FILT) rawFilterShape [64, 1, 3, 3] {
+    %DWCONV = VPU.NCE.DepthConvolution(%ACT, %FILT) rawFilterShape [64, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         minimumHardwareExecutionCost = 790 : i64,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEInt<
@@ -214,7 +214,7 @@ func.func @DepthConvSparseInputWithoutL1aOpt(
             lrelu_shift = 0 : i64,
             fp_prelu_alpha = 1.000000e+00 : f64
         >,
-        
+
         strides = [1, 1]
     } -> tensor<1x64x16x16xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> {
         VPU.DPU.Workload

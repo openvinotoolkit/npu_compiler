@@ -53,7 +53,7 @@ module @executors {
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
-            
+
             strides = [1, 1]
         } : tensor<1x2880x1x1xf16, {order = #NHWC}>, tensor<2880x2880x1x1x!quantileUniType, {order = #NHWC}>, tensor<2880x1x1x4xsi32> -> tensor<1x2880x1x1xf16, {order = #NHWC}>
 
@@ -88,7 +88,7 @@ module @executors {
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
-            
+
             strides = [1, 1]
         } : tensor<1x2880x1x1xf16, {order = #NHWC}>, tensor<5760x2880x1x1x!quantileType, {order = #NHWC}>, tensor<5760x1x1x4xsi32> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
 

@@ -34,7 +34,6 @@ npu_compiler_configure_version(${TARGET_NAME})
 
 target_link_libraries(${TARGET_NAME}
     PRIVATE
-        openvino::npu_al
         openvino::util
         npu_ov_utils
         npu_compiler_interface
@@ -63,6 +62,13 @@ install(
         FILES
             "${PROJECT_SOURCE_DIR}/src/vpux_driver_compiler/include/npu_driver_compiler.h"
         DESTINATION ${INSTALL_DESTINATION}
+        COMPONENT ${INSTALL_COMPONENT})
+
+# Also install under include/ for standard include paths (keep root install above for backward compatibility).
+install(
+        FILES
+            "${PROJECT_SOURCE_DIR}/src/vpux_driver_compiler/include/npu_driver_compiler.h"
+        DESTINATION ${INSTALL_DESTINATION}/include
         COMPONENT ${INSTALL_COMPONENT})
 
 # Install the openvino_intel_npu_compiler library to the same path of mlir_compiler

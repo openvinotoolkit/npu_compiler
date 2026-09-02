@@ -14,14 +14,18 @@
 
 namespace vpux {
 
+constexpr Byte CMX_SIZE_1_5MB = Byte(1536_KB);
+constexpr Byte CMX_SIZE_2MB = Byte(2048_KB);
+
 constexpr uint32_t CMX_BASE_ADDR = 0x40000000;
-constexpr uint32_t CMX_WORKSPACE_OFFSET = 0x18000;
 constexpr Byte CMX_SHAVE_STACK_SIZE = Byte(7_KB);
+constexpr Byte HW_RESERVED_CMX = Byte(1_KB);
+constexpr Byte CMX_METADATA_SIZE = Byte(81_KB);
 
 // CMX workspace sizes grouped by hardware capacity
-constexpr Byte CMX_WORKSPACE_SIZE_1936KB = Byte(1936_KB);
-constexpr Byte CMX_WORKSPACE_SIZE_1439KB = Byte(1439_KB);
-constexpr Byte CMX_WORKSPACE_SIZE_1951KB = Byte(1951_KB);
+constexpr Byte COMPILER_CMX_SIZE_NPU3720 = Byte(1936_KB);
+constexpr Byte COMPILER_CMX_SIZE_1_5MB = CMX_SIZE_1_5MB - HW_RESERVED_CMX;
+constexpr Byte COMPILER_CMX_SIZE_2MB = CMX_SIZE_2MB - HW_RESERVED_CMX;
 
 // Maximum DPU cluster counts
 constexpr int DPU_GROUPS_1 = 1;

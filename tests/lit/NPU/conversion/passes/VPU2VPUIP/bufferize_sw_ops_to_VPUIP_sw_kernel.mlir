@@ -10,7 +10,7 @@
 // CHECK-NEXT:    func.func nested @builtin_Convert(memref<*xi8>, memref<*xf32>) attributes {
 // CHECK-SAME:                                       VPU.kernel_name = "convert", VPU.task_type = @COMPUTE}
 // CHECK-NEXT:    func.func nested @builtin_Equal(memref<*xf16>, memref<*xf16>, memref<*xi8>) attributes {VPU.kernel_code = "eltwise_equal.cpp", VPU.kernel_entry = "eltwise_equal", VPU.kernel_name = "eltwise_equal", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @EqualOpSWLayer
@@ -39,7 +39,7 @@ func.func @EqualOpSWLayer(%input1: tensor<1x1x1x5xf16>, %input2: tensor<1x1x1x1x
 // CHECK-NEXT:    func.func nested @builtin_Convert(memref<*xi8, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>) attributes {
 // CHECK-SAME:                                       VPU.kernel_name = "convert", VPU.task_type = @COMPUTE}
 // CHECK-NEXT:    func.func nested @builtin_Equal(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xi8, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "eltwise_equal.cpp", VPU.kernel_entry = "eltwise_equal", VPU.kernel_name = "eltwise_equal", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @EqualOpSWLayerCMX
@@ -66,7 +66,7 @@ func.func @EqualOpSWLayerCMX(%input1: tensor<1x1x1x5xf16, {mem_space = [@CMX_NN,
 
 // CHECK: module @VPU.SW {
 // CHECK-NEXT:   func.func nested @builtin_ConditionalCopyOp(memref<*xsi8>, memref<*xf16>, memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "conditional_copy.cpp", VPU.kernel_entry = "conditional_copy", VPU.kernel_name = "conditional_copy", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT: }
 
 // CHECK-LABEL:  func.func @ConditionalCopySWLayer
@@ -88,7 +88,7 @@ func.func @ConditionalCopySWLayer(%cond: tensor<1xsi8>, %input1: tensor<1x1x4x4x
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:      func.func nested @builtin_ReduceSum(memref<*xf16>, memref<*xf16>, i64, i64, none) attributes {VPU.kernel_code = "reduce_sum.cpp", VPU.kernel_entry = "reduce_sum", VPU.kernel_name = "reduce_sum", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:      func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:      func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @ReduceSumSWLayer
@@ -108,7 +108,7 @@ func.func @ReduceSumSWLayer(%input: tensor<1x7x2x3xf16, {order = #NHWC}>) -> ten
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_Log(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_log.cpp", VPU.kernel_entry = "activation_log", VPU.kernel_name = "activation_log", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @ActivationLog
@@ -130,7 +130,7 @@ func.func @ActivationLog(%input: tensor<1x50x1x1xf16>) -> tensor<1x50x1x1xf16> {
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_Convert(memref<*xf16>, memref<*xf32>) attributes {
 // CHECK-SAME:                                       VPU.kernel_name = "convert", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @ConvertFP16ToFP32UsingSW
@@ -153,7 +153,7 @@ func.func @ConvertFP16ToFP32UsingSW(%input: tensor<1x3x4x4xf16>) -> tensor<1x3x4
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.kernel_name = "softmax", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @SingleSWLayer
@@ -175,7 +175,7 @@ func.func @SingleSWLayer(%input: tensor<1x1x1x1000xf16>) -> tensor<1x1x1x1000xf1
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "softmax_inner_mask_aware.cpp", VPU.kernel_entry = "softmax_inner_mask_aware", VPU.kernel_name = "softmax", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @SoftMaxMaskAware
@@ -197,7 +197,7 @@ func.func @SoftMaxMaskAware(%input: tensor<1x1x1x1000xf16>) -> tensor<1x1x1x1000
 // CHECK: module @VPU.SW  {
 // CHECK-NEXT: func.func nested @builtin_Sigmoid(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "activation_sigmoid.cpp", VPU.kernel_entry = "activation_sigmoid", VPU.kernel_name = "activation_sigmoid", VPU.task_type = @COMPUTE}
 // CHECK-NEXT: func.func nested @builtin_SoftMax(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.kernel_name = "softmax", VPU.task_type = @COMPUTE}
-// CHECK-NEXT: func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK: func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT: }
 
 // CHECK-LABEL:  func.func @ThreeSWLayers
@@ -231,7 +231,7 @@ func.func @ThreeSWLayers(%input: tensor<1x1x1x2000xf16>) -> tensor<1x1x1x2000xf1
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_ReduceMean(memref<*xf16>, memref<*xf16>, i64, i64, none) attributes {VPU.kernel_code = "reduce_mean.cpp", VPU.kernel_entry = "reduce_mean", VPU.kernel_name = "reduce_mean", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @ReduceMean
@@ -251,13 +251,13 @@ func.func @ReduceMean(%input0: tensor<1x512x7x7xf16>, %input1: tensor<1x512x7xf1
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_Interpolate(memref<*xf16>, memref<*xf16>, i64, i64, i64, i64, i64, none, none, none, none, f64, none, none, i64, none) attributes {VPU.kernel_code = "interpolate.cpp", VPU.kernel_entry = "interpolate", VPU.kernel_name = "interpolate", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @InterpolateSWLayerWithUnnecessaryScalingAxes
 // CHECK-SAME:      ([[ARG:%.+]]: memref<1x128x1x1xf16>)
 func.func @InterpolateSWLayerWithUnnecessaryScalingAxes(%input: tensor<1x128x1x1xf16>) -> tensor<1x128x32x32xf16> {
-    %output = VPU.Interpolate(%input) {attr = #IE.Interpolate<antialias = false, coord_mode = <ALIGN_CORNERS>, cube_coeff = -7.500000e-01 : f64, mode = <LINEAR_ONNX>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>, axes_attr = [0, 1, 2, 3], initial_input_dims_attr = [1, 128, 1, 1], initial_input_offset_attr = [0, 0, 0, 0], initial_output_dims_attr = [1, 128, 32, 32], initial_output_offset_attr = [0, 0, 0, 0], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, scales_attr = [1.000000e+00, 1.000000e+00, 3.200000e+00, 3.200000e+00], sizes_attr = [1, 128, 32, 32], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} : tensor<1x128x1x1xf16> -> tensor<1x128x32x32xf16>
+    %output = VPU.Interpolate(%input) {attr = #IE.Interpolate<antialias = false, coord_mode = <ALIGN_CORNERS>, cube_coeff = -7.500000e-01 : f64, mode = <LINEAR_ONNX>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>, axes_attr = [0, 1, 2, 3], initial_input_dims_attr = [1, 128, 1, 1], initial_input_offset_attr = [0, 0, 0, 0], initial_output_dims_attr = [1, 128, 32, 32], initial_output_offset_attr = [0, 0, 0, 0], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>, scales_attr = [1.000000e+00, 1.000000e+00, 3.200000e+00, 3.200000e+00], sizes_attr = [1, 128, 32, 32], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} : tensor<1x128x1x1xf16> -> tensor<1x128x32x32xf16>
 
     return %output : tensor<1x128x32x32xf16>
 
@@ -271,8 +271,62 @@ func.func @InterpolateSWLayerWithUnnecessaryScalingAxes(%input: tensor<1x128x1x1
 // -----
 
 // CHECK:  module @VPU.SW {
+// CHECK-NEXT:    func.func nested @builtin_Interpolate(memref<*xf16>, memref<*xf16>, i64, i64, i64, i64, i64, none, none, none, none, f64, none, none, i64, none) attributes {VPU.kernel_code = "interpolate.cpp", VPU.kernel_entry = "interpolate", VPU.kernel_name = "interpolate", VPU.task_type = @COMPUTE}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK-NEXT:  }
+
+// A SIZES-authored op that was tiled (initial_input_dims_attr [1,2,540,1920] differs from the
+// actual tile input [1,2,540,960]) and carries a vestigial scales_attr [1.3333, 1.3333] that does
+// NOT equal the realized ratio. Without a useScaleAttr marker the serializer must ignore the
+// vestigial scale: the kernel stays in SIZES mode (attrs end in `0, [1.0, 1.0]`) and computes
+// rh/rw from the initial_IH/initial_OH dim ratio. HALF_PIXEL is used so the runtime does not mask
+// the misclassification via the ALIGN_CORNERS short-circuit.
+
+// CHECK-LABEL:  func.func @InterpolateTiledSizesHalfPixelNoMarker
+// CHECK-SAME:      ([[ARG:%.+]]: memref<1x2x540x960xf16>)
+func.func @InterpolateTiledSizesHalfPixelNoMarker(%input: tensor<1x2x540x960xf16>) -> tensor<1x2x256x256xf16> {
+    %output = VPU.Interpolate(%input) {attr = #IE.Interpolate<antialias = false, coord_mode = <HALF_PIXEL>, cube_coeff = -7.500000e-01 : f64, mode = <LINEAR>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>, axes_attr = [2, 3], initial_input_dims_attr = [1, 2, 540, 1920], initial_input_offset_attr = [0, 0, 0, 960], initial_output_dims_attr = [1, 2, 256, 512], initial_output_offset_attr = [0, 0, 0, 256], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>, scales_attr = [1.3333300352096558, 1.3333300352096558], sizes_attr = [256, 256], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} : tensor<1x2x540x960xf16> -> tensor<1x2x256x256xf16>
+
+    return %output : tensor<1x2x256x256xf16>
+
+    // CHECK: [[INTERPOLATE_BUFFER_CMX:%.+]] = memref.alloc() : memref<1x2x256x256xf16>
+    // CHECK: [[OUTPUT:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Interpolate inputs([[ARG]] as {{[^:]+}}: memref<1x2x540x960xf16>) outputs([[INTERPOLATE_BUFFER_CMX]] as {{[^:]+}}: memref<1x2x256x256xf16>) on tile 0 -> memref<1x2x256x256xf16>{
+    // CHECK:   VPUIP.SW.Kernel.run {attrs = [9223372036854775807, 1, 0, 0, 0, [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00], [1920, 540, 2, 1], [512, 256, 2, 1], [2, 3], -7.500000e-01, [960, 0, 0, 0], [256, 0, 0, 0], 0, [1.000000e+00, 1.000000e+00]]}({{[^:]+}}, {{[^:]+}}) : memref<1x2x540x960xf16>, memref<1x2x256x256xf16>
+    // CHECK: }
+    // CHECK: return [[OUTPUT]] : memref<1x2x256x256xf16>
+}
+
+// -----
+
+// CHECK:  module @VPU.SW {
+// CHECK-NEXT:    func.func nested @builtin_Interpolate(memref<*xf16>, memref<*xf16>, i64, i64, i64, i64, i64, none, none, none, none, f64, none, none, i64, none) attributes {VPU.kernel_code = "interpolate.cpp", VPU.kernel_entry = "interpolate", VPU.kernel_name = "interpolate", VPU.task_type = @COMPUTE}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK-NEXT:  }
+
+// A SCALES-authored op that was tiled: adjustAttrs rewrote shape_calc_mode to SIZES but stamped the
+// useScaleAttr marker and preserved the authoritative scale [1.6133, 1.6133]. The serializer reads
+// that scale and forces the kernel into SCALES mode (attrs end in `1, [1.6133, 1.6133]`), preserving
+// the coordinate transform for the tiled SCALES op exactly as before the isTiled gate was removed.
+
+// CHECK-LABEL:  func.func @InterpolateTiledScalesHalfPixelMarker
+// CHECK-SAME:      ([[ARG:%.+]]: memref<1x2x540x960xf16>)
+func.func @InterpolateTiledScalesHalfPixelMarker(%input: tensor<1x2x540x960xf16>) -> tensor<1x2x256x256xf16> {
+    %output = VPU.Interpolate(%input) {attr = #IE.Interpolate<antialias = false, coord_mode = <HALF_PIXEL>, cube_coeff = -7.500000e-01 : f64, mode = <LINEAR>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>, axes_attr = [2, 3], initial_input_dims_attr = [1, 2, 540, 1920], initial_input_offset_attr = [0, 0, 0, 960], initial_output_dims_attr = [1, 2, 256, 512], initial_output_offset_attr = [0, 0, 0, 256], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>, scales_attr = [1.6133, 1.6133], sizes_attr = [256, 256], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00], useScaleAttr} : tensor<1x2x540x960xf16> -> tensor<1x2x256x256xf16>
+
+    return %output : tensor<1x2x256x256xf16>
+
+    // CHECK: [[INTERPOLATE_BUFFER_CMX:%.+]] = memref.alloc() : memref<1x2x256x256xf16>
+    // CHECK: [[OUTPUT:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Interpolate inputs([[ARG]] as {{[^:]+}}: memref<1x2x540x960xf16>) outputs([[INTERPOLATE_BUFFER_CMX]] as {{[^:]+}}: memref<1x2x256x256xf16>) on tile 0 -> memref<1x2x256x256xf16>{
+    // CHECK:   VPUIP.SW.Kernel.run {attrs = [9223372036854775807, 1, 0, 0, 0, [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00], [1920, 540, 2, 1], [512, 256, 2, 1], [2, 3], -7.500000e-01, [960, 0, 0, 0], [256, 0, 0, 0], 1, [1.613300e+00, 1.613300e+00]]}({{[^:]+}}, {{[^:]+}}) : memref<1x2x540x960xf16>, memref<1x2x256x256xf16>
+    // CHECK: }
+    // CHECK: return [[OUTPUT]] : memref<1x2x256x256xf16>
+}
+
+// -----
+
+// CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_Convolution(memref<*xf16>, memref<*xf16>, memref<*xf16>, none, none, none, none, i64) attributes {VPU.kernel_code = "convolution.cpp", VPU.kernel_entry = "convolution", VPU.kernel_name = "convolution", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @Convolution
@@ -308,7 +362,7 @@ func.func @Convolution(
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder", VPU.kernel_name = "reorder", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @MemPermuteSWLayer
@@ -338,7 +392,7 @@ func.func @MemPermuteSWLayer(%input: tensor<1x3x1024x1024xf16, {order = #NCHW}>)
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_MemPermute(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder", VPU.kernel_name = "reorder", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @MemPermuteSWLayerTooLargeForCMXButDMAConvertible
@@ -385,7 +439,7 @@ func.func @ReverseSWLayer(%input0: tensor<2x1x3x2xf16>) -> tensor<2x1x3x2xf16> {
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_ROIAlign(memref<*xf16>, memref<*xf16>, memref<*xsi32>, memref<*xf16>, i64, i64, i64, f64, i64, i64) attributes {VPU.kernel_code = "roi_align.cpp", VPU.kernel_entry = "roi_align", VPU.kernel_name = "roi_align", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @ROIAlignSWLayer
@@ -511,49 +565,50 @@ func.func @BucketizeSWLayer(%input0: tensor<1x20x20xf16>, %input1: tensor<100xf1
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @TensorsWithBounds
-// CHECK-SAME:          ([[ARG:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x18x3x3xf32, {order = #NHWC}>, dynamic_shape=memref<4xsi32>>) ->
-// CHECK-SAME:          !VPUIP.BoundedBuffer<data=memref<1x18x3x3xf32, {order = #NHWC}>, dynamic_shape=memref<4xsi32>
-func.func @TensorsWithBounds(%arg0: tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}>) -> tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}> {
-    %0 = VPU.ReLU(%arg0) : tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}> -> tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}>
+// CHECK-SAME:  ([[ARG:%.+]]: memref<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>)
+// CHECK-SAME:  -> memref<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>
+func.func @TensorsWithBounds(%arg0: tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}> {
+    %0 = VPU.ReLU(%arg0) : tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>
 
-// CHECK:       [[SW_OP_RESULT_DATA:%.+]] = memref.alloc() : memref<1x18x3x3xf32, {order = #NHWC}>
-// CHECK:       [[SW_OP_RESULT_SHAPE:%.+]] = memref.alloc() : memref<4xsi32>
-// CHECK:       [[SW_OP_RESULT_BOUNDED_BUFFER:%.+]] = VPUIP.GroupBoundedBuffer([[SW_OP_RESULT_DATA]], [[SW_OP_RESULT_SHAPE]]) : memref<1x18x3x3xf32, {order = #NHWC}>, memref<4xsi32>
-// CHECK-SAME:    -> !VPUIP.BoundedBuffer<data=memref<1x18x3x3xf32, {order = #NHWC}>, dynamic_shape=memref<4xsi32>>
+// CHECK:       [[BOUND:%.+]] = arith.constant 3
+// CHECK:       [[SW_OP_RESULT_BUFFER:%.+]] = memref.alloc([[BOUND]])
+// CHECK-SAME:      : memref<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>
+
 // CHECK:       [[SW_OP_RESULT:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_ReLU
-// CHECK-SAME:    inputs([[ARG]] as [[ARG_0:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x18x3x3xf32, {order = #NHWC}>, dynamic_shape=memref<4xsi32>>) outputs([[SW_OP_RESULT_BOUNDED_BUFFER]] as [[ARG_1:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x18x3x3xf32, {order = #NHWC}>, dynamic_shape=memref<4xsi32>>) on tile 0
-// CHECK-SAME:    -> !VPUIP.BoundedBuffer<data=memref<1x18x3x3xf32, {order = #NHWC}>, dynamic_shape=memref<4xsi32>>{
-// CHECK:         VPUIP.SW.Kernel.run([[ARG_0]], [[ARG_1]]) : !VPUIP.BoundedBuffer<data=memref<1x18x3x3xf32, {order = #NHWC}>, dynamic_shape=memref<4xsi32>>, !VPUIP.BoundedBuffer<data=memref<1x18x3x3xf32, {order = #NHWC}>, dynamic_shape=memref<4xsi32>>
+// CHECK-SAME:    inputs([[ARG]] as [[ARG_0:%[^:]+]]: memref<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]>
+// CHECK-SAME:    outputs([[SW_OP_RESULT_BUFFER]] as [[ARG_1:%[^:]+]]: memref<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]>
+// CHECK-SAME:    -> memref<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>
+// CHECK:         VPUIP.SW.Kernel.run([[ARG_0]], [[ARG_1]])
 // CHECK:       }
 
-    return %0 : tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}>
+    return %0 : tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>
     // CHECK: return [[SW_OP_RESULT]]
-    // CHECK-SAME: !VPUIP.BoundedBuffer<
-    // CHECK-SAME:  data=memref<1x18x3x3xf32, {order = #NHWC}>,
-    // CHECK-SAME:  dynamic_shape=memref<4xsi32>
 }
 
 // -----
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
+// CHECK:  func.func nested @builtin_ShapeOf(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>)
+
 // CHECK-LABEL: @ShapeOf
-// CHECK-SAME:          ([[ARG:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x8x48x48xf16>, dynamic_shape=memref<4xsi32>>)
-func.func @ShapeOf(%DATA: tensor<1x8x48x48xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}>) -> tensor<4xsi32> {
+// CHECK-SAME:  ([[ARG:%.+]]: memref<1x8x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 48, 48]> : tensor<4xsi64>, order = #NCHW}>)
+func.func @ShapeOf(%DATA: tensor<1x8x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 48, 48]> : tensor<4xsi64>, order = #NCHW}>) -> tensor<4xsi32> {
 
     %SHAPE_OF = VPU.ShapeOf(%DATA) :
-        tensor<1x8x48x48xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}> -> tensor<4xsi32>
+        tensor<1x8x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 48, 48]> : tensor<4xsi64>, order = #NCHW}> -> tensor<4xsi32>
 
-    // CHECK:       {{%.+}}, [[SHAPE:%.+]] = VPUIP.UngroupBoundedBuffer([[ARG]])
-
-    // CHECK:       [[ALLOC_SHAPE:%.+]] = memref.alloc() : memref<4xsi32, [@CMX_NN, 0]>
-    // CHECK:       [[COPY_SHAPE:%.+]] = VPUIP.Copy
-    // CHECK-SAME:      inputs([[SHAPE]]
-    // CHECK-SAME:      outputs([[ALLOC_SHAPE]]
+    // CHECK:       [[CST48_0:%.+]] = arith.constant 48
+    // CHECK:       [[CST48_1:%.+]] = arith.constant 48
+    // CHECK:       [[ALLOC_DATA:%.+]] = memref.alloc([[CST48_0]], [[CST48_1]])
+    // CHECK-SAME:      : memref<1x8x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 48, 48]> : tensor<4xsi64>, order = #NCHW}, [@CMX_NN, 0]>
+    // CHECK:       [[COPY_DATA:%.+]] = VPUIP.Copy
+    // CHECK-SAME:      inputs([[ARG]]
+    // CHECK-SAME:      outputs([[ALLOC_DATA]]
 
     // CHECK: [[OUT_SHAPE:%.+]] = memref.alloc() : memref<4xsi32, [@CMX_NN, 0]>
     // CHECK: [[OUT:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_ShapeOf
-    // CHECK-SAME: inputs([[COPY_SHAPE]]
+    // CHECK-SAME: inputs([[COPY_DATA]]
     // CHECK-SAME: outputs([[OUT_SHAPE]]
 
     // CHECK: [[RES_SHAPE:%.+]] = memref.alloc() : memref<4xsi32>
@@ -599,33 +654,35 @@ func.func @SkipStaticPermuteCast(%arg0: tensor<1x32x32x16xf16, {order = #NCHW}>)
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 // CHECK-LABEL: @DynamicPermuteCast
-// CHECK-SAME:         ([[ARG:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x32x64x16xf16>, dynamic_shape=memref<4xsi32>>)
-func.func @DynamicPermuteCast(%arg: tensor<1x32x64x16xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 1, 1, 0]>: tensor<4xsi64>, order = #NCHW}>)
-   -> (tensor<1x16x32x64xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NHWC}>) {
+// CHECK-SAME:  ([[ARG:%.+]]: memref<1x?x?x16xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 64, 16]> : tensor<4xsi64>, order = #NCHW}>)
+// CHECK-SAME:  -> memref<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NHWC}>
+func.func @DynamicPermuteCast(%arg: tensor<1x?x?x16xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 64, 16]> : tensor<4xsi64>, order = #NCHW}>)
+   -> (tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NHWC}>) {
 
     %permute_cast = VPU.PermuteCast(%arg) {
         dst_order = #NHWC,
         mem_perm = #NCHW
-    } : tensor<1x32x64x16xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 1, 1, 0]>: tensor<4xsi64>, order = #NCHW}>
-        -> tensor<1x16x32x64xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NHWC}>
+    } : tensor<1x?x?x16xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 64, 16]> : tensor<4xsi64>, order = #NCHW}>
+        -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NHWC}>
 
-    // CHECK: [[OUT_DATA:%.+]] = memref.alloc() : memref<1x16x32x64xf16, {order = #NHWC}>
-    // CHECK: [[OUT_SHAPE:%.+]] = memref.alloc() : memref<4xsi32>
-    // CHECK: [[OUT_BOUNDED_BUFFER:%.+]] = VPUIP.GroupBoundedBuffer([[OUT_DATA]], [[OUT_SHAPE]])
+    // CHECK: [[DIM1:%.+]] = arith.constant 32
+    // CHECK: [[DIM2:%.+]] = arith.constant 64
+    // CHECK: [[OUT_BUFFER:%.+]] = memref.alloc([[DIM1]], [[DIM2]])
+    // CHECK-SAME:  : memref<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NHWC}>
 
     // CHECK: [[SW_OP_RESULT:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_PermuteCast
     // CHECK-SAME: inputs([[ARG]]
-    // CHECK-SAME: outputs([[OUT_BOUNDED_BUFFER]]
+    // CHECK-SAME: outputs([[OUT_BUFFER]]
 
-    return %permute_cast : tensor<1x16x32x64xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NHWC}>
-    // CHECK: return [[SW_OP_RESULT]] : !VPUIP.BoundedBuffer<data=memref<1x16x32x64xf16, {order = #NHWC}>, dynamic_shape=memref<4xsi32>
+    return %permute_cast : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK: return [[SW_OP_RESULT]]
 }
 
 // -----
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_Gather(memref<*xf16>, memref<*xsi32>, memref<*xf16, [@CMX_NN, 0]>, i64, i64, i64) attributes {VPU.kernel_code = "gather.cpp", VPU.kernel_entry = "gather", VPU.kernel_name = "gather", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @GatherWithDDRAccessOutputAtCMX
@@ -652,7 +709,7 @@ func.func @GatherWithDDRAccessOutputAtCMX(%arg0: tensor<51865x512xf16>) -> tenso
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_Gather(memref<*xf16>, memref<*xsi32>, memref<*xf16>, i64, i64, i64) attributes {VPU.kernel_code = "gather.cpp", VPU.kernel_entry = "gather", VPU.kernel_name = "gather", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @GatherWithDDRAccessOutputAtDDR
@@ -700,7 +757,7 @@ func.func @DynamicDequantizeSWLayer(%input: tensor<16x7x3x51xi4>, %scale: tensor
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_GRUSequence(memref<*xf16>, memref<*xf16>, memref<*xf16>, memref<*xf16>, memref<*xf16>, memref<*xf16>, memref<*xf16>, i64, i64, i64, i64, f64) attributes {VPU.kernel_code = "gru_sequence.cpp", VPU.kernel_entry = "gru_sequence", VPU.kernel_name = "gru_sequence", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @GRUSequenceWithDDRAccess
@@ -734,7 +791,7 @@ func.func @GRUSequenceWithDDRAccess(%arg0: tensor<1x1x200xf16>, %arg1: tensor<1x
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_GRUSequenceLastPart(memref<*xf16>, memref<*xf16>, memref<*xf16>, memref<*xf16>, memref<*xf16>, memref<*xf16>, i64, i64, i64, i64, f64) attributes {VPU.kernel_code = "gru_sequence_last_part.cpp", VPU.kernel_entry = "gru_sequence_last_part", VPU.kernel_name = "gru_sequence_last_part", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @GRUSequenceLastPartWithDDRAccess
@@ -769,48 +826,41 @@ func.func @GRUSequenceLastPartWithDDRAccess_(%arg0: tensor<1x1x1x3072xf16>, %arg
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CHECK:  module @VPU.SW {
-// CHECK-NEXT:    func.func nested @builtin_Concat(memref<*xf16>, memref<*xsi32>, memref<*xf16>, memref<*xsi32>, memref<*xf16>, memref<*xsi32>, none, none) attributes {VPU.kernel_code = "concat.cpp", VPU.kernel_entry = "concat", VPU.kernel_name = "concat", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
-// CHECK-NEXT:  }
+// CHECK:    func.func nested @builtin_Concat(memref<*xf16>, memref<*xf16>, memref<*xf16>, none, none) attributes {VPU.kernel_code = "concat.cpp", VPU.kernel_entry = "concat", VPU.kernel_name = "concat", VPU.task_type = @COMPUTE}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:  }
 
 // CHECK-LABEL:   func.func @ConcatSWLayer
+// CHECK-SAME:      ([[ARG0:%.+]]: memref<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}>,
+// CHECK-SAME:      [[ARG1:%.+]]: memref<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}>)
+// CHECK-SAME:      -> memref<1x4x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 3, 8]> : tensor<4xsi64>, order = #NCHW}>
+func.func @ConcatSWLayer(%arg0: tensor<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}>,
+                         %arg1: tensor<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}>)
+        -> tensor<1x4x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 3, 8]> : tensor<4xsi64>, order = #NCHW}> {
 
-// CHECK-SAME:         ([[ARG0:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x2x3x8xf16>, dynamic_shape=memref<4xsi32>>,
-// CHECK-SAME:         [[ARG1:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x2x3x8xf16>, dynamic_shape=memref<4xsi32>>)
-// CHECK-SAME:         -> !VPUIP.BoundedBuffer<data=memref<1x4x3x8xf16>, dynamic_shape=memref<4xsi32>>
-func.func @ConcatSWLayer(%arg0: tensor<1x2x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NCHW}>,
-                                %arg1: tensor<1x2x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NCHW}>)
-                                -> tensor<1x4x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NCHW}> {
+    %0 = VPU.Concat(%arg0, %arg1) {static_offsets = [[0, 0, 0, 0], [0, 2, 0, 0]]} : tensor<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x4x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 3, 8]> : tensor<4xsi64>, order = #NCHW}>
+    return %0 : tensor<1x4x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 3, 8]> : tensor<4xsi64>, order = #NCHW}>
 
-    %0 = VPU.Concat(%arg0, %arg1) {static_offsets = [[0, 0, 0, 0], [0, 2, 0, 0]]} : tensor<1x2x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NCHW}>, tensor<1x2x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NCHW}> -> tensor<1x4x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NCHW}>
-    return %0 : tensor<1x4x3x8xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NCHW}>
-
-    // CHECK:  [[ALLOC1:%.+]] = memref.alloc() : memref<1x4x3x8xf16>
-    // CHECK:  [[ALLOC2:%.+]] = memref.alloc() : memref<4xsi32>
-    // CHECK:  [[BUFFER:%.+]] = VPUIP.GroupBoundedBuffer([[ALLOC1]], [[ALLOC2]])
-    // CHECK:           : memref<1x4x3x8xf16>, memref<4xsi32>
-    // CHECK:           -> !VPUIP.BoundedBuffer<data=memref<1x4x3x8xf16>, dynamic_shape=memref<4xsi32>>
+    // CHECK:  [[BOUND:%.+]] = arith.constant 8 : index
+    // CHECK:  [[BUFFER:%.+]] = memref.alloc([[BOUND]]) : memref<1x4x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 3, 8]> : tensor<4xsi64>, order = #NCHW}>
 
     // CHECK:  [[RES:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
-    // CHECK:           @VPU.SW::@builtin_Concat inputs([[ARG0]] as {{[^:]+}}:
-    // CHECK:               !VPUIP.BoundedBuffer<data=memref<1x2x3x8xf16>, dynamic_shape=memref<4xsi32>>,
-    // CHECK:               [[ARG1]] as {{[^:]+}}: !VPUIP.BoundedBuffer<data=memref<1x2x3x8xf16>, dynamic_shape=memref<4xsi32>>)
-    // CHECK:               outputs([[BUFFER]] as {{[^:]+}}: !VPUIP.BoundedBuffer<data=memref<1x4x3x8xf16>, dynamic_shape=memref<4xsi32>>) on tile 0
-    // CHECK:               -> !VPUIP.BoundedBuffer<data=memref<1x4x3x8xf16>, dynamic_shape=memref<4xsi32>>{
+    // CHECK-SAME:      @VPU.SW::@builtin_Concat inputs([[ARG0]] as {{[^:]+}}:
+    // CHECK-SAME:          memref<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}>,
+    // CHECK-SAME:          [[ARG1]] as {{[^:]+}}: memref<1x2x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 3, 8]> : tensor<4xsi64>, order = #NCHW}>)
+    // CHECK-SAME:          outputs([[BUFFER]] as {{[^:]+}}: memref<1x4x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 3, 8]> : tensor<4xsi64>, order = #NCHW}>) on tile 0
+    // CHECK-SAME:          -> memref<1x4x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 3, 8]> : tensor<4xsi64>, order = #NCHW}>{
     // CHECK:                       VPUIP.SW.Kernel.run
     // CHECK-SAME{LITERAL}:             {attrs = [[0, 0, 0, 0], [0, 0, 2, 0]]}
-    // CHECK:                           ({{[^:]+}}, {{[^:]+}}, {{[^:]+}}) : !VPUIP.BoundedBuffer<data=memref<1x2x3x8xf16>, dynamic_shape=memref<4xsi32>>,
-    // CHECK:                                   !VPUIP.BoundedBuffer<data=memref<1x2x3x8xf16>, dynamic_shape=memref<4xsi32>>,
-    // CHECK:                                   !VPUIP.BoundedBuffer<data=memref<1x4x3x8xf16>, dynamic_shape=memref<4xsi32>>
     // CHECK:  }
-    // CHECK:  return [[RES]] : !VPUIP.BoundedBuffer<data=memref<1x4x3x8xf16>, dynamic_shape=memref<4xsi32>>
+    // CHECK:  return [[RES]]
 }
 
 // -----
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_RMS(memref<*xf32>, memref<*xf16>, memref<*xf32>, f64, i1) attributes {VPU.kernel_code = "rms_norm.cpp", VPU.kernel_entry = "rms_norm", VPU.kernel_name = "rms_norm", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @RMSNorm
@@ -832,7 +882,7 @@ func.func @RMSNorm(%input: tensor<1x2x6xf32>) -> tensor<1x2x6xf32> {
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_Inverse(memref<*xf32>, memref<*xf32>, i64) attributes {VPU.kernel_code = "inverse.cpp", VPU.kernel_entry = "inverse", VPU.kernel_name = "inverse", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @Inverse
@@ -881,40 +931,47 @@ module @DynamicBroadcastShapeSubgraph {
   } outputsInfo : {
     DataInfo "Broadcast_63" friendlyName = "Result_67" : tensor<1x4x5x5xf16>
   }
-  // CHECK: func.func @main([[ARG0:%.+]]: memref<4x1x1xf16>, [[ARG1:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x4x5x5xf16>, dynamic_shape=memref<4xsi32>>) -> !VPUIP.BoundedBuffer<data=memref<1x4x5x5xf16>, dynamic_shape=memref<4xsi32>> {
-  func.func @main(%arg0: tensor<4x1x1xf16>, %arg1: tensor<1x4x5x5xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}>) -> tensor<1x4x5x5xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}> {
-    %0 = VPU.ShapeOf(%arg1) : tensor<1x4x5x5xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}> -> tensor<4xsi32>
-    %1 = VPU.AffineReshape(%arg0) {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 4, 1, 1]} : tensor<4x1x1xf16> -> tensor<1x4x1x1xf16>
-    %2 = VPU.DynamicTile(%1, %0) {bounds_representation = #VPU.bounds_representation<DYNAMIC_DIMS_MASK>, output_bounds = [1, 4, 5, 5], output_shape = [1, 4, -9223372036854775808, -9223372036854775808]} : tensor<1x4x1x1xf16>, tensor<4xsi32> -> tensor<1x4x5x5xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}>
-    return %2 : tensor<1x4x5x5xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}>
 
-    // CHECK:       {{%.+}}, [[SHAPE:%.+]] = VPUIP.UngroupBoundedBuffer([[ARG1]])
-    // CHECK:       [[ALLOC_SHAPE:%.+]] = memref.alloc() : memref<4xsi32, [@CMX_NN, 0]>
-    // CHECK:       [[COPY_SHAPE:%.+]] = VPUIP.Copy
-    // CHECK-SAME:      inputs([[SHAPE]]
-    // CHECK-SAME:      outputs([[ALLOC_SHAPE]]
+  // CHECK:  func.func nested @builtin_ShapeOf(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>)
+
+  // CHECK: func.func @main([[ARG0:%.+]]: memref<4x1x1xf16>, [[ARG1:%.+]]: memref<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}>)
+  // CHECK-SAME: -> memref<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}> {
+  func.func @main(%arg0: tensor<4x1x1xf16>, %arg1: tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}>) -> tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}> {
+    %0 = VPU.ShapeOf(%arg1) : tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}> -> tensor<4xsi32>
+    %1 = VPU.AffineReshape(%arg0) {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 4, 1, 1]} : tensor<4x1x1xf16> -> tensor<1x4x1x1xf16>
+    %2 = VPU.DynamicTile(%1, %0) {bounds_representation = #VPU.bounds_representation<BOUNDS>, output_bounds = [1, 4, 5, 5], output_shape = [1, 4, -9223372036854775808, -9223372036854775808]} : tensor<1x4x1x1xf16>, tensor<4xsi32> -> tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}>
+    return %2 : tensor<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK:       [[CST5_0:%.+]] = arith.constant 5
+    // CHECK:       [[CST5_1:%.+]] = arith.constant 5
+    // CHECK:       [[ALLOC_DATA:%.+]] = memref.alloc([[CST5_0]], [[CST5_1]])
+    // CHECK-SAME:    : memref<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}, [@CMX_NN, 0]>
+    // CHECK:       [[COPY_DATA:%.+]] = VPUIP.Copy
+    // CHECK-SAME:      inputs([[ARG1]]
+    // CHECK-SAME:      outputs([[ALLOC_DATA]]
+
     // CHECK:    [[ALLOC_1:%.+]] = memref.alloc() : memref<4xsi32, [@CMX_NN, 0]>
     // CHECK:    [[RESULT:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_ShapeOf
-    // CHECK-SAME:      inputs([[COPY_SHAPE]] as {{[^:]+}}: memref<4xsi32, [@CMX_NN, 0]>)
+    // CHECK-SAME:      inputs([[COPY_DATA]] as {{[^:]+}}: memref<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}, [@CMX_NN, 0]>)
     // CHECK-SAME:      outputs([[ALLOC_1]] as {{[^:]+}}: memref<4xsi32, [@CMX_NN, 0]>) on tile 0 -> memref<4xsi32, [@CMX_NN, 0]>{
     // CHECK:      VPUIP.SW.Kernel.run
-    // CHECK-SAME:  : memref<4xsi32, [@CMX_NN, 0]>, memref<4xsi32, [@CMX_NN, 0]>
+    // CHECK-SAME:  : memref<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}, [@CMX_NN, 0]>, memref<4xsi32, [@CMX_NN, 0]>
     // CHECK:    }
     // CHECK:    [[ALLOC_2:%.+]] = memref.alloc() : memref<4xsi32>
     // CHECK:    [[COPY_0:%.+]] = VPUIP.Copy inputs([[RESULT]] : memref<4xsi32, [@CMX_NN, 0]>) outputs([[ALLOC_2]] : memref<4xsi32>) -> memref<4xsi32>
     // CHECK:    [[RESHAPE:%.+]] = VPUIP.GenericReshape inputs([[ARG0]] : memref<4x1x1xf16>) -> memref<1x4x1x1xf16>
-    // CHECK:    [[ALLOC_3:%.+]] = memref.alloc() : memref<1x4x5x5xf16>
-    // CHECK:    [[ALLOC_4:%.+]] = memref.alloc() : memref<4xsi32>
-    // CHECK:    [[BUFF_0:%.+]] = VPUIP.GroupBoundedBuffer([[ALLOC_3]], [[ALLOC_4]]) : memref<1x4x5x5xf16>, memref<4xsi32> -> !VPUIP.BoundedBuffer<data=memref<1x4x5x5xf16>, dynamic_shape=memref<4xsi32>>
+    // CHECK:    [[BOUND2:%.+]] = arith.constant 5 : index
+    // CHECK:    [[BOUND3:%.+]] = arith.constant 5 : index
+    // CHECK:    [[OUT_ALLOC:%.+]] = memref.alloc([[BOUND2]], [[BOUND3]]) : memref<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:    [[RESULT_0:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_DynamicTile
-    // CHECK-SAME:      inputs([[RESHAPE]] as {{[^:]+}}: memref<1x4x1x1xf16>, [[COPY_0]] as{{[^:]+}}: memref<4xsi32>)
-    // CHECK-SAME:      outputs([[BUFF_0]] as {{[^:]+}}: !VPUIP.BoundedBuffer<data=memref<1x4x5x5xf16>, dynamic_shape=memref<4xsi32>>) on tile 0
-    // CHECK-SAME:      -> !VPUIP.BoundedBuffer<data=memref<1x4x5x5xf16>, dynamic_shape=memref<4xsi32>>{
+    // CHECK-SAME:      inputs([[RESHAPE]] as {{[^:]+}}: memref<1x4x1x1xf16>, [[COPY_0]] as {{[^:]+}}: memref<4xsi32>)
+    // CHECK-SAME:      outputs([[OUT_ALLOC]] as {{[^:]+}}: memref<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}>) on tile 0
+    // CHECK-SAME:      -> memref<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}>{
     // CHECK:      VPUIP.SW.Kernel.run {attrs = [4, [1, 1, 1, 1]]}
     // CHECK-SAME:      : memref<1x4x1x1xf16>, memref<4xsi32>,
-    // CHECK-SAME:      !VPUIP.BoundedBuffer<data=memref<1x4x5x5xf16>, dynamic_shape=memref<4xsi32>>
+    // CHECK-SAME:      memref<1x4x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 4, 5, 5]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:    }
-    // CHECK:    return [[RESULT_0]] : !VPUIP.BoundedBuffer<data=memref<1x4x5x5xf16>, dynamic_shape=memref<4xsi32>>
+    // CHECK:    return [[RESULT_0]]
   }
 }
 
@@ -923,24 +980,25 @@ module @DynamicBroadcastShapeSubgraph {
 #CHW = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-// CHECK: func.func @DynamicTileFromBroadcast([[ARG0:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x1x10xsi64>, dynamic_shape=memref<3xsi32>>, [[ARG1:%.+]]: memref<4xsi32>) -> !VPUIP.BoundedBuffer<data=memref<1x1x10x5xsi64>, dynamic_shape=memref<4xsi32>> {
-func.func @DynamicTileFromBroadcast(%arg0: tensor<1x1x10xsi64, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1]>: tensor<3xsi64>, order = #CHW}>, %arg1: tensor<4xsi32>) -> tensor<1x1x10x5xsi64, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}> {
-    %0 = VPU.DynamicTile(%arg0, %arg1) {bounds_representation = #VPU.bounds_representation<DYNAMIC_DIMS_MASK>, output_bounds =[1, 1, 10, 5], output_shape = [1, 1, -9223372036854775808, -9223372036854775808]} : tensor<1x1x10xsi64, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1]>: tensor<3xsi64>, order = #CHW}>, tensor<4xsi32> -> tensor<1x1x10x5xsi64, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}>
-    return %0 : tensor<1x1x10x5xsi64, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}>
+// CHECK: func.func @DynamicTileFromBroadcast([[ARG0:%.+]]: memref<1x1x?xsi64, {bounds = #const.OpaqueI64Elements<[1, 1, 10]> : tensor<3xsi64>, order = #CHW}>, [[ARG1:%.+]]: memref<4xsi32>)
+// CHECK-SAME: -> memref<1x1x?x?xsi64, {bounds = #const.OpaqueI64Elements<[1, 1, 10, 5]> : tensor<4xsi64>, order = #NCHW}> {
+func.func @DynamicTileFromBroadcast(%arg0: tensor<1x1x?xsi64, {bounds = #const.OpaqueI64Elements<[1, 1, 10]> : tensor<3xsi64>, order = #CHW}>, %arg1: tensor<4xsi32>) -> tensor<1x1x?x?xsi64, {bounds = #const.OpaqueI64Elements<[1, 1, 10, 5]> : tensor<4xsi64>, order = #NCHW}> {
+    %0 = VPU.DynamicTile(%arg0, %arg1) {bounds_representation = #VPU.bounds_representation<BOUNDS>, output_bounds =[1, 1, 10, 5], output_shape = [1, 1, -9223372036854775808, -9223372036854775808]} : tensor<1x1x?xsi64, {bounds = #const.OpaqueI64Elements<[1, 1, 10]> : tensor<3xsi64>, order = #CHW}>, tensor<4xsi32> -> tensor<1x1x?x?xsi64, {bounds = #const.OpaqueI64Elements<[1, 1, 10, 5]> : tensor<4xsi64>, order = #NCHW}>
+    return %0 : tensor<1x1x?x?xsi64, {bounds = #const.OpaqueI64Elements<[1, 1, 10, 5]> : tensor<4xsi64>, order = #NCHW}>
 
-    // CHECK:    [[ALLOC_0:%.+]] = memref.alloc() : memref<1x1x10x5xsi64>
-    // CHECK:    [[ALLOC_1:%.+]] = memref.alloc() : memref<4xsi32>
-    // CHECK:    [[BUFF_0:%.+]] = VPUIP.GroupBoundedBuffer([[ALLOC_0]], [[ALLOC_1]]) : memref<1x1x10x5xsi64>, memref<4xsi32> -> !VPUIP.BoundedBuffer<data=memref<1x1x10x5xsi64>, dynamic_shape=memref<4xsi32>>
+    // CHECK:    [[BOUND2:%.+]] = arith.constant 10 : index
+    // CHECK:    [[BOUND3:%.+]] = arith.constant 5 : index
+    // CHECK:    [[ALLOC_0:%.+]] = memref.alloc([[BOUND2]], [[BOUND3]]) : memref<1x1x?x?xsi64, {bounds = #const.OpaqueI64Elements<[1, 1, 10, 5]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:    [[RESULT:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_DynamicTile
-    // CHECK-SAME:      inputs([[ARG0]] as {{[^:]+}}: !VPUIP.BoundedBuffer<data=memref<1x1x10xsi64>, dynamic_shape=memref<3xsi32>>,
+    // CHECK-SAME:      inputs([[ARG0]] as {{[^:]+}}: memref<1x1x?xsi64, {bounds = #const.OpaqueI64Elements<[1, 1, 10]> : tensor<3xsi64>, order = #CHW}>,
     // CHECK-SAME:      [[ARG1]] as {{[^:]+}}: memref<4xsi32>)
-    // CHECK-SAME:      outputs([[BUFF_0]] as {{[^:]+}}: !VPUIP.BoundedBuffer<data=memref<1x1x10x5xsi64>, dynamic_shape=memref<4xsi32>>) on tile 0
-    // CHECK-SAME:      -> !VPUIP.BoundedBuffer<data=memref<1x1x10x5xsi64>, dynamic_shape=memref<4xsi32>>{
+    // CHECK-SAME:      outputs([[ALLOC_0]] as {{[^:]+}}: memref<1x1x?x?xsi64, {bounds = #const.OpaqueI64Elements<[1, 1, 10, 5]> : tensor<4xsi64>, order = #NCHW}>) on tile 0
+    // CHECK-SAME:      -> memref<1x1x?x?xsi64, {bounds = #const.OpaqueI64Elements<[1, 1, 10, 5]> : tensor<4xsi64>, order = #NCHW}>{
     // CHECK:      VPUIP.SW.Kernel.run {attrs = [4, [1, 1, 1, 1]]}
-    // CHECK-SAME:      : !VPUIP.BoundedBuffer<data=memref<1x1x10xsi64>, dynamic_shape=memref<3xsi32>>, memref<4xsi32>,
-    // CHECK-SAME:      !VPUIP.BoundedBuffer<data=memref<1x1x10x5xsi64>, dynamic_shape=memref<4xsi32>>
+    // CHECK-SAME:      : memref<1x1x?xsi64, {bounds = #const.OpaqueI64Elements<[1, 1, 10]> : tensor<3xsi64>, order = #CHW}>, memref<4xsi32>,
+    // CHECK-SAME:      memref<1x1x?x?xsi64, {bounds = #const.OpaqueI64Elements<[1, 1, 10, 5]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:    }
-    // CHECK:    return [[RESULT]] : !VPUIP.BoundedBuffer<data=memref<1x1x10x5xsi64>, dynamic_shape=memref<4xsi32>>
+    // CHECK:    return [[RESULT]]
 }
 
 // -----
@@ -948,23 +1006,25 @@ func.func @DynamicTileFromBroadcast(%arg0: tensor<1x1x10xsi64, {dynamic_dims_mas
 #C = affine_map<(d0) -> (d0)>
 
 // CHECK:  module @VPU.SW {
-// CHECK-NEXT:    func.func nested @builtin_Range(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xsi32>) attributes {VPU.kernel_code = "range.cpp", VPU.kernel_entry = "range", VPU.kernel_name = "range", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
-// CHECK-NEXT:  }
+// CHECK:    func.func nested @builtin_Range(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xf32>) attributes {VPU.kernel_code = "range.cpp", VPU.kernel_entry = "range", VPU.kernel_name = "range", VPU.task_type = @COMPUTE}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:  }
 
 // CHECK-LABEL:  func.func @Range
 // CHECK-SAME:      [[INPUT0:%.+]]: memref<1xf32>, [[INPUT1:%.+]]: memref<1xf32>, [[INPUT2:%.+]]: memref<1xf32>
-func.func @Range(%arg0: tensor<1xf32>, %arg1: tensor<1xf32>, %arg2: tensor<1xf32>) -> tensor<1024xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[1]>: tensor<1xsi64>, order = #C}> {
-    %0 = VPU.Range(%arg0, %arg1, %arg2) {bounds_representation = #VPU.bounds_representation<DYNAMIC_DIMS_MASK>, __inplace_operands_attr__ = ["true", "true", "true"], dstElemType = f32} : tensor<1xf32>, tensor<1xf32>, tensor<1xf32> -> tensor<1024xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[1]>: tensor<1xsi64>, order = #C}>
-    return {__inplace_operands_attr__ = ["true"]} %0 : tensor<1024xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[1]>: tensor<1xsi64>, order = #C}>
+func.func @Range(%arg0: tensor<1xf32>, %arg1: tensor<1xf32>, %arg2: tensor<1xf32>) -> tensor<?xf32, {bounds = #const.OpaqueI64Elements<[1024]> : tensor<1xsi64>, order = #C}> {
+    %0 = VPU.Range(%arg0, %arg1, %arg2) {bounds_representation = #VPU.bounds_representation<BOUNDS>, __inplace_operands_attr__ = ["true", "true", "true"], dstElemType = f32} : tensor<1xf32>, tensor<1xf32>, tensor<1xf32> -> tensor<?xf32, {bounds = #const.OpaqueI64Elements<[1024]> : tensor<1xsi64>, order = #C}>
+    return {__inplace_operands_attr__ = ["true"]} %0 : tensor<?xf32, {bounds = #const.OpaqueI64Elements<[1024]> : tensor<1xsi64>, order = #C}>
 
-    // CHECK:    [[ALLOC0:%.+]] = memref.alloc() : memref<1024xf32>
-    // CHECK:    [[ALLOC1:%.+]] = memref.alloc() : memref<1xsi32>
-    // CHECK:    [[GROUPBOUNDEDBUFFER0:%.+]]  = VPUIP.GroupBoundedBuffer([[ALLOC0]], [[ALLOC1]]) : memref<1024xf32>, memref<1xsi32> -> !VPUIP.BoundedBuffer<data=memref<1024xf32>, dynamic_shape=memref<1xsi32>>
-    // CHECK:    [[RESULTS:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Range inputs([[INPUT0]] as [[INNER_ARG3:[^:]+]]: memref<1xf32>, [[INPUT1]] as [[INNER_ARG4:[^:]+]]: memref<1xf32>, [[INPUT2]] as [[INNER_ARG5:[^:]+]]: memref<1xf32>) outputs([[GROUPBOUNDEDBUFFER0]] as [[INNER_ARG6:[^:]+]]: !VPUIP.BoundedBuffer<data=memref<1024xf32>, dynamic_shape=memref<1xsi32>>) on tile 0 -> !VPUIP.BoundedBuffer<data=memref<1024xf32>, dynamic_shape=memref<1xsi32>>{
-    // CHECK:    VPUIP.SW.Kernel.run([[INNER_ARG3]], [[INNER_ARG4]], [[INNER_ARG5]], [[INNER_ARG6]]) : memref<1xf32>, memref<1xf32>, memref<1xf32>, !VPUIP.BoundedBuffer<data=memref<1024xf32>, dynamic_shape=memref<1xsi32>>
+    // CHECK:    [[BOUND:%.+]] = arith.constant 1024 : index
+    // CHECK:    [[ALLOC0:%.+]] = memref.alloc([[BOUND]]) : memref<?xf32, {bounds = #const.OpaqueI64Elements<[1024]> : tensor<1xsi64>, order = #C}>
+    // CHECK:    [[RESULTS:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Range
+    // CHECK-SAME:  inputs([[INPUT0]] as [[INNER_ARG3:[^:]+]]: memref<1xf32>, [[INPUT1]] as [[INNER_ARG4:[^:]+]]: memref<1xf32>, [[INPUT2]] as [[INNER_ARG5:[^:]+]]: memref<1xf32>)
+    // CHECK-SAME:  outputs([[ALLOC0]] as [[INNER_ARG6:[^:]+]]: memref<?xf32, {bounds = #const.OpaqueI64Elements<[1024]> : tensor<1xsi64>, order = #C}>) on tile 0
+    // CHECK-SAME:  -> memref<?xf32, {bounds = #const.OpaqueI64Elements<[1024]> : tensor<1xsi64>, order = #C}>{
+    // CHECK:    VPUIP.SW.Kernel.run([[INNER_ARG3]], [[INNER_ARG4]], [[INNER_ARG5]], [[INNER_ARG6]]) : memref<1xf32>, memref<1xf32>, memref<1xf32>, memref<?xf32, {bounds = #const.OpaqueI64Elements<[1024]> : tensor<1xsi64>, order = #C}>
     // CHECK:    }
-    // CHECK:    return [[RESULTS]] : !VPUIP.BoundedBuffer<data=memref<1024xf32>, dynamic_shape=memref<1xsi32>>
+    // CHECK:    return [[RESULTS]]
 }
 
 // -----
@@ -972,21 +1032,23 @@ func.func @Range(%arg0: tensor<1xf32>, %arg1: tensor<1xf32>, %arg2: tensor<1xf32
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CHECK: module @VPU.SW {
-// CHECK-NEXT:   func.func nested @builtin_DynamicExpand(memref<*xf16>, memref<*xsi32>, memref<*xf16>) attributes {VPU.kernel_code = "dynamic_expand.cpp", VPU.kernel_entry = "dynamic_expand", VPU.kernel_name = "dynamic_expand", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
-// CHECK-NEXT: }
+// CHECK:   func.func nested @builtin_DynamicExpand(memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "dynamic_expand.cpp", VPU.kernel_entry = "dynamic_expand", VPU.kernel_name = "dynamic_expand", VPU.task_type = @COMPUTE}
+// CHECK:   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK: }
 
 // CHECK-LABEL:  func.func @DynamicExpandSWLayer
-// CHECK-SAME:     ([[INPUT:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x3x20x20xf16>, dynamic_shape=memref<4xsi32>>) -> memref<1x3x20x20xf16>
+// CHECK-SAME:     ([[INPUT:%.+]]: memref<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 20, 20]> : tensor<4xsi64>, order = #NCHW}>) -> memref<1x3x20x20xf16>
 
-func.func @DynamicExpandSWLayer(%input: tensor<1x3x20x20xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}>) -> tensor<1x3x20x20xf16> {
-    %output = VPU.DynamicExpand(%input) : tensor<1x3x20x20xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}> -> tensor<1x3x20x20xf16>
+func.func @DynamicExpandSWLayer(%input: tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 20, 20]> : tensor<4xsi64>, order = #NCHW}>) -> tensor<1x3x20x20xf16> {
+    %output = VPU.DynamicExpand(%input) : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 20, 20]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x3x20x20xf16>
     return %output : tensor<1x3x20x20xf16>
 
 // CHECK: [[ALLOC_RESULT:%.+]] = memref.alloc() : memref<1x3x20x20xf16>
-// CHECK: [[SW_KERNEL:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_DynamicExpand inputs([[INPUT]] as [[ARG_1:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x3x20x20xf16>, dynamic_shape=memref<4xsi32>>) outputs([[ALLOC_RESULT]] as [[ARG_2:%.+]]: memref<1x3x20x20xf16>) on tile 0 -> memref<1x3x20x20xf16>{
-// CHECK: VPUIP.SW.Kernel.run([[ARG_1]], [[ARG_2]]) : !VPUIP.BoundedBuffer<data=memref<1x3x20x20xf16>, dynamic_shape=memref<4xsi32>>, memref<1x3x20x20xf16>
-// CHECK: return [[SW_KERNEL]] : memref<1x3x20x20xf16>
+// CHECK: [[SW_KERNEL:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_DynamicExpand
+// CHECK-SAME:  inputs([[INPUT]] as [[ARG_1:%[^:]+]]: memref<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 20, 20]> : tensor<4xsi64>, order = #NCHW}>)
+// CHECK-SAME:  outputs([[ALLOC_RESULT]] as [[ARG_2:%[^:]+]]: memref<1x3x20x20xf16>) on tile 0 -> memref<1x3x20x20xf16>
+// CHECK: VPUIP.SW.Kernel.run([[ARG_1]], [[ARG_2]]) : memref<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 20, 20]> : tensor<4xsi64>, order = #NCHW}>, memref<1x3x20x20xf16>
+// CHECK: return [[SW_KERNEL]]
 }
 
 // -----
@@ -995,7 +1057,7 @@ func.func @DynamicExpandSWLayer(%input: tensor<1x3x20x20xf16, {dynamic_dims_mask
 
 // CHECK: module @VPU.SW {
 // CHECK-NEXT:   func.func nested @builtin_PopulateWeightTable(memref<*xf16>, memref<*xsi32>, i64, i64) attributes {VPU.kernel_code = "populate_weight_table.cpp", VPU.kernel_entry = "populate_weight_table", VPU.kernel_name = "populate_weight_table", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT: }
 
 // CHECK-LABEL:  func.func @PopulateWeightTableSWLayer
@@ -1023,21 +1085,23 @@ func.func @PopulateWeightTableSWLayer(%input: tensor<4096x1x1x1xf16, {order = #N
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CHECK: module @VPU.SW {
-// CHECK-NEXT:   func.func nested @builtin_DynamicExpand(memref<*xf32>, memref<*xsi32>, memref<*xf32>) attributes {VPU.kernel_code = "dynamic_expand.cpp", VPU.kernel_entry = "dynamic_expand", VPU.kernel_name = "dynamic_expand", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
-// CHECK-NEXT: }
+// CHECK:   func.func nested @builtin_DynamicExpand(memref<*xf32>, memref<*xf32>) attributes {VPU.kernel_code = "dynamic_expand.cpp", VPU.kernel_entry = "dynamic_expand", VPU.kernel_name = "dynamic_expand", VPU.task_type = @COMPUTE}
+// CHECK:   func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK: }
 
 // CHECK-LABEL:  func.func @DynamicExpandSWLayerFP32
-// CHECK-SAME:     ([[INPUT:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x3x20x20xf32>, dynamic_shape=memref<4xsi32>>) -> memref<1x3x20x20xf32>
+// CHECK-SAME:     ([[INPUT:%.+]]: memref<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 20, 20]> : tensor<4xsi64>, order = #NCHW}>) -> memref<1x3x20x20xf32>
 
-func.func @DynamicExpandSWLayerFP32(%input: tensor<1x3x20x20xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}>) -> tensor<1x3x20x20xf32> {
-    %output = VPU.DynamicExpand(%input) : tensor<1x3x20x20xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]>: tensor<4xsi64>, order = #NCHW}> -> tensor<1x3x20x20xf32>
+func.func @DynamicExpandSWLayerFP32(%input: tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 20, 20]> : tensor<4xsi64>, order = #NCHW}>) -> tensor<1x3x20x20xf32> {
+    %output = VPU.DynamicExpand(%input) : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 20, 20]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x3x20x20xf32>
     return %output : tensor<1x3x20x20xf32>
 
 // CHECK: [[ALLOC_RESULT:%.+]] = memref.alloc() : memref<1x3x20x20xf32>
-// CHECK: [[SW_KERNEL:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_DynamicExpand inputs([[INPUT]] as [[ARG_1:%.+]]: !VPUIP.BoundedBuffer<data=memref<1x3x20x20xf32>, dynamic_shape=memref<4xsi32>>) outputs([[ALLOC_RESULT]] as [[ARG_2:%.+]]: memref<1x3x20x20xf32>) on tile 0 -> memref<1x3x20x20xf32>{
-// CHECK: VPUIP.SW.Kernel.run([[ARG_1]], [[ARG_2]]) : !VPUIP.BoundedBuffer<data=memref<1x3x20x20xf32>, dynamic_shape=memref<4xsi32>>, memref<1x3x20x20xf32>
-// CHECK: return [[SW_KERNEL]] : memref<1x3x20x20xf32>
+// CHECK: [[SW_KERNEL:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_DynamicExpand
+// CHECK-SAME:  inputs([[INPUT]] as [[ARG_1:%[^:]+]]: memref<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 20, 20]> : tensor<4xsi64>, order = #NCHW}>)
+// CHECK-SAME:  outputs([[ALLOC_RESULT]] as [[ARG_2:%[^:]+]]: memref<1x3x20x20xf32>) on tile 0 -> memref<1x3x20x20xf32>
+// CHECK: VPUIP.SW.Kernel.run([[ARG_1]], [[ARG_2]]) : memref<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 20, 20]> : tensor<4xsi64>, order = #NCHW}>, memref<1x3x20x20xf32>
+// CHECK: return [[SW_KERNEL]]
 }
 
 // -----
@@ -1091,7 +1155,7 @@ func.func @ExperimentalDetectronROIFeatureExtractor(%arg0: tensor<100x4xf32>, %a
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_RoPE(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xf32>, i64) attributes {VPU.kernel_code = "rope.cpp", VPU.kernel_entry = "rope", VPU.kernel_name = "rope", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:    }
 
 // CHECK-LABEL:  func.func @RoPE
@@ -1113,7 +1177,7 @@ func.func @RoPE(%input: tensor<1x32x1x64xf32>, %input_cos: tensor<1x1x1x64xf32>,
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_RoPE(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xf32>, i64) attributes {VPU.kernel_code = "rope_ilv.cpp", VPU.kernel_entry = "rope_ilv", VPU.kernel_name = "rope_ilv", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:    }
 
 // CHECK-LABEL:  func.func @RoPEInterleaved
@@ -1135,7 +1199,7 @@ func.func @RoPEInterleaved(%input: tensor<1x32x1x64xf32>, %input_cos: tensor<1x1
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_RoPE(memref<*xf32>, memref<*xf32>, memref<*xf32>, memref<*xf32>, i64) attributes {VPU.kernel_code = "rope_pairwise.cpp", VPU.kernel_entry = "rope_pairwise", VPU.kernel_name = "rope_pairwise", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:    }
 
 // CHECK-LABEL:  func.func @RoPEPairwise
@@ -1300,7 +1364,7 @@ func.func @RoPEPairwise(%input: tensor<1x32x1x64xf32>, %input_cos: tensor<1x1x1x
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_DynamicDataMask(memref<*xsi32>, memref<*xf16>) attributes {VPU.kernel_code = "dynamic_data_mask.cpp", VPU.kernel_entry = "dynamic_data_mask", VPU.kernel_name = "dynamic_data_mask", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:    }
 
 // CHECK-LABEL:  func.func @DynamicDataMask
@@ -1484,7 +1548,7 @@ func.func @EmptyOp() -> (tensor<1000xf16>, tensor<1000xf16, {mem_space = [@CMX_N
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_SoftMax(memref<*xf16>, memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.kernel_name = "softmax", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @SoftMaxWithPrecomputedMax

@@ -14,7 +14,10 @@
 
 namespace vpux::VPU {
 
-bool isLegalConvertToGatherDMA(VPU::GatherOp op, bool isElementTile, bool isIndicesTile, vpux::Logger log);
+// Gather DMA only support dims before axis equal to 1, checkDimsBeforeAxis is used when we try to do some conversion
+// to reshape dims before axis to 1.
+bool isLegalConvertToGatherDMA(VPU::GatherOp op, bool isElementTile, bool isIndicesTile, vpux::Logger log,
+                               bool checkDimsBeforeAxis = true);
 
 Shape getSupportedNTilesOnDimforGather(ArrayRef<int64_t> tileDimOrder, mlir::Operation* baseOp, TilingMode tilingMode,
                                        Logger log);

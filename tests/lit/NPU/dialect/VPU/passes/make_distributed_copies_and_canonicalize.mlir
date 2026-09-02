@@ -59,7 +59,7 @@ func.func @OptimizeShapeCastCopies(%conv_input: !ConvInputTensor, %conv_weights:
     %conv = VPU.NCE.Convolution(%conv_input, %conv_weights) rawFilterShape [256, 48, 3, 2] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [2, 1]
     } : !ConvInputTensor, !ConvWeightsTensor -> !ConvOutputTensor
     %conv_cmx_to_ddr = VPU.UnrolledType(%conv : !ConvOutputTensor) -> tensor<1x256x128x16xf16, {order = #NHWC}>
@@ -140,7 +140,7 @@ func.func @OptimizeShapeCastCopiesWithMultUsers(%conv_input: !ConvInputTensor, %
     %conv = VPU.NCE.Convolution(%conv_input, %conv_weights) rawFilterShape [256, 48, 3, 2] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [2, 1]
     } : !ConvInputTensor, !ConvWeightsTensor -> !ConvOutputTensor
     %conv_cmx_to_ddr = VPU.UnrolledType(%conv : !ConvOutputTensor) -> tensor<1x256x128x16xf16, {order = #NHWC}>
@@ -189,7 +189,7 @@ func.func @OptimizeShapeCastCopiesWithMultUsers(%conv_input: !ConvInputTensor, %
 
 // CHECK-LABEL: @NotOptimizeShapeCastCopies
 func.func @NotOptimizeShapeCastCopies(%eltwise_input1: !EltwiseTensorType, %eltwise_input2: !EltwiseTensorType) -> !NextOverlappingInputTensorType {
-    %eltwise = VPU.NCE.Eltwise(%eltwise_input1, %eltwise_input2) {
+    %eltwise = VPU.NCE.Eltwise(%eltwise_input1, %eltwise_input2) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         is_inplace = true,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
@@ -241,7 +241,7 @@ func.func @DoNotOptimizeShapeCastCopiesForSiblingEltwise(%input: !DistributedInp
 
     %conv_to_cmx = VPU.UnrolledType(%conv_to_ddr : tensor<1x32x90x160xf16, {order = #NHWC}>) -> !DistributedOutput
     %eltwise_input_to_cmx = VPU.UnrolledType(%eltwise_input : tensor<1x32x90x160xf16, {order = #NHWC}>) -> !DistributedOutput
-    %eltwise = VPU.NCE.Eltwise(%conv_to_cmx, %eltwise_input_to_cmx) {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> !DistributedOutput
+    %eltwise = VPU.NCE.Eltwise(%conv_to_cmx, %eltwise_input_to_cmx) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> !DistributedOutput
     %eltwise_to_ddr = VPU.UnrolledType(%eltwise : !DistributedOutput) -> tensor<1x32x90x160xf16, {order = #NHWC}>
 
     return %shape_cast_to_cmx, %eltwise_to_ddr : !DistributedShapeCast, tensor<1x32x90x160xf16, {order = #NHWC}>

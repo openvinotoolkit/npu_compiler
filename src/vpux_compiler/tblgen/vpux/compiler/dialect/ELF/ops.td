@@ -475,6 +475,30 @@ def ABIVersionOp :
     }];
 }
 
+//
+// CompatibilityStringOp
+//
+
+def CompatibilityStringOp :
+        ELF_Op<"CompatibilityString",
+            [
+                DeclareOpInterfaceMethods<ELF_BinaryOpInterface, ["serialize"]>,
+                DeclareOpInterfaceMethods<ELF_BinarySizeOpInterface, ["getBinarySize"]>,
+                DeclareOpInterfaceMethods<ELF_WrappableOpInterface>
+            ]
+        > {
+    let summary = "Represents blob compatibility string for loader checks";
+
+    let arguments = (ins
+        StrAttr:$compatibilityString
+    );
+
+    let assemblyFormat = [{
+        `compatibilityString` `(` $compatibilityString `)`
+        attr-dict
+    }];
+}
+
 def MainOp :
         ELF_Op<"Main",
             [

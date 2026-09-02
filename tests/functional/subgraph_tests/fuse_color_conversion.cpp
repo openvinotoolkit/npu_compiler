@@ -123,8 +123,8 @@ protected:
 private:
     std::shared_ptr<ov::Node> buildYuvToRgbPattern(const ov::Output<ov::Node>& yInput,
                                                    const ov::Output<ov::Node>& uvInput, const ov::Shape& yInputShape,
-                                                   const ov::Shape& uvInputShape, const ov::Shape& outputShape,
-                                                   ColorFormat colorFormat) {
+                                                   [[maybe_unused]] const ov::Shape& uvInputShape,
+                                                   const ov::Shape& outputShape, ColorFormat colorFormat) {
         ov::Shape yReshapeShape = {yInputShape[0], 1, yInputShape[1], yInputShape[2]};
         auto yReshapeConst =
                 ov::op::v0::Constant::create(ov::element::i64, ov::Shape{yReshapeShape.size()}, yReshapeShape);

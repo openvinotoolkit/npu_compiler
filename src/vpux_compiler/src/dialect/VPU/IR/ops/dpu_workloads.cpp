@@ -11,6 +11,25 @@
 using namespace vpux;
 
 //
+// DPUWorkloadOp::verify
+//
+
+mlir::LogicalResult vpux::VPU::DPUWorkloadOp::verify() {
+    // Although ParentOneOf allows scf.for/scf.if as the immediate parent (for dynamic
+    // workload materialization), DPU.Workload must still reside inside an NCE op's
+    // workloads region. Walk ancestors to confirm.
+    auto* current = getOperation()->getParentOp();
+    while (current != nullptr) {
+        if (mlir::isa<VPU::NCEOpInterface>(current)) {
+            return mlir::success();
+        }
+        current = current->getParentOp();
+    }
+    return emitOpError("must be nested inside an NCE op's workloads region, but no "
+                       "NCE op ancestor found");
+}
+
+//
 // DPUTaskOp
 //
 
@@ -84,6 +103,27 @@ void vpux::VPU::DPUWorkloadOp::build(mlir::OpBuilder& builder, mlir::OperationSt
           /*inOffsets=*/mlir::ValueRange{},
           /*inSizes=*/mlir::ValueRange{}, inOffsets, inSizes, mpeMode, /* pad */ mlir::ValueRange{},
           mlir::DenseI64ArrayAttr::get(builder.getContext(), padAttr), clusterId);
+}
+
+void vpux::VPU::DPUWorkloadOp::build(mlir::OpBuilder& builder, mlir::OperationState& state,
+                                     mlir::ArrayRef<mlir::OpFoldResult> outOffsets,
+                                     mlir::ArrayRef<mlir::OpFoldResult> outSizes,
+                                     mlir::ArrayRef<mlir::OpFoldResult> inOffsets,
+                                     mlir::ArrayRef<mlir::OpFoldResult> inSizes, mlir::ArrayRef<mlir::OpFoldResult> pad,
+                                     VPU::MPEModeAttr mpeMode, mlir::IntegerAttr clusterId) {
+    SmallVector<int64_t> staticOutOffsets, staticOutSizes, staticInOffsets, staticInSizes, staticPad;
+    SmallVector<mlir::Value> dynamicOutOffsets, dynamicOutSizes, dynamicInOffsets, dynamicInSizes, dynamicPad;
+    mlir::dispatchIndexOpFoldResults(outOffsets, dynamicOutOffsets, staticOutOffsets);
+    mlir::dispatchIndexOpFoldResults(outSizes, dynamicOutSizes, staticOutSizes);
+    mlir::dispatchIndexOpFoldResults(inOffsets, dynamicInOffsets, staticInOffsets);
+    mlir::dispatchIndexOpFoldResults(inSizes, dynamicInSizes, staticInSizes);
+    mlir::dispatchIndexOpFoldResults(pad, dynamicPad, staticPad);
+
+    auto* ctx = builder.getContext();
+    build(builder, state, dynamicOutOffsets, dynamicOutSizes, mlir::DenseI64ArrayAttr::get(ctx, staticOutOffsets),
+          mlir::DenseI64ArrayAttr::get(ctx, staticOutSizes), dynamicInOffsets, dynamicInSizes,
+          mlir::DenseI64ArrayAttr::get(ctx, staticInOffsets), mlir::DenseI64ArrayAttr::get(ctx, staticInSizes), mpeMode,
+          dynamicPad, mlir::DenseI64ArrayAttr::get(ctx, staticPad), clusterId);
 }
 
 /*

@@ -241,7 +241,6 @@ TEST_P(EltwiseLayerTestCommon, NPU3720_SW) {
 
 TEST_P(EltwiseLayerTestCommon, NPU3720_HW) {
     setSkipCompilationCallback([](std::stringstream& skip) {
-        const auto eltwiseType = std::get<1>(GetParam());
         const auto netPrecisions = std::get<4>(GetParam());
         // [Tracking number: E#82236]
         if (netPrecisions == ov::element::i32) {
@@ -266,7 +265,6 @@ TEST_P(EltwiseLayerTestF32Common, NPU3720_SW) {
 
 TEST_P(EltwiseLayerTestF32Common, NPU3720_HW) {
     setSkipCompilationCallback([](std::stringstream& skip) {
-        const auto eltwiseType = std::get<1>(GetParam());
         const auto netPrecisions = std::get<4>(GetParam());
         if (netPrecisions == ov::element::f32) {
             skip << "FP32 operations will be converted to IE.scaleshift in AdjustScaleShiftForDWConv in HW Mode. "
@@ -314,6 +312,7 @@ TEST_P(EltwiseLayerTestSCFTiling, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(EltwiseLayerTestCommon, NPU5020_SW) {
     abs_threshold = 0.6;
     setReferenceSoftwareMode();
@@ -384,6 +383,7 @@ TEST_P(EltwiseIntegerLayerTest, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(EltwiseIntegerLayerTest, NPU5020_SW) {
     abs_threshold = 0.6;
     setCommonSkipCompilationCallback(this);
@@ -854,6 +854,13 @@ class ShaveCodeGenEltwiseIntegerLayerTest : public EltwiseIntegerLayerTest {
     }
 };
 
+class ShaveCodeGenTilingEltwiseLayerTestCommon : public ShaveCodeGenEltwiseLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] =
+                "enable-shave-code-gen=true enable-shave-code-gen-tiling=true";
+    }
+};
+
 TEST_P(ShaveCodeGenEltwiseLayerTestCommon, NPU4000_SW) {
     abs_threshold = 0.6;
     setReferenceSoftwareMode();
@@ -875,6 +882,13 @@ TEST_P(ShaveCodeGenEltwiseIntegerLayerTest, NPU4000_SW) {
     run(Platform::NPU4000);
 }
 
+TEST_P(ShaveCodeGenTilingEltwiseLayerTestCommon, NPU4000_HW) {
+    abs_threshold = 0.6;
+    setDefaultHardwareMode();
+    setPluginCompilerType();
+    run(Platform::NPU4000);
+}
+
 TEST_P(ShaveCodeGenEltwiseLayerTestCommon, NPU5010_SW) {
     abs_threshold = 0.6;
     setReferenceSoftwareMode();
@@ -892,6 +906,13 @@ TEST_P(ShaveCodeGenEltwiseIntegerLayerTest, NPU5010_SW) {
     abs_threshold = 0.6;
     setCommonSkipCompilationCallback(this);
     setReferenceSoftwareMode();
+    setPluginCompilerType();
+    run(Platform::NPU5010);
+}
+
+TEST_P(ShaveCodeGenTilingEltwiseLayerTestCommon, NPU5010_HW) {
+    abs_threshold = 0.6;
+    setDefaultHardwareMode();
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
@@ -973,6 +994,24 @@ const auto scgVectorParamsF32 =
 
 INSTANTIATE_TEST_SUITE_P(smoke_VectorShapesNDF32, ShaveCodeGenEltwiseLayerTestF32Common, scgVectorParamsF32,
                          ShaveCodeGenEltwiseLayerTestF32Common::getTestCaseName);
+
+std::vector<std::vector<ov::Shape>> scgTilingShape = {
+        {{1, 10, 512, 512}, {1, 10, 512, 512}},
+        {{1, 10, 512, 512}, {1, 1, 512, 512}},
+        {{1, 10, 512, 512}, {1, 10, 1, 512}},
+};
+
+std::set<EltwiseTypes> scgTilingEltwiseTypes = {EltwiseTypes::SQUARED_DIFF, EltwiseTypes::SUBTRACT};
+
+const auto scgTilingParams =
+        ::testing::Combine(::testing::ValuesIn(ov::test::static_shapes_to_test_representation(scgTilingShape)),
+                           ::testing::ValuesIn(scgTilingEltwiseTypes), ::testing::Values(InputLayerType::PARAMETER),
+                           ::testing::Values(ov::test::utils::OpType::VECTOR), ::testing::ValuesIn(netPrecisionsF16),
+                           ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
+
+INSTANTIATE_TEST_SUITE_P(smoke_EltwiseTiling, ShaveCodeGenTilingEltwiseLayerTestCommon, scgTilingParams,
+                         ShaveCodeGenTilingEltwiseLayerTestCommon::getTestCaseName);
 
 //
 // Test Unsigned Integer data types

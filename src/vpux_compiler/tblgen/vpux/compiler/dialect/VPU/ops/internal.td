@@ -24,25 +24,115 @@ def VPU_GenericSwLayerOp :
             "GenericSwLayer",
             [
                 Pure,
+                DeclareOpInterfaceMethods<ArgAndResultAttrsOpInterface, ["getArgAttrsAttr", "getResAttrsAttr", "setArgAttrsAttr", "setResAttrsAttr",
+                                                                         "removeArgAttrsAttr", "removeResAttrsAttr"]>,
                 DeclareOpInterfaceMethods<CallOpInterface>,
                 DeclareOpInterfaceMethods<SymbolUserOpInterface>,
-                DeclareOpInterfaceMethods<VPU_LayerOpInterface>
+                DeclareOpInterfaceMethods<VPU_LayerOpInterface>,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<InferTypeOpInterface>,
+                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
+                AttrSizedOperandSegments
             ]
         > {
     let summary = "VPU Op that describes a generic SW Layer";
 
+    let description = [{
+        Represents an invocation of a generated software layer. The operation
+        contains optional tiling metadata which provides the iteration-space
+        slice computed by this op instance. Kernel-level tiling metadata
+        (tilingInfoFunc, tilingAxes, numSlicedInputs) is stored in
+        `VPU::KernelInfoAttr` on the callee function.
+
+        `inputs` - generic inputs to the kernel.
+
+        `scratch_inputs` - auxiliary buffers.
+
+        `tilingProperties` - optional attribute encoding the iteration-space
+        slice: static_sizes and static_offsets (one entry per tiling axis).
+        Present only for tileable kernels. The number of entries equals the
+        number of tiling axes recorded in `VPU::KernelInfoAttr` on the
+        callee.
+
+        `dynamic_sizes` / `dynamic_offsets` - dynamic sizes/offsets in the
+        iteration space. Should only be present if the tiling attribute is also
+        present and are interpreted in conjunction with the static sizes/offsets
+        from the tiling attribute.
+
+        `returnTypes` - inferred attribute storing the result types of the
+        operation. Not set by callers; populated automatically by the builder
+        from the operation output types. Used internally to implement
+        `InferTypeOpInterface`. Omitted from the textual assembly form.
+
+        Syntax:
+
+        ```
+        VPU.GenericSwLayer(<inputs> : <types>)
+            [scratch(<scratch_inputs> : <types>)]
+            <callee>
+            [tiling(sizes = [<mixed_list>], offsets = [<mixed_list>])]
+            [attr-dict]
+            -> <result_types>
+        ```
+
+        Example:
+
+        ```mlir
+        %0 = VPU.GenericSwLayer(%arg0 : tensor<1x16x4000x200xf32>)
+            @generated_0
+            tiling(sizes = [%c5, 4000, 256], offsets = [0, %c3, 0])
+            -> tensor<1x16x4000x256xf32>
+
+        %scratch = VPU.Empty : tensor<1x256xf32>
+        %1 = VPU.GenericSwLayer(%arg0 : tensor<1x256xf32>)
+            scratch(%scratch : tensor<1x256xf32>)
+            @generated_1
+            -> tensor<1x256xf32>
+        ```
+    }];
+
     let arguments = (ins
         SymbolRefAttr:$callee, // Generated sw layer function
 
-        Variadic<AnyType>:$inputs
+        Variadic<AnyType>:$inputs,
+        Variadic<AnyType>:$scratch_inputs,
+        OptionalAttr<VPU_JITTilingAttr>:$tilingProperties,
+        Variadic<Index>:$dynamic_sizes,
+        Variadic<Index>:$dynamic_offsets,
+        ArrayAttr:$returnTypes
     );
 
     let results = (outs
         Variadic<AnyShaped>:$outputs
     );
 
-    let assemblyFormat = [{
-        `(` operands `)` attr-dict `:` type(operands) `->` type(results)
+    let skipDefaultBuilders = 1;
+    let hasCustomAssemblyFormat = 1;
+    let hasVerifier = 1;
+    let hasCanonicalizer = 1;
+
+    let builders = [
+        // Builder automatically creates returnTypes from resultTypes
+        // Usage: builder.create<VPU::GenericSwLayerOp>(loc, resultTypes, callee, inputs,
+        //            [tilingProperties], [dynamic_sizes], [dynamic_offsets], [scratch])
+        OpBuilder<(ins "mlir::TypeRange":$resultTypes,
+                       "mlir::SymbolRefAttr":$callee,
+                       "mlir::ValueRange":$inputs,
+                       CArg<"mlir::Attribute", "{}">:$tilingProperties,
+                       CArg<"mlir::ValueRange", "{}">:$dynamic_sizes,
+                       CArg<"mlir::ValueRange", "{}">:$dynamic_offsets,
+                       CArg<"mlir::ValueRange", "{}">:$scratch_inputs)>
+    ];
+
+    let extraClassDeclaration = [{
+        static bool isCompatibleReturnTypes(::mlir::TypeRange lhs, ::mlir::TypeRange rhs) {
+            return vpux::areTypesCompatible(lhs, rhs, vpux::IE::TypeComparisonMode::STRICT_EQUAL,
+                                            /*checkDimsOrder=*/true, /*checkMemSpace=*/false);
+        }
+
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
     }];
 }
 
@@ -108,6 +198,7 @@ def VPU_VerticalFusionOp :
                 Pure,
                 IsolatedFromAbove,
                 DeclareOpInterfaceMethods<RegionBranchOpInterface, ["getEntrySuccessorOperands",
+                                                                    "getSuccessorInputs",
                                                                     "areTypesCompatible"]>,
                 SingleBlockImplicitTerminator<"YieldOp">
             ]

@@ -34,7 +34,9 @@ private:
 
 mlir::LogicalResult ConcatViewRewriter::matchAndRewrite(VPU::ConcatOp origOp, mlir::PatternRewriter& rewriter) const {
     const auto outputType = origOp.getOutput().getType();
-    if (!mlir::isa<Core::DynamicDimsMaskTensorType>(outputType)) {
+    VPUX_THROW_WHEN(mlir::isa<Core::DynamicDimsMaskTensorType>(outputType),
+                    "dynamic_dims_mask is not supposed to exist at the point when this pass is executed");
+    if (!mlir::isa<Core::BoundedTensorType>(outputType)) {
         return mlir::failure();
     }
 

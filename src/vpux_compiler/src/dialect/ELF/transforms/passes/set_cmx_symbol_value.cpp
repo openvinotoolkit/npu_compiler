@@ -7,8 +7,11 @@
 #include "vpux/compiler/dialect/ELF/IR/ops.hpp"
 #include "vpux/compiler/dialect/ELF/transforms/passes.hpp"
 #include "vpux/compiler/dialect/ELF/utils/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
+#include "vpux/compiler/utils/platform_resources.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include <cstdint>
@@ -26,52 +29,15 @@ using namespace vpux;
 namespace {
 class SetCMXSymbolValue : public VPURegMapped::impl::SetCMXSymbolValueBase<SetCMXSymbolValue> {
 public:
-    explicit SetCMXSymbolValue(Logger log, std::optional<uint32_t> workspaceAddr, std::optional<uint32_t> workspaceSize,
-                               std::optional<uint32_t> metadataAddr, std::optional<uint32_t> metadataSize)
-            : _log(log),
-              _workspaceAddr(workspaceAddr),
-              _workspaceSize(workspaceSize),
-              _metadataAddr(metadataAddr),
-              _metadataSize(metadataSize) {
+    explicit SetCMXSymbolValue(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
-    }
-
-    mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final {
-        if (mlir::failed(Base::initialize(ctx))) {
-            return mlir::failure();
-        }
-
-        if (workspaceAddr.hasValue()) {
-            _workspaceAddr = workspaceAddr.getValue();
-        }
-        if (workspaceSize.hasValue()) {
-            _workspaceSize = workspaceSize.getValue();
-        }
-        if (metadataAddr.hasValue()) {
-            _metadataAddr = metadataAddr.getValue();
-        }
-        if (metadataSize.hasValue()) {
-            _metadataSize = metadataSize.getValue();
-        }
-
-        return mlir::success();
     }
 
 private:
     void safeRunOnModule() final;
-
-    Logger _log;
-    std::optional<uint32_t> _workspaceAddr;
-    std::optional<uint32_t> _workspaceSize;
-
-    std::optional<uint32_t> _metadataAddr;
-    std::optional<uint32_t> _metadataSize;
 };
 
 void SetCMXSymbolValue::safeRunOnModule() {
-    VPUX_THROW_UNLESS(_workspaceAddr.has_value() && _workspaceSize.has_value() && _metadataAddr.has_value() &&
-                              _metadataSize.has_value(),
-                      "Expected values are not present!");
     auto moduleOp = getOperation();
     auto netFunc = net::getMainFunc(moduleOp);
 
@@ -82,6 +48,20 @@ void SetCMXSymbolValue::safeRunOnModule() {
     ELF::SymbolReferenceMap symRefMap(elfMain);
     auto sTabOps = elfMain.getOps<ELF::CreateSymbolTableSectionOp>();
 
+    static constexpr uint32_t workspaceAddr = CMX_BASE_ADDR + 0x00200000;  // CMX0 base address
+
+    const auto cmxSpaceAttr = mlir::SymbolRefAttr::get(moduleOp.getContext(), "CMX_NN");
+    const auto availableCMXMemory = config::getAvailableMemory(moduleOp, cmxSpaceAttr).size();
+    const auto workspaceSize = static_cast<uint32_t>(availableCMXMemory.count());
+
+    auto metadataMem = config::getCMXMetadataReservedMemory(moduleOp);
+    VPUX_THROW_UNLESS(metadataMem, "Missing reserved CMX memory for metadata");
+    const auto metadataSize = static_cast<uint32_t>(metadataMem.getByteSize());
+
+    auto metadataMemOffset = metadataMem.getOffset();
+    VPUX_THROW_UNLESS(metadataMemOffset.has_value(), "No address allocated for metadata in CMX");
+    const auto metadataAddr = workspaceAddr + static_cast<uint32_t>(metadataMemOffset.value());
+
     for (auto symTab : sTabOps) {
         auto elfSymbols = symTab.getOps<ELF::SymbolOp>();
         for (auto elfSymbol : elfSymbols) {
@@ -89,11 +69,11 @@ void SetCMXSymbolValue::safeRunOnModule() {
             if (auto secInterface = mlir::dyn_cast<ELF::ElfSectionInterface>(reference)) {
                 auto secType = secInterface.getSectionType();
                 if (secType == ELF::SectionTypeAttr::VPU_SHT_CMX_METADATA) {
-                    elfSymbol.setValue(_metadataAddr.value());
-                    elfSymbol.setSize(_metadataSize.value());
+                    elfSymbol.setValue(metadataAddr);
+                    elfSymbol.setSize(metadataSize);
                 } else if (secType == ELF::SectionTypeAttr::VPU_SHT_CMX_WORKSPACE) {
-                    elfSymbol.setValue(_workspaceAddr.value());
-                    elfSymbol.setSize(_workspaceSize.value());
+                    elfSymbol.setValue(workspaceAddr);
+                    elfSymbol.setSize(workspaceSize);
                 }
             }
         }
@@ -106,9 +86,6 @@ void SetCMXSymbolValue::safeRunOnModule() {
 // createSetCMXSymbolValue
 //
 
-std::unique_ptr<mlir::Pass> ELF::createSetCMXSymbolValuePass(Logger log, std::optional<uint32_t> workspaceAddr,
-                                                             std::optional<uint32_t> workspaceSize,
-                                                             std::optional<uint32_t> metadataAddr,
-                                                             std::optional<uint32_t> metadataSize) {
-    return std::make_unique<SetCMXSymbolValue>(log, workspaceAddr, workspaceSize, metadataAddr, metadataSize);
+std::unique_ptr<mlir::Pass> ELF::createSetCMXSymbolValuePass(Logger log) {
+    return std::make_unique<SetCMXSymbolValue>(log);
 }

@@ -124,7 +124,7 @@ private:
     ThreadSafeHashMap<llvm::hash_code, size_t> _dpuTaskOpCostCache;
     ThreadSafeHashMap<llvm::hash_code, std::optional<TemporalTilingInfo>> _temporalTilingCache;
 
-    bool _enableCache{false};
+    std::atomic<bool> _enableCache{false};
 
     std::atomic<uint64_t> _tilingHitCount{0};
     std::atomic<uint64_t> _tilingAccessCount{0};

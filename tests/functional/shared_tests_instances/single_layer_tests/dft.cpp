@@ -57,6 +57,7 @@ TEST_P(DftLayerTestCommon, NPU5010) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(DftLayerTestCommon, NPU5020) {
     abs_threshold = 0.2;
     setDefaultHardwareMode();

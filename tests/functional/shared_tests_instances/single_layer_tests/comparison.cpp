@@ -291,6 +291,7 @@ TEST_P(ComparisonLayerTestCommon, NPU5020_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
 }
+
 TEST_P(ComparisonLayerTestIsOp, NPU5020_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);

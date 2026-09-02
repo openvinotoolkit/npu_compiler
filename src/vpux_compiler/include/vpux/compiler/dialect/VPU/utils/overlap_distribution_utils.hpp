@@ -124,5 +124,9 @@ OverlapDistributionParams getOutputOverlappedParamsNoHalo(VPU::ClusteredOpInterf
 
 bool outputOverlappedParamsIsHaloSupported(mlir::Operation* op);
 
+// Check if OVERLAPPED distribution has true overlapped parameters,
+// i.e., per-cluster memory shapes/offsets differ from compute shapes/offsets
+bool hasTrueOverlappedParams(VPU::DistributedTensorType tensor);
+
 }  // namespace VPU
 }  // namespace vpux

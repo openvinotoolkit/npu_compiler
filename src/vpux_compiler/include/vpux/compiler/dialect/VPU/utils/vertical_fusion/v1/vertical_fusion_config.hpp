@@ -32,10 +32,10 @@ public:
     // get all outputs
     const SmallVector<mlir::Operation*>& getOutputs();
 
-    // get all oeprations in the subgraph
+    // get all operations in the subgraph
     const SmallVector<mlir::Operation*>& getVFOperations();
 
-    // get all oeprations in the subgraph
+    // get all operations in the subgraph
     SmallVector<mlir::Operation*> getOperationsForTiling();
 
     // check if subgraph might be pipelined

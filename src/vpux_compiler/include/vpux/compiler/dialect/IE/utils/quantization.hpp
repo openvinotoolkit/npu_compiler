@@ -19,6 +19,9 @@
 namespace vpux {
 namespace IE {
 
+// Forward declarations
+class IConvertWeightsToUnsignedStrategy;
+
 // Broadcasting
 
 template <typename T>
@@ -65,6 +68,16 @@ mlir::quant::QuantizedType getQuantizedType(const Const::ContentAttr& lowConst, 
                                             IE::AutoBroadcastType broadcast = IE::AutoBroadcastType::NONE_OR_EXPLICIT,
                                             bool ignoreZPCheck = false, const Logger& log = Logger::global());
 
+// getQuantizedType maps a degenerate quantization range [0, 0] (a zeroed-out channel/tensor) to scale = 1.0 to
+// avoid a division by zero in the quantize formula Q = R / scale + zp. When the resulting type is used to
+// dequantize a constant (R = (Q - zp) * scale), that substitution would emit the raw integer codes instead of
+// zeros. This helper rebuilds the type keeping the true zero scale for such channels so they dequantize to 0,
+// using the given output range constants (lowConst == highConst == 0) to detect them.
+mlir::quant::QuantizedType keepZeroScaleForConstDequant(mlir::quant::QuantizedType qElemType,
+                                                        const Const::ContentAttr& lowConst,
+                                                        const Const::ContentAttr& highConst,
+                                                        IE::AutoBroadcastType broadcast);
+
 // Check whether the given FQ input and output range constants can convert to a valid signed QuantizedType.
 bool canConvertToSignedQuantizedType(const Const::ContentAttr& inLowConst, const Const::ContentAttr& inHighConst,
                                      const Const::ContentAttr& outLowConst, const Const::ContentAttr& outHighConst,
@@ -98,7 +111,9 @@ mlir::Value createFQScaling(mlir::Location loc, mlir::Value input, float scaleFa
                             std::optional<int64_t> levels, std::optional<mlir::Type> lowFpType,
                             vpux::IE::AutoBroadcastTypeAttr autoBroadcast, mlir::PatternRewriter& rewriter);
 SmallVector<float> getConst(Const::DeclareOp declOp);
-mlir::Value findQuantizedInput(mlir::Value opInput, bool allowPerAxisQuantize);
+DimArr getLegalActivationQuantAxes(mlir::Operation* op);
+DimArr getLegalWeightsQuantAxes(mlir::Operation* op);
+mlir::Value findQuantizedInput(mlir::Value opInput, DimArrRef allowedQuantAxes);
 mlir::Operation* findDynDequantized(mlir::Value opInput, bool allowPerAxisQuantize);
 bool isSymmetricQuantType(mlir::quant::QuantizedType type);
 bool areAllQuantTypeZeroPointsEqualToZero(mlir::quant::QuantizedType type);
@@ -164,7 +179,7 @@ mlir::FailureOr<double> getQuantizedSplatConstant(mlir::Value input);
 int64_t getMaximumQuantizationLevels(int64_t currentLevels, mlir::Operation* op);
 
 bool isNCEOpCandidatesWithWeights(mlir::Operation* op);
-bool keepIntTypeForSIWeightsAsInputOrConst(mlir::Operation* op);
+bool keepIntTypeForSIWeightsAsInputOrConst(mlir::Operation* op, const IConvertWeightsToUnsignedStrategy* strategy);
 bool isQuantizationSupported(IE::QuantizeOp quantizeOp, mlir::Operation* mainOp,
                              IE::TypeComparisonMode elemComparisonMode);
 bool isInputQuantizationSupported(mlir::Value activationInput, mlir::Value filterInput);

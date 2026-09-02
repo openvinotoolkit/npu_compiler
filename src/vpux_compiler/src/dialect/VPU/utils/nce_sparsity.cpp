@@ -415,7 +415,8 @@ bool vpux::VPU::NCESparsity::isSparsifiableWeightsOperand(mlir::Value operand) {
     if (!sourceOp) {
         return false;
     }
-    for (const auto transformation : sourceOp.getContentAttr().getTransformations()) {
+    const auto contentAttr = sourceOp.getContentAttr();
+    for (const auto transformation : contentAttr.getTransformations()) {
         if (mlir::isa<vpux::Const::SparsifyAttr, vpux::Const::GetSparsityMapAttr>(transformation)) {
             VPUX_THROW("Trying to sparsify already sparsity related content at '{0}'", sourceOp->getLoc());
         }

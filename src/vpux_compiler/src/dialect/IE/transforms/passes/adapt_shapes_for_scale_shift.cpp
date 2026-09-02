@@ -36,8 +36,7 @@ namespace {
 template <typename EltwiseOp>
 class BroadcastEltwiseRewriter final : public mlir::OpRewritePattern<EltwiseOp> {
 public:
-    BroadcastEltwiseRewriter<EltwiseOp>(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<EltwiseOp>(ctx), _log(log) {
+    BroadcastEltwiseRewriter(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<EltwiseOp>(ctx), _log(log) {
         this->setDebugName("BroadcastEltwiseRewriter");
     }
 
@@ -205,8 +204,7 @@ bool isLegalEltwise(mlir::Operation* op) {
 template <typename EltwiseOp>
 class TransposeEltwiseRewriter final : public mlir::OpRewritePattern<EltwiseOp> {
 public:
-    TransposeEltwiseRewriter<EltwiseOp>(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<EltwiseOp>(ctx), _log(log) {
+    TransposeEltwiseRewriter(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<EltwiseOp>(ctx), _log(log) {
         this->setDebugName("TransposeEltwiseRewriter");
     }
 
@@ -318,7 +316,7 @@ bool isPotentialScaleShift(mlir::Operation* op) {
 template <typename EltwiseOp>
 class MultiNonTrivialDimEltwiseRewriter final : public mlir::OpRewritePattern<EltwiseOp> {
 public:
-    MultiNonTrivialDimEltwiseRewriter<EltwiseOp>(mlir::MLIRContext* ctx, Logger log)
+    MultiNonTrivialDimEltwiseRewriter(mlir::MLIRContext* ctx, Logger log)
             : mlir::OpRewritePattern<EltwiseOp>(ctx), _log(log) {
         this->setDebugName("MultiNonTrivialDimEltwiseRewriter");
     }

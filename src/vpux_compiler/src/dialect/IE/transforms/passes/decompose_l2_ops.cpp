@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 namespace vpux::IE {
@@ -51,7 +52,7 @@ void decomposeNormalizeL2(IE::NormalizeL2Op origOp, Logger log) {
     // --- Calculate sum of squared input data
     auto multiplyOp = builder.create<IE::MultiplyOp>(appendLoc(loc, "mul"), data, data, IE::AutoBroadcastType::NUMPY,
                                                      nullptr, nullptr, nullptr, nullptr);
-    auto reduceSumOp = builder.create<IE::ReduceSumOp>(appendLoc(loc, "reduceSum"), multiplyOp.getOutput(), nullptr,
+    auto reduceSumOp = builder.create<IE::ReduceSumOp>(appendLoc(loc, "reduceSum"), multiplyOp.getOutput(),
                                                        axesValueAttr, false, nullptr, nullptr);
 
     auto sqrtOp = builder.create<IE::SqrtOp>(appendLoc(loc, "sqrt"), reduceSumOp.getOutput());
@@ -89,7 +90,7 @@ void decomposeReduceL2(IE::ReduceL2Op origOp, Logger log) {
 
     const auto outputElementType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType()).getElementType();
     if (outputElementType.isF16()) {
-        auto axesValue = IE::extractAxes(loc, origOp);
+        auto axesValue = parseIntArrayAttr<int64_t>(origOp.getAxesValueAttr());
         auto numReducedElements = int64_t(1);
         for (auto axis : axesValue) {
             axis += axis < 0 ? static_cast<int64_t>(inputShape.size()) : 0;
@@ -106,9 +107,8 @@ void decomposeReduceL2(IE::ReduceL2Op origOp, Logger log) {
     auto input = origOp.getInput();
     auto multiplyOp = builder.create<IE::MultiplyOp>(appendLoc(loc, "square"), input, input,
                                                      IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
-    auto reduceSumOp =
-            builder.create<IE::ReduceSumOp>(appendLoc(loc, "reduceSum"), multiplyOp.getOutput(), origOp.getAxes(),
-                                            origOp.getAxesValueAttr(), origOp.getKeepDimsAttr());
+    auto reduceSumOp = builder.create<IE::ReduceSumOp>(appendLoc(loc, "reduceSum"), multiplyOp.getOutput(),
+                                                       origOp.getAxesValueAttr(), origOp.getKeepDimsAttr());
     auto sqrtOp = builder.create<IE::SqrtOp>(appendLoc(loc, "sqrt"), reduceSumOp.getOutput());
 
     origOp.getOutput().replaceAllUsesWith(sqrtOp.getOutput());

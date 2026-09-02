@@ -87,7 +87,7 @@ private:
                                   PlannedInsertionsData& preparedInsertions);
 };
 
-// Returns a DMA which copies 0 len data from DDR to DDR
+// Returns a DMA which copies 0 len data from DDR to CMX
 VPURT::TaskOp createFetchDma(mlir::OpBuilder& builder, mlir::Value inputBuf, mlir::Value outputBuf,
                              BarrierInfo& barrierInfo, VPUIP::FetchDMAAttr fetchDMAData) {
     auto newDMA = VPURT::createFetchDMA(builder, inputBuf, outputBuf, 0, {}, {}, fetchDMAData);
@@ -107,8 +107,9 @@ void finalizeBarrierInfo(BarrierInfo& barrierInfo, mlir::func::FuncOp netFunc, L
 // [index, DMAOp This map is used later to refer to real DMAOp and get real task-index from barrierInfo
 void AddPlaceholderFetchDMAsPWLMPass::realizePlannedInsertions(mlir::OpBuilder& builder, BarrierInfo& barrierInfo,
                                                                PlannedInsertionsData& preparedInsertions) {
-    auto inBuffer = VPUIP::createDummyBuffer(builder, preparedInsertions.bufferInsertionPoint);
-    auto outBuffer = VPUIP::createDummyBuffer(builder, preparedInsertions.bufferInsertionPoint);
+    auto inBuffer = VPUIP::createDummyBuffer(builder, preparedInsertions.bufferInsertionPoint, VPU::MemoryKind::DDR);
+    auto outBuffer =
+            VPUIP::createDummyBuffer(builder, preparedInsertions.bufferInsertionPoint, VPU::MemoryKind::CMX_NN);
     SmallVector<VPURT::TaskOp> fetchDMAs;
 
     SmallVector<VPURT::DeclareVirtualBarrierOp> dummyBarriers;

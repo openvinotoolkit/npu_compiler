@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/expand_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_quantize_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/permute_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
@@ -47,6 +48,16 @@ using namespace vpux;
 using namespace IE;
 
 namespace {
+
+template <typename Range>
+auto toSortedByBlockOrder(Range&& range) {
+    auto values = to_small_vector(range);
+    llvm::sort(values, [](auto a, auto b) {
+        assert(a->getBlock() == b->getBlock());
+        return a->isBeforeInBlock(b);
+    });
+    return values;
+}
 
 const uint32_t levelCount = 2;
 SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(levelCount);
@@ -273,10 +284,11 @@ bool ExpandEltwisePattern::init() {
     }
 
     // save the original shape and generate new shape
-    auto expandInputOp = *_expandInputs.begin();
+    auto expandInputs = toSortedByBlockOrder(_expandInputs);
+    auto expandInputOp = expandInputs.front();
     _unExpandedShape = getBoundedShape(expandInputOp.getInput().getType()).toValues();
 
-    for (auto expandInput : llvm::drop_begin(_expandInputs)) {
+    for (auto expandInput : llvm::drop_begin(expandInputs)) {
         auto otherExpandInput =
                 mlir::cast<vpux::NDTypeInterface>(expandInput.getInput().getType()).getShape().toValues();
         if (otherExpandInput != _unExpandedShape) {
@@ -287,7 +299,8 @@ bool ExpandEltwisePattern::init() {
     }
 
     // Only IE::MultiplyOp, IE::SubtractOp, IE::AddOp and IE::GroupConvolutionOp has constant input
-    for (auto constDeclare : _constInputs) {
+    auto sortedConstInputs = toSortedByBlockOrder(_constInputs);
+    for (auto constDeclare : sortedConstInputs) {
         auto baseContentNum = IE::getBaseContentNumElements(constDeclare);
         if (mlir::failed(baseContentNum)) {
             log.trace("Unsupported const of {0} at {1}", _eltwiseOp->getName(), _eltwiseOp->getLoc());
@@ -309,7 +322,7 @@ bool ExpandEltwisePattern::init() {
             if (padWithZeroAttr == nullptr) {
                 return false;
             }
-            auto expand = *_expandInputs.begin();
+            auto expand = expandInputs.front();
             const auto expandPadsBegin = parseIntArrayAttr<int64_t>(expand.getPadsBegin());
             const auto expandPadsEnd = parseIntArrayAttr<int64_t>(expand.getPadsEnd());
             const auto padZeroAttrPadsBegin = parseIntArrayAttr<int64_t>(padWithZeroAttr.getPadBefore());
@@ -400,7 +413,7 @@ bool ExpandEltwisePattern::init() {
     // If it is legal to adjust the eltwise shape to avoid expansion
     // there is a chance to avoid spilling by keeping the same shape as the producer
     // A typical pattern: AlignedChannelsOp -> ViewLikeOp -> ExpandOp (channel) -> EltwiseOp
-    for (auto input : _expandInputs) {
+    for (auto input : expandInputs) {
         auto producerOp = input.getInput().getDefiningOp();
         while (mlir::isa_and_present<IE::ViewLikeOpInterface>(producerOp) && producerOp->getResult(0).hasOneUse()) {
             producerOp = producerOp->getOperand(0).getDefiningOp();
@@ -514,13 +527,15 @@ mlir::LogicalResult ExpandEltwisePattern::rewrite(mlir::PatternRewriter& rewrite
     };
 
     // Insert slice for non Expand input
-    const auto expandInputType = mlir::cast<vpux::NDTypeInterface>((*_expandInputs.begin()).getInput().getType());
-    const auto sliceOffset = parseIntArrayAttr<int64_t>((*_expandInputs.begin()).getPadsBeginAttr());
-    for (auto nonExpand : _nonExpandInputs) {
-        if (nonExpand == nullptr) {
-            return mlir::failure();
-        }
+    auto expandInputs = toSortedByBlockOrder(_expandInputs);
+    const auto expandInputType = mlir::cast<vpux::NDTypeInterface>(expandInputs.front().getInput().getType());
+    const auto sliceOffset = parseIntArrayAttr<int64_t>(expandInputs.front().getPadsBeginAttr());
 
+    if (llvm::is_contained(_nonExpandInputs, nullptr)) {
+        return mlir::failure();
+    }
+    auto sortedNonExpandInputs = toSortedByBlockOrder(_nonExpandInputs);
+    for (auto nonExpand : sortedNonExpandInputs) {
         rewriter.setInsertionPointAfter(nonExpand);
         auto newLoc = takeOpLoc(_eltwiseOp, "input");
         auto inputSliceOp =
@@ -534,7 +549,7 @@ mlir::LogicalResult ExpandEltwisePattern::rewrite(mlir::PatternRewriter& rewrite
     }
 
     // Replace input Expands with ShapeCasts
-    for (auto expand : _expandInputs) {
+    for (auto expand : expandInputs) {
         auto inputValue = expand.getInput();
         auto inputType = mlir::cast<vpux::NDTypeInterface>(inputValue.getType());
         rewriter.setInsertionPointAfter(expand);
@@ -566,7 +581,8 @@ mlir::LogicalResult ExpandEltwisePattern::rewrite(mlir::PatternRewriter& rewrite
     VPUX_THROW_WHEN(!_constInputs.empty() && !opsCanHaveConstInput,
                     "Unexpect Op {0} at {1} has constant input. Cannot ensure it has right reshape logic.",
                     _eltwiseOp->getName(), _eltwiseOp->getLoc());
-    for (auto constDeclare : _constInputs) {
+    auto sortedConstInputs = toSortedByBlockOrder(_constInputs);
+    for (auto constDeclare : sortedConstInputs) {
         const auto& contentAttr = constDeclare.getContentAttr();
         Const::ContentAttr newContentAttr;
 
@@ -668,7 +684,7 @@ mlir::LogicalResult ExpandEltwisePattern::rewrite(mlir::PatternRewriter& rewrite
             rewriter.create<IE::ShapeCastOp>(_eltwiseOp->getLoc(), outputType.changeShape(_unExpandedShape),
                                              _eltwiseOp->getResult(0), getIntArrayAttr(ctx, _unExpandedShape.raw()));
 
-    auto inputExpandOp = *_expandInputs.begin();
+    auto inputExpandOp = expandInputs.front();
     auto newOutputExpandOp =
             rewriter.create<IE::ExpandOp>(takeOpLoc(_eltwiseOp, "out_expand"), outputShapeCastOp.getResult(),
                                           inputExpandOp.getPadsBeginAttr(), inputExpandOp.getPadsEndAttr());
@@ -796,7 +812,8 @@ bool ExpandPoolingPattern::init() {
     log.trace("{0} Slice setOutput(s) found", getSliceOutputsNum());
 
     // save the original shape and generate new shape
-    auto expandInputOp = *getExpandInputs().begin();
+    auto sortedExpandInputs = toSortedByBlockOrder(getExpandInputs());
+    auto expandInputOp = sortedExpandInputs.front();
     auto unExpandedShape = mlir::cast<vpux::NDTypeInterface>(expandInputOp.getInput().getType()).getShape().toValues();
     setUnExpandedShape(unExpandedShape);
 
@@ -996,7 +1013,8 @@ bool ExpandSingleChannelPoolingPattern::init() {
 mlir::LogicalResult ExpandSingleChannelPoolingPattern::rewrite(mlir::PatternRewriter& rewriter) {
     auto log = getLogger().nest();
 
-    auto expand = *getExpandInputs().begin();
+    auto sortedExpandInputs = toSortedByBlockOrder(getExpandInputs());
+    auto expand = sortedExpandInputs.front();
     auto op = getEltwiseOperation();
     log.trace("Adjust input shape for pooling op at {0}", op->getLoc());
 
@@ -1103,7 +1121,8 @@ mlir::LogicalResult ExpandSingleChannelPoolingRewriter<PoolingOp>::matchAndRewri
     }
 
     // Check the expand op has C=1
-    auto expandOp = *pattern.getExpandInputs().begin();
+    auto sortedExpandInputs = toSortedByBlockOrder(pattern.getExpandInputs());
+    auto expandOp = sortedExpandInputs.front();
 
     if (IE::isEligibleConvertToConv(expandOp, _log, this->getDebugName())) {
         // Expand will be converted to Conv
@@ -1257,7 +1276,8 @@ bool ExpandPermuteQuantizePattern::init() {
     log.trace("{0} Slice setOutput(s) found", getSliceOutputsNum());
 
     // save the original shape and generate new shape
-    auto expandInputOp = *getExpandInputs().begin();
+    auto sortedExpandInputs = toSortedByBlockOrder(getExpandInputs());
+    auto expandInputOp = sortedExpandInputs.front();
     auto unExpandedShape = mlir::cast<vpux::NDTypeInterface>(expandInputOp.getInput().getType()).getShape().toValues();
     setUnExpandedShape(unExpandedShape);
 
@@ -1368,6 +1388,170 @@ mlir::LogicalResult AdjustPermuteQuantizeRewriter::matchAndRewrite(IE::PermuteQu
                                              getIntArrayAttr(layerOp.getContext(), outputType.getShape()));
 
     rewriter.replaceOp(layerOp, outputShapeCastOp.getResult());
+    return mlir::success();
+}
+
+//
+// AdjustBatchedMultiplyShapeRewriter
+//
+
+// Converts an element-wise IE.Multiply of shape NxCx1x1 (N > 1) into a 1xCxHxW NHWC operation so it
+// can be lowered to a DPU Eltwise task instead of executing per batch element on the SHAVE. The batch
+// is split as evenly as possible across the spatial dimensions (H*W == N, with H and W close to
+// sqrt(N)). The transformation is view-like and introduces no data movement: a PermuteCast
+// reinterprets NCHW->NHWC (physical memory is preserved for the NxCx1x1 -> 1xCxNx1 mapping) and an
+// AffineReshape splits the contiguous batch dimension into HxW.
+class AdjustBatchedMultiplyShapeRewriter final : public mlir::OpRewritePattern<IE::MultiplyOp> {
+public:
+    AdjustBatchedMultiplyShapeRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::MultiplyOp>(ctx), _log(log) {
+        setDebugName("AdjustBatchedMultiplyShapeRewriter");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult AdjustBatchedMultiplyShapeRewriter::matchAndRewrite(IE::MultiplyOp origOp,
+                                                                        mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
+
+    // Distributing batch across spatial dims to run Multiply as a DPU Eltwise task is only supported on
+    // NPU50XX and newer
+    if (config::getArch(origOp) < config::ArchKind::NPU50XX) {
+        _log.nest().trace("Unsupported architecture, expected NPU50XX or newer");
+        return mlir::failure();
+    }
+
+    const auto input1 = origOp.getInput1();
+    const auto input2 = origOp.getInput2();
+    const auto output = origOp.getOutput();
+
+    // Only element-wise Multiply without broadcast is supported
+    if (input1.getType() != input2.getType() || input1.getType() != output.getType()) {
+        _log.nest().trace("Inputs and output must share the same type");
+        return mlir::failure();
+    }
+
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(input1.getType());
+    const auto inShape = inputType.getShape();
+    if (inShape.size() != 4) {
+        _log.nest().trace("Only 4D shapes are supported");
+        return mlir::failure();
+    }
+    if (inputType.getDimsOrder() != DimsOrder::NCHW) {
+        _log.nest().trace("Only NCHW input layout is supported");
+        return mlir::failure();
+    }
+
+    const auto batch = inShape[Dims4D::Act::N];
+    const auto channels = inShape[Dims4D::Act::C];
+    const auto height = inShape[Dims4D::Act::H];
+    const auto width = inShape[Dims4D::Act::W];
+    // Match NxCx1x1 with a non-trivial batch dimension that prevents HW execution
+    if (batch <= 1 || height != 1 || width != 1) {
+        _log.nest().trace("Expected NxCx1x1 shape with N > 1, got '{0}'", inShape);
+        return mlir::failure();
+    }
+
+    // Determine spatial W from the first non-view-like consumer when available so the intermediate
+    // 1xCxHxW NHWC shape matches what the consumer expects, avoiding a downstream reshape.
+    // Fall back to 4 when no suitable consumer shape is found.
+    int64_t spatialW = 4;
+    {
+        mlir::Value consumerValue = origOp.getOutput();
+        mlir::Operation* firstNonViewLikeConsumer = nullptr;
+        while (!consumerValue.use_empty()) {
+            auto* nextOp = *consumerValue.getUsers().begin();
+            if (!mlir::isa<IE::ViewLikeOpInterface>(nextOp)) {
+                firstNonViewLikeConsumer = nextOp;
+                break;
+            }
+            if (nextOp->getNumResults() == 0) {
+                break;
+            }
+            consumerValue = nextOp->getResult(0);
+        }
+        if (firstNonViewLikeConsumer != nullptr && firstNonViewLikeConsumer->getNumResults() > 0) {
+            const auto consumerShape =
+                    mlir::cast<vpux::NDTypeInterface>(firstNonViewLikeConsumer->getResult(0).getType()).getShape();
+            const auto candidateW = consumerShape[Dims4D::Act::W];
+            if (candidateW > 0 && batch % candidateW == 0) {
+                spatialW = candidateW;
+            }
+        }
+    }
+    if (batch % spatialW != 0) {
+        _log.nest().trace("Batch '{0}' is not divisible by {1}, cannot set W = {1}", batch, spatialW);
+        return mlir::failure();
+    }
+    const int64_t spatialH = batch / spatialW;
+
+    const auto ctx = rewriter.getContext();
+    // Intermediate 1xCxNx1 NHWC (batch on H), then split the batch into HxW: 1xCxHxW NHWC
+    const Shape interShape{1, channels, batch, 1};
+    const Shape splitShape{1, channels, spatialH, spatialW};
+
+    // dim_mapping to split the batch (logical H) into HxW: 1xCxNx1 -> 1xCxHxW
+    const SmallVector<SmallVector<int64_t>> splitDimMapping{{Dims4D::Act::N.ind()},
+                                                            {Dims4D::Act::C.ind()},
+                                                            {Dims4D::Act::H.ind(), Dims4D::Act::W.ind()},
+                                                            {Dims4D::Act::W.ind()}};
+
+    // PermuteCast (NCHW -> NHWC, view) followed by AffineReshape (split batch into HxW, view)
+    const auto transformInput = [&](mlir::Value input, StringRef suffix) -> mlir::Value {
+        auto permuteCast = IE::tryToFindPermuteCastOp(appendLoc(origOp.getLoc(), suffix), input, DimsOrder::NHWC,
+                                                      interShape, rewriter);
+        if (!permuteCast.has_value()) {
+            return nullptr;
+        }
+        return rewriter
+                .create<IE::AffineReshapeOp>(appendLoc(origOp.getLoc(), suffix), permuteCast.value().getOutput(),
+                                             getIntArrayOfArray(ctx, splitDimMapping), getIntArrayAttr(ctx, splitShape))
+                .getOutput();
+    };
+
+    const auto newInput1 = transformInput(input1, "_in1_reshape");
+    const auto newInput2 = transformInput(input2, "_in2_reshape");
+    if (newInput1 == nullptr || newInput2 == nullptr) {
+        _log.nest().trace("Failed to build view-like reshape for inputs");
+        return mlir::failure();
+    }
+
+    auto newMultiply = rewriter.create<IE::MultiplyOp>(
+            appendLoc(origOp.getLoc(), "_nhwc"), newInput1, newInput2, origOp.getAutoBroadcastAttr(),
+            origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+
+    // Merge the spatial dims back (AffineReshape) and restore the original NxCx1x1 NCHW layout (PermuteCast)
+    const SmallVector<SmallVector<int64_t>> mergeDimMapping{{Dims4D::Act::N.ind()},
+                                                            {Dims4D::Act::C.ind()},
+                                                            {Dims4D::Act::H.ind(), Dims4D::Act::W.ind()},
+                                                            {Dims4D::Act::W.ind()}};
+    auto outputReshape = rewriter.create<IE::AffineReshapeOp>(
+            appendLoc(origOp.getLoc(), "_out_reshape"), newMultiply.getOutput(),
+            getIntArrayOfArray(ctx, mergeDimMapping), getIntArrayAttr(ctx, interShape));
+    auto outputCast = IE::tryToFindPermuteCastOp(appendLoc(origOp.getLoc(), "_out_permute_cast"),
+                                                 outputReshape.getOutput(), DimsOrder::NCHW, inShape, rewriter);
+    if (!outputCast.has_value()) {
+        _log.nest().trace("Failed to build view-like PermuteCast for output");
+        rewriter.eraseOp(outputReshape.getOperation());
+        rewriter.eraseOp(newMultiply.getOperation());
+        for (mlir::Value newInput : {newInput1, newInput2}) {
+            if (auto* reshapeOp = newInput.getDefiningOp()) {
+                auto* permuteCastOp = reshapeOp->getOperand(0).getDefiningOp();
+                rewriter.eraseOp(reshapeOp);
+                if (permuteCastOp != nullptr && permuteCastOp->use_empty()) {
+                    rewriter.eraseOp(permuteCastOp);
+                }
+            }
+        }
+        return mlir::failure();
+    }
+
+    rewriter.replaceOp(origOp, outputCast.value().getOutput());
     return mlir::success();
 }
 
@@ -1569,6 +1753,7 @@ void AdjustInputShapePass::safeRunOnFunc() {
     patterns.add<ExpandPoolingRewriter<IE::MaxPoolOp>>(&ctx, benefitLevels[0], _log);
     patterns.add<ExpandSingleChannelPoolingRewriter<IE::AvgPoolOp>>(&ctx, benefitLevels[1], _log);
     patterns.add<ExpandSingleChannelPoolingRewriter<IE::MaxPoolOp>>(&ctx, benefitLevels[1], _log);
+    patterns.add<AdjustBatchedMultiplyShapeRewriter>(&ctx, _log);
     collectOpsAndApplyPatterns(func, std::move(patterns));
     // There is case for `EltwiseShapeRewriter` that the iteration time larger than default value
     // TODO: E#126695 Refactor to avoid specific maxIterations

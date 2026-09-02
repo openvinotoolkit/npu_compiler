@@ -27,6 +27,25 @@
 
 using namespace vpux;
 
+mlir::LogicalResult vpux::IE::ConvolutionOp::verifyShapeInfo() {
+    if (mlir::failed(vpux::IE::verifyInputIs4D(getInput()))) {
+        return mlir::failure();
+    }
+    if (mlir::failed(vpux::IE::verifyInputIs4D(getFilter()))) {
+        return mlir::failure();
+    }
+
+    return vpux::IE::verifyInputIs4D(getBias(), /*allowNull=*/true);
+}
+
+mlir::LogicalResult vpux::IE::GroupConvolutionOp::verifyShapeInfo() {
+    if (mlir::failed(vpux::IE::verifyInputIs4D(getInput()))) {
+        return mlir::failure();
+    }
+
+    return vpux::IE::verifyInputIs4D(getFilter());
+}
+
 //
 // FuseConvAndSlice
 //

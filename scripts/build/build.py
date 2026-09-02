@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-
 #
-# Copyright (C) 2022-2026 Intel Corporation
+# Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -17,7 +16,6 @@ import time
 import shlex
 from datetime import datetime
 import threading
-
 
 timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")  # e.g. 20260313_121300
 
@@ -709,9 +707,9 @@ if __name__ == "__main__":
     full_flow = FullFlow(
         build_time_stat=BuildTimeStat(export_build_metrics=args.export_build_metrics),
         ov_retrieve_flow=OVRetrieveFlow(
-            ov_commit=args.ov_commit
-            if args.ov_commit
-            else get_ov_commit_from_npu_repo(),
+            ov_commit=(
+                args.ov_commit if args.ov_commit else get_ov_commit_from_npu_repo()
+            ),
             ov_repo_dir=args.ov_repo_dir,
             force_update=args.force_ov_update,
             force_update_if_does_not_match=args.force_ov_update_if_does_not_match,

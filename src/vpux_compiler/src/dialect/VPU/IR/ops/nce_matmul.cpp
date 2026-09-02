@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_matmul_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_reduce_output_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
@@ -316,8 +317,23 @@ void vpux::VPU::NCEMatMulOp::adjustAttrs(const vpux::TilingInfo& inputTiling, co
     getRawFilterShapeMutable().assign(dynamicValues);
 }
 
+vpux::OutputTiling vpux::VPU::NCEMatMulOp::getOutputTiling(const vpux::TileInfo& firstOutputTile,
+                                                           vpux::Logger /*log*/) {
+    OutputTiling outputTiling;
+    outputTiling.push_back(firstOutputTile);
+    const auto reduceOutputTiles = VPU::getReduceOutputTiling(getOperation(), firstOutputTile);
+    outputTiling.append(reduceOutputTiles.begin(), reduceOutputTiles.end());
+    return outputTiling;
+}
+
+vpux::TileInfo vpux::VPU::NCEMatMulOp::getMainOutputTile(mlir::OpResult secondaryOutput,
+                                                         const vpux::TileInfo& secondaryOutputTile,
+                                                         vpux::Logger /*log*/) {
+    return VPU::getMainTileFromReduceOutputTiling(getOperation(), {secondaryOutput, secondaryOutputTile});
+}
+
 mlir::FailureOr<OutputTiling> vpux::VPU::NCEMatMulOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
-    return vpux::getHWLayerTilingStrategy(this->getOperation(), tilingMode, log);
+    return vpux::getHWLayerTilingStrategy(getOperation(), tilingMode, log);
 }
 
 //
@@ -447,4 +463,16 @@ vpux::NDTypeInterface vpux::VPU::NCEMatMulOp::getDistributedTypeForOpOperand(mli
     }
     VPUX_THROW("Failed to compute distributed type for op {0}", clusteredOp);
     return nullptr;
+}
+
+DimArr vpux::VPU::NCEMatMulOp::restrictedFusionAxes() {
+    if (getReduceXyMax() != nullptr || getReduceXyMin() != nullptr) {
+        return {DimsGroups5D::Act::C};
+    }
+
+    return {};
+}
+
+bool vpux::VPU::NCEMatMulOp::isVFSupported() {
+    return getReduceTensorMinMax() == nullptr;
 }

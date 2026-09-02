@@ -192,10 +192,10 @@ void sortTasksAndCreateTaskMap(VPURT::TaskConfigVec& allTasks, QueueIDToTaskConf
     }
 }
 
-size_t calculateSplitDMACost(VPUIP::NNDMAOp dmaOp, const std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
+size_t calculateSplitDMACost(VPUIP::DMATypeOpInterface dmaOp, const std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
     size_t static constexpr COST_MAX = std::numeric_limits<size_t>::max();
 
-    const auto maybeTileDim = VPUIP::getCopyDMATilingDim(dmaOp);
+    const auto maybeTileDim = VPUIP::getCopyDMATilingDim(dmaOp.getOperation());
     if (!maybeTileDim.has_value()) {
         return COST_MAX;
     }
@@ -203,24 +203,31 @@ size_t calculateSplitDMACost(VPUIP::NNDMAOp dmaOp, const std::shared_ptr<VPUNN::
 
     auto inputType = mlir::cast<vpux::NDTypeInterface>(dmaOp.getInput().getType());
     auto inElemType = inputType.getElementType();
+    auto outputType = mlir::cast<vpux::NDTypeInterface>(dmaOp.getOutput().getType());
+    auto outElemType = outputType.getElementType();
     const auto arch = config::getArch(dmaOp);
-    if (!VPU::isVPUNNSupportedElementType(inElemType, arch)) {
+    // For ConvertDMA (e.g. f32->f16), use the output element type for the VPUNN support check.
+    // The input type (e.g. f32) is not supported by VPUNN on some architectures (e.g. NPU40XX),
+    // which would cause COST_MAX and prevent ConvertDMA from ever being selected as a split candidate.
+    const auto checkElemType = mlir::isa<VPUIP::ConvertDMAOp>(dmaOp.getOperation()) ? outElemType : inElemType;
+    if (!VPU::isVPUNNSupportedElementType(checkElemType, arch)) {
         return COST_MAX;
     }
 
-    auto outputType = mlir::cast<vpux::NDTypeInterface>(dmaOp.getOutput().getType());
     auto inputShape = inputType.getShape();
-
     auto [firstPartSize, secondPartSize] = VPUIP::getSplitPartSizes(inputType, tileDim);
     SmallVector<int64_t> splitShape = to_small_vector(inputShape);
     splitShape[tileDim.ind()] = secondPartSize;
 
-    const auto nnType = VPU::getVPUNNElementType(inElemType);
-    VPUX_THROW_UNLESS(nnType.has_value(), "Unsupported data type: '{0}'", inElemType);
+    const auto nnInType = VPU::getVPUNNElementType(inElemType);
+    VPUX_THROW_UNLESS(nnInType.has_value(), "Unsupported data type: '{0}'", inElemType);
+    const auto nnOutType = VPU::getVPUNNElementType(outElemType);
+    VPUX_THROW_UNLESS(nnOutType.has_value(), "Unsupported data type: '{0}'", outElemType);
     const auto vpuDevice = vpux::VPU::getVPUDeviceType(dmaOp);
-    const auto nnTensor =
-            VPUNN::VPUTensor({checked_cast<unsigned int>(Shape(splitShape).totalSize()), 1, 1, 1}, nnType.value());
-    return costModel->DMA(vpuDevice, {nnTensor}, {nnTensor}, getMemoryLocation(inputType),
+    const auto totalSize = checked_cast<unsigned int>(Shape(splitShape).totalSize());
+    const auto nnInputTensor = VPUNN::VPUTensor({totalSize, 1, 1, 1}, nnInType.value());
+    const auto nnOutputTensor = VPUNN::VPUTensor({totalSize, 1, 1, 1}, nnOutType.value());
+    return costModel->DMA(vpuDevice, {nnInputTensor}, {nnOutputTensor}, getMemoryLocation(inputType),
                           getMemoryLocation(outputType));
 }
 
@@ -289,8 +296,22 @@ void DetectDMASplitCandidate::safeRunOnFunc() {
             return;
         }
 
-        auto dmaOp = mlir::dyn_cast<VPUIP::NNDMAOp>(taskOp.getInnerTaskOp());
-        if (dmaOp == nullptr || dmaOp.getCompressCandidate()) {
+        auto dmaOp = mlir::dyn_cast<VPUIP::DMATypeOpInterface>(taskOp.getInnerTaskOp());
+        if (dmaOp == nullptr) {
+            return;
+        }
+
+        // Only handle NNDMAOp and ConvertDMAOp
+        auto nnDmaOp = mlir::dyn_cast<VPUIP::NNDMAOp>(taskOp.getInnerTaskOp());
+        auto convertDmaOp = mlir::dyn_cast<VPUIP::ConvertDMAOp>(taskOp.getInnerTaskOp());
+        if (nnDmaOp == nullptr && convertDmaOp == nullptr) {
+            return;
+        }
+
+        const bool isConvertDma = convertDmaOp != nullptr;
+
+        // NNDMAOp with compress_candidate should not be split
+        if (nnDmaOp != nullptr && nnDmaOp.getCompressCandidate()) {
             return;
         }
 
@@ -300,9 +321,9 @@ void DetectDMASplitCandidate::safeRunOnFunc() {
             return;
         }
 
-        VPUX_THROW_UNLESS(dmaOp.getPort().has_value(), "DMA at '{0}' has no portId", dmaOp->getLoc());
+        VPUX_THROW_UNLESS(dmaOp.getPortVal().has_value(), "DMA at '{0}' has no portId", dmaOp->getLoc());
 
-        const auto dmaPort = dmaOp.getPort().value();
+        const auto dmaPort = dmaOp.getPortVal().value();
         const auto channelType = dmaOp.getChannelType();
 
         if (dmaOp->hasAttr(VPUIP::UNROLL_IDX)) {
@@ -310,7 +331,13 @@ void DetectDMASplitCandidate::safeRunOnFunc() {
             return;
         }
 
-        if (dmaOp.getSplitCandidate().has_value()) {
+        const auto hasSplitCandidateAlready = [&]() {
+            if (nnDmaOp != nullptr) {
+                return nnDmaOp.getSplitCandidate().has_value();
+            }
+            return convertDmaOp.getSplitCandidate().has_value();
+        }();
+        if (hasSplitCandidateAlready) {
             _log.trace("DMA at '{0}' has been assigned with SplitCandidate attribute already", dmaOp->getLoc());
             return;
         }
@@ -319,6 +346,14 @@ void DetectDMASplitCandidate::safeRunOnFunc() {
             _log.trace("DMA at '{0}' is a strided IO DMA, skipping split", dmaOp->getLoc());
             return;
         }
+
+        const auto markAsSplitCandidate = [&]() {
+            if (nnDmaOp != nullptr) {
+                nnDmaOp.setSplitCandidate(true);
+            } else {
+                convertDmaOp.setSplitCandidate(true);
+            }
+        };
 
         const auto outputBuffer = dmaOp.getOutputBuff();
         const auto inputType = mlir::cast<vpux::NDTypeInterface>(dmaOp.getInput().getType());
@@ -349,7 +384,7 @@ void DetectDMASplitCandidate::safeRunOnFunc() {
         auto taskQueueID = getDMAQueueIdEncoding(dmaPort == 0 ? 1 : 0, channelType);
         if (queueIdToTasksConfigVecMap.find(taskQueueID) == queueIdToTasksConfigVecMap.end()) {
             // no tasks on another port at all
-            dmaOp.setSplitCandidate(true);
+            markAsSplitCandidate();
             return;
         }
 
@@ -377,10 +412,26 @@ void DetectDMASplitCandidate::safeRunOnFunc() {
         auto maxGap = findMaxCycleGap(mergedOverlappingTaskCycles, taskCycles);
         auto splitNNDMACost = calculateSplitDMACost(dmaOp, costModel);
         if (maxGap < splitNNDMACost) {
+            // relax for ConvertDMA which typically runs early in the pipeline.
+            if (isConvertDma && splitNNDMACost != std::numeric_limits<size_t>::max()) {
+                int64_t overlappingTotalCycles = 0;
+                for (const auto& interval : mergedOverlappingTaskCycles) {
+                    overlappingTotalCycles += interval.cycleEnd - interval.cycleStart;
+                }
+                const bool parallelIsFaster =
+                        static_cast<int64_t>(splitNNDMACost) + overlappingTotalCycles < taskConfig.cycleCost;
+                if (parallelIsFaster) {
+                    _log.trace("ConvertDMA at '{0}' marked as split candidate via fallback: "
+                               "overlappingCycles {1} + splitCost {2} < fullCost {3}, maxGap {4}",
+                               dmaOp->getLoc(), overlappingTotalCycles, splitNNDMACost, taskConfig.cycleCost, maxGap);
+                    markAsSplitCandidate();
+                    return;
+                }
+            }
             return;
         }
 
-        dmaOp.setSplitCandidate(true);
+        markAsSplitCandidate();
         _log.trace("DMA at '{0}' is assigned with SplitCandidate attribute", dmaOp->getLoc());
         _log.trace("Current {0} - {1}, duration {2}, maxGap {3} splitNNDMACost {4}", cycleStart, cycleEnd,
                    taskConfig.cycleCost, maxGap, splitNNDMACost);

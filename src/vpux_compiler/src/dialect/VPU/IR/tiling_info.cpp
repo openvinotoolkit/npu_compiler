@@ -110,43 +110,46 @@ OutputTiling GRUSequenceOutputTiling(const vpux::TileInfo& firstOutputTile) {
     return {firstOutputTile, std::move(stateOutputTile)};
 }
 
-OutputTiling logSoftmaxTopKOutputTiling(const vpux::TileInfo& firstOutputTile) {
-    const auto rank = firstOutputTile.shape.size();
-
+OutputTiling logSoftmaxTopKOutputTiling(const vpux::TileInfo& firstOutputTile, int64_t axis) {
     auto secondShape = firstOutputTile.shape;
     auto secondOffsets = firstOutputTile.offsets;
     auto secondAxis = firstOutputTile.axis;
 
     // The innermost dimension will always be 1 for the second output (due to fusing TopK with K=1)
-    secondShape[Dim(rank - 1)] = 1;
-    secondOffsets[Dim(rank - 1)] = 0;
-    secondAxis[Dim(rank - 1)] = 1;
+    const auto axisDim = Dim(axis);
+    secondShape[axisDim] = 1;
+    secondOffsets[axisDim] = 0;
+    secondAxis[axisDim] = 1;
 
     auto secondOutputTile = vpux::TileInfo(secondShape, secondOffsets, secondAxis);
 
     return {firstOutputTile, std::move(secondOutputTile)};
 }
 
-OutputTiling logSoftmaxPeakOutputTiling(const vpux::TileInfo& firstOutputTile) {
-    const auto rank = firstOutputTile.shape.size();
-
-    auto correctedShape = firstOutputTile.shape;
-    auto correctedOffsets = firstOutputTile.offsets;
-    auto correctedAxis = firstOutputTile.axis;
-
-    // The innermost dimension will always be 1 for the second output (due to fusing TopK with K=1)
-    correctedShape[Dim(rank - 1)] = 1;
-    correctedOffsets[Dim(rank - 1)] = 0;
-    correctedAxis[Dim(rank - 1)] = 1;
-
-    auto correctedOutputTile = vpux::TileInfo(correctedShape, correctedOffsets, correctedAxis);
-
-    return {correctedOutputTile, correctedOutputTile};
-}
-
 OutputTiling DynamicQuantizeOutputTiling(const vpux::TileInfo& firstOutputTile, ShapeRef scaleShape, ShapeRef zpShape) {
-    auto scaleTile = TileInfo(scaleShape);
-    auto zpTile = TileInfo(zpShape);
+    // Scale and zero-point share the data tensor's layout on the non-quantized axes and carry the
+    // quantization granularity on the quantized axis: extent 1 for per-token / per-tensor scales, or
+    // the group count for per-group scales. Their tiles must follow firstOutputTile only on the axes
+    // that are actually tiled and shared with the parameter tensor (extent > 1); every other axis,
+    // including the quantized axis, keeps its full extent because it is never tiled. Using the full
+    // scale/zp shape on all axes leaves these outputs untiled and breaks the tiled-shape check in
+    // applyTileStrategy, while blindly copying firstOutputTile corrupts the quantized axis once its
+    // extent exceeds 1 (per-group case).
+    const auto deriveParamTile = [&firstOutputTile](ShapeRef paramShape) {
+        auto paramTile = TileInfo(paramShape);
+        for (size_t ind = 0; ind < paramShape.size(); ++ind) {
+            const auto d = Dim(ind);
+            if (firstOutputTile.axis[d] > 1 && paramShape[d] > 1) {
+                paramTile.shape[d] = firstOutputTile.shape[d];
+                paramTile.offsets[d] = firstOutputTile.offsets[d];
+                paramTile.axis[d] = firstOutputTile.axis[d];
+            }
+        }
+        return paramTile;
+    };
+
+    auto scaleTile = deriveParamTile(scaleShape);
+    auto zpTile = deriveParamTile(zpShape);
 
     return {firstOutputTile, std::move(scaleTile), std::move(zpTile)};
 }
@@ -197,7 +200,7 @@ OutputTiling FlashSDPAOpOutputTiling(const vpux::TileInfo& firstOutputTile) {
     // Max and Sum outputs have reduced shape, width == 1
     maxAndSumTile.shape[Dims4D::Act::W] = 1;
     maxAndSumTile.offsets[Dims4D::Act::W] = 0;
-    maxAndSumTile.axis[Dims4D::Act::W] = 0;
+    maxAndSumTile.axis[Dims4D::Act::W] = 1;
 
     return OutputTiling{firstOutputTile, maxAndSumTile, maxAndSumTile};
 }
@@ -225,12 +228,18 @@ InputTiling FlashSDPAOpInputTiling(const vpux::TileInfo& firstOutputTile, int64_
     const auto outputTileCOffset = firstOutputTile.offsets[Dims4D::Act::C];
     const auto outputTileCSize = firstOutputTile.shape[Dims4D::Act::C];
 
-    VPUX_THROW_UNLESS(outputTileCOffset % gqaGroupSize == 0,
-                      "FlashSDPAOpInputTiling expects output tile C offset {0} to be a multiple of GQA group size {1}",
-                      outputTileCOffset, gqaGroupSize);
-    VPUX_THROW_UNLESS(outputTileCSize % gqaGroupSize == 0,
-                      "FlashSDPAOpInputTiling expects output tile C size {0} to be a multiple of GQA group size {1}",
-                      outputTileCSize, gqaGroupSize);
+    // A Q head tile maps onto the K/V heads via the integer division below, so it must not straddle a
+    // group boundary. Two shapes satisfy that: a whole number of groups (the tile then covers
+    // 'size / gqaGroupSize' K/V heads), or a subset of a single group (the tile then covers that one
+    // K/V head). Only a tile that partially overlaps two groups is rejected, since it would silently
+    // drop the heads belonging to the second one.
+    const auto spansWholeGroups = (outputTileCOffset % gqaGroupSize == 0) && (outputTileCSize % gqaGroupSize == 0);
+    const auto isWithinOneGroup =
+            (outputTileCOffset / gqaGroupSize) == ((outputTileCOffset + outputTileCSize - 1) / gqaGroupSize);
+    VPUX_THROW_UNLESS(spansWholeGroups || isWithinOneGroup,
+                      "FlashSDPAOpInputTiling expects the output tile C range [{0}, {1}) to either span whole GQA "
+                      "groups or stay within a single group of size {2}",
+                      outputTileCOffset, outputTileCOffset + outputTileCSize, gqaGroupSize);
 
     const auto queryShape = Shape{1, qHeads, targetSeqLen, qkEmbedding};
     const auto valueShape = Shape{1, kvHeads, sourceSeqLen, vEmbedding};

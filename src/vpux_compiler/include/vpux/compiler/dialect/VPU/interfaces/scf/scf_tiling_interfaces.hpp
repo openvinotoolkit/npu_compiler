@@ -26,6 +26,8 @@
 
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
+#include <mlir/Dialect/Arith/IR/Arith.h>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/Dialect/Utils/IndexingUtils.h>
 #include <mlir/Support/LLVM.h>
 
@@ -1067,8 +1069,9 @@ public:
     }
 
     mlir::Operation* createTiledOperation(OpGeneratorFunc opGenerator, OpTilingOperandsFunc operandsGenerator,
-                                          mlir::OpBuilder&, SCFTilingInfo& inputTiling, const SCFTileInfo& outputTile,
-                                          DimArrRef, SmallVector<mlir::Value>&, mlir::Operation* operation) const {
+                                          mlir::OpBuilder& opBuilder, SCFTilingInfo& inputTiling,
+                                          const SCFTileInfo& outputTile, DimArrRef, SmallVector<mlir::Value>&,
+                                          mlir::Operation* operation) const {
         operandsGenerator(inputTiling);
 
         auto generator = [&]() -> mlir::Operation* {
@@ -1078,31 +1081,91 @@ public:
             auto origInterpolate = mlir::cast<VPU::InterpolateOp>(operation);
 
             const auto numDims = static_cast<int64_t>(outputTile.shape.size());
+            const auto i64Type = opBuilder.getI64Type();
+            const auto offsetsTensorType = mlir::RankedTensorType::get({numDims}, i64Type);
 
             SmallVector<int64_t> inputOffsets(numDims, 0);
             SmallVector<int64_t> outputOffsets(numDims, 0);
+            bool hasDynamicInputOffset = false;
+            bool hasDynamicOutputOffset = false;
+
+            // First pass: classify each offset dimension and fill the initial_*_offset_attr arrays.
+            // No ops are created here, so the common fully-static tiling case leaves no offset ops
+            // behind. Returns true when the offset is dynamic (not a compile-time constant).
+            const auto classifyOffset = [&](mlir::OpFoldResult ofr, SmallVector<int64_t>& staticOffsets,
+                                            int64_t dim) -> bool {
+                if (auto val = mlir::getConstantIntValue(ofr)) {
+                    staticOffsets[dim] = val.value();
+                    return false;
+                }
+                staticOffsets[dim] = mlir::ShapedType::kDynamic;
+                return true;
+            };
             for (auto i : irange(numDims)) {
-                if (auto val = mlir::getConstantIntValue(inputTiling.tiles[0].offsets[i])) {
-                    inputOffsets[i] = val.value();
-                }
-                if (auto val = mlir::getConstantIntValue(outputTile.offsets[i])) {
-                    outputOffsets[i] = val.value();
-                }
+                hasDynamicInputOffset |= classifyOffset(inputTiling.tiles[0].offsets[i], inputOffsets, i);
+                hasDynamicOutputOffset |= classifyOffset(outputTile.offsets[i], outputOffsets, i);
             }
             newOp.setInitialInputOffsetAttrAttr(attrBuilder.getI64ArrayAttr(inputOffsets));
             newOp.setInitialOutputOffsetAttrAttr(attrBuilder.getI64ArrayAttr(outputOffsets));
+
+            // Save/restore insertion point: materialized offset ops (constants and IndexCast/ExtSI)
+            // must be placed before newOp so their results dominate it.
+            mlir::OpBuilder::InsertionGuard insertGuard(opBuilder);
+            opBuilder.setInsertionPoint(newOp);
+
+            // Second pass, taken only when at least one dimension is dynamic: materialize every
+            // per-dim offset as an i64 value (constant dims become arith.constant, dynamic dims are
+            // cast to i64). Fully-static offsets omit the dynamic_*_offsets operand and create no
+            // offset ops.
+            const auto materializeOffsetValues = [&](bool hasDynamic, const auto& offsets) -> SmallVector<mlir::Value> {
+                SmallVector<mlir::Value> values;
+                if (!hasDynamic) {
+                    return values;
+                }
+                values.reserve(numDims);
+                for (auto i : irange(numDims)) {
+                    mlir::OpFoldResult ofr = offsets[i];
+                    if (auto val = mlir::getConstantIntValue(ofr)) {
+                        values.push_back(opBuilder.create<mlir::arith::ConstantIntOp>(newOp.getLoc(), val.value(), 64));
+                        continue;
+                    }
+                    auto offsetVal = mlir::getValueOrCreateConstantIndexOp(opBuilder, newOp.getLoc(), ofr);
+                    if (offsetVal.getType().isIndex()) {
+                        offsetVal = opBuilder.create<mlir::arith::IndexCastOp>(newOp.getLoc(), i64Type, offsetVal);
+                    } else if (!offsetVal.getType().isSignlessInteger(64)) {
+                        offsetVal = opBuilder.create<mlir::arith::ExtSIOp>(newOp.getLoc(), i64Type, offsetVal);
+                    }
+                    values.push_back(offsetVal);
+                }
+                return values;
+            };
+            // Materialize both operands' offset values before building any tensor so all offset
+            // values precede the packed tensors (preserves the operation ordering).
+            auto inputOffsetValues = materializeOffsetValues(hasDynamicInputOffset, inputTiling.tiles[0].offsets);
+            auto outputOffsetValues = materializeOffsetValues(hasDynamicOutputOffset, outputTile.offsets);
+
+            // Pack the materialized offset values into a tensor operand for each dynamic operand.
+            const auto assignDynamicOffsets = [&](bool hasDynamic, SmallVector<mlir::Value>& values,
+                                                  auto mutableAccessor) {
+                if (!hasDynamic) {
+                    return;
+                }
+                auto offsetsTensor =
+                        opBuilder.create<mlir::tensor::FromElementsOp>(newOp.getLoc(), offsetsTensorType, values);
+                mutableAccessor().assign(mlir::ValueRange{offsetsTensor.getResult()});
+            };
+            assignDynamicOffsets(hasDynamicInputOffset, inputOffsetValues, [&]() {
+                return newOp.getDynamicInputOffsetsMutable();
+            });
+            assignDynamicOffsets(hasDynamicOutputOffset, outputOffsetValues, [&]() {
+                return newOp.getDynamicOutputOffsetsMutable();
+            });
 
             SmallVector<double> zeroTileOffset(numDims, 0.0);
             newOp.setTileOffsetAttrAttr(attrBuilder.getF64ArrayAttr(zeroTileOffset));
 
             SmallVector<int64_t> zeroPads(numDims, 0);
-            auto calcModeAttr = IE::InterpolateCalcModeAttr::get(ctx, IE::InterpolateCalcMode::SCALES);
             auto origAttr = newOp.getAttr();
-            auto newInterpolateAttr = IE::InterpolateAttr::get(
-                    ctx, origAttr.getMode(), calcModeAttr, origAttr.getCoordMode(), origAttr.getNearestMode(),
-                    origAttr.getAntialias(), attrBuilder.getI64ArrayAttr(zeroPads),
-                    attrBuilder.getI64ArrayAttr(zeroPads), origAttr.getCubeCoeff());
-            newOp.setAttrAttr(newInterpolateAttr);
 
             // Use getBoundedShape to resolve dynamic dims to upper bounds, avoiding kDynamic in attrs
             const SmallVector<int64_t> initialInputDims(getBoundedShape(origInterpolate.getInput()).raw());
@@ -1110,20 +1173,62 @@ public:
             newOp.setInitialInputDimsAttrAttr(attrBuilder.getI64ArrayAttr(initialInputDims));
             newOp.setInitialOutputDimsAttrAttr(attrBuilder.getI64ArrayAttr(initialOutputDims));
 
+            // The VPU dialect pins Interpolate to SIZES shape_calc_mode and uses useScaleAttr
+            // (preserved on the clone) as the sole marker for whether scales_attr is the
+            // authoritative coordinate-transform scale. Keep shape_calc_mode at SIZES and recompute
+            // a static per-tile sizes_attr so inferReturnTypes sizes each tile; scales_attr and
+            // useScaleAttr stay as cloned (mirrors the non-SCF VPU::InterpolateOp::adjustAttrs path).
+            // A static sizes_attr is available when every interpolated axis has a compile-time
+            // constant tile extent (static tiling) or a known upper bound (dynamic SCF tiling). When
+            // a tile extent is a non-constant value without bounds (e.g. cluster tiling via
+            // scf.forall), the tile falls back to SCALES mode with the global output/input dim ratio
+            // so inferReturnTypes derives each tile's output shape from its input shape.
+            auto calcModeAttr = origAttr.getShapeCalcMode();
             auto axesAttrOpt = origInterpolate.getAxesAttr();
             if (axesAttrOpt.has_value()) {
                 auto axesValue = parseIntArrayAttr<int64_t>(axesAttrOpt.value());
-                SmallVector<double> scales(axesValue.size(), 1.0);
-                for (auto axis : axesValue | indexed) {
-                    const auto axisDim = Dim(axis.value());
-                    auto inDim = initialInputDims[axisDim.ind()];
-                    auto outDim = initialOutputDims[axisDim.ind()];
-                    if (inDim != 0) {
-                        scales[axis.index()] = static_cast<double>(outDim) / static_cast<double>(inDim);
+                SmallVector<int64_t> sizes;
+                sizes.reserve(axesValue.size());
+                bool staticSizesAvailable = true;
+                for (auto axis : axesValue) {
+                    const auto axisDim = Dim(axis);
+                    if (auto tileSize = mlir::getConstantIntValue(outputTile.shape[axisDim.ind()])) {
+                        sizes.push_back(tileSize.value());
+                    } else if (!outputTile.bounds.raw().empty()) {
+                        sizes.push_back(outputTile.bounds[axisDim]);
+                    } else {
+                        staticSizesAvailable = false;
+                        break;
                     }
                 }
-                newOp.setScalesAttrAttr(attrBuilder.getF64ArrayAttr(scales));
+                if (staticSizesAvailable) {
+                    newOp.setSizesAttrAttr(attrBuilder.getI64ArrayAttr(sizes));
+                } else {
+                    // If scales are authoritative (SCALES-authored), keep the cloned scales_attr.
+                    // Otherwise (SIZES-authored), derive a bounded-dims ratio scale for shape inference.
+                    if (!newOp.getUseScaleAttr() || !newOp.getScalesAttr().has_value()) {
+                        SmallVector<double> scales(axesValue.size(), 1.0);
+                        for (size_t idx = 0; idx < axesValue.size(); ++idx) {
+                            const auto axisDim = Dim(axesValue[idx]);
+                            const auto inDim = initialInputDims[axisDim.ind()];
+                            const auto outDim = initialOutputDims[axisDim.ind()];
+                            if (inDim != 0) {
+                                scales[idx] = static_cast<double>(outDim) / static_cast<double>(inDim);
+                            }
+                        }
+                        newOp.setScalesAttrAttr(attrBuilder.getF64ArrayAttr(scales));
+                    }
+                    calcModeAttr = IE::InterpolateCalcModeAttr::get(ctx, IE::InterpolateCalcMode::SCALES);
+                }
             }
+
+            // Only the per-tile pads are reset here; the per-tile output sizing is carried by
+            // sizes_attr (SIZES mode) or scales_attr (SCALES fallback) set above.
+            auto newInterpolateAttr = IE::InterpolateAttr::get(
+                    ctx, origAttr.getMode(), calcModeAttr, origAttr.getCoordMode(), origAttr.getNearestMode(),
+                    origAttr.getAntialias(), attrBuilder.getI64ArrayAttr(zeroPads),
+                    attrBuilder.getI64ArrayAttr(zeroPads), origAttr.getCubeCoeff());
+            newOp.setAttrAttr(newInterpolateAttr);
 
             vpux::inferReturnTypes(newOp, vpux::InferShapedTypeMode::SHAPE);
             return newOp.getOperation();

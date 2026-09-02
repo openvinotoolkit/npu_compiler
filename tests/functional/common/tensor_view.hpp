@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023-2025 Intel Corporation
+// Copyright (C) 2023-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -8,6 +8,8 @@
 #include <openvino/core/shape.hpp>
 #include <openvino/runtime/tensor.hpp>
 #include <vpux/utils/core/error.hpp>
+
+#include <type_traits>
 
 // Creates a wrapper around ov::Tensor and provides multi-dimensional checked element access
 //
@@ -109,13 +111,13 @@ private:
     ElementType& getValue(Dims... dims) const {
         static_assert(sizeof...(dims) == DimSize, "Invalid number of indices");
 
-        auto dimsArray = std::array<int, sizeof...(Dims)>{dims...};
-        int index = 0;
+        auto dimsArray = std::array<int64_t, sizeof...(Dims)>{static_cast<int64_t>(dims)...};
+        int64_t index = 0;
 
-        for (auto i = static_cast<int>(dimsArray.size() - 1); i >= 0; i--) {
-            VPUX_THROW_UNLESS((dimsArray[i] >= 0 && dimsArray[i] < _shape[i]),
+        for (int64_t i = dimsArray.size() - 1; i >= 0; i--) {
+            VPUX_THROW_UNLESS((dimsArray[i] >= 0 && dimsArray[i] < static_cast<int64_t>(_shape[i])),
                               "Index {0} with value {1} is out of bounds=[{2}..{3})", i, dimsArray[i], 0,
-                              static_cast<int>(_shape[i]));
+                              static_cast<int64_t>(_shape[i]));
             index += dimsArray[i] * _strides[i];
         }
 

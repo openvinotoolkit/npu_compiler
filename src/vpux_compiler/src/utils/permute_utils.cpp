@@ -39,6 +39,30 @@ bool vpux::isTrivialPermute(MemShapeRef inShape, mlir::AffineMap memPerm) {
     return true;
 }
 
+bool vpux::areReshapedAxesPermutedIntegratedly(ArrayRef<SmallVector<int64_t>> dimMapping, ArrayRef<int64_t> permAxis,
+                                               const DimsOrder& permInOrder, MemShapeRef memShape) {
+    for (const auto& mappedDims : dimMapping) {
+        if (mappedDims.size() <= 1) {
+            continue;
+        }
+
+        SmallVector<int64_t> splitAxes;
+        for (const auto outDim : mappedDims) {
+            splitAxes.push_back(permInOrder.toMemDim(Dim(outDim)).ind());
+        }
+
+        const auto nonTrivialMemDims = llvm::count_if(splitAxes, [&](int64_t memDim) {
+            return memShape[MemDim(memDim)] > 1;
+        });
+        if (nonTrivialMemDims > 1 &&
+            std::search(permAxis.begin(), permAxis.end(), splitAxes.begin(), splitAxes.end()) == permAxis.end()) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 SmallVector<int64_t> vpux::getPermutateDims(MemShapeRef inShape, mlir::AffineMap memPerm) {
     const auto perm = DimsOrder::fromAffineMap(memPerm);
     VPUX_THROW_UNLESS(inShape.size() == perm.numDims(), "Permutation '{0}' is not compatible with shape '{1}'", memPerm,

@@ -47,9 +47,8 @@ func.func @InsertUnsqueezeBeforedTile(%arg0: tensor<2x3xf32>) -> tensor<1x6x15xf
 // CHECK-LABEL: @FuseTwoTiles
 // CHECK-SAME: [[INPUT:%.+]]: tensor<2x3x4xf32>
 func.func @FuseTwoTiles(%arg0: tensor<2x3x4xf32>) -> tensor<8x9x32xf32> {
-    %cst = const.Declare tensor<3xsi64> = dense<[2, 1, 2]> : tensor<3xsi64>
     %1 = IE.Tile(%arg0) {repeats_values = [2, 3, 4]} : tensor<2x3x4xf32> -> tensor<4x9x16xf32>
-    %2 = IE.Tile(%1, %cst) : tensor<4x9x16xf32>, tensor<3xsi64> -> tensor<8x9x32xf32>
+    %2 = IE.Tile(%1) {repeats_values = [2, 1, 2]} : tensor<4x9x16xf32> -> tensor<8x9x32xf32>
     // CHECK:       [[TILE:%.+]] = IE.Tile([[INPUT]]) {
     // CHECK-SAME:      repeats_values = [4, 3, 8]} : tensor<2x3x4xf32> -> tensor<8x9x32xf32>
 

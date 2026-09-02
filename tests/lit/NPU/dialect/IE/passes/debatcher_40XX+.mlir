@@ -32,6 +32,13 @@ func.func @SingleInputSingleOutputBatched(%arg: tensor<3x3x62x62xf32>) -> tensor
     // CHECK: return [[VAL3]] : tensor<3x48x60x60xf32>
 }
 
+net.NetworkInfo entryPoint : @SingleInputSingleOutputBatched inputsInfo : {
+    DataInfo "input0" : tensor<3x3x62x62xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<3x48x60x60xf32>
+}
+
+
 // -----
 
 // CHECK-LABEL: @SingleInputSingleOutputReshapeAttributeBatched
@@ -64,6 +71,13 @@ func.func @SingleInputSingleOutputReshapeAttributeBatched(%arg: tensor<3x3x62x62
     // CHECK: return [[VAL5]] : tensor<3x48x60x60xf32>
 }
 
+net.NetworkInfo entryPoint : @SingleInputSingleOutputReshapeAttributeBatched inputsInfo : {
+    DataInfo "input0" : tensor<3x3x62x62xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<3x48x60x60xf32>
+}
+
+
 // -----
 
 // CHECK-LABEL: @SingleInputSingleOutputFirstReshapeAttributeBatched
@@ -81,6 +95,13 @@ func.func @SingleInputSingleOutputFirstReshapeAttributeBatched(%arg: tensor<3x3x
     // CHECK: [[VAL4:%.+]] = builtin.unrealized_conversion_cast [[VAL3]] : tensor<1x3x62x62xf32> to tensor<3x3x62x62xf32>
     // CHECK: return [[VAL4]] : tensor<3x3x62x62xf32>
 }
+
+net.NetworkInfo entryPoint : @SingleInputSingleOutputFirstReshapeAttributeBatched inputsInfo : {
+    DataInfo "input0" : tensor<3x3x62x62xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<3x3x62x62xf32>
+}
+
 
 // -----
 
@@ -120,6 +141,13 @@ func.func @SingleInputSingleOutputAffineReshapeAttributeBatched(%arg: tensor<3x3
     // CHECK: return [[VAL5]] : tensor<3x48x60x60xf32>
 }
 
+net.NetworkInfo entryPoint : @SingleInputSingleOutputAffineReshapeAttributeBatched inputsInfo : {
+    DataInfo "input0" : tensor<3x3x62x62xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<3x48x60x60xf32>
+}
+
+
 // -----
 
 // CHECK-LABEL: @SingleInputSingleOutputFirstInterpolateAttributeNonBatched
@@ -141,6 +169,13 @@ func.func @SingleInputSingleOutputFirstInterpolateAttributeNonBatched(%arg0: ten
     // CHECK: return [[VAL2]] : tensor<3x3x124x124xf32>
 }
 
+net.NetworkInfo entryPoint : @SingleInputSingleOutputFirstInterpolateAttributeNonBatched inputsInfo : {
+    DataInfo "input0" : tensor<3x3x62x62xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<3x3x124x124xf32>
+}
+
+
 // -----
 
 // CHECK-LABEL: @SingleInputSingleOutputFirstInterpolateAttributeBatched
@@ -161,6 +196,13 @@ func.func @SingleInputSingleOutputFirstInterpolateAttributeBatched(%arg0: tensor
     // CHECK: [[VAL2:%.+]] = builtin.unrealized_conversion_cast [[VAL1]] : tensor<1x3x124x124xf32> to tensor<3x3x124x124xf32>
     // CHECK: return [[VAL2]] : tensor<3x3x124x124xf32>
 }
+
+net.NetworkInfo entryPoint : @SingleInputSingleOutputFirstInterpolateAttributeBatched inputsInfo : {
+    DataInfo "input0" : tensor<3x3x62x62xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<3x3x124x124xf32>
+}
+
 
 // -----
 // CHECK-LABEL: @SingleInputSingleOutputNonBatched
@@ -186,6 +228,13 @@ func.func @SingleInputSingleOutputNonBatched(%arg0: tensor<1x3x62x62xf32>) -> te
     // CHECK: [[VAL2:%.+]] = IE.SoftMax([[VAL1]]) {axisInd = 3 : i64} : tensor<1x48x60x60xf32> -> tensor<1x48x60x60xf32>
     // CHECK: return [[VAL2]] : tensor<1x48x60x60xf32>
 }
+
+net.NetworkInfo entryPoint : @SingleInputSingleOutputNonBatched inputsInfo : {
+    DataInfo "input0" : tensor<1x3x62x62xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<1x48x60x60xf32>
+}
+
 
 // -----
 
@@ -220,6 +269,13 @@ func.func @SingleInputSingleOutputDoNotDebatchConstantOperands(%arg: tensor<3x3x
     // CHECK: [[VAL4:%.+]] = builtin.unrealized_conversion_cast [[VAL3]] : tensor<1x48x60x60xf32> to tensor<3x48x60x60xf32>
     // CHECK: return [[VAL4]] : tensor<3x48x60x60xf32>
 }
+
+net.NetworkInfo entryPoint : @SingleInputSingleOutputDoNotDebatchConstantOperands inputsInfo : {
+    DataInfo "input0" : tensor<3x3x62x62xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<3x48x60x60xf32>
+}
+
 
 // -----
 
@@ -256,6 +312,14 @@ func.func @MultipleInputSingleOutputBatched(%arg0: tensor<3x3x62x62xf32>, %arg1:
 
 }
 
+net.NetworkInfo entryPoint : @MultipleInputSingleOutputBatched inputsInfo : {
+    DataInfo "input0" : tensor<3x3x62x62xf32>
+    DataInfo "input1" : tensor<3x48x60x60xf32>
+} outputsInfo : {
+    DataInfo "output" : tensor<3x48x60x60xf32>
+}
+
+
 // -----
 
 // CHECK-LABEL: @MultipleInputMultipleOutputBatched
@@ -291,6 +355,15 @@ func.func @MultipleInputMultipleOutputBatched(%arg0: tensor<3x3x62x62xf32>, %arg
         // CHECK: return [[VAL6]], [[VAL7]] : tensor<3x48x60x60xf32>, tensor<3x48x60x60xf32>
 }
 
+net.NetworkInfo entryPoint : @MultipleInputMultipleOutputBatched inputsInfo : {
+    DataInfo "input0" : tensor<3x3x62x62xf32>
+    DataInfo "input1" : tensor<3x48x60x60xf32>
+} outputsInfo : {
+    DataInfo "output0" : tensor<3x48x60x60xf32>
+    DataInfo "output1" : tensor<3x48x60x60xf32>
+}
+
+
 // -----
 
 // CHECK-LABEL: @MultipleInputMultipleOutputMixed
@@ -324,6 +397,15 @@ func.func @MultipleInputMultipleOutputMixed(%arg0: tensor<1x3x62x62xf32>, %arg1:
         // CHECK: return [[VAL6]], [[VAL3]] : tensor<3x48x60x60xf32>, tensor<1x48x60x60xf32>
 }
 
+net.NetworkInfo entryPoint : @MultipleInputMultipleOutputMixed inputsInfo : {
+    DataInfo "input0" : tensor<1x3x62x62xf32>
+    DataInfo "input1" : tensor<3x48x60x60xf32>
+} outputsInfo : {
+    DataInfo "output0" : tensor<3x48x60x60xf32>
+    DataInfo "output1" : tensor<1x48x60x60xf32>
+}
+
+
 // -----
 
 // CHECK-LABEL: @DebatchConstantShape
@@ -339,4 +421,10 @@ func.func @DebatchConstantShape(%arg0: tensor<2x2xsi32>) -> tensor<2xsi32> {
     // CHECK: [[FUNC_RES:%.+]] = IE.GatherND([[DE_ARG0]], [[DE_CST]]) {batch_dims = 1 : i64} : tensor<1x2xsi32>, tensor<1x1xsi32> -> tensor<1xsi32>
     // CHECK: [[RES:%.+]] = builtin.unrealized_conversion_cast [[FUNC_RES]] : tensor<1xsi32> to tensor<2xsi32>
     // CHECK: return [[RES]] : tensor<2xsi32>
+}
+
+net.NetworkInfo entryPoint : @DebatchConstantShape inputsInfo : {
+    DataInfo "input0" : tensor<2x2xsi32>
+} outputsInfo : {
+    DataInfo "output" : tensor<2xsi32>
 }

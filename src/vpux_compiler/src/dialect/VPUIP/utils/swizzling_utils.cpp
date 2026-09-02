@@ -84,7 +84,7 @@ mlir::Type setSwizzlingKey(mlir::Type type, mlir::IntegerAttr swizzlingKeyAttr, 
     const auto memSpace = ndType.getMemSpace();
 
     if (mlir::isa<mlir::MemRefType>(type)) {
-        return vpux::getMemRefType(shape, elemType, order, memSpace, strides, swizzlingSchemeAttr,
+        return vpux::getMemRefType(shape, elemType, order, memSpace, strides, getBounds(ndType), swizzlingSchemeAttr,
                                    VPUIP::getSparsityCompressionAttr(type));
     } else if (mlir::isa<vpux::VPUIP::DistributedBufferType>(type) || mlir::isa<vpux::VPUIP::ITIBufferType>(type)) {
         mlir::ArrayAttr stridesAttr;
@@ -102,8 +102,9 @@ mlir::Type setSwizzlingKey(mlir::Type type, mlir::IntegerAttr swizzlingKeyAttr, 
             stridesAttr = getIntArrayAttr(ctx, elemStrides);
         }
 
-        const auto layoutAttr = vpux::MemRefAttr::get(orderAttr, stridesAttr,
-                                                      /*allocSize=*/nullptr, {swizzlingSchemeAttr}, ctx);
+        const auto layoutAttr =
+                vpux::MemRefAttr::get(orderAttr, stridesAttr,
+                                      /*allocSize=*/nullptr, /*optionalBounds=*/{}, {swizzlingSchemeAttr}, ctx);
 
         if (auto itiBufferType = mlir::dyn_cast<vpux::VPUIP::ITIBufferType>(type)) {
             return VPUIP::ITIBufferType::get(ctx, shape.raw(), elemType, layoutAttr, memSpace,
@@ -140,7 +141,7 @@ vpux::NDTypeInterface updateSwizzlingSchemeBasedOnDistributedType(VPUIP::Distrib
 
     const auto strides = newType.getStrides();
     return vpux::getMemRefType(newType.getShape(), newType.getElementType(), newType.getDimsOrder(),
-                               newType.getMemSpace(), strides, parentSwizzlingSchemeAttr,
+                               newType.getMemSpace(), strides, getBounds(newType), parentSwizzlingSchemeAttr,
                                VPUIP::getSparsityCompressionAttr(newType));
 }
 

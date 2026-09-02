@@ -20,6 +20,7 @@ def IE_ConvolutionOp :
             "Convolution",
             [
                 AttrSizedOperandSegments,
+                DeclareOpInterfaceMethods<IE_ShapeInfoOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 DeclareOpInterfaceMethods<StaticShapeOpInterface>
             ]
@@ -209,7 +210,10 @@ def IE_FullyConnectedOp :
 
 def IE_GroupConvolutionOp :
         IE_LayerOp<
-            "GroupConvolution"
+            "GroupConvolution",
+            [
+                DeclareOpInterfaceMethods<IE_ShapeInfoOpInterface>
+            ]
         > {
     let summary = "InferenceEngine GroupConvolution layer";
 

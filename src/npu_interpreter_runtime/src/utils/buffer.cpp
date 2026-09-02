@@ -4,14 +4,14 @@
 //
 
 #include "buffer.hpp"
-
 #include "allocator_core.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
+#include <new>
 #include <stdexcept>
-#include <unordered_map>
 #include <utility>
 
 intel_npu::vm::Buffer::Buffer(uint8_t* data, size_t size, Permission permission, Ownership ownership)
@@ -34,16 +34,38 @@ intel_npu::vm::Ownership intel_npu::vm::Buffer::getOwnership() const {
     return _ownership;
 }
 
+void intel_npu::vm::Buffer::readData(size_t offset, uint8_t* data, size_t size) const {
+    if (size == 0) {
+        return;
+    }
+    if (_data == nullptr) {
+        throw std::runtime_error("Buffer data pointer is null");
+    }
+    if (_permission != Permission::ReadWrite && _permission != Permission::Read) {
+        throw std::runtime_error("Buffer does not have read permission");
+    }
+    if (offset > _size || size > _size - offset) {
+        throw std::out_of_range("Read exceeds buffer bounds");
+    }
+    std::memcpy(data, std::next(_data, static_cast<std::ptrdiff_t>(offset)), size);
+}
+
 void intel_npu::vm::Buffer::writeData(size_t offset, const uint8_t* data, size_t size) {
     // std::memcpy takes size_t, so copies whose size does not fit in size_t cannot be performed on this host.
-    static_assert(sizeof(size_t) >= 8, "Bytecode buffer copies require a 64-bit size_t");
+    static_assert(sizeof(size_t) >= sizeof(int64_t), "Bytecode buffer copies require a 64-bit size_t");
+    if (size == 0) {
+        return;
+    }
+    if (_data == nullptr) {
+        throw std::runtime_error("Buffer data pointer is null");
+    }
     if (_permission != Permission::ReadWrite) {
         throw std::runtime_error("Buffer does not have write permission");
     }
     if (offset > _size || size > _size - offset) {
         throw std::out_of_range("Write exceeds buffer bounds");
     }
-    std::memcpy(_data + offset, data, size);
+    std::memcpy(std::next(_data, static_cast<std::ptrdiff_t>(offset)), data, size);
 }
 
 intel_npu::vm::BufferHandle intel_npu::vm::BufferManager::BufferHandleManager::getNextHandle() {
@@ -153,7 +175,7 @@ intel_npu::vm::BufferHandle intel_npu::vm::BufferManager::createFromBuffer(intel
     if (offset > bufferSize || size > bufferSize - offset) {
         throw std::out_of_range("Requested offset and size exceeds buffer bounds");
     }
-    const auto newData = buffer.rawData() + offset;
+    const auto newData = std::next(buffer.rawData(), static_cast<std::ptrdiff_t>(offset));
     const auto newHandle = generateBufferHandle();
     _buffers.emplace(newHandle, Buffer(newData, size, buffer.getPermission(), Ownership::Unowned));
     _derivedBuffers[handle].push_back(newHandle);

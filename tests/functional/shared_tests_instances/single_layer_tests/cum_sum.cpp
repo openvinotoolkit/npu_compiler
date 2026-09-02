@@ -31,6 +31,7 @@ TEST_P(CumSumLayerTestCommon, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(CumSumLayerTestCommon, NPU5020_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
@@ -57,7 +58,7 @@ const std::vector<std::vector<ov::Shape>> shapes = {{{5, 14, 5, 7}},
 const std::vector<ov::element::Type> inputPrecision = {ov::element::f16, ov::element::f32};
 const std::vector<ov::element::Type> inputLowPrecision = {ov::element::f16, ov::element::i32};
 
-const std::vector<int64_t> axes = {0, 1};
+const std::vector<int64_t> axes = {0, 1, 3};
 const std::vector<int64_t> negativeAxes = {-2, -1};
 
 const std::vector<bool> exclusive = {true, false};
@@ -70,6 +71,15 @@ const auto testCaseAxis_0 =
                          testing::Values(exclusive[0]),                                           // Exclusive
                          testing::Values(reverse[1]),                                             // Reverse
                          testing::Values(test_utils::TARGET_DEVICE));                             // Device name
+
+const auto testCaseAxis_3 = testing::Combine(
+        testing::Values(
+                static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 64, 4, 256, 256}})),  // Input shapes
+        testing::Values(inputPrecision[0]),  // Model type - f16 to avoid f32 SW kernel precision issues on large inputs
+        testing::Values(axes[2]),            // Axis
+        testing::Values(exclusive[1]),       // Exclusive
+        testing::Values(reverse[1]),         // Reverse
+        testing::Values(test_utils::TARGET_DEVICE));
 
 const auto testCasesNegativeAxis = testing::Combine(
         testing::ValuesIn({static_shapes_to_test_representation({shapes[0]})}), testing::Values(inputPrecision[1]),
@@ -99,6 +109,8 @@ const auto cumSumParamsDynamic = ::testing::Combine(
 INSTANTIATE_TEST_SUITE_P(smoke_CumSumDynamic, CumSumLayerTestCommon, cumSumParamsDynamic,
                          CumSumLayerTestCommon::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_CumSum_axis_0, CumSumLayerTestCommon, testCaseAxis_0,
+                         CumSumLayerTestCommon::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_CumSum_axis_3, CumSumLayerTestCommon, testCaseAxis_3,
                          CumSumLayerTestCommon::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_CumSum_negative_axis, CumSumLayerTestCommon, testCasesNegativeAxis,
                          CumSumLayerTestCommon::getTestCaseName);

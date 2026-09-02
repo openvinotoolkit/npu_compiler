@@ -94,4 +94,98 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conv_U8InU8Filter_PerTensor_SCL_Executi
                                             ::testing::Values(ov::element::f16), ::testing::ValuesIn(kSclShapes)),
                          ConvDtypesTestCommon::getTestCaseName);
 
+// --- I16 input, I4 filter ---
+
+// I I16, W I4 -> O FP16, per-tensor
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conv_I16InI4Filter_PerTensor, ConvDtypesTestCommon,
+                         ::testing::Combine(::testing::Combine(::testing::Values(ov::element::i4),   // filter
+                                                               ::testing::Values(65536),             // input levels
+                                                               ::testing::Values(ov::element::f16),  // output
+                                                               ::testing::Values(256),               // output levels
+                                                               ::testing::Values(false)),            // per-axis
+                                            ::testing::Values(ov::element::f16), ::testing::ValuesIn(kDcimShapes)),
+                         ConvDtypesTestCommon::getTestCaseName);
+
+// I I16, W I4 -> O FP16, per-axis
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conv_I16InI4Filter_PerAxis, ConvDtypesTestCommon,
+                         ::testing::Combine(::testing::Combine(::testing::Values(ov::element::i4),   // filter
+                                                               ::testing::Values(65536),             // input levels
+                                                               ::testing::Values(ov::element::f16),  // output
+                                                               ::testing::Values(256),               // output levels
+                                                               ::testing::Values(true)),             // per-axis
+                                            ::testing::Values(ov::element::f16), ::testing::ValuesIn(kDcimShapes)),
+                         ConvDtypesTestCommon::getTestCaseName);
+
+// I I16, W I4 -> O U16, per-tensor
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conv_I16InI4Filter_OutU16_PerTensor, ConvDtypesTestCommon,
+                         ::testing::Combine(::testing::Combine(::testing::Values(ov::element::i4),   // filter
+                                                               ::testing::Values(65536),             // input levels
+                                                               ::testing::Values(ov::element::u16),  // output
+                                                               ::testing::Values(65536),             // output levels
+                                                               ::testing::Values(false)),            // per-axis
+                                            ::testing::Values(ov::element::f16), ::testing::ValuesIn(kDcimShapes)),
+                         ConvDtypesTestCommon::getTestCaseName);
+
+// I I16, W I4 -> O U8, per-tensor
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conv_I16InI4Filter_OutU8_PerTensor, ConvDtypesTestCommon,
+                         ::testing::Combine(::testing::Combine(::testing::Values(ov::element::i4),  // filter
+                                                               ::testing::Values(65536),            // input levels
+                                                               ::testing::Values(ov::element::u8),  // output
+                                                               ::testing::Values(256),              // output levels
+                                                               ::testing::Values(false)),           // per-axis
+                                            ::testing::Values(ov::element::f16), ::testing::ValuesIn(kDcimShapes)),
+                         ConvDtypesTestCommon::getTestCaseName);
+
+// --- I8 input, I4 filter ---
+
+// I I8, W I4 -> O FP16, per-tensor
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conv_I8InI4Filter_PerTensor, ConvDtypesTestCommon,
+                         ::testing::Combine(::testing::Combine(::testing::Values(ov::element::i4),   // filter
+                                                               ::testing::Values(256),               // input levels
+                                                               ::testing::Values(ov::element::f16),  // output
+                                                               ::testing::Values(256),               // output levels
+                                                               ::testing::Values(false)),            // per-axis
+                                            ::testing::Values(ov::element::f16), ::testing::ValuesIn(kDcimShapes)),
+                         ConvDtypesTestCommon::getTestCaseName);
+
+// I I8, W I4 -> O FP16, per-axis
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conv_I8InI4Filter_PerAxis, ConvDtypesTestCommon,
+                         ::testing::Combine(::testing::Combine(::testing::Values(ov::element::i4),   // filter
+                                                               ::testing::Values(256),               // input levels
+                                                               ::testing::Values(ov::element::f16),  // output
+                                                               ::testing::Values(256),               // output levels
+                                                               ::testing::Values(true)),             // per-axis
+                                            ::testing::Values(ov::element::f16), ::testing::ValuesIn(kDcimShapes)),
+                         ConvDtypesTestCommon::getTestCaseName);
+
+// I I8, W I4 -> O U16, per-tensor
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conv_I8InI4Filter_OutU16_PerTensor, ConvDtypesTestCommon,
+                         ::testing::Combine(::testing::Combine(::testing::Values(ov::element::i4),   // filter
+                                                               ::testing::Values(256),               // input levels
+                                                               ::testing::Values(ov::element::u16),  // output
+                                                               ::testing::Values(65536),             // output levels
+                                                               ::testing::Values(false)),            // per-axis
+                                            ::testing::Values(ov::element::f16), ::testing::ValuesIn(kDcimShapes)),
+                         ConvDtypesTestCommon::getTestCaseName);
+
+// I I8, W I4 -> O U8, per-tensor
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conv_I8InI4Filter_OutU8_PerTensor, ConvDtypesTestCommon,
+                         ::testing::Combine(::testing::Combine(::testing::Values(ov::element::i4),  // filter
+                                                               ::testing::Values(256),              // input levels
+                                                               ::testing::Values(ov::element::u8),  // output
+                                                               ::testing::Values(256),              // output levels
+                                                               ::testing::Values(false)),           // per-axis
+                                            ::testing::Values(ov::element::f16), ::testing::ValuesIn(kDcimShapes)),
+                         ConvDtypesTestCommon::getTestCaseName);
+
+// I I8, W I4 -> O FP16, per-tensor (non-DCIM-aligned width forces SCL execution)
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conv_I8InI4Filter_PerTensor_SCL_Execution, ConvDtypesTestCommon,
+                         ::testing::Combine(::testing::Combine(::testing::Values(ov::element::i4),   // filter
+                                                               ::testing::Values(256),               // input levels
+                                                               ::testing::Values(ov::element::f16),  // output
+                                                               ::testing::Values(256),               // output levels
+                                                               ::testing::Values(false)),            // per-axis
+                                            ::testing::Values(ov::element::f16), ::testing::ValuesIn(kSclShapes)),
+                         ConvDtypesTestCommon::getTestCaseName);
+
 }  // namespace

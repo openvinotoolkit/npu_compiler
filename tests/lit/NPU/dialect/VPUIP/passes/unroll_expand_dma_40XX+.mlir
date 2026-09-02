@@ -354,3 +354,102 @@ func.func @UnrollExpandDMAWithInOutStridesOnExpandAxis() -> memref<1x16x40x40x!q
 
     //CHECK:    return [[OUTPUT]] : memref<1x16x40x40x!qElemType, {order = #NHWC, strides = [76800, 1, 1920, 48]}, @DDR>
 }
+
+// -----
+
+!qElemType = !quant.uniform<!QuantileType.quantile<ui4:si8, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16:0, {4.343750e+00,3.625000e+00,-5.031250e+00,-1.375000e+00,-3.484375,4.156250e+00,-2.687500e+00,3.656250e+00,2.765625,-3.062500e+00,-1.640625,-6.281250e+00,-9.625000e+00,-1.7265625,7.937500e+00,5.906250e+00}>
+
+// CHECK: [[QQ:!.+]] = !quant.uniform<!QuantileType.quantile<ui4:si8,
+// CHECK: @UnrollSubbyteExpandDMA
+func.func @UnrollSubbyteExpandDMA() -> memref<16x1x1x32x!qElemType, @DDR> {
+    %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+
+    %input = VPURT.DeclareBuffer <DDR> <0> -> memref<16x1x1x16x!qElemType, @DDR>
+    %output = VPURT.DeclareBuffer <DDR> <18432000> -> memref<16x1x1x32x!qElemType, @DDR>
+
+    VPURT.Task updates(%bar0 : !VPURT.Barrier) {
+        %25361 = VPUIP.ExpandDMA <{pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 16], port = 0 : i64}>
+        inputs(%input : memref<16x1x1x16x!qElemType, @DDR>)
+        outputs(%output : memref<16x1x1x32x!qElemType, @DDR>)
+          -> memref<16x1x1x32x!qElemType, @DDR>
+    }
+
+    return %output: memref<16x1x1x32x!qElemType, @DDR>
+
+    //CHECK:    [[BARRIER:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+    //CHECK:    [[INPUT:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<16x1x1x16x[[QQ]], @DDR>
+    //CHECK:    [[OUTPUT:%.+]] = VPURT.DeclareBuffer <DDR> <18432000> -> memref<16x1x1x32x[[QQ]], @DDR>
+
+    //CHECK:    VPURT.Task updates([[BARRIER]] : !VPURT.Barrier) {
+    //CHECK:        VPUIP.ExpandDMA <{dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 1 : i64, len = 128 : i64,
+    //CHECK-SAME:     srcWidth = 128 : i64, srcStride = 128 : i64, srcPlaneStride = 0 : i64,
+    //CHECK-SAME:     dstWidth = 8 : i64, dstStride = 16 : i64, dstPlaneStride = 0 : i64>,
+    //CHECK-SAME:     pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 16], port = 0 : i64}>
+    //CHECK:                inputs([[INPUT]] : memref<16x1x1x16x[[QQ]], @DDR>)
+    //CHECK:                outputs([[OUTPUT]] : memref<16x1x1x32x[[QQ]], @DDR>)
+    //CHECK-SAME:       -> memref<16x1x1x32x[[QQ]], @DDR>
+
+    //CHECK:    return [[OUTPUT]] : memref<16x1x1x32x[[QQ]], @DDR>
+}
+
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+!qElemType = !quant.uniform<!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>:f16, 0.07874348958333334>
+
+!OutputDistributed = !VPUIP.DistributedBuffer<
+    128x1x1x32x!qElemType, #NCHW, @CMX_NN, {
+    mode = "SEGMENTED",
+    num_tiles = [2, 1, 1, 1],
+    num_clusters =  2 : i64,
+    compute_shapes = [[64, 1, 1, 32], [64, 1, 1, 32]],
+    compute_offsets = [[0, 0, 0, 0], [64, 0, 0, 0]],
+    memory_shapes = [[64, 1, 1, 32], [64, 1, 1, 32]],
+    memory_offsets = [[0, 0, 0, 0], [64, 0, 0, 0]]
+}>
+
+// CHECK: [[QQ:!.+]] = !quant.uniform<!QuantileType.quantile<ui4:f16,
+// CHECK: @UnrollSubbyteExpandDMAMultiTile
+func.func @UnrollSubbyteExpandDMAMultiTile() -> !OutputDistributed {
+    %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+
+    %input = VPURT.DeclareBuffer <DDR> <0> -> memref<128x1x1x16x!qElemType, @DDR>
+    %output = VPURT.DeclareBuffer <CMX_NN> <0> -> !OutputDistributed
+
+    VPURT.Task updates(%bar0 : !VPURT.Barrier) {
+        %25361 = VPUIP.ExpandDMA <{pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 16], port = 0 : i64}>
+        inputs(%input : memref<128x1x1x16x!qElemType, @DDR>)
+        outputs(%output : !OutputDistributed)
+          -> !OutputDistributed
+    }
+
+    return %output: !OutputDistributed
+
+    //CHECK:    [[BARRIER:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+    //CHECK:    [[INPUT0:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<64x1x1x16x[[QQ]], @DDR>
+    //CHECK:    [[INPUT1:%.+]] =  VPURT.DeclareBuffer <DDR> <512> -> memref<64x1x1x16x[[QQ]], @DDR>
+
+    //CHECK:    VPURT.DeclareBuffer <CMX_NN> <0> -> !VPUIP.DistributedBuffer<128x1x1x32x[[QQ]], #NCHW, @CMX_NN
+    //CHECK:    [[OUT_CMX0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x1x1x32x[[QQ]], [@CMX_NN, 0]>
+    //CHECK:    [[OUT_CMX1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<64x1x1x32x[[QQ]], [@CMX_NN, 1]>
+
+    //CHECK:    VPURT.Task updates([[BARRIER]] : !VPURT.Barrier) {
+    //CHECK:        VPUIP.ExpandDMA <{dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 1 : i64, len = 512 : i64,
+    //CHECK-SAME:     srcWidth = 512 : i64, srcStride = 512 : i64, srcPlaneStride = 0 : i64,
+    //CHECK-SAME:     dstWidth = 8 : i64, dstStride = 16 : i64, dstPlaneStride = 0 : i64>
+    //CHECK-SAME:     pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 16]
+    //CHECK:                inputs([[INPUT0]] : memref<64x1x1x16x[[QQ]], @DDR>)
+    //CHECK:                outputs([[OUT_CMX0]] : memref<64x1x1x32x[[QQ]], [@CMX_NN, 0]>)
+    //CHECK-SAME:       -> memref<64x1x1x32x[[QQ]], [@CMX_NN, 0]>
+
+    //CHECK:    VPURT.Task updates([[BARRIER]] : !VPURT.Barrier) {
+    //CHECK:        VPUIP.ExpandDMA <{dma_descriptor = #VPUIP.DMADescriptorAttr<numPlanes = 1 : i64, len = 512 : i64,
+    //CHECK-SAME:     srcWidth = 512 : i64, srcStride = 512 : i64, srcPlaneStride = 0 : i64,
+    //CHECK-SAME:     dstWidth = 8 : i64, dstStride = 16 : i64, dstPlaneStride = 0 : i64>
+    //CHECK-SAME:     pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 16]
+    //CHECK:                inputs([[INPUT1]] : memref<64x1x1x16x[[QQ]], @DDR>)
+    //CHECK:                outputs([[OUT_CMX1]] : memref<64x1x1x32x[[QQ]], [@CMX_NN, 1]>)
+    //CHECK-SAME:       -> memref<64x1x1x32x[[QQ]], [@CMX_NN, 1]>
+
+}

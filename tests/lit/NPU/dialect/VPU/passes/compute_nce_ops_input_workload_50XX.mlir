@@ -28,7 +28,7 @@ module @AddInputWorkloadsOC  {
   }
 
   func.func @main(%arg0: !Input1_CMX, %arg1: !Input2_CMX) -> !Output_CMX {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         input_padding = [0, 13, 0, 0],
         output_padding = [0, 0, 0, 0],
@@ -84,11 +84,11 @@ module @DWConvInputWorkloadsAutopaddingODU  {
   }
 
   func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
-    %0 = VPU.NCE.DepthConvolution(%arg0, %arg1, %arg2) rawFilterShape [3, 1, 1, 1] {
+    %0 = VPU.NCE.DepthConvolution(%arg0, %arg1, %arg2) rawFilterShape [3, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             input_padding = [0, 13, 0, 0],
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1]
         } -> !Output_CMX {
             VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 3, 30, 60]  pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16>
@@ -249,7 +249,7 @@ module @EltwiseInputWorkloads  {
   }
 
   func.func @main(%arg0: !Input0_CMX, %arg1: !Input1_CMX) -> !Output_CMX {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             op_type = #VPU.eltwise_type<ADD>,
             ppe = #VPU.PPEFp<mode = <NOOP>,
             clamp_low = -3.4028234663852886E+38 : f64,

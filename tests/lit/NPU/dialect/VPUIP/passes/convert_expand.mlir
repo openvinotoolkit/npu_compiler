@@ -40,6 +40,40 @@ func.func @Expand(%arg0: memref<1x3x4x4xf16>) -> (memref<1x8x4x4xf16>) {
 
 // -----
 
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: func.func @ExpandFP32
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x3x4x4xf32>)
+func.func @ExpandFP32(%arg0: memref<1x3x4x4xf32>) -> (memref<1x8x4x4xf32>) {
+    %0 = memref.alloc() : memref<1x8x4x4xf32>
+    %1 = VPUIP.Expand {pads_begin = [0, 0, 0, 0], pads_end = [0, 5, 0, 0]} inputs(%arg0 : memref<1x3x4x4xf32>) outputs(%0 : memref<1x8x4x4xf32>) -> memref<1x8x4x4xf32>
+    return %1 : memref<1x8x4x4xf32>
+
+    // CHECK:       [[CST:%.+]] = const.Declare memref<1x5x4x4xf32> = dense<0.000000e+00> : tensor<80xf32>, [#const.Reshape<[1, 5, 4, 4]>]
+    // CHECK:       [[OUT_BUFFER:%.+]] = memref.alloc() : memref<1x8x4x4xf32>
+
+    // CHECK:       [[VIEW1:%.+]] = VPUIP.SubView [[OUT_BUFFER]] [0, 0, 0, 0] [1, 3, 4, 4]
+    // CHECK-SAME:      : memref<1x8x4x4xf32> to memref<1x3x4x4xf32, {order = #NCHW, strides = [128, 16, 4, 1]}>
+    // CHECK:       [[COPY1:%.+]] = VPUIP.Copy inputs([[ARG_0]] : memref<1x3x4x4xf32>)
+    // CHECK-SAME:      outputs([[VIEW1]] : memref<1x3x4x4xf32, {order = #NCHW, strides = [128, 16, 4, 1]}>)
+
+    // CHECK:       [[VIEW2:%.+]] = VPUIP.SubView [[OUT_BUFFER]] [0, 3, 0, 0] [1, 5, 4, 4]
+    // CHECK-SAME:      : memref<1x8x4x4xf32> to memref<1x5x4x4xf32, {order = #NCHW, strides = [128, 16, 4, 1]}>
+    // CHECK:       [[COPY2:%.+]] = VPUIP.Copy inputs([[CST]] : memref<1x5x4x4xf32>)
+    // CHECK-SAME:      outputs([[VIEW2]] : memref<1x5x4x4xf32, {order = #NCHW, strides = [128, 16, 4, 1]}>)
+
+    // CHECK:       [[OUT:%.+]] = VPUIP.ConcatView
+    // CHECK-SAME:      inputs([[COPY1]], [[COPY2]] :
+    // CHECK-SAME:          memref<1x3x4x4xf32, {order = #NCHW, strides = [128, 16, 4, 1]}>,
+    // CHECK-SAME:          memref<1x5x4x4xf32, {order = #NCHW, strides = [128, 16, 4, 1]}>)
+    // CHECK-SAME:      outputs([[OUT_BUFFER]] : memref<1x8x4x4xf32>) -> memref<1x8x4x4xf32>
+
+    // CHECK:       return [[OUT]] : memref<1x8x4x4xf32>
+}
+
+// -----
+
 // CHECK-LABEL: func.func @ExpandToSubviewWithoutTail
 // CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<1x4x4x4xf16>)
 func.func @ExpandToSubviewWithoutTail(%arg0: memref<1x4x4x4xf16>) -> memref<1x8x4x4xf16> {
@@ -504,4 +538,32 @@ func.func @MixedSignedAndUnsignedQuantizedExpand(
     // CHECK:       VPUIP.Copy inputs([[CST_U8]]
     // CHECK:       [[OUT_U8:%.+]] = VPUIP.ConcatView
     // CHECK:       return [[OUT_I8]], [[OUT_U8]]
+}
+
+// -----
+
+// CHECK-LABEL: func.func @ExpandFp32Scale
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: memref<4x1x1x1xf32>)
+func.func @ExpandFp32Scale(%arg0: memref<4x1x1x1xf32>) -> memref<16x1x1x1xf32> {
+    %alloc_0 = memref.alloc() : memref<16x1x1x1xf32>
+
+    %0 = VPUIP.Expand {
+        pads_begin = [0, 0, 0, 0], pads_end = [12, 0, 0, 0]
+    } inputs(%arg0 : memref<4x1x1x1xf32>) outputs(%alloc_0 : memref<16x1x1x1xf32>)
+        -> memref<16x1x1x1xf32>
+
+    return %0 : memref<16x1x1x1xf32>
+
+    // CHECK-NOT:       VPUIP.Expand
+    // CHECK:    [[ZERO_CONST:%.+]] = const.Declare memref<12x1x1x1xf32> = dense<0.000000e+00> : tensor<12xf32>, [#const.Reshape<[12, 1, 1, 1]>]
+    // CHECK:    [[ALLOC:%.+]] = memref.alloc() : memref<16x1x1x1xf32>
+    // CHECK:    [[SUBVIEW_0:%.+]] = VPUIP.SubView [[ALLOC]] [0, 0, 0, 0] [4, 1, 1, 1] : memref<16x1x1x1xf32> to memref<4x1x1x1xf32>
+    // CHECK:    [[COPY_0:%.+]] = VPUIP.Copy inputs([[ARG_0]] : memref<4x1x1x1xf32>) outputs([[SUBVIEW_0]] : memref<4x1x1x1xf32>) -> memref<4x1x1x1xf32>
+    // CHECK:    [[SUBVIEW_1:%.+]] = VPUIP.SubView [[ALLOC]] [4, 0, 0, 0] [12, 1, 1, 1] : memref<16x1x1x1xf32> to memref<12x1x1x1xf32>
+    // CHECK:    [[COPY_1:%.+]] = VPUIP.Copy inputs([[ZERO_CONST]] : memref<12x1x1x1xf32>)
+    // CHECK-SAME:                           outputs([[SUBVIEW_1]] : memref<12x1x1x1xf32>) -> memref<12x1x1x1xf32>
+    // CHECK:    [[CONCAT:%.+]] = VPUIP.ConcatView inputs([[COPY_0]], [[COPY_1]] : memref<4x1x1x1xf32>, memref<12x1x1x1xf32>)
+    // CHECK-SAME:                                 outputs([[ALLOC]] : memref<16x1x1x1xf32>) -> memref<16x1x1x1xf32>
+
+    // CHECK:    return [[CONCAT]] : memref<16x1x1x1xf32>
 }

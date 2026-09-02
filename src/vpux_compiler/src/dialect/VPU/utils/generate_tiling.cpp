@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/VPU/utils/dilated_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_reduce_output_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/se_roll_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
@@ -165,6 +166,21 @@ mlir::LogicalResult applyTileStrategy(VPU::TilingBuilderOpInterface origOp, cons
                                       mlir::RewriterBase& rewriter, Logger log) {
     const auto results = origOp->getResults();
 
+    // Splitting along the reduced axis produces VPU.Concat tiles with identical static_offsets on
+    // that axis: getReduceOutputTiling forces offset=0 for every reduce slice, so the Concat
+    // receives N overlapping regions and silently miscompiles. Reject until proper
+    // Concat+ReduceMax/Min reconstruction is implemented (E#207252).
+    // getReducedDim() already gates on hasReduceOutputs, so no separate call is needed.
+    if (const auto reducedDim = VPU::getReducedDim(origOp.getOperation())) {
+        const bool splitsReducedDim = llvm::any_of(tiles, [&](const TileInfo& tile) {
+            return tile.axis[*reducedDim] > 1;
+        });
+        VPUX_THROW_WHEN(splitsReducedDim,
+                        "Tiling along the reduced axis (dim {0}) is forbidden for op '{1}' with active reduce "
+                        "outputs at '{2}': VPU.Concat static_offsets would overlap (E#207252)",
+                        reducedDim->ind(), origOp->getName(), origOp->getLoc());
+    }
+
     auto resultTileValues = SmallVector<SmallVector<mlir::Value>>(results.size());
     auto resultTileOffsets = SmallVector<SmallVector<Shape>>(results.size());
 
@@ -196,18 +212,33 @@ mlir::LogicalResult applyTileStrategy(VPU::TilingBuilderOpInterface origOp, cons
         }
     }
 
-    SmallVector<mlir::Value> concatOps;
+    // Identify per-result reduce kinds to guard against unsupported tiling combinations.
+    // getReduceOutputKinds only covers NCE ops that support reduce outputs; for all other ops
+    // it returns a single-element {None} regardless of result count.
+    const auto kinds = VPU::getReduceOutputKinds(origOp.getOperation());
+    const bool hasReduceOutputs = kinds.size() > 1;
+    VPUX_THROW_UNLESS(!hasReduceOutputs || kinds.size() == results.size(),
+                      "getReduceOutputKinds returned {0} entries but op has {1} results at '{2}'", kinds.size(),
+                      results.size(), origOp->getLoc());
+
+    SmallVector<mlir::Value> resultValues;
+    const bool isActuallySplit = tiles.size() > 1;
     for (const auto i : irange(results.size())) {
+        // Per-tensor reduction is unsupported only when the op is actually split into
+        // multiple tiles; a single-tile (no-op) strategy must pass through unchanged.
+        if (hasReduceOutputs) {
+            VPUX_THROW_WHEN(kinds[i] == VPU::ReduceOutputKind::TensorMinMax && isActuallySplit,
+                            "Per-tensor reduce extra output not supported with tiling (E#207252)");
+        }
+
         auto resultType = origOp->getResult(i).getType();
         auto tileValues = mlir::ValueRange(resultTileValues[i]);
         auto tileOffsets = ArrayRef(resultTileOffsets[i]);
-
         auto concatOp = rewriter.create<VPU::ConcatOp>(origOp->getLoc(), resultType, tileValues, tileOffsets);
-
-        concatOps.push_back(concatOp.getOutput());
+        resultValues.push_back(concatOp.getOutput());
     }
 
-    rewriter.replaceOp(origOp, concatOps);
+    rewriter.replaceOp(origOp, resultValues);
 
     return mlir::success();
 }

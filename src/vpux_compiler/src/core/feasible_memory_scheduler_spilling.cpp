@@ -654,18 +654,18 @@ bool hasSubViewInBody(mlir::async::ExecuteOp execOp, AliasesInfo& aliasInfo, VPU
             continue;
         }
 
-        if (isStridedSubView(subViewOp)) {
-            // Strided SubViews are not supported for this optimization
-            // as they may have more complex memory access patterns
-            return true;
-        }
-
         // Skip SubViews whose source is not in the target memory space (e.g., DDR buffers
         // when using CMX_NN-only alias analysis). The source may be a ConcatView result
         // in DDR which is not tracked by the filtered aliasInfo.
         const auto sourceType = mlir::dyn_cast<vpux::NDTypeInterface>(subViewOp.getSource().getType());
         if (sourceType == nullptr || sourceType.getMemoryKind() != memKind) {
             continue;
+        }
+
+        if (isStridedSubView(subViewOp)) {
+            // Strided SubViews are not supported for this optimization
+            // as they may have more complex memory access patterns
+            return true;
         }
 
         // Get the root buffer of the SubView's source

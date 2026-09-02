@@ -21,6 +21,7 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_vpu
         npu_compiler_dialect_hostexec_transforms
         npu_compiler_locverif
+        npu_compiler_verifiers
         npu_compiler_utils
         npu_compiler_npu37xx
         npu_compiler_npu40xx
@@ -32,5 +33,4 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_core
         npu_compiler_dialect_vpuip_transforms
         npu_compiler_dialect_ie_transforms
-        openvino::npu_al
 )

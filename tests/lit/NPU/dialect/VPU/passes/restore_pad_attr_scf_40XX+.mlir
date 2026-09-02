@@ -85,7 +85,7 @@ module {
     %0 = tensor.empty() : tensor<1x32x200x200xf16, {order = #NHWC}>
     %1 = scf.for %arg2 = %c0 to %c200 step %c50 iter_args(%arg3 = %0) -> (tensor<1x32x200x200xf16, {order = #NHWC}>) {
       %extracted_slice = tensor.extract_slice %arg0[0, 0, 0, %arg2] [1, 32, 200, 50] [1, 1, 1, 1] : tensor<1x32x200x200xf16, {order = #NHWC}> to tensor<1x32x200x50xf16, {order = #NHWC}>
-      %2 = VPU.NCE.DepthConvolution(%extracted_slice, %arg1) rawFilterShape [32, 1, 1, 1] {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1]} -> tensor<1x32x200x50xf16, {order = #NHWC}>
+      %2 = VPU.NCE.DepthConvolution(%extracted_slice, %arg1) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1]} -> tensor<1x32x200x50xf16, {order = #NHWC}>
       %inserted_slice = tensor.insert_slice %2 into %arg3[0, 0, 0, %arg2] [1, 32, 200, 50] [1, 1, 1, 1] : tensor<1x32x200x50xf16, {order = #NHWC}> into tensor<1x32x200x200xf16, {order = #NHWC}>
       scf.yield %inserted_slice : tensor<1x32x200x200xf16, {order = #NHWC}>
     }
@@ -290,7 +290,7 @@ module {
         tensor.yield %cst : f16
       } : tensor<1x32x540x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x32x542x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 542, 962]> : tensor<4xsi64>, order = #NHWC}>
       %38 = VPU.NCE.Convolution(%padded_3, %cst_0) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1]} : tensor<1x32x542x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 542, 962]> : tensor<4xsi64>, order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}>
-      %39 = VPU.NCE.DepthConvolution(%38, %cst_1) rawFilterShape [32, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1]} -> tensor<1x32x540x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}>
+      %39 = VPU.NCE.DepthConvolution(%38, %cst_1) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1]} -> tensor<1x32x540x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}>
       %padded_4 = tensor.pad %39 low[0, 0, 1, %17] high[0, 0, 1, %19] {
       ^bb0(%arg3: index, %arg4: index, %arg5: index, %arg6: index):
         tensor.yield %cst : f16
@@ -306,7 +306,7 @@ module {
         tensor.yield %cst : f16
       } : tensor<1x32x540x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x32x542x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 542, 962]> : tensor<4xsi64>, order = #NHWC}>
       %42 = VPU.NCE.Convolution(%padded_6, %cst_0) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1]} : tensor<1x32x542x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 542, 962]> : tensor<4xsi64>, order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x540x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}>
-      %43 = VPU.NCE.DepthConvolution(%42, %cst_1) rawFilterShape [32, 1, 1, 1] {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1]} -> tensor<1x32x540x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}>
+      %43 = VPU.NCE.DepthConvolution(%42, %cst_1) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,  strides = [1, 1]} -> tensor<1x32x540x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}>
       %inserted_slice = tensor.insert_slice %43 into %arg2[0, 0, 0, %arg1] [1, 32, 540, %4] [1, 1, 1, 1] : tensor<1x32x540x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 540, 960]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x32x540x960xf16, {order = #NHWC}>
       scf.yield %inserted_slice : tensor<1x32x540x960xf16, {order = #NHWC}>
     }
@@ -381,4 +381,327 @@ module {
     // CHECK:                scf.yield [[INSERT]] : tensor<1x32x540x960xf16, {order = #NHWC}>
     // CHECK: [[FINAL_CAST:%.+]] = VPU.ShapeCast {shape = [1, 128, 540, 240]} inputs([[LOOP]] : tensor<1x32x540x960xf16, {order = #NHWC}>) -> tensor<1x128x540x240xf16, {order = #NHWC}>
     // CHECK: return [[FINAL_CAST]] : tensor<1x128x540x240xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// Verifies that tensor.extract on an Interpolate scales tensor can be resolved
+// through getInterpolateScalesBound(), enabling NCE pad restoration.
+
+// CHECK-LABEL: @RestorePadAttrFromInterpolateScaleBound
+// CHECK-SAME: [[INPUT:%arg[0-9]]]: tensor<1x32x64x64xf16, {order = #NHWC}>
+// CHECK-SAME: [[SCALE:%arg[0-9]]]: tensor<2xf16>
+// CHECK-SAME: [[AUX:%arg[0-9]]]: tensor<1x1x1x1024xui8>
+// CHECK-SAME: [[INTERP_INPUT:%arg[0-9]]]: tensor<1x3x4x6xf16>
+module {
+    func.func @RestorePadAttrFromInterpolateScaleBound(
+        %arg0: tensor<1x32x64x64xf16, {order = #NHWC}>,
+        %scale_factor: tensor<2xf16>,
+        %aux: tensor<1x1x1x1024xui8>,
+        %interp_input: tensor<1x3x4x6xf16>
+    ) -> tensor<1x32x64x64xf16, {order = #NHWC}> {
+      %cst = arith.constant 0.000000e+00 : f16
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c2 = arith.constant 2 : index
+      %c8 = arith.constant 8 : index
+      %c32 = arith.constant 32 : index
+      %c64 = arith.constant 64 : index
+      %weights = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x32x3x3xf16>, [#const.Reorder<#NHWC>]
+      %output = tensor.empty() : tensor<1x32x64x64xf16, {order = #NHWC}>
+      %interp = VPU.InterpolateDMA(%interp_input, %scale_factor, %aux) {
+        attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
+        axes_attr = [2, 3]
+      } : tensor<1x3x4x6xf16>, tensor<2xf16>, tensor<1x1x1x1024xui8> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+
+      %extracted = tensor.extract %scale_factor[%c0] : tensor<2xf16>
+      %scale_f64 = arith.extf %extracted : f16 to f64
+      %unit_i64 = arith.index_cast %c1 : index to i64
+      %unit_f64 = arith.sitofp %unit_i64 : i64 to f64
+      %scaled = arith.mulf %unit_f64, %scale_f64 : f64
+      %scaled_i64 = arith.fptosi %scaled : f64 to i64
+      %scaled_idx = arith.index_cast %scaled_i64 : i64 to index
+      %pad_idx = arith.divsi %scaled_idx, %c8 : index
+
+      %result = scf.for %iv = %c0 to %c64 step %c32 iter_args(%acc = %output) -> (tensor<1x32x64x64xf16, {order = #NHWC}>) {
+        %slice = tensor.extract_slice %arg0[0, 0, %iv, 0] [1, 32, 32, 64] [1, 1, 1, 1] : tensor<1x32x64x64xf16, {order = #NHWC}> to tensor<1x32x32x64xf16, {order = #NHWC}>
+        %padded = tensor.pad %slice low[0, 0, %pad_idx, 0] high[0, 0, %pad_idx, 0] {
+        ^bb0(%arg1: index, %arg2: index, %arg3: index, %arg4: index):
+          tensor.yield %cst : f16
+        } : tensor<1x32x32x64xf16, {order = #NHWC}> to tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 48, 64]> : tensor<4xsi64>, order = #NHWC}>
+        %conv = VPU.NCE.Convolution(%padded, %weights) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1]} : tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 48, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x?x62xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 46, 62]> : tensor<4xsi64>, order = #NHWC}>
+        scf.yield %acc : tensor<1x32x64x64xf16, {order = #NHWC}>
+      }
+
+      return %result : tensor<1x32x64x64xf16, {order = #NHWC}>
+    }
+
+    // CHECK: [[INTERP:%.+]] = VPU.InterpolateDMA([[INTERP_INPUT]], [[SCALE]], [[AUX]])
+    // CHECK: [[EXTRACT:%.+]] = tensor.extract [[SCALE]][[[C0:%.+]]] : tensor<2xf16>
+    // CHECK: [[EXTF:%.+]] = arith.extf [[EXTRACT]] : f16 to f64
+    // CHECK: [[CAST_I64:%.+]] = arith.index_cast [[C1:%.+]] : index to i64
+    // CHECK: [[CAST_F64:%.+]] = arith.sitofp [[CAST_I64]] : i64 to f64
+    // CHECK: [[SCALED:%.+]] = arith.mulf [[CAST_F64]], [[EXTF]] : f64
+    // CHECK: [[TO_I64:%.+]] = arith.fptosi [[SCALED]] : f64 to i64
+    // CHECK: [[TO_IDX:%.+]] = arith.index_cast [[TO_I64]] : i64 to index
+    // CHECK: [[PAD_IDX:%.+]] = arith.divsi [[TO_IDX]], [[C8:%.+]] : index
+    // CHECK: [[LOOP:%.+]] = scf.for
+    // CHECK-SAME: [[LOOP_IV:%arg[0-9]+]] = [[C0]] to %c{{[0-9]+}} step %c{{[0-9]+}}
+    // CHECK-SAME: iter_args([[LOOP_ACC:%arg[0-9]+]] =
+    // CHECK: [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[LOOP_IV]], 0] [1, 32, 32, 64] [1, 1, 1, 1]
+    // CHECK-SAME: tensor<1x32x64x64xf16, {order = #NHWC}> to tensor<1x32x32x64xf16, {order = #NHWC}>
+    // CHECK: [[CAST:%.+]] = tensor.cast [[SLICE]]
+    // CHECK-SAME: tensor<1x32x32x64xf16, {order = #NHWC}> to tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK: [[CONV:%.+]] = VPU.NCE.Convolution([[CAST]], {{%.*}}) rawFilterShape [32, 32, 3, 3]
+    // CHECK-SAME: pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 1 : i64, bottom = 1 : i64>
+    // CHECK-SAME: tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK-SAME: -> tensor<1x32x?x62xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 62]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK: scf.yield [[LOOP_ACC]] : tensor<1x32x64x64xf16, {order = #NHWC}>
+    // CHECK: return [[LOOP]] : tensor<1x32x64x64xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// Verifies pad restoration when the pad value is derived from tensor.extract
+// on an arith.constant dense tensor.
+
+// CHECK-LABEL: @RestorePadAttrFromConstExtractCasts
+// CHECK-SAME: [[INPUT:%arg[0-9]]]: tensor<1x32x64x64xf16, {order = #NHWC}>
+module {
+    func.func @RestorePadAttrFromConstExtractCasts(
+        %arg0: tensor<1x32x64x64xf16, {order = #NHWC}>
+    ) -> tensor<1x32x64x64xf16, {order = #NHWC}> {
+      %cst = arith.constant 0.000000e+00 : f16
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c8 = arith.constant 8 : index
+      %c32 = arith.constant 32 : index
+      %c64 = arith.constant 64 : index
+      %weights = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x32x3x3xf16>, [#const.Reorder<#NHWC>]
+      %output = tensor.empty() : tensor<1x32x64x64xf16, {order = #NHWC}>
+
+      %scales = arith.constant dense<[8.000000e+00, 4.000000e+00]> : tensor<2xf16>
+      %extracted = tensor.extract %scales[%c0] : tensor<2xf16>
+      %scale_f64 = arith.extf %extracted : f16 to f64
+      %unit_i64 = arith.index_cast %c1 : index to i64
+      %unit_f64 = arith.sitofp %unit_i64 : i64 to f64
+      %scaled = arith.mulf %unit_f64, %scale_f64 : f64
+      %scaled_i64 = arith.fptosi %scaled : f64 to i64
+      %scaled_idx = arith.index_cast %scaled_i64 : i64 to index
+      %pad_idx = arith.divsi %scaled_idx, %c8 : index
+
+      %result = scf.for %iv = %c0 to %c64 step %c32 iter_args(%acc = %output) -> (tensor<1x32x64x64xf16, {order = #NHWC}>) {
+        %slice = tensor.extract_slice %arg0[0, 0, %iv, 0] [1, 32, 32, 64] [1, 1, 1, 1] : tensor<1x32x64x64xf16, {order = #NHWC}> to tensor<1x32x32x64xf16, {order = #NHWC}>
+        %padded = tensor.pad %slice low[0, 0, %pad_idx, 0] high[0, 0, %pad_idx, 0] {
+        ^bb0(%arg1: index, %arg2: index, %arg3: index, %arg4: index):
+          tensor.yield %cst : f16
+        } : tensor<1x32x32x64xf16, {order = #NHWC}> to tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 34, 64]> : tensor<4xsi64>, order = #NHWC}>
+        %conv = VPU.NCE.Convolution(%padded, %weights) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1]} : tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 34, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x?x62xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 62]> : tensor<4xsi64>, order = #NHWC}>
+        scf.yield %acc : tensor<1x32x64x64xf16, {order = #NHWC}>
+      }
+
+      return %result : tensor<1x32x64x64xf16, {order = #NHWC}>
+    }
+
+    // CHECK: [[SCALES:%.+]] = arith.constant dense<[8.000000e+00, 4.000000e+00]> : tensor<2xf16>
+    // CHECK: [[EXTRACT:%.+]] = tensor.extract [[SCALES]][[[C0:%.+]]] : tensor<2xf16>
+    // CHECK: [[EXTF:%.+]] = arith.extf [[EXTRACT]] : f16 to f64
+    // CHECK: [[CAST_I64:%.+]] = arith.index_cast [[C1:%.+]] : index to i64
+    // CHECK: [[CAST_F64:%.+]] = arith.sitofp [[CAST_I64]] : i64 to f64
+    // CHECK: [[SCALED:%.+]] = arith.mulf [[CAST_F64]], [[EXTF]] : f64
+    // CHECK: [[TO_I64:%.+]] = arith.fptosi [[SCALED]] : f64 to i64
+    // CHECK: [[TO_IDX:%.+]] = arith.index_cast [[TO_I64]] : i64 to index
+    // CHECK: [[PAD_IDX:%.+]] = arith.divsi [[TO_IDX]], [[C8:%.+]] : index
+    // CHECK: [[LOOP:%.+]] = scf.for
+    // CHECK-SAME: [[LOOP_IV:%arg[0-9]+]] = [[C0]] to %c{{[0-9]+}} step %c{{[0-9]+}}
+    // CHECK-SAME: iter_args([[LOOP_ACC:%arg[0-9]+]] =
+    // CHECK: [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[LOOP_IV]], 0] [1, 32, 32, 64] [1, 1, 1, 1]
+    // CHECK-SAME: tensor<1x32x64x64xf16, {order = #NHWC}> to tensor<1x32x32x64xf16, {order = #NHWC}>
+    // CHECK: [[CAST:%.+]] = tensor.cast [[SLICE]]
+    // CHECK-SAME: tensor<1x32x32x64xf16, {order = #NHWC}> to tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK: [[CONV:%.+]] = VPU.NCE.Convolution([[CAST]], {{%.*}}) rawFilterShape [32, 32, 3, 3]
+    // CHECK-SAME: pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 1 : i64, bottom = 1 : i64>
+    // CHECK-SAME: tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK-SAME: -> tensor<1x32x?x62xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 62]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK: scf.yield [[LOOP_ACC]] : tensor<1x32x64x64xf16, {order = #NHWC}>
+    // CHECK: return [[LOOP]] : tensor<1x32x64x64xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @RestorePadAttrFilterNonLoopBlockArgs
+// CHECK-SAME: [[INPUT:%arg[0-9]]]: tensor<1x32x64x64xf16, {order = #NHWC}>
+// CHECK-SAME: [[SCALE:%arg[0-9]]]: tensor<2xf16>
+// CHECK-SAME: [[AUX:%arg[0-9]]]: tensor<1x1x1x1024xui8>
+// CHECK-SAME: [[INTERP_INPUT:%arg[0-9]]]: tensor<1x3x4x6xf16>
+module {
+    func.func @RestorePadAttrFilterNonLoopBlockArgs(
+        %arg0: tensor<1x32x64x64xf16, {order = #NHWC}>,
+        %scale_factor: tensor<2xf16>,
+        %aux: tensor<1x1x1x1024xui8>,
+        %interp_input: tensor<1x3x4x6xf16>
+    ) -> tensor<1x32x64x64xf16, {order = #NHWC}> {
+      %cst = arith.constant 0.000000e+00 : f16
+      %c0 = arith.constant 0 : index
+      %c1 = arith.constant 1 : index
+      %c8 = arith.constant 8 : index
+      %c32 = arith.constant 32 : index
+      %c64 = arith.constant 64 : index
+      %weights = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x32x3x3xf16>, [#const.Reorder<#NHWC>]
+      %output = tensor.empty() : tensor<1x32x64x64xf16, {order = #NHWC}>
+      // %interp is intentionally unused; it is only needed to associate %scale_factor with an InterpolateDMAOp for bound recovery.
+      %interp = VPU.InterpolateDMA(%interp_input, %scale_factor, %aux) {
+        attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
+        axes_attr = [2, 3]
+      } : tensor<1x3x4x6xf16>, tensor<2xf16>, tensor<1x1x1x1024xui8> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+
+      %extracted = tensor.extract %scale_factor[%c0] : tensor<2xf16>
+      %scale_f64 = arith.extf %extracted : f16 to f64
+      %unit_i64 = arith.index_cast %c1 : index to i64
+      %unit_f64 = arith.sitofp %unit_i64 : i64 to f64
+      %scaled = arith.mulf %unit_f64, %scale_f64 : f64
+      %scaled_i64 = arith.fptosi %scaled : f64 to i64
+      %scaled_idx = arith.index_cast %scaled_i64 : i64 to index
+      %scale_offset = arith.divsi %scaled_idx, %c8 : index
+      %scale_cap = arith.minui %scale_offset, %c1 : index
+
+      %result = scf.for %iv = %c0 to %c64 step %c32 iter_args(%acc = %output) -> (tensor<1x32x64x64xf16, {order = #NHWC}>) {
+        %pad_from_iv = arith.divsi %iv, %c32 : index
+        %pad = arith.minui %pad_from_iv, %scale_cap : index
+        %slice = tensor.extract_slice %arg0[0, 0, %iv, 0] [1, 32, 32, 64] [1, 1, 1, 1] : tensor<1x32x64x64xf16, {order = #NHWC}> to tensor<1x32x32x64xf16, {order = #NHWC}>
+        %padded = tensor.pad %slice low[0, 0, %pad, 0] high[0, 0, %pad, 0] {
+        ^bb0(%arg1: index, %arg2: index, %arg3: index, %arg4: index):
+          tensor.yield %cst : f16
+        } : tensor<1x32x32x64xf16, {order = #NHWC}> to tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 34, 64]> : tensor<4xsi64>, order = #NHWC}>
+        %conv = VPU.NCE.Convolution(%padded, %weights) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1]} : tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 34, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x?x62xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 62]> : tensor<4xsi64>, order = #NHWC}>
+        scf.yield %acc : tensor<1x32x64x64xf16, {order = #NHWC}>
+      }
+
+      return %result : tensor<1x32x64x64xf16, {order = #NHWC}>
+    }
+
+    // CHECK: [[CST:%.+]] = arith.constant 0.000000e+00 : f16
+    // CHECK: [[C0:%.+]] = arith.constant 0 : index
+    // CHECK: [[C1:%.+]] = arith.constant 1 : index
+    // CHECK: [[C8:%.+]] = arith.constant 8 : index
+    // CHECK: [[C32:%.+]] = arith.constant 32 : index
+    // CHECK: [[C64:%.+]] = arith.constant 64 : index
+    // CHECK: [[WEIGHTS:%.+]] = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}>
+    // CHECK: [[OUTPUT:%.+]] = tensor.empty() : tensor<1x32x64x64xf16, {order = #NHWC}>
+    // CHECK: [[INTERP:%.+]] = VPU.InterpolateDMA([[INTERP_INPUT]], [[SCALE]], [[AUX]])
+    // CHECK: [[EXTRACT:%.+]] = tensor.extract [[SCALE]][[[C0]]] : tensor<2xf16>
+    // CHECK: [[EXTF:%.+]] = arith.extf [[EXTRACT]] : f16 to f64
+    // CHECK: [[CAST_I64:%.+]] = arith.index_cast [[C1]] : index to i64
+    // CHECK: [[SITOFP:%.+]] = arith.sitofp [[CAST_I64]] : i64 to f64
+    // CHECK: [[MULF:%.+]] = arith.mulf [[SITOFP]], [[EXTF]] : f64
+    // CHECK: [[FPTOSI:%.+]] = arith.fptosi [[MULF]] : f64 to i64
+    // CHECK: [[TOIDX:%.+]] = arith.index_cast [[FPTOSI]] : i64 to index
+    // CHECK: [[SCALE_OFFSET:%.+]] = arith.divsi [[TOIDX]], [[C8]] : index
+    // CHECK: [[SCALE_CAP:%.+]] = arith.minui [[SCALE_OFFSET]], [[C1]] : index
+    // CHECK: [[LOOP:%.+]] = scf.for [[LOOP_IV:%arg[0-9]+]] = [[C0]] to [[C64]] step [[C32]] iter_args([[LOOP_ACC:%arg[0-9]+]] =
+    // CHECK: [[DIV:%.+]] = arith.divsi [[LOOP_IV]], [[C32]] : index
+    // CHECK: [[PAD:%.+]] = arith.minui [[DIV]], [[SCALE_CAP]] : index
+    // CHECK: [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[LOOP_IV]], 0] [1, 32, 32, 64] [1, 1, 1, 1]
+    // CHECK: [[CAST:%.+]] = tensor.cast [[SLICE]] : tensor<1x32x32x64xf16, {order = #NHWC}> to tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK: [[CONV:%.+]] = VPU.NCE.Convolution([[CAST]], [[WEIGHTS]]) rawFilterShape [32, 32, 3, 3] {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 1 : i64, bottom = 1 : i64>
+    // CHECK: scf.yield [[LOOP_ACC]] : tensor<1x32x64x64xf16, {order = #NHWC}>
+    // CHECK: return [[LOOP]] : tensor<1x32x64x64xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// Verifies that getInterpolateScalesBound() selects INTERPOLATE_LARGE_INPUT_SCALES_BOUND
+// when the InterpolateDMA input tensor exceeds INTERPOLATE_LARGE_INPUT_BYTES_BOUND.
+//
+// CHECK-LABEL: @RestorePadAttrFromInterpolateScaleBoundLargeInput
+// CHECK-SAME: [[INPUT:%arg[0-9]]]: tensor<1x32x64x64xf16, {order = #NHWC}>
+// CHECK-SAME: [[SCALE:%arg[0-9]]]: tensor<2xf16>
+// CHECK-SAME: [[AUX:%arg[0-9]]]: tensor<1x1x1x1310720xui8>
+// CHECK-SAME: [[INTERP_INPUT:%arg[0-9]]]: tensor<1x3x1080x1920xf16>
+module {
+    func.func @RestorePadAttrFromInterpolateScaleBoundLargeInput(
+        %arg0: tensor<1x32x64x64xf16, {order = #NHWC}>,
+        %scale_factor: tensor<2xf16>,
+        %aux: tensor<1x1x1x1310720xui8>,
+        %interp_input: tensor<1x3x1080x1920xf16>
+    ) -> tensor<1x32x64x64xf16, {order = #NHWC}> {
+      %cst = arith.constant 0.000000e+00 : f16
+      %c0 = arith.constant 0 : index
+      %c2 = arith.constant 2 : index
+      %c8 = arith.constant 8 : index
+      %c32 = arith.constant 32 : index
+      %c64 = arith.constant 64 : index
+      %weights = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x32x3x3xf16>, [#const.Reorder<#NHWC>]
+      %output = tensor.empty() : tensor<1x32x64x64xf16, {order = #NHWC}>
+
+      // %interp is only needed to associate %scale_factor with an InterpolateDMAOp for bound recovery.
+      %interp = VPU.InterpolateDMA(%interp_input, %scale_factor, %aux) {
+        attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
+        axes_attr = [2, 3]
+      } : tensor<1x3x1080x1920xf16>, tensor<2xf16>, tensor<1x1x1x1310720xui8> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+
+      %extracted = tensor.extract %scale_factor[%c0] : tensor<2xf16>
+      %scale_f64 = arith.extf %extracted : f16 to f64
+      %unit_i64 = arith.index_cast %c2 : index to i64
+      %unit_f64 = arith.sitofp %unit_i64 : i64 to f64
+      %scaled = arith.mulf %unit_f64, %scale_f64 : f64
+      %scaled_i64 = arith.fptosi %scaled : f64 to i64
+      %scaled_idx = arith.index_cast %scaled_i64 : i64 to index
+      %pad_idx = arith.divsi %scaled_idx, %c8 : index
+
+      %result = scf.for %iv = %c0 to %c64 step %c32 iter_args(%acc = %output) -> (tensor<1x32x64x64xf16, {order = #NHWC}>) {
+        %slice = tensor.extract_slice %arg0[0, 0, %iv, 0] [1, 32, 32, 64] [1, 1, 1, 1] : tensor<1x32x64x64xf16, {order = #NHWC}> to tensor<1x32x32x64xf16, {order = #NHWC}>
+        %padded = tensor.pad %slice low[0, 0, %pad_idx, 0] high[0, 0, %pad_idx, 0] {
+        ^bb0(%arg1: index, %arg2: index, %arg3: index, %arg4: index):
+          tensor.yield %cst : f16
+        } : tensor<1x32x32x64xf16, {order = #NHWC}> to tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 34, 64]> : tensor<4xsi64>, order = #NHWC}>
+        %conv = VPU.NCE.Convolution(%padded, %weights) rawFilterShape [32, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1]} : tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 34, 64]> : tensor<4xsi64>, order = #NHWC}>, tensor<32x32x3x3xf16, {order = #NHWC}> -> tensor<1x32x?x62xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 62]> : tensor<4xsi64>, order = #NHWC}>
+        scf.yield %acc : tensor<1x32x64x64xf16, {order = #NHWC}>
+      }
+
+      return %result : tensor<1x32x64x64xf16, {order = #NHWC}>
+    }
+
+    // CHECK: [[CST:%.+]] = arith.constant 0.000000e+00 : f16
+    // CHECK: [[C0:%.+]] = arith.constant 0 : index
+    // CHECK: [[C2:%.+]] = arith.constant 2 : index
+    // CHECK: [[C8:%.+]] = arith.constant 8 : index
+    // CHECK: [[C32:%.+]] = arith.constant 32 : index
+    // CHECK: [[C64:%.+]] = arith.constant 64 : index
+    // CHECK: [[WEIGHTS:%.+]] = const.Declare tensor<32x32x3x3xf16, {order = #NHWC}>
+    // CHECK: [[OUTPUT:%.+]] = tensor.empty() : tensor<1x32x64x64xf16, {order = #NHWC}>
+    // CHECK: [[INTERP:%.+]] = VPU.InterpolateDMA([[INTERP_INPUT]], [[SCALE]], [[AUX]])
+    // CHECK-SAME: -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 2160, 3840]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK: [[EXTRACT:%.+]] = tensor.extract [[SCALE]][[[C0]]] : tensor<2xf16>
+    // CHECK: [[EXTF:%.+]] = arith.extf [[EXTRACT]] : f16 to f64
+    // CHECK: [[CAST_I64:%.+]] = arith.index_cast [[C2]] : index to i64
+    // CHECK: [[CAST_F64:%.+]] = arith.sitofp [[CAST_I64]] : i64 to f64
+    // CHECK: [[SCALED:%.+]] = arith.mulf [[CAST_F64]], [[EXTF]] : f64
+    // CHECK: [[TO_I64:%.+]] = arith.fptosi [[SCALED]] : f64 to i64
+    // CHECK: [[TO_IDX:%.+]] = arith.index_cast [[TO_I64]] : i64 to index
+    // CHECK: [[PAD_IDX:%.+]] = arith.divsi [[TO_IDX]], [[C8]] : index
+    // CHECK: [[LOOP:%.+]] = scf.for
+    // CHECK-SAME: [[LOOP_IV:%arg[0-9]+]] = [[C0]] to [[C64]] step [[C32]]
+    // CHECK-SAME: iter_args([[LOOP_ACC:%arg[0-9]+]] =
+    // CHECK: [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[LOOP_IV]], 0] [1, 32, 32, 64] [1, 1, 1, 1]
+    // CHECK-SAME: tensor<1x32x64x64xf16, {order = #NHWC}> to tensor<1x32x32x64xf16, {order = #NHWC}>
+    // CHECK: [[CAST:%.+]] = tensor.cast [[SLICE]]
+    // CHECK-SAME: tensor<1x32x32x64xf16, {order = #NHWC}> to tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK: [[CONV:%.+]] = VPU.NCE.Convolution([[CAST]], [[WEIGHTS]]) rawFilterShape [32, 32, 3, 3]
+    // CHECK-SAME: pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME: tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK-SAME: -> tensor<1x32x?x62xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 30, 62]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK: scf.yield [[LOOP_ACC]] : tensor<1x32x64x64xf16, {order = #NHWC}>
+    // CHECK: return [[LOOP]] : tensor<1x32x64x64xf16, {order = #NHWC}>
 }

@@ -40,14 +40,15 @@ bool isOp(mlir::Operation* op) {
 
 ConditionFunc makeStubCondition();
 
-std::unique_ptr<mlir::Pass> createAssignLogicalTaskIndexPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createPrepareShaveSubmitDMAsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createInsertShaveSubmitSkipDMAsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createAssignShvLogicalTaskIndexPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddPlaceholderFetchDMAsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddPlaceholderFetchDMAsPWLMPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseSegmentedDmaPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitDMAToBalanceLoadPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createDetectDMASplitCandidatePass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createLegalizeNNDMADimSizesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddStartBarrierPass(
         std::optional<WorkloadManagementMode> workloadManagementMode = std::nullopt, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createComputeTaskStrippingPass(
@@ -144,6 +145,7 @@ std::unique_ptr<mlir::Pass> createMoveWaitResultToAsyncBlockArgsPass(Logger log 
 std::unique_ptr<mlir::Pass> createCalculateAsyncRegionCycleCostPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createMoveViewOpsIntoAsyncRegionsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeAsyncDepsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createAddAsyncSchedulingDependenciesPass(Logger log = Logger::global());
 
 //
 // Hardware Adaptation pipeline
@@ -162,6 +164,7 @@ std::unique_ptr<mlir::Pass> createCompressWeightsBTCPass(Logger log = Logger::gl
                                                          bool failIfNoCompression = false);
 std::unique_ptr<mlir::Pass> createNNDMATilingPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUngroupBoundedBuffersPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createConvertDynamicMemrefsToBoundedBuffersPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUngroupBoundedBuffersAsFuncArgsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUngroupHostBuffersAsFuncArgsPass(Logger log = Logger::global());
 

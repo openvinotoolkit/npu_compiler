@@ -273,7 +273,9 @@ def VPUMI40XX_NNDMAOp :
         OptionalAttr<VPUIP_EnqueueDMAAttr>:$enqueue_dma_attr,
         OptionalAttr<VPUIP_FetchDMAAttr>:$fetch_dma,
         OptionalAttr<VPUIP_GatherAddressingMode>:$addressingMode,
-        OptionalAttr<VPUIP_SkipDMAAttr>:$skip_dma
+        OptionalAttr<VPUIP_SkipDMAAttr>:$skip_dma,
+        OptionalAttr<UI16Attr>:$task_dyn_id,
+        Optional<AnyMemRef>:$dynamic_sequence_length_buff
     );
 
     let results = (outs
@@ -346,6 +348,35 @@ def VPUMI40XX_NNDMAOp :
                     "mlir::Value":$enqueueBarrier,
                     "mlir::IntegerAttr":$wlmPage
                     )
+        >,
+        OpBuilder<
+            (ins "mlir::Type":$index,
+                    "mlir::Value":$taskLocation,
+                    "mlir::Value":$input,
+                    "mlir::ValueRange":$output_buff,
+                    "mlir::Value":$previousDma,
+                    "mlir::ValueRange":$waitBarriers,
+                    "mlir::ValueRange":$updateBarriers,
+                    "uint64_t":$start_after,
+                    "uint64_t":$clean_after,
+                    "bool":$is_out_of_order,
+                    "bool":$is_critical,
+                    "bool":$enable_msc,
+                    "int64_t":$port,
+                    "VPUIP::DMAAccMode":$acceleration_mode,
+                    "mlir::Value":$act_compression_size_entry,
+                    "mlir::Value":$act_compression_sparsity_map,
+                    "VPUMI40XX::DMATransactionAttr":$dma_transaction,
+                    "VPUIP::DMADescriptorAttr":$dma_descriptor,
+                    "mlir::IntegerAttr":$dma_hwp_id,
+                    "VPUIP::DmaProfilingMetadataAttr":$profilingMetadata,
+                    "bool":$allow_different_in_out_shapes,
+                    "mlir::Value":$indices,
+                    "mlir::Value":$enqueueBarrier,
+                    "mlir::IntegerAttr":$wlmPage,
+                    "mlir::IntegerAttr":$task_dyn_id,
+                    "mlir::Value":$dynamic_sequence_length_buff
+                    )
         >
     ];
 
@@ -362,6 +393,7 @@ def VPUMI40XX_NNDMAOp :
         prop-dict
         (`taskLocation` `(` $taskLocation^ `:` type($taskLocation) `)`)?
         `inputs` `(` $input `:` type($input) `)`
+        (`dynamic_sequence_length_buff` `(` $dynamic_sequence_length_buff^ `:` type($dynamic_sequence_length_buff) `)` )?
         (`outputs` `(` $output_buffs^ `:` type($output_buffs) `)`)?
         ( `previousDMA` `(` $previousTask^ `:` type($previousTask) `)`)?
         (`waits` `(` $waitBarriers^ `:` type($waitBarriers) `)`)?

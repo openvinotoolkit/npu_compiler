@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024-2025 Intel Corporation
+// Copyright (C) 2024-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -52,8 +52,8 @@ ov::Tensor generateIndices(const ov::Shape& dataShape, const ov::Shape& indicesS
     // generate all possible indices
     auto allIndices = std::vector<int32_t>(numElements * indexSize);
     auto index = std::vector<int32_t>(indexSize);
-    for (auto i = 0; i < numElements; i++) {
-        for (auto j = 0; j < index.size(); j++) {
+    for (size_t i = 0; i < numElements; i++) {
+        for (size_t j = 0; j < index.size(); j++) {
             allIndices[i * index.size() + j] = index[j];
         }
         incrementIndex(index, bounds);
@@ -72,7 +72,7 @@ ov::Tensor generateIndices(const ov::Shape& dataShape, const ov::Shape& indicesS
     auto outputPtr = data;
     for (auto i : requiredIndices) {
         const auto index = &allIndices[i * indexSize];
-        for (int j = 0; j < indexSize; j++) {
+        for (size_t j = 0; j < indexSize; j++) {
             outputPtr[j] = index[j];
         }
         outputPtr += indexSize;

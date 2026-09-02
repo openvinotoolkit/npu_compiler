@@ -3,16 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/compiler.hpp"
 #include <optional>
 #include <utility>
 
-#include "intel_npu/config/options.hpp"
-#include "intel_npu/profiling.hpp"
-#include "vpux/compiler/icompiler.hpp"
 #ifdef ENABLE_PROFILING_ITT
 #include <ittnotify.h>  // __itt_release_resources
 #endif
+
+#include "intel_npu/profiling.hpp"
+#include "vpux/compiler/compiler.hpp"
+#include "vpux/compiler/icompiler.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 #include "vpux/compiler/NPU37XX/backend_pipeline_strategy.hpp"
 #include "vpux/compiler/NPU37XX/dialect_pipeline_strategy.hpp"
@@ -38,7 +39,6 @@
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/constant_transformations_control.hpp"
-#include "vpux/compiler/dialect/const/utils/constant_folding_in_background.hpp"
 #include "vpux/compiler/dialect/net/IR/dialect.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/frontend/IE.hpp"
@@ -59,7 +59,6 @@
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/memory_usage.hpp"
 #include "vpux/utils/ov/itt.hpp"
-#include "vpux/utils/ov/private_properties.hpp"
 #include "vpux/utils/ov/profiling_utils.hpp"
 #include "vpux/utils/profiling/reports/api.hpp"
 
@@ -85,7 +84,6 @@
 #include <openvino/pass/manager.hpp>
 #include <openvino/pass/serialize.hpp>
 #include <openvino/runtime/core.hpp>
-#include <openvino/runtime/intel_npu/properties.hpp>
 #include <openvino/runtime/iplugin.hpp>
 #include <openvino/runtime/shared_buffer.hpp>
 #include <openvino/util/xml_parse_utils.hpp>
@@ -103,11 +101,11 @@ constexpr std::string_view UNSUPPORTED_PLATFORM_ERROR_MESSAGE =
         "supported platform explicitly.";
 
 void checkPlatformSupportedForCompilation(const std::string_view platform) {
-    const std::unordered_set supportedPlatforms{ov::intel_npu::Platform::NPU3720, ov::intel_npu::Platform::NPU5010,
-                                                ov::intel_npu::Platform::NPU5020, ov::intel_npu::Platform::NPU4000};
+    const std::unordered_set supportedPlatforms{vpux::OV::Platform::NPU3720, vpux::OV::Platform::NPU5010,
+                                                vpux::OV::Platform::NPU5020, vpux::OV::Platform::NPU4000};
 
-    if (!supportedPlatforms.count(ov::intel_npu::Platform::standardize(platform))) {
-        VPUX_THROW(UNSUPPORTED_PLATFORM_ERROR_MESSAGE.data(), platform, intel_npu::PLATFORM::key());
+    if (!supportedPlatforms.count(vpux::OV::Platform::standardize(platform))) {
+        VPUX_THROW(UNSUPPORTED_PLATFORM_ERROR_MESSAGE.data(), platform, vpux::OV::PLATFORM::key());
     }
 }
 
@@ -115,7 +113,7 @@ void checkPlatformSupportedForCompilation(const std::string_view platform) {
 // createDialectPipelineStrategyFn
 //
 
-StrategyFactoryFn createDialectPipelineStrategyFn(const intel_npu::Config& config) {
+StrategyFactoryFn createDialectPipelineStrategyFn(const vpux::OV::Config& config) {
     auto arch = getArchKind(config);
     switch (arch) {
     case config::ArchKind::NPU37XX:
@@ -139,7 +137,7 @@ StrategyFactoryFn createDialectPipelineStrategyFn(const intel_npu::Config& confi
 // buildPipeline
 //
 
-void buildPipeline(const intel_npu::Config& config, mlir::PassManager& pm, Logger log) {
+void buildPipeline(const vpux::OV::Config& config, mlir::PassManager& pm, Logger log) {
     auto pipelineStrategyFn = createDialectPipelineStrategyFn(config);
 
     const auto compilationMode = getCompilationMode(config);
@@ -166,19 +164,19 @@ std::unique_ptr<IBackendPipelineStrategy> createBackendPipelineStrategy(config::
 
 auto importNetwork(mlir::MLIRContext* ctx, const std::shared_ptr<ov::Model>& model,
                    const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
-                   const std::vector<std::shared_ptr<const ov::Node>>& originalResults, const intel_npu::Config& config,
+                   const std::vector<std::shared_ptr<const ov::Node>>& originalResults, const vpux::OV::Config& config,
                    const DeveloperConfig& devConf, mlir::TimingScope& rootTiming, Logger log,
                    bool enableWeightsSeparationPath = false) {
     auto importTiming = rootTiming.nest("Import network");
 
     IE::ImportNetworkConfig importCfg;
     importCfg.sharedConstants = devConf.useSharedConstants();
-    importCfg.enableProfiling = config.get<intel_npu::PERF_COUNT>();
+    importCfg.enableProfiling = config.get<vpux::OV::PERF_COUNT>();
     importCfg.stubLayers = getDummyOpReplacement(config).value_or(DummyOpMode::DISABLED);
-    importCfg.dynamicShapeToStatic = config.get<intel_npu::DYNAMIC_SHAPE_TO_STATIC>();
+    importCfg.dynamicShapeToStatic = config.get<vpux::OV::DYNAMIC_SHAPE_TO_STATIC>();
     importCfg.enableWeightsSeparationPath = enableWeightsSeparationPath;
     importCfg.enableDecomposeSDPA = getEnableDecomposeSDPA(config).value_or(false);
-    importCfg.executionModeAccuracy = config.get<intel_npu::EXECUTION_MODE_HINT>() == ov::hint::ExecutionMode::ACCURACY;
+    importCfg.executionModeAccuracy = config.get<vpux::OV::EXECUTION_MODE_HINT>() == vpux::OV::ExecutionMode::ACCURACY;
     importCfg.ioWithDynamicStrides = getIoWithDynamicStrides(config);
 
     return IE::importNetwork(ctx, model, originalParameters, originalResults, importTiming, importCfg, log.nest());
@@ -190,7 +188,7 @@ mlir::LogicalResult compileNetwork(mlir::ModuleOp module, mlir::PassManager& pm,
 }
 
 void middleendCompilation(mlir::OwningOpRef<mlir::ModuleOp>& module, const DeveloperConfig& devConf,
-                          const intel_npu::Config& config, mlir::TimingScope& compileNetworkTiming, Logger log) {
+                          const vpux::OV::Config& config, mlir::TimingScope& compileNetworkTiming, Logger log) {
     auto initIEtoVPUIPTiming = compileNetworkTiming.nest("IE to VPUIP pipeline");
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
@@ -205,7 +203,7 @@ void middleendCompilation(mlir::OwningOpRef<mlir::ModuleOp>& module, const Devel
 }
 
 void backendHostCompilation(mlir::OwningOpRef<mlir::ModuleOp>& hostModule, const DeveloperConfig& devConf,
-                            const intel_npu::Config& config, mlir::TimingScope& compileNetworkTiming, Logger log) {
+                            const vpux::OV::Config& config, mlir::TimingScope& compileNetworkTiming, Logger log) {
     auto hostExecTiming = compileNetworkTiming.nest("HostExec pipeline");
     mlir::PassManager hostExecPm(hostModule.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
     devConf.setup(hostExecPm, config);
@@ -219,7 +217,7 @@ void backendHostCompilation(mlir::OwningOpRef<mlir::ModuleOp>& hostModule, const
 }
 
 void backendBytecodeCompilation(mlir::OwningOpRef<mlir::ModuleOp>& hostModule, const DeveloperConfig& devConf,
-                                const intel_npu::Config& config, mlir::TimingScope& compileNetworkTiming, Logger log) {
+                                const vpux::OV::Config& config, mlir::TimingScope& compileNetworkTiming, Logger log) {
     auto bytecodeTiming = compileNetworkTiming.nest("Bytecode backend pipeline");
     mlir::PassManager bytecodePm(hostModule.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
     devConf.setup(bytecodePm, config);
@@ -230,7 +228,7 @@ void backendBytecodeCompilation(mlir::OwningOpRef<mlir::ModuleOp>& hostModule, c
 }
 
 void backendCompilation(mlir::OwningOpRef<mlir::ModuleOp>& vpuipModule, const DeveloperConfig& devConf,
-                        const intel_npu::Config& config, mlir::TimingScope& compileNetworkTiming, Logger log,
+                        const vpux::OV::Config& config, mlir::TimingScope& compileNetworkTiming, Logger log,
                         bool nested = false) {
     auto elfTiming = compileNetworkTiming.nest("ELF pipeline");
     mlir::PassManager elfPm(vpuipModule.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
@@ -255,14 +253,13 @@ auto exportToELF(mlir::ModuleOp module, Logger& log) {
     }
 }
 
-auto exportToELF(mlir::ModuleOp module, Logger log, BlobAllocator& allocator, std::string& compatibilityString,
-                 bool allocateCompatibilityString = false) {
+auto exportToELF(mlir::ModuleOp module, Logger log, BlobAllocator& allocator, std::string& compatibilityString) {
     const auto arch = config::getArch(module);
     switch (arch) {
     case config::ArchKind::NPU37XX:
-        return ELFNPU37XX::exportToELF(module, allocator, compatibilityString, log, allocateCompatibilityString);
+        return ELFNPU37XX::exportToELF(module, allocator, compatibilityString, log);
     default:
-        return ELF::exportToELF(module, allocator, compatibilityString, log, allocateCompatibilityString);
+        return ELF::exportToELF(module, allocator, compatibilityString, log);
     }
 }
 
@@ -362,7 +359,7 @@ vpux::NetworkMetadata toVPUXMetadata(const intel_npu::vm::NetworkMetadata& src) 
     return dst;
 }
 
-NetworkDescription exportNetwork(mlir::ModuleOp module, const intel_npu::Config& config, Logger log) {
+NetworkDescription exportNetwork(mlir::ModuleOp module, const vpux::OV::Config& config, Logger log) {
     const auto compilationMode = getCompilationMode(config);
     NetworkMetadata meta;
     std::vector<uint8_t> blob;
@@ -386,8 +383,8 @@ NetworkDescription exportNetwork(mlir::ModuleOp module, const intel_npu::Config&
     return NetworkDescription(std::move(blob), std::move(meta));
 }
 
-NetworkDescriptionView exportNetwork(mlir::ModuleOp module, const intel_npu::Config& config, Logger log,
-                                     BlobAllocator& allocator, bool allocateCompatibilityString = false) {
+NetworkDescriptionView exportNetwork(mlir::ModuleOp module, const vpux::OV::Config& config, Logger log,
+                                     BlobAllocator& allocator) {
     const auto compilationMode = getCompilationMode(config);
 
     switch (compilationMode) {
@@ -406,28 +403,27 @@ NetworkDescriptionView exportNetwork(mlir::ModuleOp module, const intel_npu::Con
     }
     default: {
         std::string compatibilityString;
-        auto blobView = exportToELF(module, log, allocator, compatibilityString, allocateCompatibilityString);
-        auto meta = VPUMI37XX::getNetworkMetadata(
-                mlir::ArrayRef(blobView.first.ptr, static_cast<size_t>(blobView.first.size)));
+        auto blobView = exportToELF(module, log, allocator, compatibilityString);
+        auto meta = VPUMI37XX::getNetworkMetadata(mlir::ArrayRef(blobView.ptr, static_cast<size_t>(blobView.size)));
         meta.compatibilityString = std::move(compatibilityString);
-        return NetworkDescriptionView(blobView.first, blobView.second, std::move(meta));
+        return NetworkDescriptionView(blobView, std::move(meta));
     }
     }
 }
 
 std::optional<size_t> getModelBatchPartitionIfPossible(const std::shared_ptr<ov::Model>& model,
-                                                       const intel_npu::Config& config) {
+                                                       const vpux::OV::Config& config) {
     std::set<ov::Output<const ov::Node>> batchedInputs;
     std::set<ov::Output<const ov::Node>> batchedOutputs;
     std::set<size_t> sBatchSize;
 
-    vpux::Logger logger("getBatchSize", getLogLevel(config));
+    vpux::Logger logger("getBatchSize", config.get<vpux::OV::LOG_LEVEL>());
 
-    if (!config.has<intel_npu::BATCH_MODE>()) {
+    if (!config.has<vpux::OV::BATCH_MODE>()) {
         return std::make_optional<size_t>(1);
     }
 
-    if (config.get<intel_npu::BATCH_MODE>() == ov::intel_npu::BatchMode::COMPILER) {
+    if (config.get<vpux::OV::BATCH_MODE>() == vpux::OV::BatchMode::COMPILER) {
         return std::make_optional<size_t>();
     }
 
@@ -591,7 +587,7 @@ bool isTypeSupported(config::ArchKind arch, ov::element::Type_t elemType) {
     }
 };
 
-void checkDataTypes(const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config) {
+void checkDataTypes(const std::shared_ptr<ov::Model>& model, const vpux::OV::Config& config) {
     const auto archKind = getArchKind(config);
     for (auto& input : model->inputs()) {
         auto elemType = input.get_element_type();
@@ -607,7 +603,7 @@ mlir::OwningOpRef<mlir::ModuleOp> compileModel(mlir::MLIRContext& ctx, const std
                                                const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
                                                const std::vector<std::shared_ptr<const ov::Node>>& originalResults,
                                                DeveloperConfig& devConf, mlir::TimingScope& rootTiming,
-                                               const intel_npu::Config& config, vpux::Logger& log) {
+                                               const vpux::OV::Config& config, vpux::Logger& log) {
     OV_ITT_TASK_CHAIN(COMPILER_IMPLEMENTATION, itt::domains::VPUXPlugin, "CompilerImpl::compile", "compileModel");
 
     OV_ITT_TASK_NEXT(COMPILER_IMPLEMENTATION, "importNetwork");
@@ -619,17 +615,6 @@ mlir::OwningOpRef<mlir::ModuleOp> compileModel(mlir::MLIRContext& ctx, const std
                           /*enableWeightsSeparationPath=*/false);
 
     OV_ITT_TASK_NEXT(COMPILER_IMPLEMENTATION, "PassManager");
-
-#ifdef BACKGROUND_FOLDING_ENABLED
-    const auto foldingConfig = getConstantFoldingInBackground(config);
-
-    std::unique_ptr<vpux::Const::BackgroundConstantFolding> foldingManager;
-    if (foldingConfig.has_value() && foldingConfig.value().foldingInBackgroundEnabled) {
-        foldingManager = std::make_unique<vpux::Const::BackgroundConstantFolding>(
-                &ctx, foldingConfig.value().maxConcurrentTasks, foldingConfig.value().collectStatistics,
-                foldingConfig.value().memoryUsageLimit, foldingConfig.value().cacheCleanThreshold, log);
-    }
-#endif
 
     OV_ITT_TASK_NEXT(COMPILER_IMPLEMENTATION, "compileNetwork");
 
@@ -674,14 +659,14 @@ auto createContext(mlir::DialectRegistry& registry, config::Platform platform) {
     return std::make_unique<mlir::MLIRContext>(registry, mlir::MLIRContext::Threading::DISABLED);
 }
 
-std::unique_ptr<llvm::DefaultThreadPool> createThreadpool(const Logger& log, const intel_npu::Config& config) {
+std::unique_ptr<llvm::DefaultThreadPool> createThreadpool(const Logger& log, const vpux::OV::Config& config) {
     // Set the number of threads in the pool to be the total number of threads of the compilation minus one: one for
     // the main thread and the rest for the MLIR thread pool. If user didn't specify the number of threads, default
     // to 8 threads for the pool. By default MLIR will attempt to use all of the threads available on the system
     // which might cause large peak memory usage during constant-related passes such as constant-folding, hence a
     // limit is set
-    const bool hasThreadLimit = config.has<intel_npu::COMPILATION_NUM_THREADS>();
-    const auto totalThreadCount = hasThreadLimit ? config.get<intel_npu::COMPILATION_NUM_THREADS>() : 9;
+    const bool hasThreadLimit = config.has<vpux::OV::COMPILATION_NUM_THREADS>();
+    const auto totalThreadCount = hasThreadLimit ? config.get<vpux::OV::COMPILATION_NUM_THREADS>() : 9;
 
     log.info("Total number of threads available for compilation: {0}", totalThreadCount);
 
@@ -701,24 +686,24 @@ struct CompilerSetup {
     mlir::DialectRegistry registry;
     std::unique_ptr<mlir::MLIRContext> ctx;
 
-    static std::unique_ptr<CompilerSetup> create(const intel_npu::Config& config, Logger& log);
+    static std::unique_ptr<CompilerSetup> create(const vpux::OV::Config& config, Logger& log);
     ~CompilerSetup() = default;
 
     CompilerSetup(CompilerSetup&&) = default;
     CompilerSetup& operator=(CompilerSetup&&) = default;
 
 private:
-    CompilerSetup(const intel_npu::Config& config, Logger& log);
+    CompilerSetup(const vpux::OV::Config& config, Logger& log);
     CompilerSetup(const CompilerSetup&) = delete;
     CompilerSetup& operator=(const CompilerSetup&) = delete;
     CompilerSetup& operator()(const CompilerSetup&) = delete;
 };
 
-std::unique_ptr<CompilerSetup> CompilerSetup::create(const intel_npu::Config& config, Logger& log) {
+std::unique_ptr<CompilerSetup> CompilerSetup::create(const vpux::OV::Config& config, Logger& log) {
     return std::unique_ptr<CompilerSetup>(new CompilerSetup(config, log));
 }
 
-CompilerSetup::CompilerSetup(const intel_npu::Config& config, Logger& log) {
+CompilerSetup::CompilerSetup(const vpux::OV::Config& config, Logger& log) {
     registry = createDialectRegistry(getDummyOpReplacement(config).value_or(DummyOpMode::DISABLED));
     auto platform = getPlatform(config);
     config::registerConstraints(registry, platform);
@@ -739,22 +724,23 @@ CompilerSetup::CompilerSetup(const intel_npu::Config& config, Logger& log) {
     threadPoolLog.info("MLIR multi-threading is {0}", ctx->isMultithreadingEnabled() ? "enabled" : "disabled");
 }
 
-std::tuple<std::shared_ptr<ov::Model>, const intel_npu::Config> debatchModel(const std::shared_ptr<ov::Model>& model,
-                                                                             const intel_npu::Config& config,
-                                                                             size_t partitionCount, Logger& log) {
+std::tuple<std::shared_ptr<ov::Model>, const vpux::OV::Config> debatchModel(const std::shared_ptr<ov::Model>& model,
+                                                                            const vpux::OV::Config& config,
+                                                                            size_t partitionCount, Logger& log) {
     log.info("A batched model with batch: {0} is about to be processed by the plugin",
              partitionCount == ov::Interval::s_max ? "<Inf>" : std::to_string(partitionCount));
     // When batching is handled by the plugin we need to modify performance_mode property to Throughput mode
     auto configPerformanceMode = config;
-    if (configPerformanceMode.get<intel_npu::PERFORMANCE_HINT>() == ov::hint::PerformanceMode::LATENCY) {
+    if (configPerformanceMode.get<vpux::OV::PERFORMANCE_HINT>() == vpux::OV::PerformanceMode::LATENCY) {
         log.info("Override performance mode to THROUGHPUT");
         std::stringstream strStream;
-        strStream << ov::hint::PerformanceMode::THROUGHPUT;
-        configPerformanceMode.update({{ov::hint::performance_mode.name(), strStream.str()}});
+        strStream << vpux::OV::PerformanceMode::THROUGHPUT;
+        configPerformanceMode.update({{vpux::OV::PERFORMANCE_HINT::key().data(), strStream.str()}});
     }
 
     // If fallback and handle batching on the compiler is needed we will use the original model
     auto batchModel = model->clone();
+    VPUX_THROW_UNLESS(batchModel, "Cannot clone a model");
     try {
         ov::set_batch(batchModel, 1);
     } catch (const std::exception& ex) {
@@ -775,10 +761,10 @@ std::tuple<std::shared_ptr<ov::Model>, const intel_npu::Config> debatchModel(con
 // taking by-value would mean extra copy of std::shared_ptr for no reason in this case, even though
 // it's fine for "regular" scenario without batching (just 1 copy anyway)
 CompilationResult compileImpl(std::unique_ptr<CompilerSetup>& setup, const std::shared_ptr<ov::Model>& model,
-                              const intel_npu::Config& config, Logger& log) {
-    checkPlatformSupportedForCompilation(config.get<intel_npu::PLATFORM>());
+                              const vpux::OV::Config& config, Logger& log) {
+    checkPlatformSupportedForCompilation(config.get<vpux::OV::PLATFORM>());
 
-    DeveloperConfig devConf(log);
+    DeveloperConfig devConf(log, setup->ctx.get(), config);
 
     mlir::DefaultTimingManager tm;
     devConf.setup(tm);
@@ -801,16 +787,16 @@ CompilationResult compileImpl(std::unique_ptr<CompilerSetup>& setup, const std::
                 return CompilationResult{std::move(moduleOp), std::move(batchModel)};
             }
         } else {
-            const auto& batchType = config.get<intel_npu::BATCH_MODE>();
-            if (batchType == ov::intel_npu::BatchMode::AUTO) {
+            const auto& batchType = config.get<vpux::OV::BATCH_MODE>();
+            if (batchType == vpux::OV::BatchMode::AUTO) {
                 log.info("Batching is handled by the compiler");
-            } else if (batchType == ov::intel_npu::BatchMode::PLUGIN) {
+            } else if (batchType == vpux::OV::BatchMode::PLUGIN) {
                 VPUX_THROW("This model is not supported when handling batching on the plugin.");
             }
         }
     } catch (const std::exception& ex) {
-        const auto& batchType = config.get<intel_npu::BATCH_MODE>();
-        if (batchType == ov::intel_npu::BatchMode::AUTO) {
+        const auto& batchType = config.get<vpux::OV::BATCH_MODE>();
+        if (batchType == vpux::OV::BatchMode::AUTO) {
             log.info("An error occurred during network compilation so fallback on compiler batch mode {0}", ex.what());
         } else {
             VPUX_THROW(ex.what());
@@ -849,7 +835,7 @@ CompilationResult compileImpl(std::unique_ptr<CompilerSetup>& setup, const std::
 std::shared_ptr<ModelData> prepareAndPreprocessModelFromDesc(const vcl_executable_desc_t& desc,
                                                              const vcl_compiler_properties_t& compilerProp,
                                                              vcl_compiler_desc_t& compilerDesc,
-                                                             vcl_device_desc_t& deviceDesc, intel_npu::Config& config,
+                                                             vcl_device_desc_t& deviceDesc, vpux::OV::Config& config,
                                                              bool isDeviceDescEmpty, Logger& log) {
     VPUX_THROW_WHEN(!desc.modelIRData || desc.modelIRSize == 0, "Invalid model IR data");
 
@@ -885,7 +871,7 @@ CompilerImpl::CompilerImpl() {
     // samples.
     [[maybe_unused]] static llvm::llvm_shutdown_obj shutdown;
 #ifndef VPUX_DEVELOPER_BUILD
-    [[maybe_unused]] static auto ignoreStdIOErr = llvm::make_scope_exit([]() {
+    [[maybe_unused]] static auto ignoreStdIOErr = llvm::scope_exit([]() {
         // Ignoring standard I/O errors; permission to write to stdout/stderr might be restricted (e.g. by ONNX
         // Runtime). If these errors persist, they can cause the program to exit unexpectedly. clearing them ensures a
         // clean shutdown.
@@ -895,7 +881,7 @@ CompilerImpl::CompilerImpl() {
 #endif
 #ifdef ENABLE_PROFILING_ITT
     // Release ITT resources on DLL unload
-    [[maybe_unused]] static auto ittResourceReleaser = llvm::make_scope_exit(__itt_release_resources);
+    [[maybe_unused]] static auto ittResourceReleaser = llvm::scope_exit(__itt_release_resources);
 #endif
 }
 
@@ -904,17 +890,16 @@ CompilerImpl::CompilerImpl() {
 //
 
 ov::SupportedOpsMap vpux::CompilerImpl::query(const std::shared_ptr<const ov::Model>& model,
-                                              const intel_npu::Config& config) const {
-    Logger log("vpux-compiler", getLogLevel(config));
+                                              const vpux::OV::Config& config) const {
+    Logger log("vpux-compiler", config.get<vpux::OV::LOG_LEVEL>());
     log.setName("vpux::CompilerImpl::query");
 
     ov::SupportedOpsMap result;
 
     const std::string plugin_name = DEVICE_NAME;
 
-    DeveloperConfig devConf(log);
     mlir::DefaultTimingManager tm;
-    devConf.setup(tm);
+    tm.setEnabled(false);
     auto rootTiming = tm.getRootScope();
     // query is executed with the default values of the config
     IE::ImportNetworkConfig importCfg;
@@ -944,9 +929,9 @@ ov::SupportedOpsMap vpux::CompilerImpl::query(const std::shared_ptr<const ov::Mo
 
 ov::SupportedOpsMap vpux::CompilerImpl::queryFromDesc(const vcl_query_desc_t& desc, vcl_compiler_desc_t& compilerDesc,
                                                       vcl_compiler_properties_t& compilerProp,
-                                                      vcl_device_desc_t& deviceDesc, intel_npu::Config& config,
+                                                      vcl_device_desc_t& deviceDesc, vpux::OV::Config& config,
                                                       bool isDeviceDescEmpty) const {
-    Logger log("vpux-compiler", getLogLevel(config));
+    Logger log("vpux-compiler", config.get<vpux::OV::LOG_LEVEL>());
     log.setName("vpux::CompilerImpl::queryFromDesc");
 
     VPUX_THROW_WHEN(!desc.modelIRData || desc.modelIRSize == 0, "Invalid model IR data");
@@ -966,12 +951,12 @@ ov::SupportedOpsMap vpux::CompilerImpl::queryFromDesc(const vcl_query_desc_t& de
 //
 
 NetworkDescription CompilerImpl::compile(const std::shared_ptr<ov::Model>& model,
-                                         const intel_npu::Config& config) const {
+                                         const vpux::OV::Config& config) const {
     OV_ITT_SCOPED_TASK(itt::domains::VPUXPlugin, "CompilerImpl::compile");
-    checkPlatformSupportedForCompilation(config.get<intel_npu::PLATFORM>());
+    checkPlatformSupportedForCompilation(config.get<vpux::OV::PLATFORM>());
     checkCompilerOptions(config);
 
-    Logger log("vpux-compiler", getLogLevel(config));
+    Logger log("vpux-compiler", config.get<vpux::OV::LOG_LEVEL>());
 
     [[maybe_unused]] const auto scopedTimer = startScopedTimer(config, [&log](double deltaMs) {
         log.info("Compile net time: {0} ms", deltaMs);
@@ -998,26 +983,26 @@ NetworkDescription CompilerImpl::compile(const std::shared_ptr<ov::Model>& model
 NetworkDescriptionView CompilerImpl::compileFromDesc(const vcl_executable_desc_t& desc,
                                                      const vcl_compiler_properties_t& compilerProp,
                                                      vcl_compiler_desc_t& compilerDesc, vcl_device_desc_t& deviceDesc,
-                                                     intel_npu::Config& config, bool isDeviceDescEmpty,
-                                                     BlobAllocator& allocator, bool generateCompatibilityString) const {
-    Logger log("vpux-compiler", getLogLevel(config));
+                                                     vpux::OV::Config& config, bool isDeviceDescEmpty,
+                                                     BlobAllocator& allocator) const {
+    Logger log("vpux-compiler", config.get<vpux::OV::LOG_LEVEL>());
 
     auto modelData = prepareAndPreprocessModelFromDesc(desc, compilerProp, compilerDesc, deviceDesc, config,
                                                        isDeviceDescEmpty, log);
 
-    return config.get<intel_npu::ENABLE_WEIGHTLESS>()
-                   ? compileWsIterative(modelData->model, config, config.get<intel_npu::WS_COMPILE_CALL_NUMBER>(),
+    return config.get<vpux::OV::ENABLE_WEIGHTLESS>()
+                   ? compileWsIterative(modelData->model, config, config.get<vpux::OV::WS_COMPILE_CALL_NUMBER>(),
                                         allocator)
-                   : compile(modelData->model, config, allocator, generateCompatibilityString);
+                   : compile(modelData->model, config, allocator);
 }
 
-NetworkDescriptionView CompilerImpl::compile(const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config,
-                                             BlobAllocator& allocator, bool allocateCompatibilityString) const {
+NetworkDescriptionView CompilerImpl::compile(const std::shared_ptr<ov::Model>& model, const vpux::OV::Config& config,
+                                             BlobAllocator& allocator) const {
     OV_ITT_SCOPED_TASK(itt::domains::VPUXPlugin, "CompilerImpl::compile");
-    checkPlatformSupportedForCompilation(config.get<intel_npu::PLATFORM>());
+    checkPlatformSupportedForCompilation(config.get<vpux::OV::PLATFORM>());
     checkCompilerOptions(config);
 
-    Logger log("vpux-compiler", getLogLevel(config));
+    Logger log("vpux-compiler", config.get<vpux::OV::LOG_LEVEL>());
 
     [[maybe_unused]] const auto scopedTimer = startScopedTimer(config, [&log](double deltaMs) {
         log.info("Compile net time: {0} ms", deltaMs);
@@ -1028,8 +1013,7 @@ NetworkDescriptionView CompilerImpl::compile(const std::shared_ptr<ov::Model>& m
     auto compilationResult = compileImpl(setup, model, config, log);
 
     OV_ITT_TASK_CHAIN(COMPILER_IMPLEMENTATION, itt::domains::VPUXPlugin, "CompilerImpl::compile", "exportNetwork");
-    auto allocatedCompiledNetwork =
-            exportNetwork(compilationResult.moduleOp.get(), config, log, allocator, allocateCompatibilityString);
+    auto allocatedCompiledNetwork = exportNetwork(compilationResult.moduleOp.get(), config, log, allocator);
     OV_ITT_TASK_SKIP(COMPILER_IMPLEMENTATION);
 
     auto peakMemEnd = getPeakMemoryUsage();
@@ -1043,8 +1027,7 @@ NetworkDescriptionView CompilerImpl::compile(const std::shared_ptr<ov::Model>& m
 }
 
 NetworkDescriptionView CompilerImpl::compile(const std::shared_ptr<const ov::Model>& origModel,
-                                             const intel_npu::Config& config, BlobAllocator& allocator,
-                                             bool allocateCompatibilityString) const {
+                                             const vpux::OV::Config& config, BlobAllocator& allocator) const {
     OV_ITT_SCOPED_TASK(itt::domains::VPUXPlugin, "CompilerImpl::compile");
     OV_ITT_TASK_CHAIN(COMPILER_IMPLEMENTATION, itt::domains::VPUXPlugin, "CompilerImpl::compile", "clone_model");
 
@@ -1053,11 +1036,11 @@ NetworkDescriptionView CompilerImpl::compile(const std::shared_ptr<const ov::Mod
 
     OV_ITT_TASK_SKIP(COMPILER_IMPLEMENTATION);
 
-    return compile(model, config, allocator, allocateCompatibilityString);
+    return compile(model, config, allocator);
 }
 
 NetworkDescription CompilerImpl::compile(const std::shared_ptr<const ov::Model>& origModel,
-                                         const intel_npu::Config& config) const {
+                                         const vpux::OV::Config& config) const {
     OV_ITT_SCOPED_TASK(itt::domains::VPUXPlugin, "CompilerImpl::compile");
     OV_ITT_TASK_CHAIN(COMPILER_IMPLEMENTATION, itt::domains::VPUXPlugin, "CompilerImpl::compile", "clone_model");
 
@@ -1072,14 +1055,14 @@ NetworkDescription CompilerImpl::compile(const std::shared_ptr<const ov::Model>&
 NetworkDescription CompilerImpl::compileFromDesc(const vcl_executable_desc_t& desc,
                                                  const vcl_compiler_properties_t& compilerProp,
                                                  vcl_compiler_desc_t& compilerDesc, vcl_device_desc_t& deviceDesc,
-                                                 intel_npu::Config& config, bool isDeviceDescEmpty) const {
-    Logger log("vpux-compiler", getLogLevel(config));
+                                                 vpux::OV::Config& config, bool isDeviceDescEmpty) const {
+    Logger log("vpux-compiler", config.get<vpux::OV::LOG_LEVEL>());
 
     auto modelData = prepareAndPreprocessModelFromDesc(desc, compilerProp, compilerDesc, deviceDesc, config,
                                                        isDeviceDescEmpty, log);
 
-    return config.get<intel_npu::ENABLE_WEIGHTLESS>()
-                   ? compileWsIterative(modelData->model, config, config.get<intel_npu::WS_COMPILE_CALL_NUMBER>())
+    return config.get<vpux::OV::ENABLE_WEIGHTLESS>()
+                   ? compileWsIterative(modelData->model, config, config.get<vpux::OV::WS_COMPILE_CALL_NUMBER>())
                    : compile(modelData->model, config);
 }
 
@@ -1087,7 +1070,7 @@ namespace ws {
 
 void compileIEtoVPU(mlir::OwningOpRef<mlir::ModuleOp>& moduleOp,
                     std::unique_ptr<IDialectPipelineStrategy>& pipelineStrategy, const DeveloperConfig& devConf,
-                    const intel_npu::Config& config, const std::optional<std::string>& wsExtractionMode,
+                    const vpux::OV::Config& config, const std::optional<std::string>& wsExtractionMode,
                     std::optional<int64_t> initPart, std::optional<Byte> memLimit, mlir::TimingScope& rootTiming,
                     Logger log) {
     mlir::PassManager ieToVPUpm(moduleOp.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
@@ -1125,7 +1108,7 @@ void compileIEtoVPU(mlir::OwningOpRef<mlir::ModuleOp>& moduleOp,
 
 void compileVPUIP(mlir::OwningOpRef<mlir::ModuleOp>& vpuModule,
                   std::unique_ptr<IDialectPipelineStrategy>& pipelineStrategy, const DeveloperConfig& devConf,
-                  const intel_npu::Config& config, const std::optional<std::string>& wsExtractionMode,
+                  const vpux::OV::Config& config, const std::optional<std::string>& wsExtractionMode,
                   std::optional<Byte> memLimit, mlir::TimingScope& nestTiming, Logger log) {
     mlir::PassManager vpuipPM(vpuModule.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
     devConf.setup(vpuipPM, config);
@@ -1152,14 +1135,14 @@ void compileVPUIP(mlir::OwningOpRef<mlir::ModuleOp>& vpuModule,
 std::vector<CompilationResult> compileImplWsOneShot(
         std::unique_ptr<CompilerSetup>& setup, const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
         const std::vector<std::shared_ptr<const ov::Node>>& originalResults, const std::shared_ptr<ov::Model>& model,
-        const intel_npu::Config& config, Logger& log) {
+        const vpux::OV::Config& config, Logger& log) {
     OV_ITT_TASK_CHAIN(COMPILER_IMPLEMENTATION, itt::domains::VPUXPlugin, "CompilerImpl::compileWsOneShot",
                       "ws::compileImplWsOneShot");
 
-    checkPlatformSupportedForCompilation(config.get<intel_npu::PLATFORM>());
+    checkPlatformSupportedForCompilation(config.get<vpux::OV::PLATFORM>());
 
     mlir::MLIRContext* ctx = setup->ctx.get();
-    DeveloperConfig devConf(log);
+    DeveloperConfig devConf(log, ctx, config);
 
     mlir::DefaultTimingManager tm;
     devConf.setup(tm);
@@ -1231,7 +1214,7 @@ std::vector<CompilationResult> compileImplWsOneShot(
     return results;
 }
 
-void compileModelWsIterative(DeveloperConfig& devConf, mlir::TimingScope& rootTiming, const intel_npu::Config& config,
+void compileModelWsIterative(DeveloperConfig& devConf, mlir::TimingScope& rootTiming, const vpux::OV::Config& config,
                              vpux::Logger log, std::optional<int64_t> initPart, std::optional<Byte> memLimit,
                              mlir::OwningOpRef<mlir::ModuleOp>& moduleOp) {
     OV_ITT_TASK_CHAIN(COMPILER_IMPLEMENTATION, itt::domains::VPUXPlugin, "ws::compileImplWsIterative",
@@ -1277,12 +1260,12 @@ void compileModelWsIterative(DeveloperConfig& devConf, mlir::TimingScope& rootTi
 std::tuple<mlir::OwningOpRef<mlir::ModuleOp>, bool> compileImplWsIterative(
         std::unique_ptr<CompilerSetup>& setup, const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
         const std::vector<std::shared_ptr<const ov::Node>>& originalResults, const std::shared_ptr<ov::Model>& model,
-        const intel_npu::Config& config, size_t callIdx, Logger& log) {
+        const vpux::OV::Config& config, size_t callIdx, Logger& log) {
     OV_ITT_TASK_CHAIN(COMPILER_IMPLEMENTATION, itt::domains::VPUXPlugin, "CompilerImpl::compileImplWsIterative",
                       "ws::compileImplWsIterative");
 
     mlir::MLIRContext* ctx = setup->ctx.get();
-    DeveloperConfig devConf(log);
+    DeveloperConfig devConf(log, ctx, config);
 
     mlir::DefaultTimingManager tm;
     devConf.setup(tm);
@@ -1327,18 +1310,18 @@ std::tuple<mlir::OwningOpRef<mlir::ModuleOp>, bool> compileImplWsIterative(
 }  // namespace ws
 
 template <typename CompiledT>
-std::tuple<CompiledT, intel_npu::Config> tryCompileDebatchedModel(
-        const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config, vpux::Logger& log,
+std::tuple<CompiledT, vpux::OV::Config> tryCompileDebatchedModel(
+        const std::shared_ptr<ov::Model>& model, const vpux::OV::Config& config, vpux::Logger& log,
         FuncRef<CompiledT(const std::shared_ptr<ov::Model>&, const std::vector<std::shared_ptr<const ov::Node>>&,
-                          const std::vector<std::shared_ptr<const ov::Node>>&, const intel_npu::Config&)>
+                          const std::vector<std::shared_ptr<const ov::Node>>&, const vpux::OV::Config&)>
                 callCompilation) {
     const auto originalParameters = IE::buildOVParams(model);
     const auto originalResults = IE::buildOVResults(model);
 
-    auto isCompatibleWithWSPipeline = [&](ov::intel_npu::BatchMode batchType) {
+    auto isCompatibleWithWSPipeline = [&](vpux::OV::BatchMode batchType) {
         // Debatch method is not supported for the WS pipeline. Continue compilation only for unroll one.
         auto [newConfig, needsDebatchingInCompiler] = autoDetectBatchedModelIfPossible(model, config);
-        return !needsDebatchingInCompiler && batchType != ov::intel_npu::BatchMode::PLUGIN;
+        return !needsDebatchingInCompiler && batchType != vpux::OV::BatchMode::PLUGIN;
     };
     try {
         auto partitionCount = getModelBatchPartitionIfPossible(model, config);
@@ -1350,7 +1333,7 @@ std::tuple<CompiledT, intel_npu::Config> tryCompileDebatchedModel(
                         configPerformanceMode);
             }
         } else {
-            const auto& batchType = config.get<intel_npu::BATCH_MODE>();
+            const auto& batchType = config.get<vpux::OV::BATCH_MODE>();
             if (isCompatibleWithWSPipeline(batchType)) {
                 log.info("Batching doesn't need handling. Flag is not found or batch dimension if 1.");
             } else {
@@ -1358,7 +1341,7 @@ std::tuple<CompiledT, intel_npu::Config> tryCompileDebatchedModel(
             }
         }
     } catch (const std::exception& ex) {
-        const auto& batchType = config.get<intel_npu::BATCH_MODE>();
+        const auto& batchType = config.get<vpux::OV::BATCH_MODE>();
         if (isCompatibleWithWSPipeline(batchType)) {
             log.info("An error occurred during network compilation so fallback on compiler batch mode {0}. Batching in "
                      "compiler can be handled.",
@@ -1372,11 +1355,12 @@ std::tuple<CompiledT, intel_npu::Config> tryCompileDebatchedModel(
 }
 
 std::vector<std::shared_ptr<NetworkDescription>> CompilerImpl::compileWsOneShot(const std::shared_ptr<ov::Model>& model,
-                                                                                const intel_npu::Config& config) const {
+                                                                                const vpux::OV::Config& config) const {
     OV_ITT_SCOPED_TASK(itt::domains::VPUXPlugin, "CompilerImpl::compileWsOneShot");
-    checkPlatformSupportedForCompilation(config.get<intel_npu::PLATFORM>());
+    checkPlatformSupportedForCompilation(config.get<vpux::OV::PLATFORM>());
+    checkCompilerOptions(config);
 
-    Logger log("vpux-compiler", getLogLevel(config));
+    Logger log("vpux-compiler", config.get<vpux::OV::LOG_LEVEL>());
     log.info("Start oneshot WS compilation");
 
     [[maybe_unused]] const auto scopedTimer = startScopedTimer(config, [&log](double deltaMs) {
@@ -1389,7 +1373,7 @@ std::vector<std::shared_ptr<NetworkDescription>> CompilerImpl::compileWsOneShot(
     auto getCompilationResult = [&](const std::shared_ptr<ov::Model>& debatchedModel,
                                     const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
                                     const std::vector<std::shared_ptr<const ov::Node>>& originalResults,
-                                    const intel_npu::Config& debatchedConfig) -> CompilationReturnType {
+                                    const vpux::OV::Config& debatchedConfig) -> CompilationReturnType {
         return ws::compileImplWsOneShot(setup, originalParameters, originalResults, debatchedModel, debatchedConfig,
                                         log);
     };
@@ -1412,9 +1396,9 @@ std::vector<std::shared_ptr<NetworkDescription>> CompilerImpl::compileWsOneShot(
 
 std::vector<std::shared_ptr<NetworkDescriptionView>> CompilerImpl::compileFromDescWsOneShot(
         const vcl_executable_desc_t& desc, const vcl_compiler_properties_t& compilerProp,
-        vcl_compiler_desc_t& compilerDesc, vcl_device_desc_t& deviceDesc, intel_npu::Config& config,
+        vcl_compiler_desc_t& compilerDesc, vcl_device_desc_t& deviceDesc, vpux::OV::Config& config,
         bool isDeviceDescEmpty, BlobAllocator& allocator) const {
-    Logger log("vpux-compiler", getLogLevel(config));
+    Logger log("vpux-compiler", config.get<vpux::OV::LOG_LEVEL>());
 
     auto modelData = prepareAndPreprocessModelFromDesc(desc, compilerProp, compilerDesc, deviceDesc, config,
                                                        isDeviceDescEmpty, log);
@@ -1423,11 +1407,12 @@ std::vector<std::shared_ptr<NetworkDescriptionView>> CompilerImpl::compileFromDe
 }
 
 std::vector<std::shared_ptr<NetworkDescriptionView>> CompilerImpl::compileWsOneShot(
-        const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config, BlobAllocator& allocator) const {
+        const std::shared_ptr<ov::Model>& model, const vpux::OV::Config& config, BlobAllocator& allocator) const {
     OV_ITT_SCOPED_TASK(itt::domains::VPUXPlugin, "CompilerImpl::compileWsOneShot");
-    checkPlatformSupportedForCompilation(config.get<intel_npu::PLATFORM>());
+    checkPlatformSupportedForCompilation(config.get<vpux::OV::PLATFORM>());
+    checkCompilerOptions(config);
 
-    Logger log("vpux-compiler", getLogLevel(config));
+    Logger log("vpux-compiler", config.get<vpux::OV::LOG_LEVEL>());
     log.info("Start oneshot WS compilation");
 
     [[maybe_unused]] const auto scopedTimer = startScopedTimer(config, [&log](double deltaMs) {
@@ -1440,7 +1425,7 @@ std::vector<std::shared_ptr<NetworkDescriptionView>> CompilerImpl::compileWsOneS
     auto getCompilationResult = [&](const std::shared_ptr<ov::Model>& debatchedModel,
                                     const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
                                     const std::vector<std::shared_ptr<const ov::Node>>& originalResults,
-                                    const intel_npu::Config& debatchedConfig) -> CompilationReturnType {
+                                    const vpux::OV::Config& debatchedConfig) -> CompilationReturnType {
         return ws::compileImplWsOneShot(setup, originalParameters, originalResults, debatchedModel, debatchedConfig,
                                         log);
     };
@@ -1462,11 +1447,12 @@ std::vector<std::shared_ptr<NetworkDescriptionView>> CompilerImpl::compileWsOneS
 }
 
 NetworkDescription CompilerImpl::compileWsIterative(const std::shared_ptr<ov::Model>& model,
-                                                    const intel_npu::Config& config, size_t callIdx) const {
+                                                    const vpux::OV::Config& config, size_t callIdx) const {
     OV_ITT_SCOPED_TASK(itt::domains::VPUXPlugin, "CompilerImpl::compileWsIterative");
-    checkPlatformSupportedForCompilation(config.get<intel_npu::PLATFORM>());
+    checkPlatformSupportedForCompilation(config.get<vpux::OV::PLATFORM>());
+    checkCompilerOptions(config);
 
-    Logger log("vpux-compiler", getLogLevel(config));
+    Logger log("vpux-compiler", config.get<vpux::OV::LOG_LEVEL>());
 
     [[maybe_unused]] const auto scopedTimer = startScopedTimer(config, [&log](double deltaMs) {
         log.info("Compile net time: {0} ms", deltaMs);
@@ -1478,7 +1464,7 @@ NetworkDescription CompilerImpl::compileWsIterative(const std::shared_ptr<ov::Mo
     auto getCompilationResult = [&](const std::shared_ptr<ov::Model>& debatchedModel,
                                     const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
                                     const std::vector<std::shared_ptr<const ov::Node>>& originalResults,
-                                    const intel_npu::Config& debatchedConfig) -> CompilationReturnType {
+                                    const vpux::OV::Config& debatchedConfig) -> CompilationReturnType {
         return ws::compileImplWsIterative(setup, originalParameters, originalResults, debatchedModel, debatchedConfig,
                                           callIdx, log);
     };
@@ -1496,12 +1482,13 @@ NetworkDescription CompilerImpl::compileWsIterative(const std::shared_ptr<ov::Mo
 }
 
 NetworkDescriptionView CompilerImpl::compileWsIterative(const std::shared_ptr<ov::Model>& originModel,
-                                                        const intel_npu::Config& config, size_t callIdx,
+                                                        const vpux::OV::Config& config, size_t callIdx,
                                                         BlobAllocator& allocator) const {
     OV_ITT_SCOPED_TASK(itt::domains::VPUXPlugin, "CompilerImpl::compileWsIterative");
-    checkPlatformSupportedForCompilation(config.get<intel_npu::PLATFORM>());
+    checkPlatformSupportedForCompilation(config.get<vpux::OV::PLATFORM>());
+    checkCompilerOptions(config);
 
-    Logger log("vpux-compiler", getLogLevel(config));
+    Logger log("vpux-compiler", config.get<vpux::OV::LOG_LEVEL>());
 
     [[maybe_unused]] const auto scopedTimer = startScopedTimer(config, [&log](double deltaMs) {
         log.info("Compile net time: {0} ms", deltaMs);
@@ -1513,7 +1500,7 @@ NetworkDescriptionView CompilerImpl::compileWsIterative(const std::shared_ptr<ov
     auto getCompilationResult = [&](const std::shared_ptr<ov::Model>& debatchedModel,
                                     const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
                                     const std::vector<std::shared_ptr<const ov::Node>>& originalResults,
-                                    const intel_npu::Config& debatchedConfig) -> CompilationReturnType {
+                                    const vpux::OV::Config& debatchedConfig) -> CompilationReturnType {
         return ws::compileImplWsIterative(setup, originalParameters, originalResults, debatchedModel, debatchedConfig,
                                           callIdx, log);
     };
@@ -1554,7 +1541,7 @@ inline BlobFormat getBlobFormat(const uint8_t* data, size_t dataSize) {
             return BlobFormat::LLVM_TXT;
         } else {
             if (headerSize >= intel_npu::vm::MAGIC_NUMBER_SIZE) {
-                intel_npu::vm::Span<uint8_t> header(const_cast<uint8_t*>(data), intel_npu::vm::MAGIC_NUMBER_SIZE);
+                intel_npu::vm::Span<const uint8_t> header(data, intel_npu::vm::MAGIC_NUMBER_SIZE);
                 if (std::equal(intel_npu::vm::MAGIC_NUMBER.begin(), intel_npu::vm::MAGIC_NUMBER.end(), header.begin(),
                                header.end())) {
                     return BlobFormat::BYTECODE;
@@ -1566,7 +1553,7 @@ inline BlobFormat getBlobFormat(const uint8_t* data, size_t dataSize) {
     return BlobFormat::UNKNOWN;
 }
 
-NetworkMetadata CompilerImpl::parse(const std::vector<uint8_t>& compiledNetwork, const intel_npu::Config&) const {
+NetworkMetadata CompilerImpl::parse(const std::vector<uint8_t>& compiledNetwork, const vpux::OV::Config&) const {
     BlobFormat format = getBlobFormat(compiledNetwork.data(), compiledNetwork.size());
     switch (format) {
     case BlobFormat::ELF:
@@ -1618,7 +1605,7 @@ NetworkMetadata CompilerImpl::parse(const std::vector<uint8_t>& compiledNetwork,
 
 std::vector<ov::ProfilingInfo> CompilerImpl::processProfilingOutput(const std::vector<uint8_t>& profData,
                                                                     const std::vector<uint8_t>& network,
-                                                                    const intel_npu::Config&) const {
+                                                                    const vpux::OV::Config&) const {
     auto layerInfo = profiling::getLayerProfilingInfoHook(profData, network);
     return intel_npu::profiling::convertLayersToIeProfilingInfo(layerInfo);
 }
@@ -1637,11 +1624,5 @@ BlobView::BlobView(uint8_t* _ptr, uint64_t _size): ptr(_ptr), size(_size) {
 }
 
 NetworkDescriptionView::NetworkDescriptionView(BlobView blob, NetworkMetadata&& meta)
-        : compiledNetwork(std::move(blob)), compatibilityString{nullptr, 0}, metadata(std::move(meta)) {
-}
-
-NetworkDescriptionView::NetworkDescriptionView(BlobView blob, BlobView compatibilityString, NetworkMetadata&& meta)
-        : compiledNetwork(std::move(blob)),
-          compatibilityString(std::move(compatibilityString)),
-          metadata(std::move(meta)) {
+        : compiledNetwork(std::move(blob)), metadata(std::move(meta)) {
 }

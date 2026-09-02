@@ -15,7 +15,6 @@
 namespace vpux {
 namespace NPUReg40XX {
 
-constexpr auto defaultActRtCodeSectionSize = static_cast<uint32_t>((1_MB).to<vpux::Byte>().count());
 constexpr uint64_t defaultActRtEntry = 0x1C000000;
 
 // ActShave profiling metric mask
@@ -66,10 +65,8 @@ template <typename OpType>
 void fillNNrtConfig(npu40xx::nn_public::VpuNNShaveRuntimeConfigs& shv_rt_configs, mlir::Operation* op,
                     std::optional<mlir::SymbolRefAttr> getActShaveRt, std::optional<uint64_t> shaveStacksSize,
                     bool isActShaveProfilingEnabled, bool getIsActKernelInvocations, ArrayRef<uint32_t> stackFrames) {
-    shv_rt_configs.dpu_perf_mode = static_cast<uint8_t>(npu40xx::nn_public::VpuHWPStatMode::MODE3);
     if (getIsActKernelInvocations) {
         shv_rt_configs.use_schedule_embedded_rt = false;
-        shv_rt_configs.code_window_buffer_size = NPUReg40XX::defaultActRtCodeSectionSize;
         // TODO: E#-74314 nnActEntry.40xx.elf has a .versiondata section that contains a single uint32_t
         // This should be read and set in mi.shvRtConfigs_.runtimeVersion_
         shv_rt_configs.runtime_version = 0;
@@ -80,9 +77,8 @@ void fillNNrtConfig(npu40xx::nn_public::VpuNNShaveRuntimeConfigs& shv_rt_configs
             auto actShaveRtRef = ELF::lookupNearestSymbolFrom(op, getActShaveRt.value());
             auto actShaveRtOp = mlir::cast<OpType>(actShaveRtRef);
 
+            // `use_schedule_embedded_rt` is used in LNL PV driver
             shv_rt_configs.use_schedule_embedded_rt = true;
-            shv_rt_configs.code_window_buffer_size =
-                    checked_cast<uint32_t>(actShaveRtOp.getBinarySize(config::ArchKind::UNKNOWN));
             shv_rt_configs.runtime_entry = actShaveRtOp.getKernelEntry();
             shv_rt_configs.runtime_version = actShaveRtOp.getVersion();
         }

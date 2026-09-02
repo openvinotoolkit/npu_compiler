@@ -89,7 +89,7 @@ TEST_P(ReverseLayerTestCommon, NPU5020_HW) {
 using namespace ov::test;
 
 namespace {
-const std::vector<ov::element::Type> netPrecisions = {ov::element::f16};
+const std::vector<ov::element::Type> netPrecisions = {ov::element::f16, ov::element::u8};
 const std::vector<std::string> modes = {"index"};
 
 const std::vector<std::vector<size_t>> inputShapes1D = {{7}, {12}};
@@ -128,6 +128,13 @@ const auto paramsMC =
         testing::Combine(testing::ValuesIn(inputShapesMC), testing::ValuesIn(indicesMC), testing::ValuesIn(modes),
                          testing::ValuesIn(netPrecisions), testing::Values(test_utils::TARGET_DEVICE));
 
+const std::vector<std::vector<size_t>> inputShapesUI8 = {{1, 512, 512, 3}};
+const std::vector<std::vector<int>> indicesUI8 = {{3}};
+
+const auto paramsUI8 =
+        testing::Combine(testing::ValuesIn(inputShapesUI8), testing::ValuesIn(indicesUI8), testing::ValuesIn(modes),
+                         testing::Values(ov::element::u8), testing::Values(test_utils::TARGET_DEVICE));
+
 const std::vector<std::vector<size_t>> inputShapesPrecommit1D = {{1}, {2}};
 const std::vector<std::vector<int>> indicesPrecommit1D = {{0}};
 
@@ -162,6 +169,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Reverse_3D, ReverseLayerTestCommon, params3D, Rev
 INSTANTIATE_TEST_SUITE_P(smoke_Reverse_4D, ReverseLayerTestCommon, params4D, ReverseLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_Reverse_MC, ReverseLayerTestCommon, paramsMC, ReverseLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_Reverse_UI8, ReverseLayerTestCommon, paramsUI8, ReverseLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Reverse_1D, ReverseLayerTestCommon, paramsPrecommit1D,
                          ReverseLayerTest::getTestCaseName);

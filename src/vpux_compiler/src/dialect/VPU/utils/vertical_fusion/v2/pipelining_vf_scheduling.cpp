@@ -134,7 +134,8 @@ void PipeliningVFScheduling::addOutputSpill(VFConfig& config, mlir::Operation* o
     VPUX_THROW_WHEN(costParameters._tiling.empty() || costParameters._operandsTiling.empty(),
                     "Empty tiling for operation {0} at {1}", operation->getName(), operation->getLoc());
 
-    auto opTypes = config.getOperationTypes(operation, costParameters._tiling[0], costParameters._operandsTiling[0]);
+    const auto& opTypes =
+            config.getOperationTypes(operation, costParameters._tiling[0], costParameters._operandsTiling[0]);
     VPUX_THROW_WHEN(opTypes.empty(), "getOperationTypes returned empty for operation {0} at {1}", operation->getName(),
                     operation->getLoc());
 
@@ -170,10 +171,9 @@ SmallVector<config::ExecutorKind> PipeliningVFScheduling::getExecutorForVFOps(Ar
 VFPipelineContainer PipeliningVFScheduling::getPipelining(
         VFConfig& config, int64_t tilesNumber, const TilingOperationStorage::UPtr& tilingInfo,
         const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const {
-    auto operations = config.getVFOperations();
-    auto inputs = config.getInputs();
-
+    auto operations = config.getVFOperations().getArrayRef();
     auto pipelinedStructure = VFPipelineContainer();
+    ParentVFTilingInfoCache parentVFTilingInfoCache;
 
     size_t totalTiledOpSize = operations.size() * tilesNumber;
     size_t executedOpSize = 0;
@@ -183,7 +183,7 @@ VFPipelineContainer PipeliningVFScheduling::getPipelining(
     size_t currentTileOpIdx = 0;
     size_t pipelinedTileOpIdx = 0;
 
-    auto executorKinds = getExecutorForVFOps(operations.getArrayRef());
+    auto executorKinds = getExecutorForVFOps(operations);
 
     auto getNextOp = [&]() -> OpIndexWithCost {
         if (currentTileOpIdx >= operations.size()) {
@@ -206,7 +206,12 @@ VFPipelineContainer PipeliningVFScheduling::getPipelining(
             pipelinedTileOpIdx < operations.size()) {
             auto operation = operations[pipelinedTileOpIdx];
             auto costParameters = fillInCostParam(operation, tilingInfo, pipelinedTileIdx);
-            auto isolatedCost = costFunction->getStrategyCost(operation, costParameters);
+            auto isolatedCost = getStrategyCost(config, operation, costFunction, costParameters);
+            if (isolatedCost >= VPU::INVALID_COST_BASE) {
+                _log.trace("Op {0} has invalid cost {1}, force to {2}", operation->getLoc(), isolatedCost,
+                           VPU::UNIT_COST);
+                isolatedCost = VPU::UNIT_COST;
+            }
             auto isPotentialDMAOp = [&]() {
                 if (auto swOp = mlir::dyn_cast<VPU::SWOpInterface>(operation)) {
                     return swOp.supportLoweringAsDMA();
@@ -242,8 +247,9 @@ VFPipelineContainer PipeliningVFScheduling::getPipelining(
         const auto& opIdx = opIndexWithCost.opIdx;
         auto operation = operations[opIdx];
         auto costParameters = fillInCostParam(operation, tilingInfo, tileIdx);
-        auto isolatedCost = opIndexWithCost.cost.has_value() ? opIndexWithCost.cost.value()
-                                                             : costFunction->getStrategyCost(operation, costParameters);
+        auto isolatedCost = opIndexWithCost.cost.has_value()
+                                    ? opIndexWithCost.cost.value()
+                                    : getStrategyCost(config, operation, costFunction, costParameters);
 
         if (auto viewOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(operation)) {
             // The view op has different input and output tile size, which means it will be converted to copy
@@ -262,11 +268,12 @@ VFPipelineContainer PipeliningVFScheduling::getPipelining(
         }
 
         if (isolatedCost >= VPU::INVALID_COST_BASE) {
-            return VFPipelineContainer();
+            _log.trace("Op {0} has invalid cost {1}, force to {2}", operation->getLoc(), isolatedCost, VPU::UNIT_COST);
+            isolatedCost = VPU::UNIT_COST;
         }
         const auto isInput = llvm::find(config.getInputs(), operation) != config.getInputs().end();
-        StrategyCost prefetchedCost =
-                getPrefetchingCost(operation, config, costFunction, costParameters, isInput, tilingInfo, tileIdx);
+        StrategyCost prefetchedCost = getPrefetchingCost(operation, config, costFunction, costParameters, isInput,
+                                                         tilingInfo, tileIdx, parentVFTilingInfoCache);
 
         pipelinedStructure.addDMA(operation, tileIdx, prefetchedCost);
         pipelinedStructure.addOperation(operation, tileIdx, isolatedCost);

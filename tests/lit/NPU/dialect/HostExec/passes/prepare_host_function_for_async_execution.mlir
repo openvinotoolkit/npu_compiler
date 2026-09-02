@@ -19,7 +19,7 @@ module @ControlFlowOutliningDynamicShape  {
         func.func nested @main_func0(%arg0: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>,
                                       %arg1: tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>)
                           -> tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}> {
-            %0 = VPU.NCE.Eltwise(%arg0, %arg1) {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                     op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>,
                     clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00],
@@ -417,3 +417,45 @@ module @ControlFlowOutliningDynamicShapeMemref {
     // CHECK: async.await_all [[GROUP1]]
     // CHECK: return [[ARG1]]
 }
+
+// -----
+
+func.func @callee(%arg0: memref<1x16x256xf16>) -> memref<1x16x256xf16> {
+    return %arg0 : memref<1x16x256xf16>
+}
+
+func.func @StandaloneCallAndFor(%arg0: memref<1x16x256xf16>, %arg1: memref<1x16x256xf16>) -> memref<1x16x256xf16> attributes {HostExec.HostCompileInferenceExec} {
+    %c0 = arith.constant 0 : index
+    %c1 = arith.constant 1 : index
+
+    %loop = scf.for %i = %c0 to %c1 step %c1 iter_args(%acc = %arg0) -> (memref<1x16x256xf16>) {
+        %loop_res = func.call @callee(%acc) : (memref<1x16x256xf16>) -> memref<1x16x256xf16>
+        scf.yield %loop_res : memref<1x16x256xf16>
+    }
+
+    %standalone = func.call @callee(%arg1) : (memref<1x16x256xf16>) -> memref<1x16x256xf16>
+    return %standalone : memref<1x16x256xf16>
+}
+
+// CHECK: func.func @callee([[CALLEE_ARG0:%.+]]: memref<1x16x256xf16>)
+// CHECK: func.func @StandaloneCallAndFor([[ARG0:%.+]]: memref<1x16x256xf16>, [[ARG1:%.+]]: memref<1x16x256xf16>)
+// CHECK: [[C0:%.+]] = arith.constant 0 : index
+// CHECK: [[C1:%.+]] = arith.constant 1 : index
+// CHECK: [[SUB:%.+]] = arith.subi [[C1]], [[C0]] : index
+// CHECK: [[DIV:%.+]] = arith.divsi [[SUB]], [[C1]] : index
+// CHECK: [[FOR_GROUP:%.+]] = async.create_group [[DIV]]
+// CHECK: [[LOOP:%.+]] = scf.for [[I:%.+]] = [[C0]] to [[C1]] step [[C1]] iter_args([[ACC:%.+]] = [[ARG0]]) -> (memref<1x16x256xf16>) {
+// CHECK: [[LOOP_TOKEN:%.+]], [[LOOP_RESULTS:%.+]] = async.execute
+// CHECK: func.call @callee([[ACC]])
+// CHECK: async.add_to_group [[LOOP_TOKEN]], [[FOR_GROUP]] : !async.token
+// CHECK: [[LOOP_WAIT:%.+]] = async.await [[LOOP_RESULTS]]
+// CHECK: scf.yield [[LOOP_WAIT]] : memref<1x16x256xf16>
+
+// New logic: standalone async.execute gets its own size-1 group
+// CHECK: [[STANDALONE_GROUP:%.+]] = async.create_group [[C1]]
+// CHECK: [[STANDALONE_TOKEN:%.+]], [[STANDALONE_RESULTS:%.+]] = async.execute
+// CHECK: func.call @callee([[ARG1]])
+// CHECK: async.add_to_group [[STANDALONE_TOKEN]], [[STANDALONE_GROUP]] : !async.token
+// CHECK: async.await_all [[STANDALONE_GROUP]]
+// CHECK: [[RETURN:%.+]] = async.await [[STANDALONE_RESULTS]]
+// CHECK: return [[RETURN]]

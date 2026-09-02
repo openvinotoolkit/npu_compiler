@@ -114,8 +114,7 @@ mlir::LogicalResult vpux::VPU::AffineReshapeOp::inferReturnTypes(
         auto origDistribution = distributedType.getDistribution();
         auto distribWithExplicitAttr = VPU::getNonOverlappedDistributedAttr(
                 outShape, origDistribution.getMode(), origDistribution.getNumTiles(), origDistribution.getNumClusters(),
-                origDistribution.getAlignment(), origDistribution.getUniformDistributedSegments(),
-                distributedType.getElementType(), ctx);
+                origDistribution.getAlignment(), origDistribution.getUniformDistributedSegments(), ctx);
 
         return distributedType.changeTypeComponentsForExplicitDistribution(components, distribWithExplicitAttr);
     };
@@ -405,7 +404,7 @@ vpux::VPU::AffineReshapeOp::inferCastedTypeAndDistribution(vpux::NDTypeInterface
         }
         auto distribWithExplicitAttr = VPU::getNonOverlappedDistributedNative(
                 outShape, mode, distribution.getNumTiles(), distribution.getNumClusters(), outAlignment,
-                distribution.hasUniformDistributedSegments(), dstElemType);
+                distribution.hasUniformDistributedSegments());
         const auto typeComponents =
                 TypeComponents().setShape(outShape).setDimsOrder(dstType.getDimsOrder()).setElementType(dstElemType);
         return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)),
@@ -475,13 +474,31 @@ vpux::VPU::AffineReshapeOp::inferCastedTypeAndDistribution(vpux::NDTypeInterface
         auto tempDistribution =
                 VPU::DistributionInfo(mode, outNumTiles, {}, {}, {}, distribution.getNumClusters(), outAlignment,
                                       distribution.hasUniformDistributedSegments(), {}, {}, {}, {}, {}, std::nullopt);
-        if (!VPU::getPerClusterMemoryShapes(outShape, tempDistribution, dstElemType).has_value()) {
+
+        auto perClusterShapes = VPU::getPerClusterMemoryShapes(outShape, tempDistribution);
+        if (!perClusterShapes.has_value()) {
             return mlir::failure();
         }
 
-        auto distribWithExplicit = VPU::getNonOverlappedDistributedNative(
-                outShape, mode, outNumTiles, distribution.getNumClusters(), outAlignment,
-                distribution.hasUniformDistributedSegments(), dstElemType);
+        const auto subbyteAlignment = VPU::getSubbyteAwareSegmentedDistributionAlignment(
+                outShape, perClusterShapes.value(), outTilingDim, outAlignment, inType);
+        // if subbyte data type forces another alignment, recompute per cluster shapes
+        if (subbyteAlignment != outAlignment) {
+            tempDistribution = VPU::DistributionInfo(mode, outNumTiles, {}, {}, {}, distribution.getNumClusters(),
+                                                     subbyteAlignment, distribution.hasUniformDistributedSegments(), {},
+                                                     {}, {}, {}, {}, std::nullopt);
+
+            perClusterShapes = VPU::getPerClusterMemoryShapes(outShape, tempDistribution);
+            if (!perClusterShapes.has_value()) {
+                return mlir::failure();
+            }
+
+            outAlignment = subbyteAlignment;
+        }
+
+        auto distribWithExplicit =
+                VPU::getNonOverlappedDistributedNative(outShape, mode, outNumTiles, distribution.getNumClusters(),
+                                                       outAlignment, distribution.hasUniformDistributedSegments());
         const auto typeComponents =
                 TypeComponents().setShape(outShape).setDimsOrder(dstType.getDimsOrder()).setElementType(dstElemType);
         return std::make_pair(mlir::cast<mlir::Type>(inType.changeTypeComponents(typeComponents)), distribWithExplicit);

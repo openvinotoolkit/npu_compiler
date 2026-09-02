@@ -7,8 +7,6 @@
 
 #include "vpux/compiler/dynamic_rewriter/dynamic_rewriter_strategies.hpp"
 
-#include <mlir/Dialect/Func/IR/FuncOps.h>
-
 namespace vpux::IE::arch37xx {
 
 //
@@ -17,13 +15,7 @@ namespace vpux::IE::arch37xx {
 
 class InitialLowPrecisionTransformationsPipelineStrategy final : public IDynamicRewriterStrategy {
 public:
-    explicit InitialLowPrecisionTransformationsPipelineStrategy(mlir::func::FuncOp funcOp): _funcOp(funcOp) {
-    }
-
     void registerRewriters(RewriterRegistry& registry, Logger& log) const override;
-
-private:
-    mlir::func::FuncOp _funcOp;
 };
 
 }  // namespace vpux::IE::arch37xx

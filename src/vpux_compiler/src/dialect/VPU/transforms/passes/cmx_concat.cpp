@@ -7,6 +7,7 @@
 #include <mlir/IR/Operation.h>
 #include <mlir/Pass/AnalysisManager.h>
 #include "vpux/compiler/core/layers.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
@@ -25,6 +26,7 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/SetOperations.h>
@@ -158,7 +160,7 @@ NDTypeInterface getConcatDistributedType(VPU::DistributedTypeInterface origType,
         }
 
         auto newDistributedAttr =
-                getConcatExplicitDistributedAttrForNewShape(distribution, shape, elementType, origType.getContext());
+                getConcatExplicitDistributedAttrForNewShape(distribution, shape, origType.getContext());
         return mlir::cast<vpux::NDTypeInterface>(
                 origType.changeTypeComponentsForExplicitDistribution(typeComponents, newDistributedAttr));
     }
@@ -696,6 +698,15 @@ bool isSupportedAndBeneficialToInsertNCEOp(InputConcatPart concatPart) {
         return false;
     }
 
+    // SCL does not support 16-bit quantized activations, so a 16-bit-quantized Convolution/MatMul output cannot be
+    // consumed by this identity AvgPooling, skip the optimization for that input instead of producing an invalid
+    // pooling op.
+    if (const auto quantType = mlir::dyn_cast<mlir::quant::QuantizedType>(inputType.getElementType())) {
+        if (quantType.getStorageType().isInteger(16)) {
+            return false;
+        }
+    }
+
     if (!concatPart.isMultiCluster()) {
         return true;
     }
@@ -795,10 +806,18 @@ bool InputConcatPattern::insertNCEOperation() {
                             ? mlir::cast<mlir::ArrayAttr>(nceOp->getAttr(VPU::OUTPUT_PADDING_ATTR_NAME))
                             : nullptr;
 
-            return builder.create<VPU::NCEAveragePoolOp>(
+            auto avgPoolOp = builder.create<VPU::NCEAveragePoolOp>(
                     loc, newOperandType, newOperands[0], /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
-                    kernelSizeAttr, stridesAttr, padAttr, ppeAttr, nullptr,
+                    kernelSizeAttr, stridesAttr, padAttr, ppeAttr, /*mpeEngine=*/nullptr,
                     /*multi_cluster_strategyAttr=*/nullptr, parentOutputPaddingAttr, parentOutputPaddingAttr);
+
+            if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(avgPoolOp.getOperation())) {
+                const auto activationZp = getPerTensorZeroPointAttr(newOperands[0]);
+                avgPoolOp.setMpeEngineAttr(mlir::cast<VPU::MPEEngineAttr>(
+                        mpeEngineInterface.getMPEEngineWithZP(/*weightZp=*/nullptr, activationZp)));
+            }
+
+            return avgPoolOp;
         };
 
         mlir::Operation* newAvgPoolOp = nullptr;

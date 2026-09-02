@@ -35,22 +35,18 @@ private:
 };
 
 void CMXStackFramesReserveMemPass::safeRunOnModule() {
-    auto module = getOperation();
-    auto shvPerTile = checked_cast<uint32_t>(
-            config::getTileExecutor(module).getSubExecutor(config::ExecutorKind::SHAVE_ACT).getCount());
-    auto* ctx = module->getContext();
-
-    const size_t defaultStacksNum = 2;
-    // Two stack frames already reserved at the beginning of the CMX space, reserve resources for additional stack
-    // frames if needed
-    if (auto extraStacks = shvPerTile - defaultStacksNum; extraStacks > 0) {
-        auto stackSize = static_cast<uint32_t>(CMX_SHAVE_STACK_SIZE.count());
-        auto memSpaceAttr = mlir::SymbolRefAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
-
-        _log.trace("Shave stack frames reserved CMX memory - size: '{0}'", extraStacks * stackSize);
-        config::setCMXStackFramesReservedMemory(module, memSpaceAttr, extraStacks * stackSize,
-                                                ELF::VPUX_SHAVE_ALIGNMENT);
+    auto moduleOp = getOperation();
+    if (config::getArch(moduleOp) < config::ArchKind::NPU40XX) {
+        return;
     }
+
+    auto scratchSize = static_cast<uint32_t>(HW_RESERVED_CMX.count());
+    auto stackSize = static_cast<uint32_t>(CMX_SHAVE_STACK_SIZE.count());
+    const size_t defaultStacksNum = 2;
+    auto totalStacksSize = defaultStacksNum * stackSize + scratchSize;
+
+    _log.trace("Shave stack frames reserved CMX memory - size: '{0}'", totalStacksSize);
+    config::setCMXStackFramesReservedMemory(moduleOp, totalStacksSize, ELF::VPUX_SHAVE_ALIGNMENT);
 }
 
 }  // namespace

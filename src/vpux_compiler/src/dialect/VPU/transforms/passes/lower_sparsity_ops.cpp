@@ -186,9 +186,12 @@ mlir::LogicalResult rewriteSparsityOpWithEltwiseOp(mlir::PatternRewriter& rewrit
 
     const auto opType = VPU::EltwiseType::ADD;
     const auto ppeAttr = VPU::getPpeConfig(ctx).retrievePPEAttribute(origOp);
-    VPU::MPEEngineAttr mpeEngineModeAttr = nullptr;
+    VPU::MPEEngineAttr mpeEngineAttr = nullptr;
     if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(origOp)) {
-        mpeEngineModeAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineMode());
+        const auto activationZp = getPerTensorZeroPointAttr(origOp->getOperand(0));
+
+        mpeEngineAttr = mlir::cast<VPU::MPEEngineAttr>(
+                mpeEngineInterface.getMPEEngineWithZP(/*weightZp=*/activationZp, activationZp));
     }
 
     auto inputPaddingAttr = origOp->hasAttr(VPU::INPUT_PADDING_ATTR_NAME)
@@ -198,11 +201,14 @@ mlir::LogicalResult rewriteSparsityOpWithEltwiseOp(mlir::PatternRewriter& rewrit
                                      ? mlir::cast<mlir::ArrayAttr>(origOp->getAttr(VPU::OUTPUT_PADDING_ATTR_NAME))
                                      : nullptr;
 
-    auto nceOp = rewriter.create<VPU::NCEEltwiseOp>(origOp->getLoc(), outputType, input, input,
+    auto nceOp = rewriter.create<VPU::NCEEltwiseOp>(origOp->getLoc(), outputType, /*reduce_xy_max=*/nullptr,
+                                                    /*reduce_xy_min=*/nullptr, /*reduce_tensor_min_max=*/nullptr, input,
+                                                    input,
                                                     /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
-                                                    VPU::EltwiseTypeAttr::get(ctx, opType), ppeAttr, mpeEngineModeAttr,
+                                                    VPU::EltwiseTypeAttr::get(ctx, opType), ppeAttr, mpeEngineAttr,
                                                     /*multi_cluster_strategyAttr=*/nullptr,
-                                                    /*is_inplace*/ nullptr, outputPaddingAttr, inputPaddingAttr);
+                                                    /*is_inplace*/ nullptr, outputPaddingAttr, inputPaddingAttr,
+                                                    /*axes_value=*/nullptr);
 
     auto newOutput = nceOp.getOutput();
 
@@ -360,9 +366,12 @@ mlir::LogicalResult rewriteSparsityOpWithConv(mlir::PatternRewriter& rewriter, m
     const auto ppeAttr = ppeConfig.retrievePPEAttribute(origOp);
     const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(arch);
     const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(arch);
-    VPU::MPEEngineAttr mpeEngineModeAttr = nullptr;
+    VPU::MPEEngineAttr mpeEngineAttr = nullptr;
     if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(origOp)) {
-        mpeEngineModeAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineMode());
+        // Synthetic filter has no real quantization; only activation ZP is relevant.
+        const auto activationZp = getPerTensorZeroPointAttr(origOp->getOperand(0));
+        mpeEngineAttr = mlir::cast<VPU::MPEEngineAttr>(
+                mpeEngineInterface.getMPEEngineWithZP(/*weightZp=*/nullptr, activationZp));
     }
 
     const auto adaptedOutElemType =
@@ -393,9 +402,8 @@ mlir::LogicalResult rewriteSparsityOpWithConv(mlir::PatternRewriter& rewriter, m
             origOp->getLoc(), outputType,
             /*reduceXyMax*/ nullptr, /*reduceXyMin*/ nullptr,
             /*reduceGlobalMinMax*/ nullptr, input, filter, weightsTable,
-            /*weight_table_data_ptr=*/nullptr,
-            /*weight_table_sp_ptr=*/nullptr, /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
-            /*weight_zero_points=*/nullptr, stridesAttr, padAttr, ppeAttr, mpeEngineModeAttr,
+            /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
+            /*weight_zero_points=*/nullptr, stridesAttr, padAttr, ppeAttr, mpeEngineAttr,
             /*rawFilterShape=*/mlir::ValueRange{}, parseIntArrayAttr<int64_t>(rawFilterShape),
             /*multi_cluster_strategyAttr=*/nullptr, outputPaddingAttr, inputPaddingAttr,
             /*axes_value=*/nullptr);

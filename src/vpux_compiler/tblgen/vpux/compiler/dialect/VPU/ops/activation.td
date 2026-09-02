@@ -130,36 +130,18 @@ def VPU_HSigmoidOp :
             "HSigmoid",
             [
                 VPU_TilingBuilderOpInterface,
-                VPU_EltwiseOp,
-                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
-                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
-                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
+                VPU_EltwiseOp
             ]
         > {
     let summary = "HSigmoid VPU layer";
 
     let arguments = (ins
-        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
-        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
+        RankedTensorOf<[F16, F32]>:$input
     );
 
     let results = (outs
-        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output
+        RankedTensorOf<[F16, F32]>:$output
     );
-
-    let extraClassDeclaration = [{
-        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
-        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
-    }] # baseExtraClassDeclaration;
-
-    let builders = [
-        OpBuilder<(ins
-            "::mlir::Value":$input
-        )>
-    ];
-
-    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
 def VPU_HSwishOp :

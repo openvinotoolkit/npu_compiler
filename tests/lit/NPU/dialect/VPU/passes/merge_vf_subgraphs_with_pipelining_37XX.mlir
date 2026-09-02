@@ -113,7 +113,7 @@ func.func @MergeVFWithoutVFPipelining(
       %arg1 as %arg3: tensor<640x16x1x1xf16, {order = #NHWC}>,
       %cst as %arg4: tensor<640x1x1x4xsi32>) attributes {tilingStrategy = [1, 1, 4, 1]}
             -> tensor<1x640x64x64xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> {
-      %3 = VPU.NCE.DepthConvolution(%arg2, %arg3, %arg4) rawFilterShape [640, 1, 1, 1] {
+      %3 = VPU.NCE.DepthConvolution(%arg2, %arg3, %arg4) rawFilterShape [640, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
          ppe = #VPU.PPEStub<>,

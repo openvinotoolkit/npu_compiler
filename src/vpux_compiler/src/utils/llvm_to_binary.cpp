@@ -7,6 +7,7 @@
 #include "shave_ld.hpp"
 #include "vpux/compiler/act_kernels/shave_binary_resources.h"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/utils/core/developer_build_utils.hpp"
 #include "vpux/utils/core/small_string.hpp"
 
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
@@ -15,6 +16,8 @@
 #include <llvm/ADT/SetVector.h>
 #include <llvm/IR/Instructions.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/Path.h>
 #include <llvm/Support/Program.h>
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -23,6 +26,7 @@
 #endif
 
 #include <fstream>
+#include <sstream>
 
 using namespace vpux;
 
@@ -39,6 +43,107 @@ std::string getMoviLDArchPath(config::ArchKind arch) {
         VPUX_THROW("Invalid ArchKind for Movi LLD path resolution");
     }
 }
+
+// RAII helper owning a unique temporary directory holding the intermediate artifacts (LLVM IR,
+// assembly, object file, linker script, ELF) produced while compiling a single SHAVE kernel. The
+// directory is always removed on scope exit (success, failure, or thrown exception), unless
+// IE_NPU_SCG_KEEP_COMPILATION_ARTIFACTS is set, in which case the artifacts are preserved: copied to
+// <IE_NPU_SCG_ARTIFACTS_PATH>/<kernelName>/ (overwriting any previous run) if that path is set,
+// otherwise simply left under the OS temp dir. Both env vars are honored in developer builds only;
+// in non-developer builds they're ignored and the directory is always removed.
+class ScopedTempDirectory {
+public:
+    ScopedTempDirectory(llvm::StringRef prefix, vpux::Logger log): _kernelName(prefix), _log(log) {
+        if (isDeveloperBuild()) {
+            _keep = std::getenv("IE_NPU_SCG_KEEP_COMPILATION_ARTIFACTS") != nullptr;
+            if (const char* destDir = std::getenv("IE_NPU_SCG_ARTIFACTS_PATH")) {
+                _destDir = destDir;
+            }
+        }
+        const auto ec = llvm::sys::fs::createUniqueDirectory(prefix, _path);
+        VPUX_THROW_UNLESS(!ec, "Failed to create temporary directory for SHAVE kernel compilation: {0}", ec.message());
+    }
+    ScopedTempDirectory(const ScopedTempDirectory&) = delete;
+    ScopedTempDirectory& operator=(const ScopedTempDirectory&) = delete;
+    ~ScopedTempDirectory() {
+        if (_keep) {
+            if (_destDir.empty()) {
+                // No destination requested: leave the artifacts where they are, under the OS temp dir.
+                return;
+            }
+            // If preservation is requested and a destination directory is set, we copy the artifacts
+            // into a per-kernel subdirectory of that destination before removing the temporary directory.
+            preserveArtifacts();
+        }
+        if (const auto ec = llvm::sys::fs::remove_directories(_path)) {
+            _log.warning("Could not remove SHAVE kernel compilation temporary directory '{0}': {1}", _path,
+                         ec.message());
+        }
+    }
+
+    std::string path(llvm::StringRef fileName) const {
+        llvm::SmallString<256> full(_path);
+        llvm::sys::path::append(full, fileName);
+        return full.str().str();
+    }
+
+    llvm::StringRef directory() const {
+        return _path;
+    }
+
+    bool keepsFiles() const {
+        return _keep;
+    }
+
+    llvm::StringRef destinationDirectory() const {
+        return _destDir;
+    }
+
+private:
+    // Copies the temporary directory's artifacts into _destDir/_kernelName, wiping that
+    // subdirectory first so a previous run's stale files can't linger. Best-effort: failures are
+    // only logged as warnings, never thrown, so they can't mask the actual compilation result.
+    void preserveArtifacts() const {
+        llvm::SmallString<256> destSubDir(_destDir);
+        llvm::sys::path::append(destSubDir, _kernelName);
+
+        if (const auto ec = llvm::sys::fs::remove_directories(destSubDir)) {
+            _log.warning("Could not clean up previous contents of directory '{0}' before preserving SHAVE kernel "
+                         "compilation artifacts: {1}",
+                         destSubDir, ec.message());
+        }
+
+        if (const auto ec = llvm::sys::fs::create_directories(destSubDir)) {
+            _log.warning("Could not create directory '{0}' to preserve SHAVE kernel compilation artifacts: {1}",
+                         destSubDir, ec.message());
+            return;
+        }
+
+        std::error_code ec;
+        for (llvm::sys::fs::directory_iterator it(_path, ec), end; it != end && !ec; it.increment(ec)) {
+            llvm::SmallString<256> destFile(destSubDir);
+            llvm::sys::path::append(destFile, llvm::sys::path::filename(it->path()));
+
+            // rename() is a cheap move when the destination is on the same filesystem as the OS temp
+            // dir; fall back to a copy when it isn't (e.g. cross-device destination).
+            if (llvm::sys::fs::rename(it->path(), destFile)) {
+                if (const auto copyEc = llvm::sys::fs::copy_file(it->path(), destFile)) {
+                    _log.warning("Could not preserve SHAVE kernel compilation artifact '{0}' to '{1}': {2}", it->path(),
+                                 destFile, copyEc.message());
+                }
+            }
+        }
+        if (ec) {
+            _log.warning("Error while iterating SHAVE kernel compilation artifacts in '{0}': {1}", _path, ec.message());
+        }
+    }
+
+    llvm::SmallString<128> _path;
+    std::string _kernelName;
+    bool _keep = false;
+    std::string _destDir;
+    vpux::Logger _log;
+};
 }  // namespace
 
 void vpux::transitivelyCloneFunctions(mlir::ModuleOp dstModuleOp, mlir::ModuleOp srcModuleOp,
@@ -173,18 +278,60 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, std::unique_ptr<llvm::Modu
 
     auto archArgument = sbr.getSwKernelArchString(arch);
 
+    // All intermediate compilation artifacts are kept in a dedicated, uniquely-named temporary
+    // directory so that concurrent kernel compilations never clash and stale files are never left
+    // behind on disk, regardless of whether compilation succeeds or throws.
+    ScopedTempDirectory tempDir(llvmFuncOpNameStr, log);
+    if (tempDir.keepsFiles()) {
+        if (!tempDir.destinationDirectory().empty()) {
+            log.trace("IE_NPU_SCG_KEEP_COMPILATION_ARTIFACTS is set, SHAVE kernel compilation artifacts will be "
+                      "copied to '{0}/{1}'",
+                      tempDir.destinationDirectory(), llvmFuncOpNameStr);
+        } else {
+            log.trace("IE_NPU_SCG_KEEP_COMPILATION_ARTIFACTS is set, preserving SHAVE kernel temporary directory "
+                      "'{0}'",
+                      tempDir.directory());
+        }
+    }
+
+    const auto llFilePath = tempDir.path("sw_layer.ll");
+    const auto sFilePath = tempDir.path("sw_layer.s");
+    const auto oFilePath = tempDir.path("sw_layer.o");
+    const auto ldScriptPath = tempDir.path("shave_kernel.ld");
+    const auto elfPath = tempDir.path("a.out");
+
     // We write llvmModule to file sw_layer.ll.
     std::error_code llFileEC;
-    llvm::raw_fd_ostream llFile("sw_layer.ll", llFileEC);
+    llvm::raw_fd_ostream llFile(llFilePath, llFileEC);
+    VPUX_THROW_UNLESS(!llFileEC, "Could not open file '{0}' for writing LLVM IR: {1}", llFilePath, llFileEC.message());
     llFile << *llvmModule;
 
-    llvm::SmallVector<std::optional<StringRef>> redirects = {
-            std::nullopt,  // stdin(0)
-            std::nullopt,  // stdout(1)
-            std::nullopt   // stderr(2)
-    };
+    // Runs an external compilation tool, redirecting its stdout/stderr into files inside the
+    // temporary directory so that failures can be diagnosed: on a non-zero exit code the captured
+    // output (plus any launch-level error reported by ExecuteAndWait itself) is included in the
+    // thrown exception instead of being silently discarded.
+    const auto runToolAndCheck = [&](llvm::StringRef toolName, llvm::StringRef program,
+                                     llvm::ArrayRef<llvm::StringRef> args) {
+        const auto stdoutPath = tempDir.path(toolName.str() + ".stdout.log");
+        const auto stderrPath = tempDir.path(toolName.str() + ".stderr.log");
+        const llvm::SmallVector<std::optional<StringRef>> redirects = {std::nullopt,                  // stdin(0)
+                                                                       llvm::StringRef(stdoutPath),   // stdout(1)
+                                                                       llvm::StringRef(stderrPath)};  // stderr(2)
 
-    std::string errMsg;
+        std::string errMsg;
+        const auto procErr = llvm::sys::ExecuteAndWait(program, args, /*Env=*/std::nullopt, redirects,
+                                                       /*SecondsToWait*/ 100, /*MemoryLimit=*/0, &errMsg);
+        if (procErr != 0) {
+            const auto readOutput = [](const std::string& path) {
+                std::ifstream file(path);
+                std::stringstream buffer;
+                buffer << file.rdbuf();
+                return buffer.str();
+            };
+            VPUX_THROW("Call to {0} failed (exit code {1}): {2}\n--- stdout ---\n{3}--- stderr ---\n{4}", toolName,
+                       procErr, errMsg, readOutput(stdoutPath), readOutput(stderrPath));
+        }
+    };
 
     // We compile with moviCompile the sw_layer.ll to sw_layer.s (SHAVE assembly).
     auto mvToolsEnvVar = std::getenv("MV_TOOLS_DIR");
@@ -210,40 +357,32 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, std::unique_ptr<llvm::Modu
     const auto mcpu = (vpux::SmallString("-mcpu=") + archArgument).str();
 
     llvm::SmallVector<llvm::StringRef> runArgsMC = {
-            prgMC,                   // Movicompile tool
-            mcpu,                    // CPU
-            "-S",                    // Only run preprocess and compilation steps
-            "-o",                    // Write output to:
-            "sw_layer.s",            // file sw_layer.s
-            "-x",                    // Treat subsequent input files as having:
-            "ir",                    // type ir
-            "-O3",                   // optimize code
-            "-mllvm",                // Next option is for llvm
-            "-enable-loop-flatten",  // Enable the loop flatten optimization
+            prgMC,                       // Movicompile tool
+            mcpu,                        // CPU
+            "-S",                        // Only run preprocess and compilation steps
+            "-o",                        // Write output to:
+            llvm::StringRef(sFilePath),  // file sw_layer.s
+            "-x",                        // Treat subsequent input files as having:
+            "ir",                        // type ir
+            "-O3",                       // optimize code
+            "-mllvm",                    // Next option is for llvm
+            "-enable-loop-flatten",      // Enable the loop flatten optimization
             // Preemption flags
             "-mshave-preemption-checks=restore", "-mshave-low-impact-preemption", "-mshave-preemption-max-loop-depth=1",
-            "sw_layer.ll"};  // Input file
+            llvm::StringRef(llFilePath)};  // Input file
 
-    const auto procErrMC = llvm::sys::ExecuteAndWait(prgMC, runArgsMC, /*Env=*/std::nullopt, redirects,
-                                                     /*SecondsToWait*/ 100, /*MemoryLimit=*/0, &errMsg);
-    VPUX_THROW_UNLESS(procErrMC == 0, "Call to moviCompile failed");
+    runToolAndCheck("moviCompile", prgMC, runArgsMC);
 
     // We run moviAsm from MoviTools to obtain from sw_layer.s a file sw_layer.o.
     std::string prgAsmStr = mvToolsPathCompleteStr + "/linux64/bin/moviAsm";
     llvm::StringRef prgAsm = prgAsmStr;
     //
-    llvm::SmallVector<llvm::StringRef> runArgsAsm = {prgAsm, "sw_layer.s", "--cv", archArgument, "--noSPrefixing"};
+    llvm::SmallVector<llvm::StringRef> runArgsAsm = {prgAsm, llvm::StringRef(sFilePath), "--cv", archArgument,
+                                                     "--noSPrefixing"};
 
-    const auto procErrAsm = llvm::sys::ExecuteAndWait(prgAsm, runArgsAsm, /*Env=*/std::nullopt, redirects,
-                                                      /*SecondsToWait*/ 100, /*MemoryLimit=*/0, &errMsg);
-    VPUX_THROW_UNLESS(procErrAsm == 0, "Call to moviAsm failed");
+    runToolAndCheck("moviAsm", prgAsm, runArgsAsm);
 
-    std::string elfPathFileNameStr = llvmFuncOpNameStr + "/a.out";
-
-    // Create the folder associated with this shave kernel (e.g. generated_Cos0).
-    llvm::sys::fs::create_directory(llvmFuncOpNameStr);
-
-    // We run the linker to obtain the ELF file a.out from sw_layers.o
+    // We run the linker to obtain the ELF file a.out from sw_layer.o
     //   (we include 4 libraries as dependencies to link the
     //   external __coss function, which returns cos applied on
     //   the float input value, for which it does check if it
@@ -259,13 +398,13 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, std::unique_ptr<llvm::Modu
     llvm::StringRef prgLd = prgLdStr;
 
     std::string linkerStr = SHAVE_LD_SCRIPT;
-    std::ofstream ldScriptFile("shave_kernel.ld");
+    std::ofstream ldScriptFile(ldScriptPath);
     if (!ldScriptFile.is_open()) {
-        throw std::runtime_error("Error: Could not open file shave_kernel.ld.");
+        throw std::runtime_error("Error: Could not open file " + ldScriptPath + ".");
     }
     ldScriptFile << linkerStr;
     ldScriptFile.close();
-    std::string scriptStr = std::string("--script=shave_kernel.ld");
+    std::string scriptStr = std::string("--script=") + ldScriptPath;
 
     llvm::SmallVector<llvm::StringRef> runArgsLd = {prgLd,
                                                     llvm::StringRef(scriptStr),
@@ -277,7 +416,7 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, std::unique_ptr<llvm::Modu
                                                     "-EL",
                                                     "-O9",
                                                     "--gc-sections",
-                                                    "sw_layer.o",
+                                                    llvm::StringRef(oFilePath),
                                                     "--start-group",
                                                     llvm::StringRef(mLibMStr),
                                                     llvm::StringRef(mLibCrtStr),
@@ -285,25 +424,17 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, std::unique_ptr<llvm::Modu
                                                     llvm::StringRef(mLibCStr),
                                                     "--end-group",
                                                     "--output",
-                                                    llvm::StringRef(elfPathFileNameStr)};
+                                                    llvm::StringRef(elfPath)};
 
-    const auto procErrLd = llvm::sys::ExecuteAndWait(prgLd, runArgsLd, /*Env=*/std::nullopt, redirects,
-                                                     /*SecondsToWait*/ 100, /*MemoryLimit=*/0, &errMsg);
-    VPUX_THROW_UNLESS(procErrLd == 0, "Call to sparc-myriad-rtems-ld failed");
+    runToolAndCheck("moviLLD", prgLd, runArgsLd);
 
-    // We create file FileList.in containing each ELF file and
-    //   folder (name, more exactly key in ShaveBinaryResources dictionary),
-    //   associated to the current sw layer.
-    std::ofstream fOut("FileList.in", std::ios::app);
-    if (fOut.is_open()) {  // Make sure file opened before writing
-        if (!(fOut << llvmFuncOpNameStr + "/a.out\n")) {
-            log.trace("[SCG] Write to FileList.in failed");
-        }
+    // Read the ELF file into a buffer and add it to the ShaveBinaryResources.
+    auto elfBufferOrErr = llvm::MemoryBuffer::getFile(elfPath, /*IsText=*/false, /*RequiresNullTerminator=*/false);
+    VPUX_THROW_UNLESS(elfBufferOrErr, "Could not read compiled SHAVE ELF file '{0}': {1}", elfPath,
+                      elfBufferOrErr.getError().message());
+    const auto& elfBuffer = *elfBufferOrErr;
+    const auto elfBinary =
+            llvm::ArrayRef(reinterpret_cast<const uint8_t*>(elfBuffer->getBufferStart()), elfBuffer->getBufferSize());
 
-        if (!(fOut << llvmFuncOpNameStr + "\n")) {
-            log.trace("[SCG] Write to FileList.in failed");
-        }
-    } else {
-        log.trace("[SCG] Cannot open file FileList.in");
-    }
+    sbr.addCompiledElf(llvmFuncOpNameStr, elfBinary, arch, /*overwrite=*/true);
 }

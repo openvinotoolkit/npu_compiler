@@ -8,7 +8,6 @@
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/utils/affine_reshape.hpp"
-#include "vpux/compiler/dialect/const/utils/constant_folding_cache.hpp"
 #include "vpux/compiler/dialect/const/utils/mem_permute_optimized.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/loop.hpp"
@@ -245,6 +244,14 @@ mlir::LogicalResult prepareRelocateWeightsTableSwap(optimization::TransformAttrP
     const auto subViewAttr = mlir::cast<Const::SubViewAttr>(*(relocateAttrIt + 1));
     const Shape offset(parseIntArrayAttr<int64_t>(subViewAttr.getOffset()));
     const Shape shape(parseIntArrayAttr<int64_t>(subViewAttr.getShape()));
+
+    // Below code doesn't handle split on groups so just skip 5D weight tables.
+    // We could still move SubView which slices 5D shapes on channels but
+    // RelocateWeightsTable transform is not ready to handle non-contiguous
+    // buffers. E-225154
+    if (shape.size() != 4) {
+        return mlir::failure();
+    }
 
     // More than one channel must be present for the transformation to deduce the weights pointer step
     const auto subviewSize = shape.front();
@@ -1048,15 +1055,12 @@ mlir::FailureOr<Const::FuseWeightsAttr> moveSubViewIntoFuse(Const::FuseWeightsAt
 
     auto getOverlapRegionBounds = [](const int64_t constantStart, const int64_t constantEnd, const int64_t subViewStart,
                                      const int64_t subViewEnd) -> std::pair<int64_t, int64_t> {
-        int subViewConstantEnd = 0;
-        int subViewConstantStart = 0;
-        if ((constantEnd > constantStart) && (subViewEnd > subViewStart) &&
-            ((subViewStart >= constantStart && subViewStart < constantEnd) ||
-             (subViewEnd > constantStart && subViewEnd < constantEnd))) {
-            subViewConstantStart = subViewStart >= constantStart ? subViewStart : constantStart;
-            subViewConstantEnd = subViewEnd >= constantEnd ? constantEnd : subViewEnd;
+        const auto overlapStart = std::max(constantStart, subViewStart);
+        const auto overlapEnd = std::min(constantEnd, subViewEnd);
+        if (overlapStart >= overlapEnd) {
+            return std::make_pair(int64_t(0), int64_t(0));
         }
-        return std::make_pair(subViewConstantStart, subViewConstantEnd);
+        return std::make_pair(overlapStart, overlapEnd);
     };
 
     auto getNonFlatSubViewOffsetAndShape =
@@ -1122,8 +1126,12 @@ mlir::FailureOr<Const::FuseWeightsAttr> moveSubViewIntoFuse(Const::FuseWeightsAt
         auto flatSubViewOffset =
                 (constantSubViewStart - constantStartInFusedBuffer) * bitsInByte / constantElemTypeSize;
         auto flatSubViewShape = (constantSubViewEnd - constantSubViewStart) * bitsInByte / constantElemTypeSize;
-        auto [newSubViewOffset, newSubViewShape, flatOffsetCorrection] = getNonFlatSubViewOffsetAndShape(
-                constant.getType().getShape().raw(), flatSubViewOffset, flatSubViewShape);
+        const auto order = constant.getType().getDimsOrder();
+        auto memShape = order.toMemoryOrder(constant.getType().getShape());
+        auto [newMemSubViewOffset, newMemSubViewShape, flatOffsetCorrection] =
+                getNonFlatSubViewOffsetAndShape(memShape.raw(), flatSubViewOffset, flatSubViewShape);
+        auto newSubViewOffset = order.toLogicalOrder(MemShape(newMemSubViewOffset));
+        auto newSubViewShape = order.toLogicalOrder(MemShape(newMemSubViewShape));
         auto subview = Const::SubViewAttr::get(getIntArrayAttr(fuseAttr.getContext(), newSubViewOffset),
                                                getIntArrayAttr(fuseAttr.getContext(), newSubViewShape));
         if (constant.getType() != subview.inferOutputType(constant.getType())) {

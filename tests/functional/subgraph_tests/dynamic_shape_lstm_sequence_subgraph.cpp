@@ -39,13 +39,9 @@ public:
         result << "TestIdx=" << obj.index << sep;
         result << "IS=";
 
-        ov::element::Type inputType;
-        std::vector<ov::test::InputShape> shapes;
-        ov::op::RecurrentSequenceDirection direction;
+        const auto& [shapes, inputType, direction] = obj.param;
 
-        std::tie(shapes, inputType, direction) = obj.param;
-
-        for (auto shape : shapes) {
+        for (const auto& shape : shapes) {
             result << vec2str(shape.second) << sep;
         }
         result << "direction=" << direction << sep;
@@ -74,14 +70,14 @@ protected:
         const auto& [shapes, typeForInput, direction] = this->GetParam();
         const auto& inputShapeForParameter = shapes[0];
 
-        size_t hidden_size = 128;
-        size_t input_size = 64;
-        size_t batch_size = 1;
+        constexpr size_t hidden_size = 128;
+        constexpr size_t input_size = 64;
+        constexpr size_t batch_size = 1;
 
-        size_t num_directions = direction == ov::op::RecurrentSequenceDirection::BIDIRECTIONAL ? 2 : 1;
+        const size_t num_directions = direction == ov::op::RecurrentSequenceDirection::BIDIRECTIONAL ? 2 : 1;
 
-        const auto dataShape = ov::test::InputShape{{batch_size, num_directions, hidden_size},
-                                                    {{batch_size, num_directions, hidden_size}}};
+        const ov::Shape stateShape{batch_size, num_directions, hidden_size};
+        const auto dataShape = ov::test::InputShape{ov::PartialShape(stateShape), {stateShape}};
 
         std::vector<ov::test::InputShape> inShapes = {inputShapeForParameter, dataShape, dataShape};
 
@@ -224,13 +220,9 @@ public:
         result << "TestIdx=" << obj.index << sep;
         result << "IS=";
 
-        ov::element::Type inputType;
-        std::vector<ov::test::InputShape> shapes;
-        ov::op::RecurrentSequenceDirection direction;
+        const auto& [shapes, inputType, direction] = obj.param;
 
-        std::tie(shapes, inputType, direction) = obj.param;
-
-        for (auto shape : shapes) {
+        for (const auto& shape : shapes) {
             result << vec2str(shape.second) << sep;
         }
         result << "direction=" << direction << sep;
@@ -259,14 +251,14 @@ protected:
         const auto& [shapes, typeForInput, direction] = this->GetParam();
         const auto& inputShapeForParameter = shapes[0];
 
-        size_t hidden_size = 128;
-        size_t input_size = 64;
-        size_t batch_size = 1;
+        constexpr size_t hidden_size = 128;
+        constexpr size_t input_size = 64;
+        constexpr size_t batch_size = 1;
 
-        size_t num_directions = direction == ov::op::RecurrentSequenceDirection::BIDIRECTIONAL ? 2 : 1;
+        const size_t num_directions = direction == ov::op::RecurrentSequenceDirection::BIDIRECTIONAL ? 2 : 1;
 
-        const auto dataShape = ov::test::InputShape{{batch_size, num_directions, hidden_size},
-                                                    {{batch_size, num_directions, hidden_size}}};
+        const ov::Shape stateShape{batch_size, num_directions, hidden_size};
+        const auto dataShape = ov::test::InputShape{ov::PartialShape(stateShape), {stateShape}};
 
         std::vector<ov::test::InputShape> inShapes = {inputShapeForParameter, dataShape, dataShape};
 
@@ -313,8 +305,9 @@ protected:
     void createLSTMSequence(const ov::Output<ov::Node>& X, const std::shared_ptr<ov::op::v0::Parameter>& Y,
                             const std::shared_ptr<ov::op::v0::Parameter>& Z,
                             const std::shared_ptr<ov::op::v1::Gather>& seq_lengths,
-                            const ov::element::Type& typeForInput, size_t hidden_size, size_t input_size,
-                            size_t num_directions, ov::op::RecurrentSequenceDirection direction) {
+                            const ov::element::Type& typeForInput, size_t hidden_size,
+                            [[maybe_unused]] size_t input_size, size_t num_directions,
+                            ov::op::RecurrentSequenceDirection direction) {
         auto createLSTM = [&](float init_val, const ov::Output<ov::Node>& input, size_t input_size) {
             auto w_val = std::vector<float>(num_directions * 4 * hidden_size * input_size, init_val);
             auto r_val = std::vector<float>(num_directions * 4 * hidden_size * hidden_size, init_val);

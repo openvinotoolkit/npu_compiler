@@ -40,7 +40,7 @@ func.func @ErrataSuperdenseNCEAveragePool(%arg0: tensor<1x16x15x15xf16, {mem_spa
 // CHECK-SAME: [[ARG1:%.+]]: memref<1x64x28x28xf16, {order = #NHWC}, @CMX_NN>)
 func.func @EltwiseSubtract(%arg0: tensor<1x64x28x28xf16, {mem_space = @CMX_NN, order = #NHWC}>, %arg1: tensor<1x64x28x28xf16, {mem_space = @CMX_NN, order = #NHWC}>)
         -> tensor<1x64x28x28xf16, {mem_space = @CMX_NN, order = #NHWC}> {
-    %1 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %1 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 op_type = #VPU.eltwise_type<SUBTRACT>,
                 ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e-01], adder = 0.000000e+00 : f64>
             } -> tensor<1x64x28x28xf16, {mem_space = @CMX_NN, order = #NHWC}> {
@@ -104,7 +104,7 @@ func.func @NceEltwiseMultiply(%arg0: tensor<1x64x28x28xf16, {order = #NHWC, mem_
                          %arg1: tensor<1x64x28x28xf16, {order = #NHWC, mem_space = @CMX_NN}>)
         -> tensor<1x64x28x28xf16, {order = #NHWC, mem_space = @CMX_NN}> {
 
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 op_type = #VPU.eltwise_type<MULTIPLY>,
                 ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e-01], adder = 0.000000e+00 : f64>
             } -> tensor<1x64x28x28xf16, {mem_space = @CMX_NN, order = #NHWC}> {
@@ -499,7 +499,7 @@ func.func @SparseInt8DepthConvWithL1Opt(
     %weight_table: tensor<64x1x1x4xsi32, {mem_space = @CMX_NN}>
 ) -> tensor<1x64x128x128x!qElemType, {order = #NHWC, mem_space = @CMX_NN}> {
 
-    %0 = VPU.NCE.DepthConvolution(%data, %weights, %weight_table) rawFilterShape [64, 1, 3, 3] {
+    %0 = VPU.NCE.DepthConvolution(%data, %weights, %weight_table) rawFilterShape [64, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -1.280000e+02 : f64, clamp_high = 1.270000e+02 : f64,
             scale = 0.073115045214323729 : f64, prelu_alpha = [1.000000e+00],
@@ -563,7 +563,7 @@ func.func @SparseDepthConvWithoutL1Opt(
     %weight_table: tensor<64x1x1x4xsi32, {mem_space = @CMX_NN}>
 ) -> tensor<1x64x128x128x!qElemType, {order = #NHWC, mem_space = @CMX_NN}> {
 
-    %0 = VPU.NCE.DepthConvolution(%data, %weights, %weight_table) rawFilterShape [64, 1, 3, 3] {
+    %0 = VPU.NCE.DepthConvolution(%data, %weights, %weight_table) rawFilterShape [64, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -1.280000e+02 : f64, clamp_high = 1.270000e+02 : f64,
             scale = 0.073115045214323729 : f64, prelu_alpha = [1.000000e+00],
@@ -614,7 +614,7 @@ func.func @Int8ActDepthConvWithL1Opt(
     %weight_table: tensor<64x1x1x4xsi32, {mem_space = @CMX_NN}>
 ) -> tensor<1x64x64x64x!qElemType, {order = #NHWC, mem_space = @CMX_NN}> {
 
-    %0 = VPU.NCE.DepthConvolution(%input, %weights, %weight_table) rawFilterShape [64, 1, 3, 3] {
+    %0 = VPU.NCE.DepthConvolution(%input, %weights, %weight_table) rawFilterShape [64, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -1.280000e+02 : f64, clamp_high = 1.270000e+02 : f64,
             scale = 0.073115045214323729 : f64, prelu_alpha = [1.000000e+00],

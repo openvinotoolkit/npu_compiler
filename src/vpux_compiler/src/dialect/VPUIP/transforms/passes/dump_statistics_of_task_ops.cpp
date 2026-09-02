@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/core/feasible_memory_scheduler_spilling.hpp"
+#include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
@@ -11,16 +12,24 @@
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/counters_category.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/swizzling_utils.hpp"
+#include "vpux/compiler/dialect/VPURT/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
+#include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/dialect/net/IR/dialect.hpp"
+#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/abstract_tree.hpp"
 #include "vpux/compiler/utils/statistics_collection.hpp"
+#include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/profiling/common.hpp"
+
+#include "vpux/utils/core/range.hpp"
 
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_DUMPSTATISTICSOFTASKOPSPASS
@@ -58,6 +67,97 @@ bool isLocContainsStr(mlir::Location loc, const std::string& substr) {
         }
     }
     return false;
+}
+
+uint64_t getBufferSize(mlir::func::FuncOp funcOp, mlir::Type type, size_t sectionIndex, bool isInput) {
+    const auto ndType = mlir::cast<vpux::NDTypeInterface>(type);
+
+    const auto section = isInput ? VPURT::BufferSection::NetworkInput : VPURT::BufferSection::NetworkOutput;
+    return ELF::getBufferBinarySize(ndType, funcOp, section, static_cast<int64_t>(sectionIndex));
+}
+
+std::optional<std::tuple<uint64_t, uint64_t>> getInputOutputSize(mlir::func::FuncOp funcOp, Logger log) {
+    const auto args = funcOp.getArgumentTypes();
+    const auto results = funcOp.getResultTypes();
+
+    if (results.size() > args.size()) {
+        log.warning("Skipping input/output size statistics for {0}: function has {1} results but only {2} arguments",
+                    funcOp.getName(), results.size(), args.size());
+        return std::nullopt;
+    }
+
+    const auto inputTypes = args.take_front(args.size() - results.size());
+
+    const auto needsNetworkBounds = [&](auto types) {
+        return llvm::any_of(types, [](mlir::Type type) {
+            const auto ndType = mlir::cast<vpux::NDTypeInterface>(type);
+            return ndType.getShape().isDynamic();
+        });
+    };
+
+    const bool hasDynamicInputs = needsNetworkBounds(args);
+    const bool hasDynamicOutputs = needsNetworkBounds(results);
+
+    std::optional<net::NetworkInfoOp> netInfo = std::nullopt;
+    if (hasDynamicInputs || hasDynamicOutputs) {
+        auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>();
+        if (moduleOp == nullptr) {
+            log.warning("Skipping input/output size statistics for {0}: parent module not found", funcOp.getName());
+            return std::nullopt;
+        }
+        auto netOps = to_small_vector(moduleOp.getOps<net::NetworkInfoOp>());
+        if (netOps.size() != 1) {
+            log.warning(
+                    "Skipping input/output size statistics for {0}: expected exactly one net::NetworkInfoOp, found {1}",
+                    funcOp.getName(), netOps.size());
+            return std::nullopt;
+        }
+        netInfo = netOps.front();
+    }
+
+    const auto netInputs = netInfo.has_value() ? to_small_vector(netInfo->getInputsDataInfo())
+                                               : decltype(to_small_vector(netInfo->getInputsDataInfo())){};
+    const auto netOutputs = netInfo.has_value() ? to_small_vector(netInfo->getOutputsDataInfo())
+                                                : decltype(to_small_vector(netInfo->getOutputsDataInfo())){};
+
+    const auto sumPerBufferSizes = [&](auto types, bool isInput) -> std::optional<uint64_t> {
+        uint64_t size = 0;
+        for (size_t idx = 0; idx < types.size(); ++idx) {
+            const auto type = mlir::cast<vpux::NDTypeInterface>(types[idx]);
+            log.trace("Calculating buffer size for {0} buffer {1}", isInput ? "input" : "output", idx);
+            if (!type.getShape().isDynamic()) {
+                size += type.getTotalAllocSize().count();
+                continue;
+            }
+
+            const auto& dataInfos = isInput ? netInputs : netOutputs;
+            if (idx >= dataInfos.size()) {
+                log.warning("Skipping input/output size statistics for {0}: missing NetworkInfo entry for dynamic {1} "
+                            "buffer {2}",
+                            funcOp.getName(), isInput ? "input" : "output", idx);
+                return std::nullopt;
+            }
+            const auto bounds = getBoundsFromDataInfo(dataInfos, idx);
+            if (bounds.empty()) {
+                log.warning(
+                        "Skipping input/output size statistics for {0}: missing bounds in NetworkInfo for dynamic {1} "
+                        "buffer {2}",
+                        funcOp.getName(), isInput ? "input" : "output", idx);
+                return std::nullopt;
+            }
+            log.trace("DataInfo[{0}] has bounds: {1}", idx, bounds);
+            size += getBufferSize(funcOp, type, idx, isInput);
+        }
+        return size;
+    };
+
+    const auto inputSize = sumPerBufferSizes(inputTypes, /*isInput=*/true);
+    const auto outputSize = sumPerBufferSizes(results, /*isInput=*/false);
+    if (!inputSize.has_value() || !outputSize.has_value()) {
+        return std::nullopt;
+    }
+
+    return std::make_tuple(*inputSize, *outputSize);
 }
 
 CountersVec getSpillCounter(const std::string& category) {
@@ -508,23 +608,6 @@ private:
     uint64_t numOfBarriers_;
 };
 
-std::tuple<uint64_t, uint64_t> getInputOutputSize(mlir::func::FuncOp funcOp) {
-    uint64_t inputSize = 0;
-    uint64_t outputSize = 0;
-    auto inputs = funcOp.getArgumentTypes();
-    auto results = funcOp.getResultTypes();
-
-    for (auto& input : inputs) {
-        inputSize += mlir::cast<vpux::NDTypeInterface>(input).getTotalAllocSize().count();
-    }
-    for (auto& result : results) {
-        outputSize += mlir::cast<vpux::NDTypeInterface>(result).getTotalAllocSize().count();
-    }
-    // For every result we have entry in arguments
-    inputSize -= outputSize;
-    return {inputSize, outputSize};
-}
-
 uint64_t getDDRHeapSize(mlir::func::FuncOp funcOp) {
     uint64_t maxOffset = 0;
     auto calcOffset = [&](VPURT::DeclareBufferOp bufferOp) {
@@ -550,6 +633,11 @@ public:
         Base::initLogger(log, Base::getArgumentName());
     }
 
+    void getDependentDialects(mlir::DialectRegistry& registry) const override {
+        registry.insert<vpux::VPUIP::VPUIPDialect, vpux::VPURT::VPURTDialect, vpux::Const::ConstDialect,
+                        vpux::net::NetDialect>();
+    }
+
 private:
     void safeRunOnFunc() final;
 };
@@ -562,9 +650,10 @@ void DumpStatisticsOfTaskOpsPass::safeRunOnFunc() {
     CompressionRateCounter compressionCounter;
     ConstSwizzlingCounter constSwizzlingCounter;
 
-    auto inputOutputsize = getInputOutputSize(func);
-    _log.info("Input size - {0} Output size - {1}", convertBytesToReadableSize(std::get<0>(inputOutputsize)),
-              convertBytesToReadableSize(std::get<1>(inputOutputsize)));
+    if (auto inputOutputsize = getInputOutputSize(func, _log); inputOutputsize.has_value()) {
+        _log.info("Input size - {0} Output size - {1}", convertBytesToReadableSize(std::get<0>(*inputOutputsize)),
+                  convertBytesToReadableSize(std::get<1>(*inputOutputsize)));
+    }
 
     auto ddrHeapSize = getDDRHeapSize(func);
     _log.info("DDR heap size - {0}", convertBytesToReadableSize(ddrHeapSize));

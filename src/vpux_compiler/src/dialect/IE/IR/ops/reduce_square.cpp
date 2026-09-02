@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
-#include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 using namespace vpux;
 
@@ -19,17 +19,10 @@ mlir::LogicalResult vpux::IE::ReduceSquareOp::inferReturnTypeComponents(
     if (mlir::failed(reduceSquare.verify(loc))) {
         return mlir::failure();
     }
-    if (reduceSquare.getAxes() != nullptr && reduceSquare.getAxesValue().has_value()) {
-        return errorAt(loc, "Ambiguous axes representation");
-    } else if (reduceSquare.getAxes() == nullptr && !reduceSquare.getAxesValue().has_value()) {
-        return errorAt(loc, "Axes was not provided properly");
-    }
 
     const auto input = reduceSquare.getInput();
     const auto keepDims = reduceSquare.getKeepDims();
-
-    auto axesValue = IE::extractAxes(loc, reduceSquare);
-
+    auto axesValue = parseIntArrayAttr<int64_t>(reduceSquare.getAxesValue());
     return IE::inferReduceReturnTypeComponents(loc, input, keepDims, axesValue, inferredReturnShapes);
 }
 

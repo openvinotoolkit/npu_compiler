@@ -37,6 +37,13 @@ mlir::FailureOr<mlir::Value> createUpsampling(mlir::PatternRewriter& rewriter, m
     const auto padsBeginVector = Shape(parseIntArrayAttr<int64_t>(origOp.getPadsBegin()));
     const auto padsEndVector = Shape(parseIntArrayAttr<int64_t>(origOp.getPadsEnd()));
     const auto stridesVector = Shape(parseIntArrayAttr<int64_t>(origOp.getStrides()));
+    const auto dilationsVector = Shape(parseIntArrayAttr<int64_t>(origOp.getDilations()));
+
+    // Effective kernel: K_eff = K + (K - 1) * (dilation - 1), hence (K_eff - 1) = (K - 1) * dilation.
+    // Upsampling pad uses (K_eff - 1) (not (K - 1)) so the downstream stride-1 conv
+    // sees the same receptive field as the original dilated transposed conv.
+    const auto dilY = dilationsVector[Dims4D::Dilation::Y];
+    const auto dilX = dilationsVector[Dims4D::Dilation::X];
 
     int64_t padL, padR, padT, padB;
 
@@ -48,10 +55,12 @@ mlir::FailureOr<mlir::Value> createUpsampling(mlir::PatternRewriter& rewriter, m
                            origFilterShape.size());
         }
 
-        padL = origFilterShape[GROUP_TRANSPOSED_CONV_KX_DIM_INDEX] - 1 - padsBeginVector[Dims4D::PadsBegin::Left];
-        padR = origFilterShape[GROUP_TRANSPOSED_CONV_KX_DIM_INDEX] - 1 - padsEndVector[Dims4D::PadsEnd::Right];
-        padT = origFilterShape[GROUP_TRANSPOSED_CONV_KY_DIM_INDEX] - 1 - padsBeginVector[Dims4D::PadsBegin::Top];
-        padB = origFilterShape[GROUP_TRANSPOSED_CONV_KY_DIM_INDEX] - 1 - padsEndVector[Dims4D::PadsEnd::Bottom];
+        const auto effKXMinus1 = (origFilterShape[GROUP_TRANSPOSED_CONV_KX_DIM_INDEX] - 1) * dilX;
+        const auto effKYMinus1 = (origFilterShape[GROUP_TRANSPOSED_CONV_KY_DIM_INDEX] - 1) * dilY;
+        padL = effKXMinus1 - padsBeginVector[Dims4D::PadsBegin::Left];
+        padR = effKXMinus1 - padsEndVector[Dims4D::PadsEnd::Right];
+        padT = effKYMinus1 - padsBeginVector[Dims4D::PadsBegin::Top];
+        padB = effKYMinus1 - padsEndVector[Dims4D::PadsEnd::Bottom];
     } else {
         auto filterShape = getShape(origOp.getFilter()).toValues();
         if (filterShape.size() != 4) {
@@ -67,11 +76,13 @@ mlir::FailureOr<mlir::Value> createUpsampling(mlir::PatternRewriter& rewriter, m
         //                   64])
         // The padL/padR/padT/padB should be non-negative integer, here will be set to 0 instead of -63.
         // Then the Upsampling output shape will be 1x32x255x255xf16 with strides = [2, 2].
-        // So the sliceOp wiil be added after NCEConv (1x32x254x254xf16) for crop to 1x32x128x128xf16.
-        padL = filterShape[Dims4D::Filter::KX] - 1 - padsBeginVector[Dims4D::PadsBegin::Left];
-        padR = filterShape[Dims4D::Filter::KX] - 1 - padsEndVector[Dims4D::PadsEnd::Right];
-        padT = filterShape[Dims4D::Filter::KY] - 1 - padsBeginVector[Dims4D::PadsBegin::Top];
-        padB = filterShape[Dims4D::Filter::KY] - 1 - padsEndVector[Dims4D::PadsEnd::Bottom];
+        // So the sliceOp will be added after NCEConv (1x32x254x254xf16) for crop to 1x32x128x128xf16.
+        const auto effKXMinus1 = (filterShape[Dims4D::Filter::KX] - 1) * dilX;
+        const auto effKYMinus1 = (filterShape[Dims4D::Filter::KY] - 1) * dilY;
+        padL = effKXMinus1 - padsBeginVector[Dims4D::PadsBegin::Left];
+        padR = effKXMinus1 - padsEndVector[Dims4D::PadsEnd::Right];
+        padT = effKYMinus1 - padsBeginVector[Dims4D::PadsBegin::Top];
+        padB = effKYMinus1 - padsEndVector[Dims4D::PadsEnd::Bottom];
         if (origOp.getOutputShape() != nullptr) {
             padL = std::max<int64_t>(padL, 0);
             padR = std::max<int64_t>(padR, 0);

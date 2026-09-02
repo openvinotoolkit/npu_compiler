@@ -84,6 +84,7 @@ def ELFNPU37XX_SectionTypeAttr :
                 I64EnumAttrCase<"VPU_SHT_PROF",          0x8AAAAAAB>,
                 I64EnumAttrCase<"VPU_SHT_PERF_METRICS",  0x8AAAAAAE>,
                 I64EnumAttrCase<"VPU_SHT_PLATFORM_INFO", 0x8AAAAAAF>,
+                I64EnumAttrCase<"VPU_SHT_COMPAT_STR",    0x8AAAAAB2>,
                 I64EnumAttrCase<"SHT_HIUSER",            0xFFFFFFFF>
             ]
         > {

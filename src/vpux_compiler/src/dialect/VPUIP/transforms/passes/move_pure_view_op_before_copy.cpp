@@ -33,6 +33,25 @@ namespace vpux::VPUIP {
 using namespace vpux;
 
 namespace {
+vpux::NDTypeInterface getEventualCopyDestinationType(mlir::Value copyResult) {
+    mlir::Value current = copyResult;
+    vpux::NDTypeInterface destType = nullptr;
+    while (current.hasOneUse()) {
+        auto* user = *current.getUsers().begin();
+        if (auto nextCopy = mlir::dyn_cast<VPUIP::CopyOp>(user)) {
+            const auto outType = mlir::cast<vpux::NDTypeInterface>(VPUIP::extractDataType(nextCopy.getOutputs()[0]));
+            destType = outType;
+            current = nextCopy.getOutput();
+            continue;
+        }
+        if (mlir::isa<VPUIP::PermuteCastOp, VPUIP::GenericReshapeOp, VPUIP::QuantizeCastOp, VPUIP::ShapeCastOp>(user)) {
+            current = user->getResult(0);
+            continue;
+        }
+        break;
+    }
+    return destType;
+}
 
 //
 // MoveViewOpToTheFrontOfCopy
@@ -223,6 +242,7 @@ mlir::LogicalResult MoveViewOpToTheFrontOfCopy::matchAndRewrite(mlir::ViewLikeOp
         return mlir::failure();
     }
 
+    bool isOverlappedResizeHoist = false;
     vpux::NDTypeInterface newViewOpOutputType = viewOpOutputType.changeMemSpace(copyOpInputType.getMemSpace());
     if (distributedType != nullptr) {
         auto getNewDistributionInfoAttr = [&]() -> VPU::DistributionInfoAttr {
@@ -267,9 +287,9 @@ mlir::LogicalResult MoveViewOpToTheFrontOfCopy::matchAndRewrite(mlir::ViewLikeOp
                                                           nullptr, nullptr, nullptr, nullptr, nullptr);
                 }
 
-                return VPU::getNonOverlappedDistributedAttr(
-                        viewOpOutputShape, duplicatedOutputMode, nullptr, origDistribution.getNumClusters(), nullptr,
-                        origDistribution.getUniformDistributedSegments(), distributedType.getElementType(), ctx);
+                return VPU::getNonOverlappedDistributedAttr(viewOpOutputShape, duplicatedOutputMode, nullptr,
+                                                            origDistribution.getNumClusters(), nullptr,
+                                                            origDistribution.getUniformDistributedSegments(), ctx);
             }
 
             if (mode == VPU::DistributionMode::SEGMENTED) {
@@ -308,6 +328,22 @@ mlir::LogicalResult MoveViewOpToTheFrontOfCopy::matchAndRewrite(mlir::ViewLikeOp
             }
 
             if (mode == VPU::DistributionMode::OVERLAPPED && VPU::isOverlappedOverH(origDistribution)) {
+                auto axesMapping = VPUIP::getDistributedAxesMappingAfterShapeChanged(
+                        distributedType, viewOpOutputShape, viewOpOutputType.getDimsOrder(), origDistribution, _log);
+                if (mlir::succeeded(axesMapping) && axesMapping->first != -1 && axesMapping->second != -1 &&
+                    viewOpInputShape[Dim(axesMapping->first)] != viewOpOutputShape[Dim(axesMapping->second)]) {
+                    // Resizing the tiling axis is only safe when there is no halo; the
+                    // `isDistributedCompatible` check above already confirmed this case is halo-free.
+                    isOverlappedResizeHoist = true;
+
+                    auto haloFreeDistribution = VPUIP::getHaloFreeOverlappedDistAttrWithNewShape(
+                            ctx, distributedType, viewOpOutputShape, axesMapping->second);
+                    if (haloFreeDistribution == nullptr) {
+                        return nullptr;
+                    }
+
+                    return haloFreeDistribution;
+                }
                 return VPUIP::getOverlappedDistAttrWithNewShape(ctx, distributedType, viewOpOutputShape);
             }
 
@@ -358,6 +394,17 @@ mlir::LogicalResult MoveViewOpToTheFrontOfCopy::matchAndRewrite(mlir::ViewLikeOp
         newViewOpOutputType = newViewOpOutputType.changeStrides(inputStrides);
     }
 
+    const auto newAllocType = viewOpOutputType.changeMemSpace(copyOpOutputType.getMemSpace());
+    if (isOverlappedResizeHoist) {
+        const auto eventualDestType = getEventualCopyDestinationType(origOp->getResult(0));
+        if (eventualDestType != nullptr && VPUIP::isEffectivelyStrided(eventualDestType)) {
+            _log.trace("Skip: OVERLAPPED resize hoist would let the Copy be fused into an effectively "
+                       "strided destination '{0}'",
+                       eventualDestType);
+            return mlir::failure();
+        }
+    }
+
     _log.trace("Set new input for '{0}': parent op '{1}'", origOp->getName(), copyOpInput.getLoc());
     origOp->setOperand(0, copyOpInput);
 
@@ -366,7 +413,6 @@ mlir::LogicalResult MoveViewOpToTheFrontOfCopy::matchAndRewrite(mlir::ViewLikeOp
 
     rewriter.setInsertionPointAfter(origOp);
 
-    auto newAllocType = viewOpOutputType.changeMemSpace(copyOpOutputType.getMemSpace());
     auto allocOp = VPUIP::allocateBuffersOfType(_log, copyOp->getLoc(), rewriter, newAllocType).front();
     auto newCopyOp = rewriter.create<VPUIP::CopyOp>(copyOp->getLoc(), origOp->getResult(0), allocOp);
 
@@ -500,7 +546,6 @@ private:
 void MovePureViewOpBeforeCopyPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
-
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<MoveViewOpToTheFrontOfCopy>(&ctx, _log);
     patterns.add<MoveSubviewToTheFrontOfCopy>(&ctx, _log);

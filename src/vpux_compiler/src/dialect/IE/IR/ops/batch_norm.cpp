@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/import/batch_norm.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
@@ -27,36 +28,15 @@ mlir::LogicalResult vpux::IE::BatchNormInferenceOp::inferReturnTypeComponents(
     return mlir::success();
 }
 
-//
-// ConvertConstToAttr
-//
-
-namespace {
-
-class ConvertConstToAttr final : public mlir::OpRewritePattern<IE::BatchNormInferenceOp> {
-public:
-    using mlir::OpRewritePattern<IE::BatchNormInferenceOp>::OpRewritePattern;
-
-public:
-    mlir::LogicalResult matchAndRewrite(IE::BatchNormInferenceOp normOp, mlir::PatternRewriter& rewriter) const final;
-};
-
-mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::BatchNormInferenceOp normOp,
-                                                        mlir::PatternRewriter& rewriter) const {
-    auto gamma = normOp.getGamma();
-    auto beta = normOp.getBeta();
-    auto mean = normOp.getMean();
-    auto var = normOp.getVariance();
-
-    if ((gamma == nullptr) || (beta == nullptr) || (mean == nullptr) || (var == nullptr)) {
-        // already converted
+namespace vpux::IE::BatchNormInference {
+llvm::FailureOr<BatchNormAttrs> parseAttributes(mlir::MLIRContext* ctx, ArrayRef<mlir::Value> inputs) {
+    if (inputs.size() != 5) {
         return mlir::failure();
     }
-
-    auto gammaConst = gamma.getDefiningOp<Const::DeclareOp>();
-    auto betaConst = beta.getDefiningOp<Const::DeclareOp>();
-    auto meanConst = mean.getDefiningOp<Const::DeclareOp>();
-    auto varConst = var.getDefiningOp<Const::DeclareOp>();
+    auto gammaConst = inputs[1].getDefiningOp<Const::DeclareOp>();
+    auto betaConst = inputs[2].getDefiningOp<Const::DeclareOp>();
+    auto meanConst = inputs[3].getDefiningOp<Const::DeclareOp>();
+    auto varConst = inputs[4].getDefiningOp<Const::DeclareOp>();
 
     // fail if not constants
     if ((gammaConst == nullptr) || (betaConst == nullptr) || (meanConst == nullptr) || (varConst == nullptr)) {
@@ -68,20 +48,8 @@ mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::BatchNormInferenceOp
     const auto meanContent = meanConst.getContent();
     const auto varContent = varConst.getContent();
 
-    const auto gammaAttr = getFPArrayAttr(getContext(), gammaContent.getValues<double>());
-    const auto betaAttr = getFPArrayAttr(getContext(), betaContent.getValues<double>());
-    const auto meanAttr = getFPArrayAttr(getContext(), meanContent.getValues<double>());
-    const auto varAttr = getFPArrayAttr(getContext(), varContent.getValues<double>());
-
-    rewriter.replaceOpWithNewOp<IE::BatchNormInferenceOp>(normOp, normOp.getType(), normOp.getInput(), nullptr, nullptr,
-                                                          nullptr, nullptr, gammaAttr, betaAttr, meanAttr, varAttr,
-                                                          normOp.getEps());
-    return mlir::success();
+    return std::make_tuple(
+            getFPArrayAttr(ctx, gammaContent.getValues<double>()), getFPArrayAttr(ctx, betaContent.getValues<double>()),
+            getFPArrayAttr(ctx, meanContent.getValues<double>()), getFPArrayAttr(ctx, varContent.getValues<double>()));
 }
-
-}  // namespace
-
-void vpux::IE::BatchNormInferenceOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns,
-                                                                 mlir::MLIRContext* context) {
-    patterns.add<ConvertConstToAttr>(context);
-}
+}  // namespace vpux::IE::BatchNormInference

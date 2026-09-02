@@ -166,9 +166,11 @@ void movePadAfterExtractSlice(mlir::tensor::PadOp padOp, ArrayRef<mlir::tensor::
                                                                           extractSliceOffsets, extractSliceSizes,
                                                                           extractSlice.getMixedStrides());
 
-        auto innerPad =
-                builder.create<mlir::tensor::PadOp>(padOp.getLoc(), extractSlice->getResult(0).getType(), unpaddedSlice,
-                                                    adjustedPadLow, adjustedPadHigh, padOp.getConstantPaddingValue());
+        auto innerPad = builder.create<mlir::tensor::PadOp>(padOp.getLoc(), extractSlice->getResult(0).getType(),
+                                                            unpaddedSlice, adjustedPadLow, adjustedPadHigh);
+
+        mlir::IRMapping mapper;
+        padOp.getRegion().cloneInto(&innerPad.getRegion(), mapper);
 
         extractSlice.replaceAllUsesWith(innerPad.getResult());
         extractSlice.erase();

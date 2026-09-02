@@ -79,7 +79,5 @@ TensorAttr getTensorAttr(mlir::RankedTensorType type);
 
 mlir::AffineMap getOrder(mlir::RankedTensorType type);
 vpux::IndexedSymbolAttr getMemorySpace(mlir::RankedTensorType type);
-BoundsRef getBounds(mlir::Type type);
-DynamicDimsMaskRef getDynamicDimsMask(mlir::Type type);
 
 }  // namespace vpux

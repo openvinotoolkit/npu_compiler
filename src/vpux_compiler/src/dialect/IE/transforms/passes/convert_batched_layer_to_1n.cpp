@@ -310,7 +310,7 @@ mlir::LogicalResult PoolLayerConverter<ConcreteOp>::layerSpecificRewriter(Concre
                                                                 getIntArrayOfArray(ctx, inDimMapping), inputShapeAttr);
 
     mlir::IRMapping mapper;
-    mapper.map(poolOp.getOperand(), inAffineReshape.getOutput());
+    mapper.map(poolOp.getOperand(0), inAffineReshape.getOutput());
     auto* newPool = rewriter.clone(*poolOp.getOperation(), mapper);
     vpux::inferReturnTypes(newPool, vpux::InferShapedTypeMode::SHAPE | vpux::InferShapedTypeMode::LAYOUT);
     auto output = newPool->getResult(0);

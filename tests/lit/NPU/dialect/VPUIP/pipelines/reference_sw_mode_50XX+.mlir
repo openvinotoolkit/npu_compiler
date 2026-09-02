@@ -5,6 +5,8 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=ReferenceSW allow-custom-values=true enable-sw-kernel-fifo-per-shave-engine=true" --mlir-elide-elementsattrs-if-larger 8 --reference-sw-mode-vpuip="workload-management-mode=FWLM_V1_PAGES" %s | FileCheck %s
 // REQUIRES: platform-NPU5010
+// UNSUPPORTED: true
+// Tracked in E#-232429: is stale after fixing REQUIRES condition
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 

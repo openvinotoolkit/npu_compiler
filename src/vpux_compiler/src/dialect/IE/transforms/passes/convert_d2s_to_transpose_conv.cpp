@@ -37,7 +37,7 @@ namespace {
 class ConvertDepth2SpaceToTransposedConv final : public mlir::OpRewritePattern<IE::DepthToSpaceOp> {
 public:
     ConvertDepth2SpaceToTransposedConv(mlir::MLIRContext* ctx,
-                                       std::unique_ptr<IE::D2SToTransposedConvVerifierBase>& benefitVerifier,
+                                       std::unique_ptr<IE::D2SToTransposedConvVerifierBase> benefitVerifier,
                                        bool seOpsEnabled, Logger log)
             : mlir::OpRewritePattern<IE::DepthToSpaceOp>(ctx),
               _benefitVerifier(std::move(benefitVerifier)),

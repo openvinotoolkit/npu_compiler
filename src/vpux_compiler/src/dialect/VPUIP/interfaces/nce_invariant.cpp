@@ -578,26 +578,41 @@ SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredO
     auto nextTile = tiling[1];
 
     auto strategy = VPU::getMultiClusterStrategyFromOp(origOp.getOperation());
+    // getTileDistributions() for conv-based ops (Convolution/CompressConvolution/Interpolate/MatMul) always
+    // returns entries in [input=0, filter=1, output=2] order (see getTileDistributionsWithFilter()).
     const auto& curTileTypes = VPU::getTileDistributions(origOp, curTile, strategy);
     const auto& nextTileTypes = VPU::getTileDistributions(origOp, nextTile, strategy);
     auto isWeightPrefetch = curTile.axis[Dims4D::Act::C] > 1;
 
-    auto requiredTileType = getReduceOutputType(origOp, curTileTypes[1]);
+    // Reduce-output type must be derived from the output tile (index 2), not the filter (index 1).
+    auto requiredTileType = getReduceOutputType(origOp, curTileTypes[2]);
     if (isOutputPipeliningEnabled(origOp)) {
+        // input, filter, output of the current tile, followed by the same triple for the next tile.
         requiredTileType.insert(requiredTileType.end(), {curTileTypes[0], curTileTypes[1], curTileTypes[2],
                                                          nextTileTypes[0], nextTileTypes[1], nextTileTypes[2]});
+        // The next tile also produces reduce outputs; its tile size can differ (e.g. a remainder tile),
+        // so its reduce-output buffers must be accounted for separately from the current tile's.
+        const auto nextReduceTileType = getReduceOutputType(origOp, nextTileTypes[2]);
+        requiredTileType.insert(requiredTileType.end(), nextReduceTileType.begin(), nextReduceTileType.end());
         return requiredTileType;
     }
 
     if (isOutputPipeliningMinFragmentationEnabled(origOp)) {
+        // input, filter, output of the current tile; next tile only needs the operand being prefetched
+        // (filter when weight-prefetching, otherwise input) plus its output.
         requiredTileType.insert(requiredTileType.end(),
                                 {curTileTypes[0], curTileTypes[1], curTileTypes[2],
                                  isWeightPrefetch ? nextTileTypes[1] : nextTileTypes[0], nextTileTypes[2]});
+        // The next tile also produces reduce outputs; its tile size can differ (e.g. a remainder tile),
+        // so its reduce-output buffers must be accounted for separately from the current tile's.
+        const auto nextReduceTileType = getReduceOutputType(origOp, nextTileTypes[2]);
+        requiredTileType.insert(requiredTileType.end(), nextReduceTileType.begin(), nextReduceTileType.end());
         return requiredTileType;
     }
 
     const auto groupTiling = curTile.axis.size() == DimsGroups5D::Act::numDims;
     if (groupTiling && curTile.axis[DimsGroups5D::Act::G] > 1) {
+        // input, filter, output of the current tile, plus input and filter of the next tile.
         requiredTileType.insert(requiredTileType.end(), {curTileTypes[0], curTileTypes[1], curTileTypes[2],
                                                          nextTileTypes[0], nextTileTypes[1]});
         return requiredTileType;
@@ -608,6 +623,8 @@ SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredO
         isWeightPrefetch = unrollSpatialFirst;
     }
 
+    // input, filter, output of the current tile, plus the next tile's operand being prefetched
+    // (filter when weight-prefetching, otherwise input).
     requiredTileType.insert(requiredTileType.end(), {curTileTypes[0], curTileTypes[1], curTileTypes[2],
                                                      isWeightPrefetch ? nextTileTypes[1] : nextTileTypes[0]});
     return requiredTileType;

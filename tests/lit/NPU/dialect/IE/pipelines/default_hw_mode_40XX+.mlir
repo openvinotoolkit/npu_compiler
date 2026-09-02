@@ -508,10 +508,8 @@ module @FuseMultiplyReduceSumToMatMul {
         // CHECK:       [[POOL_B:%.+]] = IE.MaxPool([[CAST_B]])
         // CHECK:       [[PCAST_B:%.+]] = IE.PermuteCast([[POOL_B]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x64x256x256xf16, {order = #NHCW}> -> tensor<1x256x64x256xf16>
         // CHECK:       [[MATMUL:%.+]] = IE.MatMul([[PCAST_A]], [[PCAST_B]]) {transpose_b} : tensor<1x256x128x256xf16>, tensor<1x256x64x256xf16> -> tensor<1x256x128x64xf16>
-        // CHECK:       [[RESHAPE_0:%.+]] = IE.AffineReshape([[MATMUL]])
-        // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [0], [1], [2]], shape_value = [256, 128, 64]} : tensor<1x256x128x64xf16> -> tensor<256x128x64xf16>
-        // CHECK:       [[OUT:%.+]] = IE.AffineReshape([[RESHAPE_0]])
-        // CHECK-SAME{LITERAL}:     {dim_mapping = [[0, 1, 2, 3], [4], [5]], shape_value = [1, 4, 64, 1, 128, 64]} : tensor<256x128x64xf16> -> tensor<1x4x64x1x128x64xf16>
+        // CHECK:       [[OUT:%.+]] = IE.AffineReshape([[MATMUL]])
+        // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [1, 2, 3], [4], [5]], shape_value = [1, 4, 64, 1, 128, 64]} : tensor<1x256x128x64xf16> -> tensor<1x4x64x1x128x64xf16>
         // CHECK:       return [[OUT]] : tensor<1x4x64x1x128x64xf16>
     }
 }

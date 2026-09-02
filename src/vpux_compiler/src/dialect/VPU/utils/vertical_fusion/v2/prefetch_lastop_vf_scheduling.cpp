@@ -31,14 +31,13 @@ bool PrefetchingLastOpVFScheduling::validate(VFConfig& config, const TilingOpera
     VPUX_THROW_WHEN(!opTiling.has_value(), "There is no information about tile {0} of operation {1}", index, *lastOp);
 
     const auto& opTilingValue = opTiling.value().get();
-    auto largestOpSize = VPU::getRequiredCMX(
-            lastOp, config.getOperationTypes(lastOp, opTilingValue.second, opTilingValue.first.tiles));
-    largestOpSize -= getSharedSizeByAllTiles({lastOp}, config, tilingInfo);
+    auto lastOpSize = config.getOperationRequiredCMX(lastOp, opTilingValue.second, opTilingValue.first.tiles);
+    lastOpSize -= getSharedSizeByAllTiles({lastOp}, config, tilingInfo);
 
     auto sharedSize = getSharedSizeByAllTiles(config.getVFOperations().getArrayRef(), config, tilingInfo);
 
     const auto thresholdCMXSize = getTotalCMXFragmentationAwareSize(lastOp);
-    return inputSize + sharedSize + largestOpSize + reservedMemory < thresholdCMXSize;
+    return inputSize + sharedSize + lastOpSize + reservedMemory < thresholdCMXSize;
 }
 
 VFScenario PrefetchingLastOpVFScheduling::getType() const {

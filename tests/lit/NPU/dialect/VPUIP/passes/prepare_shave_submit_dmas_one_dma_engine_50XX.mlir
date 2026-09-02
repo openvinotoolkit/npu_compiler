@@ -87,26 +87,27 @@ module @Activation attributes {config.compilationMode = #config.compilation_mode
   // CHECK: [[BAR1:%.+]] = VPURT.DeclareVirtualBarrier
   // CHECK: [[BAR2:%.+]] = VPURT.DeclareVirtualBarrier
   // CHECK: [[BAR3:%.+]] = VPURT.DeclareVirtualBarrier
+  // CHECK: [[BAR4:%.+]] = VPURT.DeclareVirtualBarrier
   // CHECK-NOT: VPUIP.SkipDMA
 
-  // CHECK-DAG: VPUIP.FetchDMA <{port = 0 : i64}> inputs(%5 : memref<0x0x0x0xi32, @DDR>) outputs(%4 : memref<0x0x0x0xi32, @DDR>) fetch_dma(<<DMA_NN>, tile = 0 : i64, list = 0 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 0 : i64>) -> memref<0x0x0x0xi32, @DDR>
-  // CHECK-DAG: VPUIP.FetchDMA <{port = 0 : i64}> inputs(%5 : memref<0x0x0x0xi32, @DDR>) outputs(%4 : memref<0x0x0x0xi32, @DDR>) fetch_dma(<<DMA_NN>, tile = 0 : i64, list = 0 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 1 : i64>) -> memref<0x0x0x0xi32, @DDR>
-  // CHECK-DAG: VPUIP.FetchDMA <{port = 0 : i64}> inputs(%5 : memref<0x0x0x0xi32, @DDR>) outputs(%4 : memref<0x0x0x0xi32, @DDR>) fetch_dma(<<DMA_NN>, tile = 0 : i64, list = 1 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 2 : i64>) -> memref<0x0x0x0xi32, @DDR>
-  // CHECK-DAG: VPUIP.FetchDMA <{port = 0 : i64}> inputs(%5 : memref<0x0x0x0xi32, @DDR>) outputs(%4 : memref<0x0x0x0xi32, @DDR>) fetch_dma(<<DMA_NN>, tile = 0 : i64, list = 1 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 3 : i64>) -> memref<0x0x0x0xi32, @DDR>
+  // CHECK-DAG: VPUIP.FetchDMA <{port = 0 : i64}> inputs([[FETCH_IN:%.+]] : memref<0x0x0x0xi32, @DDR>) outputs([[FETCH_OUT:%.+]] : memref<0x0x0x0xi32, @DDR>) fetch_dma(<<DMA_NN>, tile = 0 : i64, list = 0 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 0 : i64>) -> memref<0x0x0x0xi32, @DDR>
+  // CHECK-DAG: VPUIP.FetchDMA <{port = 0 : i64}> inputs([[FETCH_IN]] : memref<0x0x0x0xi32, @DDR>) outputs([[FETCH_OUT]] : memref<0x0x0x0xi32, @DDR>) fetch_dma(<<DMA_NN>, tile = 0 : i64, list = 0 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 1 : i64>) -> memref<0x0x0x0xi32, @DDR>
+  // CHECK-DAG: VPUIP.FetchDMA <{port = 0 : i64}> inputs([[FETCH_IN]] : memref<0x0x0x0xi32, @DDR>) outputs([[FETCH_OUT]] : memref<0x0x0x0xi32, @DDR>) fetch_dma(<<DMA_NN>, tile = 0 : i64, list = 1 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 2 : i64>) -> memref<0x0x0x0xi32, @DDR>
+  // CHECK-DAG: VPUIP.FetchDMA <{port = 0 : i64}> inputs([[FETCH_IN]] : memref<0x0x0x0xi32, @DDR>) outputs([[FETCH_OUT]] : memref<0x0x0x0xi32, @DDR>) fetch_dma(<<DMA_NN>, tile = 0 : i64, list = 1 : i64, fetchType = <SingleDescriptor>, logicalTaskIdx = 0 : i64, descId = 3 : i64>) -> memref<0x0x0x0xi32, @DDR>
 
-  // CHECK: VPURT.Task waits([[BAR1]] : !VPURT.Barrier)
-  // CHECK: VPUIP.SyncDMA {{.*logical_task = 0 : i64.*port = 0 : i64.*}} inputs(%5 : memref<0x0x0x0xi32, @DDR>) outputs(%4 : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
-  // CHECK: VPURT.Task waits([[BAR1]] : !VPURT.Barrier)
-  // CHECK: VPUIP.SyncDMA {{.*logical_task = 0 : i64.*port = 0 : i64.*}} inputs(%6 : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs(%4 : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
+  // CHECK: VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]] : !VPURT.Barrier)
+  // CHECK: VPUIP.SyncDMA {{.*logical_task = 0 : i64.*port = 0 : i64.*}} inputs([[FETCH_IN]] : memref<0x0x0x0xi32, @DDR>) outputs([[FETCH_OUT]] : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
+  // CHECK: VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]] : !VPURT.Barrier)
+  // CHECK: VPUIP.SyncDMA {{.*logical_task = 0 : i64.*port = 0 : i64.*}} inputs([[SYNC_CMX_IN:%.+]] : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs([[FETCH_OUT]] : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
 
-  // CHECK: VPURT.Task waits([[BAR0]], [[BAR1]] : !VPURT.Barrier, !VPURT.Barrier) updates([[BAR2]], [[BAR3]] : !VPURT.Barrier, !VPURT.Barrier)
+  // CHECK: VPURT.Task waits([[BAR0]], [[BAR2]] : !VPURT.Barrier, !VPURT.Barrier) updates([[BAR3]], [[BAR4]] : !VPURT.Barrier, !VPURT.Barrier)
   // CHECK: VPUIP.SW.Kernel {{.*}} logical_task = 0 : i64{{.*}}skipDescIds = [0, 1]{{.*}} on tile 0 list 0
-  // CHECK: VPURT.Task waits([[BAR0]], [[BAR1]] : !VPURT.Barrier, !VPURT.Barrier) updates([[BAR2]], [[BAR3]] : !VPURT.Barrier, !VPURT.Barrier)
+  // CHECK: VPURT.Task waits([[BAR0]], [[BAR2]] : !VPURT.Barrier, !VPURT.Barrier) updates([[BAR3]], [[BAR4]] : !VPURT.Barrier, !VPURT.Barrier)
   // CHECK: VPUIP.SW.Kernel {{.*}} logical_task = 0 : i64{{.*}}skipDescIds = [2, 3]{{.*}} on tile 0 list 1
 
   // Release
-  // CHECK: VPURT.Task waits([[BAR3]] : !VPURT.Barrier)
-  // CHECK: VPUIP.SyncDMA {{.*port = 0 : i64.*}} inputs(%5 : memref<0x0x0x0xi32, @DDR>) outputs(%4 : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
-  // CHECK: VPURT.Task waits([[BAR3]] : !VPURT.Barrier)
-  // CHECK: VPUIP.SyncDMA {{.*port = 0 : i64.*}} inputs(%6 : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs(%4 : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
+  // CHECK: VPURT.Task waits([[BAR4]] : !VPURT.Barrier)
+  // CHECK: VPUIP.SyncDMA {{.*logical_task = 0 : i64, shv_release_dma.*port = 0 : i64.*}} inputs([[FETCH_IN]] : memref<0x0x0x0xi32, @DDR>) outputs([[FETCH_OUT]] : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
+  // CHECK: VPURT.Task waits([[BAR4]] : !VPURT.Barrier)
+  // CHECK: VPUIP.SyncDMA {{.*logical_task = 0 : i64, shv_release_dma.*port = 0 : i64.*}} inputs([[SYNC_CMX_IN]] : memref<0x0x0x0xi32, [@CMX_NN, 0]>) outputs([[FETCH_OUT]] : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
 }

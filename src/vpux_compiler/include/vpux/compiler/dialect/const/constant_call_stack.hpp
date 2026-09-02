@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/utils/constant_tracing.hpp"
 #include "vpux/utils/core/small_vector.hpp"
+#include "vpux/utils/core/thread_safe_accessors.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <mlir/Debug/ExecutionContext.h>
@@ -33,8 +34,10 @@ public:
             std::unordered_map</* Constant */ TraceId, /* Transformation list */ std::vector<TransformationTy>>;
 
 private:
-    CallStackTy _callStack;
-    mutable std::mutex _callStackMutex;
+    // recursive_mutex is needed when the lock needs to be reacquired
+    // for example calling 'getSpecificCallStack' from within a function
+    // which already holds the lock to access the call stack cache.
+    SimpleThreadSafeAccessor<CallStackTy, std::recursive_mutex> _callStack;
 
 public:
     // required by MLIR's internal type-id infrastructure:
@@ -43,8 +46,12 @@ public:
     CallStackCache(mlir::Dialect* dialect): Base(dialect) {
     }
 
-    CallStackTy& getCallStack();
-    std::mutex& callStackCacheMutex();
+    [[nodiscard]] auto lockCallStack() {
+        return _callStack.lock();
+    }
+    [[nodiscard]] auto lockCallStack() const {
+        return _callStack.lock();
+    }
     std::string getSpecificCallStack(mlir::ElementsAttr baseContent, Const::TransformAttrInterface transformation);
 };
 

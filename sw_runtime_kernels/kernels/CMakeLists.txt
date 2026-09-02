@@ -166,10 +166,10 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
   # Initial list of parameters, will be populated after we read descrip files
   set(kernel_entry "")
   set(kernel_src_dir "src")
-  set(optimization_opts "-O3")
+  set(optimization_opts "-O3" "-fapprox-func" "-fassociative-math")
   set(include_dirs_list "")
   set(define_symbols_list "")
-  set(cppflags_list "")
+  set(cppflags_list "-mllvm" "-shave-align-stack=32")
   set(always_inline "no")
   set(firmware_kernel "no")
   set(extra_src_list "")
@@ -206,7 +206,6 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
      (NOT firmware_kernel AND NOT ENABLE_SHAVE_BINARIES_BUILD))
     continue()
   endif()
-
   if(kernel_cpunum STREQUAL "3720")
     list(APPEND define_symbols_list "USE_3720_INSTRUCTIONS")
     set(link_libraries_list ${link_libraries_list_VPU3720})
@@ -286,7 +285,7 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
     OUTPUT "${obj_file}"
     DEPENDS "${kernel_src_path}"
     DEPFILE "${dep_file}"
-    COMMAND "${mv_tools_compile}" -MD ${compile_options} -c "${kernel_src_path}" -o "${obj_file}" -fapprox-func -fassociative-math
+    COMMAND "${mv_tools_compile}" -MD ${compile_options} -c "${kernel_src_path}" -o "${obj_file}"
   )
 
   set(obj_file_list "${obj_file}")
@@ -295,7 +294,7 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
     add_custom_command(
       OUTPUT "${bitcode_file}"
       DEPENDS "${kernel_src_path}"
-      COMMAND "${mv_tools_compile}" -MD ${compile_options} -c -emit-llvm "${kernel_src_path}" -o "${bitcode_file}" -fapprox-func -fassociative-math
+      COMMAND "${mv_tools_compile}" -MD ${compile_options} -c -emit-llvm "${kernel_src_path}" -o "${bitcode_file}"
     )
     set(bitcode_file_list "${bitcode_file}")
   endif()
@@ -311,7 +310,7 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
       OUTPUT "${obj_file_lsu0_wo}"
       DEPENDS "${kernel_src_path}"
       DEPFILE "${dep_file_lsu0_wo}"
-      COMMAND "${mv_tools_compile}" -MD ${compile_options} ${cppflags_list_lsu0_wo} -c "${kernel_src_path}" -o "${obj_file_lsu0_wo}" -fapprox-func -fassociative-math
+      COMMAND "${mv_tools_compile}" -MD ${compile_options} ${cppflags_list_lsu0_wo} -c "${kernel_src_path}" -o "${obj_file_lsu0_wo}"
     )
 
     set(obj_file_list_lsu0_wo "${obj_file_lsu0_wo}")
@@ -337,7 +336,7 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
         OUTPUT "${obj_file}"
         DEPENDS "${extra_src_file}"
         DEPFILE "${dep_file}"
-        COMMAND "${mv_tools_compile}" -MD ${compile_options} -c "${extra_src_file}" -o "${obj_file}" -fapprox-func -fassociative-math
+        COMMAND "${mv_tools_compile}" -MD ${compile_options} -c "${extra_src_file}" -o "${obj_file}"
       )
 
       list(APPEND obj_file_list "${obj_file}")
@@ -351,7 +350,7 @@ foreach(kernel_descrip IN LISTS kernel_descrip_list)
           OUTPUT "${bitcode_file}"
           DEPENDS "${extra_src_file}"
           DEPFILE "${dep_file}"
-          COMMAND "${mv_tools_compile}" -MD ${compile_options} -c -emit-llvm "${extra_src_file}" -o "${bitcode_file}" -fapprox-func -fassociative-math
+          COMMAND "${mv_tools_compile}" -MD ${compile_options} -c -emit-llvm "${extra_src_file}" -o "${bitcode_file}"
         )
         list(APPEND bitcode_file_list "${bitcode_file}")
       endif()

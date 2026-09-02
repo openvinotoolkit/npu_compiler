@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -30,8 +31,7 @@ using WorkloadSplits = SmallVector<SmallVector<VPU::DPUWorkloadOp>>;
 // Separates the workloads by their cluster_id attribute
 WorkloadSplits separateWorkloadsByClusters(VPU::NCEEltwiseOp eltwiseOp, const int64_t numClusters) {
     WorkloadSplits clusterWorkloads(numClusters);
-    const auto workloads = eltwiseOp.getWorkloads().getOps<VPU::DPUWorkloadOp>();
-    for (auto wl : workloads) {
+    for (auto wl : VPU::collectAllWorkloads(mlir::cast<VPU::NCEOpInterface>(eltwiseOp.getOperation()))) {
         const auto clusterId = wl.getClusterId().value_or(0);
         clusterWorkloads[clusterId].push_back(wl);
     }
@@ -224,8 +224,7 @@ mlir::Value createEltwiseSlice(mlir::OpBuilder& builder, VPU::NCEEltwiseOp eltwi
     auto newOutputType = outputType.changeShape(newInputType.getShape());
     newEltwiseOp.getOutput().setType(newOutputType);
 
-    auto newEltwiseOpWorkloads = newEltwiseOp.getWorkloads().getOps<VPU::DPUWorkloadOp>();
-    for (auto wl : llvm::make_early_inc_range(newEltwiseOpWorkloads)) {
+    for (auto wl : VPU::collectAllWorkloads(mlir::cast<VPU::NCEOpInterface>(newEltwiseOp.getOperation()))) {
         wl.erase();
     }
 

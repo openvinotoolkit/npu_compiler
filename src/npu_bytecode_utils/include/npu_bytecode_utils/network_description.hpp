@@ -123,7 +123,7 @@ struct IODescriptor {
      * @details This value is used by the driver to identify the input/output buffer. Driver indices for inputs and
      * outputs are assigned in the same vector and could have different indexing.
      */
-    uint32_t indexUsedByDriver;
+    uint32_t indexUsedByDriver = 0;
 
     /**
      * @brief Indicates whether strided memory layout is supported for this tensor.
@@ -166,5 +166,7 @@ enum class MetadataRecordKind : uint8_t {
 
 std::optional<NetworkMetadata> parseNetworkMetadata(const uint8_t* bytecodePtr, size_t bytecodeSize);
 std::optional<NetworkMetadata> parseNetworkMetadata(BytecodeReader& reader);
+
+void printMetadataEntry(Span<uint8_t> metadata);
 
 }  // namespace intel_npu::vm

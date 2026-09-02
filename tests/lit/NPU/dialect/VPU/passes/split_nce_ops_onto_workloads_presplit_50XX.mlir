@@ -79,7 +79,7 @@ func.func @SplitMultiClusterNCEConv(%input: !inputqElemType, %weights: !weightsq
 
 // CHECK-LABEL: @SplitMultiClusterNCEDWConv
 func.func @SplitMultiClusterNCEDWConv(%input: !inputqElemType, %weights: !weightsqElemType, %weights_table: !wtqElemType) -> !outqElemType {
-    %dwconv = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) rawFilterShape [256, 1, 3, 3] {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>,
+    %dwconv = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) rawFilterShape [256, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEFp<mode = <NOOP>,
             clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
              strides = [1, 1]} -> !outqElemType
     return %dwconv : !outqElemType

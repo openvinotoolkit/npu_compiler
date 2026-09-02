@@ -82,6 +82,52 @@ module @SingleCosLayerNoAlias {
 }
 
 // -----
+// Callsite passes the input buffer twice, however the kernel function doesn't use the
+// second instance of the argument. We can still add the noalias attribute in this case.
+
+module @SingleCosLayerNoAliasDuplicatedArg {
+   module @VPU.SW {
+     func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+
+     func.func @generated_0(%arg0: memref<1x1x1x1000xf16>, %arg1: memref<1x1x1x1000xf16>, %dummy: memref<1x1x1x1000xf16>) {
+       affine.for %arg2 = 0 to 1 {
+         affine.for %arg3 = 0 to 1 {
+           affine.for %arg4 = 0 to 1 {
+             affine.for %arg5 = 0 to 1000 {
+               %0 = affine.load %arg0[%arg2, %arg3, %arg4, %arg5] : memref<1x1x1x1000xf16>
+               %1 = math.cos %0 : f16
+               affine.store %1, %arg1[%arg2, %arg3, %arg4, %arg5] : memref<1x1x1x1000xf16>
+             }
+           }
+         }
+       }
+       return
+
+    // CHECK: module @SingleCosLayerNoAliasDuplicatedArg
+    // CHECK: module @VPU.SW
+    // CHECK: llvm.func @generated_0({{.+}}: !llvm.ptr, [[IN_PTR:%.+]]: !llvm.ptr {llvm.noalias}, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: !llvm.ptr, [[OUT_PTR:%.+]]: !llvm.ptr {llvm.noalias}, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: !llvm.ptr, {{%.+}}: !llvm.ptr {llvm.noalias}, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32, {{.+}}: i32)
+    // CHECK: [[IN_ELEMENT_ADDR:%.+]] = llvm.getelementptr inbounds|nuw [[IN_PTR]][{{.+}}] : (!llvm.ptr, i32) -> !llvm.ptr, f16
+    // CHECK: [[INPUT:%.+]] = llvm.load [[IN_ELEMENT_ADDR]] : !llvm.ptr -> f16
+    // CHECK: [[COS_RES:%.+]] = llvm.intr.cos([[INPUT]])
+    // CHECK: [[OUT_ELEMENT_ADDR:%.+]] = llvm.getelementptr inbounds|nuw [[OUT_PTR]][
+    // CHECK: llvm.store [[COS_RES]], [[OUT_ELEMENT_ADDR]]
+     }
+   }
+   func.func @main(%arg0: memref<1x1x1x1000xf16>, %arg1: memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16> {
+     %alloc = memref.alloc() : memref<1x1x1x1000xf16, [@CMX_NN, 0]>
+     %0 = VPUIP.Copy inputs(%arg0 : memref<1x1x1x1000xf16>) outputs(%alloc : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
+     %alloc_0 = memref.alloc() : memref<1x1x1x1000xf16, [@CMX_NN, 0]>
+     %results, %dummyres = VPUIP.SW.Kernel {isJitCompiled, resultSegmentSizes = array<i32: 2, 0, 0>} @VPU.SW::@generated_0 inputs(%0 as %arg2: memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%alloc_0 as %arg3: memref<1x1x1x1000xf16, [@CMX_NN, 0]>, %0 as %arg4: memref<1x1x1x1000xf16, [@CMX_NN, 0]>) on tile 0 -> (memref<1x1x1x1000xf16, [@CMX_NN, 0]> , memref<1x1x1x1000xf16, [@CMX_NN, 0]>) {
+       VPUIP.SW.Kernel.run(%arg2, %arg3, %arg4) : memref<1x1x1x1000xf16, [@CMX_NN, 0]>, memref<1x1x1x1000xf16, [@CMX_NN, 0]>, memref<1x1x1x1000xf16, [@CMX_NN, 0]>
+     }
+     %alloc_1 = memref.alloc() : memref<1x1x1x1000xf16>
+     %1 = VPUIP.Copy inputs(%results : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%alloc_1 : memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16>
+     %2 = VPUIP.Copy inputs(%1 : memref<1x1x1x1000xf16>) outputs(%arg1 : memref<1x1x1x1000xf16>) -> memref<1x1x1x1000xf16>
+     return %2 : memref<1x1x1x1000xf16>
+   }
+}
+
+// -----
 // The call to generated_0 has the same source as the destination so the llvm dialect should not
 // have llvm.noalias attributes.
 

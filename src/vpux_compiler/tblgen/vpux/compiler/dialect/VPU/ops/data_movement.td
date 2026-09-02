@@ -156,10 +156,11 @@ def VPU_CopyOp :
     let hasFolder = 1;
     let hasCanonicalizer = 1;
 
-    let checkInferredDimsOrder = 1;
-    let checkInferredMemSpace = 1;
-
-    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
+    let extraClassDeclaration = [{
+        static bool isCompatibleReturnTypes(mlir::TypeRange lhs, mlir::TypeRange rhs) {
+            return vpux::VPU::areTypesCompatibleForCopy(lhs, rhs);
+        }
+    }];
 }
 
 
@@ -383,8 +384,7 @@ def VPU_GatherOp :
     let arguments = (ins
         AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$input,
         AnyTypeOf<[RankedTensorOf<[AnyInteger]>, VPU_DistributedTensor]>:$indices,
-        Optional<AnyRankedTensor>:$axis,
-        OptionalAttr<IntAttr>:$axis_value,
+        IntAttr:$axis_value,
         IntAttr:$batch_dims,
 
         OptionalAttr<IntAttr>:$indices_rank,
@@ -399,7 +399,6 @@ def VPU_GatherOp :
         OpBuilder<(ins
             "::mlir::Value":$input,
             "::mlir::Value":$indices,
-            "::mlir::Value":$axis,
             "::mlir::IntegerAttr":$axis_value,
             "::mlir::IntegerAttr":$batch_dims,
             "::mlir::IntegerAttr":$indices_rank
@@ -430,8 +429,7 @@ def VPU_GatherDMAOp :
     let arguments = (ins
         AnyRankedTensor:$input,
         AnyTypeOf<[RankedTensorOf<[AnyInteger]>, VPU_DistributedTensor]>:$indices,
-        Optional<AnyRankedTensor>:$axis,
-        OptionalAttr<IntAttr>:$axis_value,
+        IntAttr:$axis_value,
         IntAttr:$batch_dims,
 
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
@@ -919,17 +917,15 @@ def VPU_ScatterUpdateOp :
 
 
 def VPU_ScatterUpdateSwDmaOp :
-        VPU_LayerOp<
-            "ScatterUpdateSwDma",
-            [
-                VPU_SwIoDmaOpInterface,
-                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["getDistributedTypeForOpOperand",
-                                                                     "getDistributedTypeForOpResult"]>
-            ]
+        VPU_SwIoDmaOp<
+            "ScatterUpdateSwDma"
         > {
     let summary = "ScatterUpdate VPU layer using a DMA-from-Shave";
+
+    // ScatterUpdateSwDma is forced onto a single tile.
+    let checkStrategyCompatibilityBody = [{
+            return false;
+    }];
 
     let arguments = (ins
         AnyRankedTensor:$input,
@@ -943,11 +939,6 @@ def VPU_ScatterUpdateSwDmaOp :
     let results = (outs
         AnyRankedTensor:$output
     );
-
-    let extraClassDeclaration = [{
-        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
-        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
-    }] # baseExtraClassDeclaration;
 
     let builders = [
         OpBuilder<(ins

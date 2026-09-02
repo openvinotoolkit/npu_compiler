@@ -52,6 +52,7 @@ TEST_P(GroupConvolutionLayerTest_SW, NPU5010) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(GroupConvolutionLayerTest_HW, NPU5020) {
     rel_threshold = 0.01;
     setDefaultHardwareMode();
@@ -156,6 +157,20 @@ INSTANTIATE_TEST_SUITE_P(smoke_GroupConvolution2D_AutoPadValid, GroupConvolution
 
 INSTANTIATE_TEST_SUITE_P(smoke_GroupConvolution2D_LargeStrides, GroupConvolutionLayerTest_SW, groupConv2D_LargeStrides,
                          GroupConvolutionLayerTest::getTestCaseName);
+
+/* ============= Isolation: depthwise dilated matching the failing GroupTransposedConv pattern ============= */
+const auto groupConv2D_DepthwiseDilated_8x8 = testing::Combine(
+        ::testing::Combine(::testing::Values(std::vector<size_t>{2, 2}), ::testing::Values(std::vector<size_t>{1, 1}),
+                           ::testing::Values(std::vector<ptrdiff_t>{2, 2}),
+                           ::testing::Values(std::vector<ptrdiff_t>{2, 2}),
+                           ::testing::Values(std::vector<size_t>{2, 2}), ::testing::Values<size_t>(64),
+                           ::testing::Values<size_t>(64), ::testing::Values(ov::op::PadType::EXPLICIT)),
+        ::testing::ValuesIn(modelTypes),
+        ::testing::ValuesIn(static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>{{{1, 64, 8, 8}}})),
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_GroupConvolution2D_DepthwiseDilated8x8, GroupConvolutionLayerTest_HW,
+                         groupConv2D_DepthwiseDilated_8x8, GroupConvolutionLayerTest::getTestCaseName);
 
 /* ============= 3D GroupConvolution ============= */
 const std::vector<std::vector<size_t>> kernels3d = {{3, 3, 3}};

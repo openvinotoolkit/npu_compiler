@@ -3,9 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/concat_utils.hpp"
@@ -15,12 +17,17 @@
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/WalkPatternRewriteDriver.h>
+
+#include <limits>
+#include <numeric>
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_CONVERTOPTODMAFORPERFORMANTEXECUTION
@@ -31,6 +38,207 @@ namespace vpux::VPU {
 using namespace vpux;
 
 namespace {
+
+//
+// ExpandIndices
+//
+// Keeps a big-element Gather as a single GatherDMA instead of letting TileGatherElement split it into
+// many small GatherDMA ops joined by a Concat. Each original index `i` selecting a row of
+// K = rowElems / chunkElems chunks is expanded into K consecutive sub-indices (i*K + [0 .. K-1])
+// gathering from the row-major reshaped input [N*K, chunkElems]. The selected chunks stay contiguous,
+// so the result matches the original Gather. The resulting Gather is then lowered by MoveToDMAGather.
+//
+// dimsBeforeAxis == 1: K = rowElems / chunkElems consecutive sub-indices per row.
+// (example: N rows, K=2 chunks per row, picking rows [2, 0]):
+//
+//        input [N, R]            indices [2,0]
+//             |                       |
+//             | Reshape               | newIdx = idx*K + [0..K-1]
+//             v                       v
+//   reshaped [N*K, chunkElems]   flatIndices [4,5, 0,1]
+//             |                       |
+//             +-----------+-----------+
+//                         |
+//                         v
+//                  VPU::GatherOp  (chunk-granular, GatherDMA-legal)
+//                         |
+//                         | Reshape
+//                         v
+//                  output [2, R]   == original Gather result
+//
+// dimsBeforeAxis > 1 and batchDimsProduct == 1 (all batch dims trivially 1):
+// The K pre-axis dims fold into the row axis. Each index p maps to K non-contiguous rows
+// with stride Na (= numRows): newIdx = p + [0, Na, ..., (K-1)*Na].
+// (example: input [1, K=2, Na=35, R], batch_dims=1, axis=2, picking axis-index p):
+//
+//   input [1, K, Na, R]      indices (value: p)
+//        |                         |
+//        | Reshape                 | newIdx = p + [0, Na, ..., (K-1)*Na]
+//        v                         v
+//   reshaped [Na*K, R]       flatIndices [p, p+Na]
+//        |                         |
+//        +---------+---------------+
+//                  |
+//                  v
+//           VPU::GatherOp  (axis=0, batch_dims=0, GatherDMA-legal)
+//                  |
+//                  | Reshape
+//                  v
+//           output [1, K, 1, R]   == original Gather result
+//
+
+class ExpandIndices final : public mlir::OpRewritePattern<VPU::GatherOp> {
+public:
+    ExpandIndices(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<VPU::GatherOp>(ctx), _log(log) {
+        setDebugName("ExpandIndices");
+    }
+
+    mlir::LogicalResult matchAndRewrite(VPU::GatherOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult ExpandIndices::matchAndRewrite(VPU::GatherOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp.getLoc());
+
+    // The index arithmetic below replaces a constant index list with runtime eltwise ops, defeating the
+    // negative-index normalization in MoveToDMAGather. Bail so element-tiling handles negative indices.
+    if (auto indicesCst = origOp.getIndices().getDefiningOp<Const::DeclareOp>()) {
+        const auto indicesContent = indicesCst.getContent();
+        if (llvm::any_of(indicesContent.getValues<int64_t>(), [](int64_t val) {
+                return val < 0;
+            })) {
+            return mlir::failure();
+        }
+    }
+
+    auto ctx = rewriter.getContext();
+    const auto inType = mlir::cast<NDTypeInterface>(origOp.getInput().getType());
+    const auto outType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType());
+    const auto indicesType = mlir::cast<NDTypeInterface>(origOp.getIndices().getType());
+    const auto inShape = inType.getShape();
+    const auto axis = origOp.getAxisValue();
+    const auto arch = config::getArch(origOp);
+    const auto outShape = outType.getShape();
+    const auto indicesShape = indicesType.getShape();
+    if (inShape.isDynamic() || outShape.isDynamic() || indicesShape.isDynamic()) {
+        return mlir::failure();
+    }
+
+    int64_t dimsBeforeAxis = 1;
+    for (size_t idx = 0; idx < (static_cast<size_t>(axis)); ++idx) {
+        dimsBeforeAxis *= inShape[Dim(idx)];
+    }
+
+    // Before-axis dims are all 1 for a GatherDMA-legal op, so output = numIndices rows of rowElems.
+    const int64_t numIndices = indicesShape.totalSize();
+    const int64_t rowElems = outShape.totalSize() / (numIndices * dimsBeforeAxis);
+    const int64_t numRows = inShape[Dim(axis)];
+
+    // Largest chunk (in elements) fitting the per-index size limit; it must evenly divide the row.
+    const int64_t elemBits = vpux::getElemTypeSize(outType).count();
+    int64_t chunkElems = checked_cast<int64_t>(VPU::getGatherDMAMaxElementSize(arch)) * CHAR_BIT / elemBits;
+    int64_t chunksPerRow;
+    if (dimsBeforeAxis == 1) {
+        if (!VPU::isLegalConvertToGatherDMA(origOp, /*isElementTile=*/true, /*isIndicesTile=*/false, _log)) {
+            return mlir::failure();
+        }
+        if (origOp.getBatchDims() != 0) {
+            return mlir::failure();
+        }
+        if (chunkElems == 0 || rowElems % chunkElems != 0) {
+            return mlir::failure();
+        }
+        chunksPerRow = rowElems / chunkElems;
+    } else {
+        if (!VPU::isLegalConvertToGatherDMA(origOp, /*isElementTile=*/false, /*isIndicesTile=*/false, _log, false)) {
+            return mlir::failure();
+        }
+        for (int64_t i = 0; i < origOp.getBatchDims(); ++i) {
+            if (inShape[Dim(i)] != 1) {
+                return mlir::failure();
+            }
+        }
+
+        chunksPerRow = dimsBeforeAxis;
+        chunkElems = rowElems;
+    }
+
+    // The expanded index list must still fit the DMA list-length limit.
+    if (checked_cast<size_t>(numIndices * chunksPerRow) > VPU::getGatherDMAMaxIndicesListLength(arch)) {
+        return mlir::failure();
+    }
+
+    // Index arithmetic runs in SI32. The largest sub-index is numRows * chunksPerRow - 1
+    if (numRows * chunksPerRow > std::numeric_limits<int32_t>::max()) {
+        return mlir::failure();
+    }
+    const auto si32Type = mlir::IntegerType::get(ctx, 32, mlir::IntegerType::Signed);
+
+    const auto broadcast = vpux::IE::AutoBroadcastTypeAttr::get(ctx, vpux::IE::AutoBroadcastType::NUMPY);
+
+    auto reshape = [&](mlir::Value operand, ArrayRef<int64_t> shape, StringRef name) -> mlir::Value {
+        return rewriter.createOrFold<VPU::ReshapeOp>(takeOpLoc(origOp, name), operand, getIntArrayAttr(ctx, shape));
+    };
+    auto idxConst = [&](ArrayRef<int64_t> shape, ArrayRef<int32_t> values) -> mlir::Value {
+        return Const::createConst(rewriter, takeOpLoc(origOp, "idx_cst"), mlir::RankedTensorType::get(shape, si32Type),
+                                  values);
+    };
+
+    // Reshape input rows into chunk-sized rows: [.., N, R] -> [N * chunksPerRow, chunkElems].
+    auto reshapedInput = reshape(origOp.getInput(), {numRows * chunksPerRow, chunkElems}, "reshape_in");
+
+    // Expand each index: newIdx[m, k] = idx[m] * chunksPerRow + k. VPU eltwise kernels need 4D SI32
+    // operands, so reshape to [1, 1, numIndices, 1] and normalize the index type to SI32.
+    //
+    // dimsBeforeAxis == 1: each original index p maps to p*K, p*K+1, ..., p*K+(K-1).
+    //   Broadcast layout: idx[1,1,numIndices,1] + iota[1,1,1,K] -> [1,1,numIndices,K]
+    //   Flattened (row-major): position i*K+k -> interleaved order, matches reshape to [numIndices,K,chunkElems].
+    //
+    // dimsBeforeAxis > 1: each original index p maps to p, p+Na, ..., p+(K-1)*Na.
+    //   Grouped order needed: all numIndices values for k=0, then all for k=1, ...
+    //   Broadcast layout: iota[1,1,K,1] + idx[1,1,1,numIndices] -> [1,1,K,numIndices]
+    //   Flattened (row-major): position k*numIndices+i -> grouped order, matches reshape to [K,numIndices,R].
+    const auto idxReshape = (dimsBeforeAxis == 1) ? SmallVector<int64_t>{1, 1, numIndices, 1}
+                                                  : SmallVector<int64_t>{1, 1, 1, numIndices};
+    mlir::Value idx4D = reshape(origOp.getIndices(), idxReshape, "reshape_idx");
+    if (indicesType.getElementType() != si32Type) {
+        idx4D = rewriter.createOrFold<VPU::ConvertOp>(takeOpLoc(origOp, "idx_to_si32"), idx4D,
+                                                      mlir::TypeAttr::get(si32Type));
+    }
+
+    const int32_t idxScale = (dimsBeforeAxis == 1) ? checked_cast<int32_t>(chunksPerRow) : int32_t(1);
+    auto scaled = rewriter.create<VPU::MultiplyOp>(takeOpLoc(origOp, "idx_scale"), idx4D,
+                                                   idxConst({1, 1, 1, 1}, {idxScale}), broadcast, /*post_op=*/nullptr)
+                          .getOutput();
+    SmallVector<int32_t> iotaValues(chunksPerRow);
+    const auto iotaShape = dimsBeforeAxis == 1 ? SmallVector<int64_t>{1, 1, 1, chunksPerRow}
+                                               : SmallVector<int64_t>{1, 1, chunksPerRow, 1};
+    if (dimsBeforeAxis == 1) {
+        std::iota(iotaValues.begin(), iotaValues.end(), int32_t(0));
+    } else {
+        for (int64_t n = 0; n < chunksPerRow; ++n) {
+            iotaValues[n] = checked_cast<int32_t>(n * numRows);
+        }
+    }
+    auto expanded = rewriter.create<VPU::AddOp>(takeOpLoc(origOp, "idx_offset"), scaled,
+                                                idxConst(iotaShape, iotaValues), broadcast,
+                                                /*post_op=*/nullptr)
+                            .getOutput();
+    auto flatIndices = reshape(expanded, {numIndices * chunksPerRow}, "reshape_idx_flat");
+
+    auto newGather = rewriter.create<VPU::GatherOp>(takeOpLoc(origOp, "chunked"), reshapedInput, flatIndices,
+                                                    getIntAttr(ctx, /*axis_value=*/int64_t(0)),
+                                                    getIntAttr(ctx, /*batch_dims=*/int64_t(0)),
+                                                    /*indices_rank=*/nullptr);
+
+    rewriter.replaceOp(origOp, reshape(newGather.getOutput(), to_small_vector(outType.getShape()), "reshape_out"));
+
+    _log.trace("[{0}] Split big-element Gather: chunksPerRow={1}, chunkElems={2}, numIndices={3}", getDebugName(),
+               chunksPerRow, chunkElems, numIndices);
+    return mlir::success();
+}
 
 //
 // TileGatherElement
@@ -53,7 +261,7 @@ mlir::LogicalResult TileGatherElement::matchAndRewrite(VPU::GatherOp origOp, mli
         return mlir::failure();
     }
 
-    size_t axis = origOp.getAxisValue().value();
+    const auto axis = static_cast<size_t>(origOp.getAxisValue());
     const auto inputShape = getShape(origOp.getInput());
     const auto outputShape = getShape(origOp.getOutput());
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
@@ -155,23 +363,8 @@ mlir::LogicalResult TileGatherIndices::matchAndRewrite(VPU::GatherOp origOp, mli
         return false;
     };
 
-    int64_t axisValue = 0;
-
-    if (origOp.getAxisValueAttr() != nullptr) {
-        axisValue = mlir::cast<mlir::IntegerAttr>(origOp.getAxisValueAttr()).getValue().getSExtValue();
-    }
-    if (origOp.getAxis() != nullptr) {
-        auto axisConst = origOp.getAxis().getDefiningOp<Const::DeclareOp>();
-        VPUX_THROW_UNLESS(axisConst != nullptr, "Only constant input is supported for axis");
-        VPUX_THROW_UNLESS(axisConst.getContentAttr().isSplat(), "Axis value must be a scalar");
-        const auto axisContent = axisConst.getContent();
-        axisValue = axisContent.getSplatValue<int64_t>();
-    }
-
-    int64_t batchDims = 0;
-    if (origOp.getBatchDimsAttr() != nullptr) {
-        batchDims = mlir::cast<mlir::IntegerAttr>(origOp.getBatchDimsAttr()).getValue().getSExtValue();
-    }
+    const int64_t axisValue = origOp.getAxisValue();
+    const int64_t batchDims = origOp.getBatchDims();
 
     const auto dimToTile = axisValue + indicesRank - batchDims - 1;
     while (!isSupportedTileSize(nTilesOnDim)) {
@@ -240,7 +433,7 @@ mlir::Value handleNegativeIndices(mlir::Value indices, ShapeRef dataShape, const
 
 // Verify if adaption passes tiled Gather op on the dim after gather axis
 bool hasTilingDoneToBenefitAbsAddressing(VPU::GatherOp origOp) {
-    const auto gatherAxis = origOp.getAxisValue().value();
+    const auto gatherAxis = origOp.getAxisValue();
     if (auto concatOp = mlir::dyn_cast_or_null<VPU::ConcatOp>(*origOp->getUsers().begin())) {
         auto concatAxes = VPU::getConcatAxes(concatOp);
 
@@ -258,7 +451,7 @@ bool hasTilingDoneToBenefitAbsAddressing(VPU::GatherOp origOp) {
 // Verify if multiclustering is needed and can be done on dim after gather axis
 bool canHaveMulticlusteringToBenefitAbsAddressing(VPU::GatherDMAOp origOp) {
     auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(origOp.getOperation());
-    const auto gatherAxis = origOp.getAxisValue().value();
+    const auto gatherAxis = origOp.getAxisValue();
 
     size_t numTile = config::getNumOfTiles(origOp);
     if (gatherAxis == Dims4D::Act::C.ind() &&
@@ -281,7 +474,7 @@ mlir::LogicalResult MoveToDMAGather::matchAndRewrite(VPU::GatherOp origOp, mlir:
     }
 
     auto inputType = mlir::cast<NDTypeInterface>(origOp.getInput().getType());
-    auto axis = Dim(origOp.getAxisValue().value());
+    auto axis = Dim(origOp.getAxisValue());
 
     auto indices = handleNegativeIndices(origOp.getIndices(), inputType.getShape(), axis, rewriter);
 
@@ -334,9 +527,9 @@ mlir::LogicalResult MoveToDMAGather::matchAndRewrite(VPU::GatherOp origOp, mlir:
         }
     }();
 
-    auto gatherDMAOp = rewriter.create<VPU::GatherDMAOp>(
-            origOp.getLoc(), origOp.getInput(), convertIndicesOp, origOp.getAxis(), origOp.getAxisValueAttr(),
-            origOp.getBatchDims(), /*multiClusterStrategy*/ nullptr, /*addressingMode*/ nullptr);
+    auto gatherDMAOp = rewriter.create<VPU::GatherDMAOp>(origOp.getLoc(), origOp.getInput(), convertIndicesOp,
+                                                         origOp.getAxisValue(), origOp.getBatchDims(),
+                                                         /*multiClusterStrategy*/ nullptr, /*addressingMode*/ nullptr);
 
     // TODO (E#175972) Set ABSOLUTE Addressing mode when feature is enabled.
     // Until then will set default value as INDEXED addressing mode.
@@ -374,20 +567,18 @@ void ConvertOpToDMAForPerformantExecutionPass::safeRunOnFunc() {
     auto func = getOperation();
     auto& ctx = getContext();
 
-    {
-        mlir::RewritePatternSet adaptionPatterns(&ctx);
-        adaptionPatterns.add<TileGatherElement>(&ctx, _log);
-        adaptionPatterns.add<TileGatherIndices>(&ctx, _log);
-        walkAndApplyPatterns(func, std::move(adaptionPatterns));
-    }
+    mlir::RewritePatternSet splitPatterns(&ctx);
+    splitPatterns.add<ExpandIndices>(&ctx, _log);
+    walkAndApplyPatterns(func, std::move(splitPatterns));
 
-    const auto arch = config::getArch(func);
-    // TODO: E#118296 Other ops and architectures will be enabled.
-    if (arch >= config::ArchKind::NPU40XX) {
-        mlir::RewritePatternSet patterns(&ctx);
-        patterns.insert<MoveToDMAGather>(&ctx, _log);
-        walkAndApplyPatterns(func, std::move(patterns));
-    }
+    mlir::RewritePatternSet adaptionPatterns(&ctx);
+    adaptionPatterns.add<TileGatherElement>(&ctx, _log);
+    adaptionPatterns.add<TileGatherIndices>(&ctx, _log);
+    walkAndApplyPatterns(func, std::move(adaptionPatterns));
+
+    mlir::RewritePatternSet patterns(&ctx);
+    patterns.insert<MoveToDMAGather>(&ctx, _log);
+    walkAndApplyPatterns(func, std::move(patterns));
 }
 
 }  // namespace

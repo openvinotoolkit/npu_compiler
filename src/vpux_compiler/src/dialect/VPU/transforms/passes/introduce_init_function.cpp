@@ -3,10 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/interfaces/dialect_cache.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/IE/utils/shape_legalization.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/weights_separation_ir_modification.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
+#include "vpux/compiler/dialect/const/constant_call_stack.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
@@ -31,6 +34,7 @@
 #include <mlir/Support/LogicalResult.h>
 
 #include <limits>
+#include <sstream>
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_INTRODUCEINITFUNCTION
@@ -361,6 +365,42 @@ void IntroduceInitFunctionPass::setNetworkEntryPointToInit(net::NetworkInfoOp ne
     verifyNetworkInfoWithRespectToNewArguments(newNetInfo);
 }
 
+void printConstCallStack(std::vector<vpux::VPU::TransformationsSplit> splits, mlir::MLIRContext* ctx,
+                         const Logger& log) {
+    if (!log.isActive(LogLevel::Trace) || !isDeveloperBuild()) {
+        return;
+    }
+
+    auto& csCache = vpux::getCache<vpux::Const::CallStackCache, vpux::Const::ConstDialect>(ctx);
+    auto handle = csCache.lockCallStack();
+    const auto& callStack = *handle;
+
+    std::stringstream stream;
+    if (callStack.empty()) {
+        stream << "No constant call stacks were recorded.";
+    } else {
+        for (const auto& split : splits) {
+            stream << "Base content: ";
+            auto contentAttr = split.getContentAttr();
+            auto baseContent = contentAttr.getBaseContent();
+            const auto resourceName = getResourceName(baseContent);
+            stream << resourceName.str();
+
+            auto transformations = contentAttr.getTransformations();
+            for (auto transformation : transformations) {
+                auto trace = csCache.getSpecificCallStack(baseContent, transformation);
+                std::string transformationStr;
+                llvm::raw_string_ostream os(transformationStr);
+                transformation.print(os);
+                stream << "\tTransformation: " << os.str() << '\n';
+                stream << "\tTrace: " << trace << '\n';
+            }
+        }
+    }
+
+    log.trace("The following call stack of constant operations is found:\n{0}\n", stream.str());
+}
+
 std::tuple<mlir::func::FuncOp, VPU::WsArgumentCache, IntroduceInitFunctionPass::InitResults>
 IntroduceInitFunctionPass::buildInitFunction(mlir::OpBuilder& moduleBuilder, mlir::Location initLoc,
                                              ArrayRef<VPU::TransformationsSplit> splits, StringRef name) {
@@ -385,6 +425,7 @@ IntroduceInitFunctionPass::buildInitFunction(mlir::OpBuilder& moduleBuilder, mli
             mlir::FunctionType::get(&getContext(), bodyBlock->getArgumentTypes(), returnOp.getOperands().getTypes());
     initFuncOp.setFunctionType(initFuncType);
 
+    printConstCallStack(splits, &getContext(), _log);
     if (_log.isActive(LogLevel::Debug)) {
         int64_t inByteCount = 0;
         int64_t outByteCount = 0;
@@ -609,6 +650,10 @@ void IntroduceInitFunctionPass::safeRunOnModule() {
         signalPassFailure();
         return;
     }
+
+    // This is a temporary workaround to avoid ShapeInfo-related compilation failures. Permanent solution will be
+    // tracked in E#222554.
+    moduleOp->removeAttr(IE::SHAPE_VERIFICATION_ENABLED);
 
     auto [netInfo, mainFuncOp] = net::getFromModule(moduleOp);
 

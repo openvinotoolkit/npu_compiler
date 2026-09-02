@@ -73,6 +73,7 @@ public:
 private:
     std::vector<TaskResult> _results;
     DenseMap<SchedulerType, int64_t> _schedulersCosts;
+    std::mutex _schedulersCostsMutex;
     mlir::MLIRContext* _ctx;
     Logger _log;
 };

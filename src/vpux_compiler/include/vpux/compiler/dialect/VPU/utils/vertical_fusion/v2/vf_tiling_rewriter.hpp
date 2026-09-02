@@ -22,12 +22,18 @@ typedef std::function<void(int64_t, mlir::Operation*, mlir::Value&, Shape&)> Til
 class VerticalFusionTilingRewriter : public VerticalFusionTilingRewriterBase<VFConfig, VFSchedulingFactory> {
 public:
     VerticalFusionTilingRewriter(mlir::MLIRContext* ctx, bool enableVerticalFusionPipelining,
-                                 const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log)
+                                 const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log,
+                                 VFCacheAnalysis& cache)
             : VerticalFusionTilingRewriterBase<VFConfig, VFSchedulingFactory>(ctx, enableVerticalFusionPipelining,
-                                                                              costFunction, log) {
+                                                                              costFunction, log),
+              _cache(cache) {
     }
 
 protected:
+    VFConfig createVFConfig(VPU::VerticalFusionOp vfOp) const override {
+        return VFConfig(vfOp, _cache, _enableVerticalFusionPipelining);
+    }
+
     std::pair<DimArr, int64_t> getDimsData(ArrayRef<int64_t> strategy) const override {
         int64_t tilesLen = 1;
         DimArr dims;
@@ -50,5 +56,8 @@ protected:
 
         return storage.value();
     }
+
+private:
+    VFCacheAnalysis& _cache;
 };
 }  // namespace vpux::VPU::VF::v2

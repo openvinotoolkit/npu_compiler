@@ -38,7 +38,7 @@ func.func @ConvD2SEltwise(%arg0: !inputConvDynamicType, %arg1: !inputEltwiseDyna
   // CHECK: VPU.DepthToSpace
   // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
 
-  %2 = VPU.NCE.Eltwise(%1, %arg1) {
+  %2 = VPU.NCE.Eltwise(%1, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
     input_padding = [0, 13, 0, 0], op_type = #VPU.eltwise_type<ADD>,
     ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>
   } -> !outputDynamicType

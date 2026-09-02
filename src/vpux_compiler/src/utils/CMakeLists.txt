@@ -74,6 +74,15 @@ target_link_libraries(${TARGET_NAME}
         bitcompactor)
 
 target_include_directories(${TARGET_NAME}
+    PUBLIC
+        $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/sw_runtime_kernels>
     PRIVATE
        ${CMAKE_CURRENT_BINARY_DIR}  # generated shave_ld.hpp
 )
+
+if(ENABLE_DEVELOPER_BUILD) # valgrind support is a developer build setting
+    find_program(VALGRIND valgrind)
+    if(VALGRIND)
+        target_compile_definitions(${TARGET_NAME} PRIVATE NPU_VALGRIND_FOUND)
+    endif()
+endif()

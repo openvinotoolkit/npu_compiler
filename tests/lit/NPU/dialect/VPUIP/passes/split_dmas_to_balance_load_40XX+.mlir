@@ -1001,3 +1001,62 @@ module {
       return %arg0 : !DummyT
   }
 }
+
+//
+// -----
+//
+
+!DummyT = memref<1x3x224x224xf16, @DDR>
+
+// CHECK-LABEL: @SplitConvertDMABuffer2Buffer
+func.func @SplitConvertDMABuffer2Buffer(%arg0: !DummyT) -> !DummyT {
+    %0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+    %1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+    %2 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x48x18x56xf32, @DDR>
+    %3 = VPURT.DeclareBuffer <DDR> <200000> -> memref<1x48x18x56xf16, @DDR>
+    VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
+      %4 = VPUIP.ConvertDMA <{port = 0 : i64, split_candidate = true}> inputs(%2 : memref<1x48x18x56xf32, @DDR>) outputs(%3 : memref<1x48x18x56xf16, @DDR>) -> memref<1x48x18x56xf16, @DDR>
+    }
+
+    // Input f32 buffers split on dim1 (C=48 -> 24+24)
+    // CHECK:       [[IN_0:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x24x18x56xf32, {order = #NCHW, strides = [48384, 1008, 56, 1]}, @DDR>
+    // CHECK:       [[IN_1:%.+]] = VPURT.DeclareBuffer <DDR> <96768> -> memref<1x24x18x56xf32, {order = #NCHW, strides = [48384, 1008, 56, 1]}, @DDR>
+
+    // Output f16 buffers split on dim1 (C=48 -> 24+24)
+    // CHECK:       [[OUT_0:%.+]] = VPURT.DeclareBuffer <DDR> <200000> -> memref<1x24x18x56xf16, {order = #NCHW, strides = [48384, 1008, 56, 1]}, @DDR>
+    // CHECK:       [[OUT_1:%.+]] = VPURT.DeclareBuffer <DDR> <248384> -> memref<1x24x18x56xf16, {order = #NCHW, strides = [48384, 1008, 56, 1]}, @DDR>
+
+    // First part on port 0
+    // CHECK:       [[CONVERT_0:%.+]] = VPUIP.ConvertDMA <{port = 0 : i64}> inputs([[IN_0]] : memref<1x24x18x56xf32, {order = #NCHW, strides = [48384, 1008, 56, 1]}, @DDR>)
+    // CHECK-SAME:         outputs([[OUT_0]] : memref<1x24x18x56xf16, {order = #NCHW, strides = [48384, 1008, 56, 1]}, @DDR>)
+    // CHECK-SAME:          -> memref<1x24x18x56xf16, {order = #NCHW, strides = [48384, 1008, 56, 1]}, @DDR>
+
+    // Second part on port 1
+    // CHECK:       [[CONVERT_1:%.+]] = VPUIP.ConvertDMA <{port = 1 : i64}> inputs([[IN_1]] : memref<1x24x18x56xf32, {order = #NCHW, strides = [48384, 1008, 56, 1]}, @DDR>)
+    // CHECK-SAME:         outputs([[OUT_1]] : memref<1x24x18x56xf16, {order = #NCHW, strides = [48384, 1008, 56, 1]}, @DDR>)
+    // CHECK-SAME:          -> memref<1x24x18x56xf16, {order = #NCHW, strides = [48384, 1008, 56, 1]}, @DDR>
+
+    return %arg0 : !DummyT
+}
+
+//
+// -----
+//
+
+!DummyT = memref<1x3x224x224xf16, @DDR>
+
+// CHECK-LABEL: @DoNotSplitConvertDMAWithoutCandidate
+func.func @DoNotSplitConvertDMAWithoutCandidate(%arg0: !DummyT) -> !DummyT {
+    %0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+    %1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+    %2 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x48x18x56xf32, @DDR>
+    %3 = VPURT.DeclareBuffer <DDR> <200000> -> memref<1x48x18x56xf16, @DDR>
+    VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
+      %4 = VPUIP.ConvertDMA <{port = 0 : i64}> inputs(%2 : memref<1x48x18x56xf32, @DDR>) outputs(%3 : memref<1x48x18x56xf16, @DDR>) -> memref<1x48x18x56xf16, @DDR>
+    }
+
+    // CHECK:       [[CONVERTDMA:%.+]] = VPUIP.ConvertDMA <{port = 0 : i64}>
+    // CHECK-NOT:   VPUIP.ConvertDMA
+
+    return %arg0 : !DummyT
+}

@@ -18,11 +18,11 @@ module @BasicKernelSerialization {
 }
 
 // CHECK-LABEL: @BasicKernelSerialization
-// CHECK:   bytecode.kernel_section @kernel_section {
-// CHECK:     bytecode.kernel @compute "\00\01\02\03"
-// CHECK:   }
 // CHECK:   module @SubModule {
 // CHECK:     func.func nested @compute(memref<1x3x8x8xf16>, memref<1x3x8x8xf16>) -> memref<1x3x8x8xf16>
+// CHECK:   }
+// CHECK:   bytecode.kernel_section @kernel_section {
+// CHECK:     bytecode.kernel @compute "\00\01\02\03"
 // CHECK:   }
 
 // -----
@@ -44,6 +44,12 @@ module @MultipleKernels {
 }
 
 // CHECK-LABEL: @MultipleKernels
+// CHECK:      module @Module1 {
+// CHECK:        func.func nested @kernel_a(memref<1x16xf16>) -> memref<1x16xf16>
+// CHECK:      }
+// CHECK:      module @Module2 {
+// CHECK:        func.func nested @kernel_b(memref<1x32xf16>) -> memref<1x32xf16>
+// CHECK:      }
 // CHECK:      bytecode.kernel_section @kernel_section {
 // CHECK:        bytecode.kernel @kernel_a "\00\01"
 // CHECK:        bytecode.kernel @kernel_b "\02\03"

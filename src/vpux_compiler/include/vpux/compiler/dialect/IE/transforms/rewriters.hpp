@@ -43,16 +43,8 @@ Constant -> DynamicDequantize(weights_q, scale).
 */
 void registerWeightsDequantizeToDynamicDequantizeRewriters(RewriterRegistry& registry,
                                                            ArrayRef<mlir::PatternBenefit> benefitLevels, size_t index,
-                                                           mlir::func::FuncOp funcOp, Logger log = Logger::global());
+                                                           Logger log = Logger::global());
 
-/*
-Replaces Constant (i8) -> Convert (to fp) -> Subtract (zp) -> Multiply (scale) -> with
-Constant (i8) -> Convert (to fp) -> FakeQuantize -> deducing levels and FakeQuantize limits according to actual values
-in the weights Constant
-*/
-void registerWeightsDequantizeToFakeQuantizeRewriters(RewriterRegistry& registry,
-                                                      ArrayRef<mlir::PatternBenefit> benefitLevels, size_t index,
-                                                      mlir::func::FuncOp funcOp, Logger log = Logger::global());
 /*
 Replaces:
   INT4 weights as params -> Convert (to fp16) -> Subtract (w params) -> Multiply (w params) -> Conv with
@@ -172,6 +164,15 @@ Resulting inputs with filters go to `MatMul` operations and the outputs are conc
 void registerMatMulInputsTo2dRewriters(RewriterRegistry& registry, Logger log,
                                        ArrayRef<mlir::PatternBenefit> benefitLevels, size_t index,
                                        bool enableGroupedMatMul);
+
+/*
+Folds inverse Reshape pairs in GQA SDPA chains for batch-unrolled MatMul sequences.
+For unrolled chains (Concat -> Reshape -> [Add] -> SoftMax -> Reshape -> Slices),
+removes the Reshape round-trip by tiling the mask into the shrunk domain, keeping
+SoftMax in the more efficient head-shrunk layout.
+*/
+void registerEliminateReshapeRoundtripInSDPARewriters(RewriterRegistry& registry, Logger log,
+                                                      ArrayRef<mlir::PatternBenefit> benefitLevels, size_t index);
 
 /*
 Move ops after concat to place after each batch unrolled matmul.

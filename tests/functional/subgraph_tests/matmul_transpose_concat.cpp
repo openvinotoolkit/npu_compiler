@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023-2025 Intel Corporation
+// Copyright (C) 2023-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -29,7 +29,7 @@ public:
             const auto totalSize =
                     std::accumulate(inputStaticShape.begin(), inputStaticShape.end(), 1, std::multiplies<size_t>());
             auto inputData = inputTensor.data<ov::element_type_traits<ov::element::f32>::value_type>();
-            for (size_t i = 0; i < totalSize; i++) {
+            for (int64_t i = 0; i < totalSize; i++) {
                 inputData[i] = (i % 255) - 127;
             }
             return inputTensor;

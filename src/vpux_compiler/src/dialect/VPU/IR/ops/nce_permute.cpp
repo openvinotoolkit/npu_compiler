@@ -67,6 +67,14 @@ bool vpux::VPU::NCEPermuteOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTy
 }
 
 //
+// ShapeInfoOpInterface
+//
+
+mlir::LogicalResult vpux::VPU::NCEPermuteOp::verifyShapeInfo() {
+    return vpux::VPU::verifyInputIs4D(getInput());
+}
+
+//
 // isSupported
 //
 

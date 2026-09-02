@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --vertical-fusion-tiling %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW allow-custom-values=true" --vertical-fusion-tiling %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -26,7 +26,7 @@ func.func @VfTilingWithEltwise(%arg0: tensor<1x16x256x256x!qElemType, {order = #
          ppe = #VPU.PPEStub<>,
           strides = [1, 1]} : tensor<1x32x256x256x!qElemType, {order = #NHWC}>, tensor<32x32x3x3x!qElemType1, {order = #NHWC}> -> tensor<1x32x256x256x!qElemType, {order = #NHWC}>
       %3 = VPU.NCE.Eltwise(%1, %2)
-         {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
+         {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
          ppe = #VPU.PPEStub<>}
          -> tensor<1x32x256x256x!qElemType, {order = #NHWC}>
       VPU.Yield %3
@@ -88,7 +88,7 @@ func.func @VfTilingWithEltwiseAdjustOffset(
          ppe = #VPU.PPEStub<>,
           strides = [1, 1]} : tensor<1x32x128x128xf16, {order = #NHWC}>, tensor<32x32x7x7xf16, {order = #NHWC}> -> tensor<1x32x128x128xf16, {order = #NHWC}>
       %3 = VPU.NCE.Eltwise(%1, %2)
-         {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
+         {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
          ppe = #VPU.PPEStub<>}
          -> tensor<1x32x128x128xf16, {order = #NHWC}>
       VPU.Yield %3
@@ -191,7 +191,7 @@ func.func @VfTilingWithQuantizeCast(%arg0: tensor<1x32x48x48x!qElemType, {order 
    %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x32x48x48x!qElemType, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 2, 1], vf_loop_index = 0} -> tensor<1x32x48x48xf16, {order = #NHWC}> {
       %1 = VPU.QuantizeCast(%arg1) {dstElemType = !qElemType1} : tensor<1x32x48x48x!qElemType, {order = #NHWC}> -> tensor<1x32x48x48x!qElemType1, {order = #NHWC}>
       %2 = VPU.NCE.Eltwise(%1, %1)
-         {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x32x48x48xf16, {order = #NHWC}>
+         {resultSegmentSizes = array<i32: 1, 0, 0, 0>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x32x48x48xf16, {order = #NHWC}>
       VPU.Yield %2
    }
    return %0 : tensor<1x32x48x48xf16, {order = #NHWC}>
@@ -226,8 +226,8 @@ func.func @FallBackToOperandDueToSliceFail(%arg0: tensor<1x16x720x1280xf16, {ord
     %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x16x720x1280xf16, {order = #NHWC}>, %cst as %arg2: tensor<16x16x3x3xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 1, 32], vf_loop_index = 0} -> tensor<1x16x720x1280xf16, {order = #NHWC}> {
       %1 = VPU.NCE.Convolution(%arg1, %arg2) rawFilterShape [16, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, strides = [2, 2]} : tensor<1x16x720x1280xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x359x639xf16, {order = #NHWC}>
       %2 = VPU.NCE.MaxPool(%1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, kernel_size = [7, 7], multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, strides = [3, 3]} -> tensor<1x16x118x211xf16, {order = #NHWC}>
-      %4 = VPU.Interpolate(%2) {attr = #IE.Interpolate<mode = <LINEAR_ONNX>, shape_calc_mode = <SIZES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3], initial_input_dims_attr = [1, 16, 118, 211], initial_output_dims_attr = [1, 16, 720, 1280], multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>, operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, scales_attr = [6.101694915254237, 6.0663507109004735], sizes_attr = [720, 1280], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} : tensor<1x16x118x211xf16, {order = #NHWC}> -> tensor<1x16x720x1280xf16, {order = #NHWC}>
-      %6 = VPU.NCE.Eltwise(%arg1, %4) {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x16x720x1280xf16, {order = #NHWC}>
+      %4 = VPU.Interpolate(%2) {attr = #IE.Interpolate<mode = <LINEAR_ONNX>, shape_calc_mode = <SIZES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3], initial_input_dims_attr = [1, 16, 118, 211], initial_output_dims_attr = [1, 16, 720, 1280], multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>, operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>, scales_attr = [6.101694915254237, 6.0663507109004735], sizes_attr = [720, 1280], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} : tensor<1x16x118x211xf16, {order = #NHWC}> -> tensor<1x16x720x1280xf16, {order = #NHWC}>
+      %6 = VPU.NCE.Eltwise(%arg1, %4) {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x16x720x1280xf16, {order = #NHWC}>
       VPU.Yield %6
     }
     return %0 : tensor<1x16x720x1280xf16, {order = #NHWC}>
@@ -284,7 +284,7 @@ func.func @FallBackToOperandDueToSliceFail(%arg0: tensor<1x16x720x1280xf16, {ord
 func.func @InterpAndAvgpoolPropagateAxis(%arg0: tensor<1x64x96x160xf16, {order = #NHWC}>) -> tensor<1x64x192x320xf16, {order = #NHWC}> {
 
     %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x64x96x160xf16, {order = #NHWC}>) attributes {scenario = #VPU.vf_scenario<FULL_PREFETCHING>, tilingStrategy = [1, 1, 1, 5], vf_loop_index = 0} -> tensor<1x64x192x320xf16, {order = #NHWC}> {
-      %1 = VPU.Interpolate(%arg1) {attr = #IE.Interpolate<mode = <LINEAR_ONNX>, shape_calc_mode = <SIZES>, coord_mode = <ALIGN_CORNERS>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3], initial_input_dims_attr = [1, 64, 96, 160], initial_output_dims_attr = [1, 64, 192, 320], multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>, operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, scales_attr = [2.000000e+00, 2.000000e+00], sizes_attr = [192, 320], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} : tensor<1x64x96x160xf16, {order = #NHWC}> -> tensor<1x64x192x320xf16, {order = #NHWC}>
+      %1 = VPU.Interpolate(%arg1) {attr = #IE.Interpolate<mode = <LINEAR_ONNX>, shape_calc_mode = <SIZES>, coord_mode = <ALIGN_CORNERS>, nearest_mode = <FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>, axes_attr = [2, 3], initial_input_dims_attr = [1, 64, 96, 160], initial_output_dims_attr = [1, 64, 192, 320], multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>, operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>, scales_attr = [2.000000e+00, 2.000000e+00], sizes_attr = [192, 320], tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} : tensor<1x64x96x160xf16, {order = #NHWC}> -> tensor<1x64x192x320xf16, {order = #NHWC}>
       %2 = VPU.NCE.AveragePool(%1) {kernel_size = [1, 1], multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = 0 : i64, clamp_high = 255 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [41.160151324085753], fp_prelu_alpha = 41.160152435302734 : f64>, strides = [1, 1]} -> tensor<1x64x192x320xf16, {order = #NHWC}>
       VPU.Yield %2
     }
@@ -339,7 +339,7 @@ func.func @VfTilingWithMultiEltwiseAdjustOffset(
          ppe = #VPU.PPEStub<>,
          strides = [1, 1]} : tensor<1x32x128x128xf16, {order = #NHWC}>, tensor<32x32x7x7xf16, {order = #NHWC}> -> tensor<1x32x128x128xf16, {order = #NHWC}>
       %3 = VPU.NCE.Eltwise(%1, %2)
-         {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
+         {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
          ppe = #VPU.PPEStub<>}
          -> tensor<1x32x128x128xf16, {order = #NHWC}>
       %4 = VPU.NCE.Convolution(%3, %arg4) rawFilterShape [32, 32, 7, 7]
@@ -348,7 +348,7 @@ func.func @VfTilingWithMultiEltwiseAdjustOffset(
          ppe = #VPU.PPEStub<>,
          strides = [1, 1]} : tensor<1x32x128x128xf16, {order = #NHWC}>, tensor<32x32x7x7xf16, {order = #NHWC}> -> tensor<1x32x128x128xf16, {order = #NHWC}>
       %5 = VPU.NCE.Eltwise(%1, %4)
-         {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
+         {resultSegmentSizes = array<i32: 1, 0, 0, 0>, is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>,
          ppe = #VPU.PPEStub<>}
          -> tensor<1x32x128x128xf16, {order = #NHWC}>
       VPU.Yield %5
@@ -490,4 +490,99 @@ func.func @VfTilingWithRound(%arg0: tensor<1x32x64x64xf16>) -> tensor<1x32x64x64
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat([[ROUND_0]], [[ROUND_1]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 0, 32, 0]]}
     // CHECK-SAME:  tensor<1x32x32x64xf16>, tensor<1x32x32x64xf16> -> tensor<1x32x64x64xf16>
     // CHECK:       return [[CONCAT]] : tensor<1x32x64x64xf16>
+}
+
+// -----
+
+// tilingStrategy = [1, 15, 1, 1] splits C=13824 across 15 tiles.
+// Channel alignment for SW ops is 16, so:
+//   aligned tile size = alignUp(ceil(13824/15), 16) = alignUp(922, 16) = 928
+//   first 14 tiles: C=928,  last tile: C=13824 - 14*928 = 832
+//
+// CHECK-LABEL: @VfTilingMultiplyAligned
+// CHECK-SAME:  ([[ARG_0:%[^:]+]]: tensor<1x13824x1024x1xf16, {order = #NHWC}>,
+// CHECK-SAME:   [[ARG_1:%[^:]+]]: tensor<1x13824x1x1xf16, {order = #NHWC}>,
+// CHECK-SAME:   [[ARG_2:%[^:]+]]: tensor<1x13824x1024x1xf16, {order = #NHWC}>,
+// CHECK-SAME:   [[ARG_3:%[^:]+]]: tensor<1x13824x1x1xf16, {order = #NHWC}>)
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+   config.ExecutorResource 2 of @SHAVE_ACT
+   config.ExecutorResource 1 of @DPU
+}
+
+func.func @VfTilingMultiplyAligned(
+        %arg0: tensor<1x13824x1024x1xf16, {order = #NHWC}>,
+        %arg1: tensor<1x13824x1x1xf16, {order = #NHWC}>,
+        %arg2: tensor<1x13824x1024x1xf16, {order = #NHWC}>,
+        %arg3: tensor<1x13824x1x1xf16, {order = #NHWC}>)
+        -> tensor<1x13824x1024x1xf16, {order = #NHWC}> {
+    %0 = VPU.VerticalFusion (
+                %arg0 as %vf0: tensor<1x13824x1024x1xf16, {order = #NHWC}>,
+                %arg1 as %vf1: tensor<1x13824x1x1xf16, {order = #NHWC}>,
+                %arg2 as %vf2: tensor<1x13824x1024x1xf16, {order = #NHWC}>,
+                %arg3 as %vf3: tensor<1x13824x1x1xf16, {order = #NHWC}>)
+            attributes {scenario = #VPU.vf_scenario<MINIMAL>, tilingStrategy = [1, 15, 1, 1], vf_loop_index = 0}
+            -> tensor<1x13824x1024x1xf16, {order = #NHWC}> {
+        %mul_up    = VPU.Multiply(%vf0, %vf1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
+                         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>}
+                         : tensor<1x13824x1024x1xf16, {order = #NHWC}>, tensor<1x13824x1x1xf16, {order = #NHWC}>
+                         -> tensor<1x13824x1024x1xf16, {order = #NHWC}>
+        %mul_gate  = VPU.Multiply(%vf2, %vf3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
+                         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>}
+                         : tensor<1x13824x1024x1xf16, {order = #NHWC}>, tensor<1x13824x1x1xf16, {order = #NHWC}>
+                         -> tensor<1x13824x1024x1xf16, {order = #NHWC}>
+        %swish     = VPU.Swish(%mul_gate) {beta_value = 1.000000e+00 : f64,
+                         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>}
+                         : tensor<1x13824x1024x1xf16, {order = #NHWC}> -> tensor<1x13824x1024x1xf16, {order = #NHWC}>
+        %out       = VPU.Multiply(%swish, %mul_up) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
+                         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>}
+                         : tensor<1x13824x1024x1xf16, {order = #NHWC}>, tensor<1x13824x1024x1xf16, {order = #NHWC}>
+                         -> tensor<1x13824x1024x1xf16, {order = #NHWC}>
+        VPU.Yield %out
+    }
+    return %0 : tensor<1x13824x1024x1xf16, {order = #NHWC}>
+
+    // Tile 0 — C offset=0, size=928
+    // CHECK:       [[UP0_ACT:%.+]]  = VPU.Slice [[ARG_0]] [0, 0, 0, 0] [1, 928, 1024, 1]
+    // CHECK:       [[UP0_SC:%.+]]   = VPU.Slice [[ARG_1]] [0, 0, 0, 0] [1, 928, 1, 1]
+    // CHECK:       [[MUL_UP0:%.+]]  = VPU.Multiply([[UP0_ACT]], [[UP0_SC]])
+    // CHECK-SAME:      vf_loop_tile_index = 0 : i64
+    // CHECK:       [[GT0_ACT:%.+]]  = VPU.Slice [[ARG_2]] [0, 0, 0, 0] [1, 928, 1024, 1]
+    // CHECK:       [[GT0_SC:%.+]]   = VPU.Slice [[ARG_3]] [0, 0, 0, 0] [1, 928, 1, 1]
+    // CHECK:       [[MUL_GT0:%.+]]  = VPU.Multiply([[GT0_ACT]], [[GT0_SC]])
+    // CHECK-SAME:      vf_loop_tile_index = 0 : i64
+    // CHECK:       [[SWISH0:%.+]]   = VPU.Swish([[MUL_GT0]])
+    // CHECK-SAME:      beta_value = 1.000000e+00
+    // CHECK-SAME:      vf_loop_tile_index = 0 : i64
+    // CHECK:       [[OUT0:%.+]]     = VPU.Multiply([[SWISH0]], [[MUL_UP0]])
+    // CHECK-SAME:      vf_loop_tile_index = 0 : i64
+
+    // Tile 1 — C offset=928, size=928
+    // CHECK:       VPU.Slice [[ARG_0]] [0, 928, 0, 0] [1, 928, 1024, 1]
+    // CHECK:       VPU.Slice [[ARG_1]] [0, 928, 0, 0] [1, 928, 1, 1]
+    // CHECK:       VPU.Multiply{{.+}}vf_loop_tile_index = 1 : i64
+    // CHECK:       VPU.Slice [[ARG_2]] [0, 928, 0, 0] [1, 928, 1024, 1]
+    // CHECK:       VPU.Slice [[ARG_3]] [0, 928, 0, 0] [1, 928, 1, 1]
+    // CHECK:       VPU.Multiply{{.+}}vf_loop_tile_index = 1 : i64
+    // CHECK:       VPU.Swish{{.+}}vf_loop_tile_index = 1 : i64
+    // CHECK:       VPU.Multiply{{.+}}vf_loop_tile_index = 1 : i64
+
+    // Tile 14 (last) — C offset=12992, size=832 (= 13824 - 14*928)
+    // CHECK:       VPU.Slice [[ARG_0]] [0, 12992, 0, 0] [1, 832, 1024, 1]
+    // CHECK:       VPU.Slice [[ARG_1]] [0, 12992, 0, 0] [1, 832, 1, 1]
+    // CHECK:       VPU.Multiply{{.+}}vf_loop_tile_index = 14 : i64
+    // CHECK:       VPU.Slice [[ARG_2]] [0, 12992, 0, 0] [1, 832, 1024, 1]
+    // CHECK:       VPU.Slice [[ARG_3]] [0, 12992, 0, 0] [1, 832, 1, 1]
+    // CHECK:       VPU.Multiply{{.+}}vf_loop_tile_index = 14 : i64
+    // CHECK:       VPU.Swish{{.+}}vf_loop_tile_index = 14 : i64
+    // CHECK:       [[OUT14:%.+]] = VPU.Multiply{{.+}}vf_loop_tile_index = 14 : i64
+
+    // CHECK:       VPU.Concat([[OUT0]], {{.+}}, [[OUT14]])
+    // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0, 0, 0], [0, 928, 0, 0], [0, 1856, 0, 0],
+    // CHECK-SAME{LITERAL}:                        [0, 2784, 0, 0], [0, 3712, 0, 0], [0, 4640, 0, 0],
+    // CHECK-SAME{LITERAL}:                        [0, 5568, 0, 0], [0, 6496, 0, 0], [0, 7424, 0, 0],
+    // CHECK-SAME{LITERAL}:                        [0, 8352, 0, 0], [0, 9280, 0, 0], [0, 10208, 0, 0],
+    // CHECK-SAME{LITERAL}:                        [0, 11136, 0, 0], [0, 12064, 0, 0], [0, 12992, 0, 0]]}
+    // CHECK-SAME:      -> tensor<1x13824x1024x1xf16, {order = #NHWC}>
+    // CHECK:       return {{%.+}} : tensor<1x13824x1024x1xf16, {order = #NHWC}>
 }

@@ -342,7 +342,7 @@ mlir::LogicalResult verifyAndBroadcastInput(mlir::Location loc, mlir::Value& inp
 template <typename BiasTypeOp>
 class ConvertBiasToScaleShift final : public mlir::OpRewritePattern<BiasTypeOp> {
 public:
-    ConvertBiasToScaleShift<BiasTypeOp>(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+    ConvertBiasToScaleShift(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
             : mlir::OpRewritePattern<BiasTypeOp>(ctx, benefit), _log(log) {
         this->setDebugName("ConvertBiasToScaleShift");
     }
@@ -363,6 +363,12 @@ mlir::LogicalResult ConvertBiasToScaleShift<BiasTypeOp>::matchAndRewrite(BiasTyp
     // ScaleShift can only support F16; this also covers SubtractOp and other bias-type ops
     if (vpux::IE::isScaleShiftAdaptationSupported(biasOp).failed()) {
         _log.trace("Could not convert to scale shift due to unsupported data type");
+        return mlir::failure();
+    }
+
+    auto op = biasOp.getOperation();
+    if (op->hasAttr("static_scale") && op->getAttr("static_scale") != nullptr) {
+        _log.trace("op {0} has static_scale attribute, cannot convert to ScaleShift", biasOp->getName());
         return mlir::failure();
     }
 
@@ -799,8 +805,9 @@ mlir::LogicalResult AdjustMultiplyLayoutToNHWC::matchAndRewrite(IE::MultiplyOp m
             rewriter.create<IE::PermuteCastOp>(appendLoc(mulOp->getLoc(), "_output_permute"), newMultiplyOp.getOutput(),
                                                outputDstOrder, outputPermutation);
 
+    const auto mulOpLoc = mulOp->getLoc();
     rewriter.replaceOp(mulOp, outputPermuteCastOp.getOutput());
-    _log.trace("Adjusted Multiply layout to NHWC {0}", mulOp->getLoc());
+    _log.trace("Adjusted Multiply layout to NHWC {0}", mulOpLoc);
     return mlir::success();
 }
 

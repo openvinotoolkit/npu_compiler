@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --convert-VPUASM-to-NPUReg50XX %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --cmx-stack-frames-reserve-mem --convert-VPUASM-to-NPUReg50XX %s | FileCheck %s
 // REQUIRES: dev-build && platform-NPU5010
 
 module @Test {
@@ -28,7 +28,7 @@ module @Test {
 //CHECK: NPUReg50XX.NNrtConfig <{actShaveRt = @shave.runtime::@ActShaveRt, descriptor = #NPUReg50XX.VpuNNRTConfig<
 //CHECK:   VpuNNRTConfig {
 //CHECK:     NNRTCfg_reserved = UINT 0,
-//CHECK:     NNRTCfg_runtime_entry = UINT 0x1C001540,
+//CHECK:     NNRTCfg_runtime_entry = UINT 0x1C001470,
 //CHECK:     NNRTCfg_act_rt_window_base = UINT 0,
 //CHECK:     NNRTCfg_stack_0 = UINT 0x40001C00,
 //CHECK:     NNRTCfg_stack_1 = UINT 0x40003800,
@@ -43,11 +43,11 @@ module @Test {
 //CHECK:     NNRTCfg_stack_10 = UINT 0,
 //CHECK:     NNRTCfg_stack_11 = UINT 0,
 //CHECK:     NNRTCfg_stack_size = UINT 0x1C00,
-//CHECK:     NNRTCfg_code_window_buffer_size = UINT 0x2174,
+//CHECK:     NNRTCfg_deprecated1 = UINT 0,
 //CHECK:     NNRTCfg_perf_metrics_mask = UINT 0,
 //CHECK:     NNRTCfg_runtime_version = UINT 0x10013,
 //CHECK:     NNRTCfg_use_schedule_embedded_rt = UINT 1,
-//CHECK:     NNRTCfg_dpu_perf_mode = UINT 3,
+//CHECK:     NNRTCfg_deprecated3 = UINT 0,
 //CHECK:     NNRTCfg_pad_6 = UINT 0,
 //CHECK:     NNRTCfg_logAddrDmaHwp = UINT 0,
 //CHECK:     NNRTCfg_HwpCfgAddr = UINT 0,

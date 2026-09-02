@@ -57,10 +57,6 @@ mlir::LogicalResult vpux::IE::AddOp::inferReturnTypeComponents(
 }
 
 mlir::LogicalResult vpux::IE::AddOp::verify() {
-    if (getScales()) {
-        return errorAt(*this, "scales operand is not yet supported; "
-                              "implement scale tensor input support before enabling this path");
-    }
     return mlir::success();
 }
 

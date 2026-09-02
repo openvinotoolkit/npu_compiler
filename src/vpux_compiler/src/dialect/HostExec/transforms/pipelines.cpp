@@ -97,5 +97,6 @@ void HostExec::buildBytecodeBackendPipeline(mlir::OpPassManager& pm, Logger log)
     pm.addPass(bytecode::createConvertHostcodeToBytecodePass(log));
     pm.addPass(bytecode::createInjectBytecodeMetadataPass());
     pm.addPass(bytecode::createConvertIntermediateBytecodeOpsPass(log));
+    pm.addPass(bytecode::createDeduplicateAndLowerImmRegisterOpsPass());
     pm.addPass(bytecode::createAllocateBytecodeRegistersPass(log));
 }

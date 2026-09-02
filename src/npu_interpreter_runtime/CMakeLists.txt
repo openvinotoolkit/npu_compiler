@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-set(TARGET_NAME "npu_interpreter_runtime")
+set(TARGET_NAME "openvino_intel_npu_vm_runtime")
 
 set(SOURCES
     src/npu_interpreter_runtime.cpp
@@ -69,5 +69,12 @@ install(TARGETS ${TARGET_NAME}
         LIBRARY DESTINATION ${OV_CPACK_RUNTIMEDIR} COMPONENT ${VPUX_INTERNAL_COMPONENT}
         RUNTIME DESTINATION ${OV_CPACK_RUNTIMEDIR} COMPONENT ${VPUX_INTERNAL_COMPONENT})
 
-# Install npu_interpreter_runtime to the CID or CIP package selected by BUILD_COMPILER_FOR_DRIVER
+# Install openvino_intel_npu_vm_runtime to the CID or CIP package selected by BUILD_COMPILER_FOR_DRIVER
 install_target_with_debug_files(${TARGET_NAME} ${INSTALL_DESTINATION}/lib ${INSTALL_COMPONENT})
+
+# Install npu_interpreter_runtime public header
+install(
+    FILES
+        "${CMAKE_CURRENT_SOURCE_DIR}/include/npu_interpreter_runtime/npu_vm_runtime.hpp"
+    DESTINATION ${INSTALL_DESTINATION}/include/npu_interpreter_runtime
+    COMPONENT ${INSTALL_COMPONENT})

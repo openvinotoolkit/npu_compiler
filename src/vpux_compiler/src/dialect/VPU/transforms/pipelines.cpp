@@ -63,9 +63,14 @@ std::optional<double> getWeightsSparsityThreshold(const DoubleOption& weightsSpa
 
 void vpux::VPU::buildInitCompilerPipeline(mlir::OpPassManager& pm, const VPU::InitCompilerOptions& options,
                                           Logger log) {
-    log.info("InitCompilerOptions:\n platform = {0}\n DPU groups = {1}\n DMA ports = {2}\n"
-             " compilation mode = {3}\n adaptive stripping = {4}\n aggressive "
-             "QDQ = {5}\n weights dynamic dequantization {6}\n",
+    log.info("InitCompilerOptions:\n"
+             " platform = {0}\n"
+             " DPU groups = {1}\n"
+             " DMA ports = {2}\n"
+             " compilation mode = {3}\n"
+             " adaptive stripping = {4}\n"
+             " aggressive QDQ = {5}\n"
+             " weights dynamic dequantization = {6}\n",
              options.platform, options.numberOfDPUGroups, options.numberOfDMAPorts, options.compilationMode,
              options.enableAdaptiveStripping, options.enableQDQOptimizationAggressive,
              options.enableWeightsDynamicDequantization);
@@ -151,16 +156,17 @@ void VPU::registerVPUPipelines() {
     mlir::PassPipelineRegistration<VPU::ScfComputeOpsOutliningOptions>(
             "scf-ops-outlining", "SCF compute ops outlining transformations",
             [](mlir::OpPassManager& pm, const VPU::ScfComputeOpsOutliningOptions& options) {
-                VPU::buildScfComputeOpsOutliningPipeline(pm, options.loopUnrollFactor, options.enableProfiling,
-                                                         options.enableCascadedUnrolling, options.autoUnrollingMode,
-                                                         options.enableWeightsExtraction, Logger::global());
+                VPU::buildScfComputeOpsOutliningPipeline(
+                        pm, options.loopUnrollFactor, options.enableProfiling, options.enableCascadedUnrolling,
+                        options.enableBacktrackingBeyondResidualKernel, options.tailOverlapBacktrackMarginPercent,
+                        options.autoUnrollingMode, options.enableWeightsExtraction, Logger::global());
             });
 }
 
 void vpux::VPU::buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
-    pm.addPass(VPU::createFlashSDPATilingPass(/*enablePipelining=*/true, log));
+    pm.addPass(VPU::createFlashSDPATilingPass(log));
 
     pm.addPass(VPU::createTilingStrategyAssignmentPass(
             options.enablePrefetchTiling, options.enableVPUNNCostForTiling, options.enableShaveDDRAccessOptimization,
@@ -221,7 +227,8 @@ void vpux::VPU::buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOp
 
 void vpux::VPU::buildScfComputeOpsOutliningPipeline(
         mlir::OpPassManager& pm, const vpux::StrOption& loopUnrollFactor, bool enableProfiling,
-        const vpux::BoolOption& enableCascadedUnrolling,
+        const vpux::BoolOption& enableCascadedUnrolling, const vpux::BoolOption& enableBacktrackingBeyondResidualKernel,
+        const vpux::Int64Option& tailOverlapBacktrackMarginPercent,
         const mlir::detail::PassOptions::Option<AutoUnrollingMode>& autoUnrollingMode,
         const vpux::BoolOption& enableWeightsExtraction, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
@@ -242,14 +249,22 @@ void vpux::VPU::buildScfComputeOpsOutliningPipeline(
             autoUnrollingMode.hasValue() ? autoUnrollingMode.getValue() : AutoUnrollingMode::DISABLED;
     if (hasManualFactor || unrollingModeValue != AutoUnrollingMode::DISABLED) {
         pm.addPass(VPU::createUnrollSCFLoopPass(hasManualFactor ? loopUnrollFactor.getValue() : "",
-                                                enableCascadedUnrolling.getValue(), unrollingModeValue, log));
+                                                enableCascadedUnrolling.getValue(),
+                                                enableBacktrackingBeyondResidualKernel.getValue(),
+                                                tailOverlapBacktrackMarginPercent.getValue(), unrollingModeValue, log));
     }
     pm.addPass(mlir::createLoopInvariantCodeMotionPass());
     pm.addPass(VPU::createFinalizeComputeFunctionBoundariesPass(log));
-    pm.addPass(Core::createPackNestedModulesPass(log, Core::NestingMode::Default, enableProfiling));
 
+    // Canonicalization and CSE run before PackNestedModules on purpose: PackNestedModules does not perform
+    // any rewrites that would create new ops requiring cleanup, so nothing is lost by cleaning up first.
+    // Doing so simplifies the function boundaries (e.g. collapsing redundant reinterpret-cast chains), which
+    // in turn lets PackNestedModules assume simpler, single-hop IR patterns instead of needing extra logic
+    // to walk through unsimplified op chains.
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(mlir::createCSEPass());
+
+    pm.addPass(Core::createPackNestedModulesPass(log, Core::NestingMode::Default, enableProfiling));
 }
 
 //

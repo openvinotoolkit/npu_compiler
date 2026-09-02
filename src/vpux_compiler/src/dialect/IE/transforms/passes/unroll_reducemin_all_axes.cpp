@@ -25,7 +25,7 @@ namespace {
 
 bool shouldConvertReduceMinOp(IE::ReduceMinOp op) {
     // Skip if axes is empty or has only one element
-    if (parseIntArrayAttr<int64_t>(op.getAxesValue().value()).size() <= 1) {
+    if (parseIntArrayAttr<int64_t>(op.getAxesValue()).size() <= 1) {
         return false;
     }
 
@@ -66,7 +66,7 @@ mlir::LogicalResult ReduceMinRewriter::matchAndRewrite(IE::ReduceMinOp origOp, m
     _log.trace("[{0}] Try to unroll ReduceMin at '{1}', {2}", getDebugName(), origOp->getLoc(), origOp);
     mlir::MLIRContext* ctx = origOp->getContext();
     const auto origInput = origOp->getOperand(0);
-    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
+    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue());
 
     // Unroll ReduceMin on all axes to multiple ReduceMin ops on single axis
     auto prevInput = origInput;
@@ -79,11 +79,9 @@ mlir::LogicalResult ReduceMinRewriter::matchAndRewrite(IE::ReduceMinOp origOp, m
         auto maxAxis = maxNonOneAxis.value_or(Dim(0)).ind();
         SmallVector<int64_t> unrolledAxes = {maxAxis};
         auto axesAttr = getIntArrayAttr(ctx, ArrayRef(unrolledAxes));
-        auto newOp = rewriter.create<IE::ReduceMinOp>(takeOpLoc(origOp, "dim_{0}", idx), prevInput, nullptr, axesAttr,
-                                                      false);
+        auto newOp = rewriter.create<IE::ReduceMinOp>(takeOpLoc(origOp, "dim_{0}", idx), prevInput, axesAttr, false);
         prevInput = newOp->getResult(0);
-        _log.trace("[{0}] create newOp {1} with size {2}", getDebugName(), newOp,
-                   parseIntArrayAttr<int64_t>(newOp.getAxesValue().value()).size());
+        _log.trace("[{0}] create newOp {1} with size {2}", getDebugName(), newOp, unrolledAxes.size());
     }
     rewriter.replaceOp(origOp, prevInput);
     return mlir::success();

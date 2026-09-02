@@ -230,6 +230,12 @@ mlir::LogicalResult vpux::VPU::AttentionOp::inferReturnTypes(mlir::MLIRContext* 
 
 llvm::LogicalResult VPU::AttentionOp::verify() {
     const auto moduleOp = getModuleOp(getOperation()->getParentOp());
+    // Auxiliary buffer sizes depend on the number of available SHAVE executors.
+    // Skip the buffer-size verification when the IR is not yet populated with this information.
+    if (config::getTileExecutor(moduleOp) == nullptr) {
+        return mlir::success();
+    }
+
     std::vector<int32_t> dpuStorageData;
     auto expectedAuxBuffTypes =
             getAuxiliaryBufferTypes(moduleOp, getInputQ(), getInputK(), getInputV(), getPadSizeSAttr(), dpuStorageData,
@@ -435,8 +441,27 @@ InputTiling vpux::VPU::AttentionOp::backInferTileInfo(const vpux::TileInfo& outp
         inTiles.tiles.push_back(inScaleTile);
     }
     if (getInputSink() != nullptr) {
+        // Sink stores heads on C; output splits them as N×C
+        // Account for N offset: flatHead = N * headsPerGroup + C
+        const auto headsPerGroup = getShape(getInputQ())[Dims4D::Act::C];
+        // A tile spanning multiple batches (N) together with a partial head group (C) maps to a
+        // non-contiguous set of flattened sink heads, which a single contiguous slice cannot express.
+        VPUX_THROW_UNLESS(outputTile.shape[Dims4D::Act::N] == 1 || outputTile.shape[Dims4D::Act::C] == headsPerGroup,
+                          "Unsupported sink tiling: tile covers multiple batches and a partial head group, mapping to "
+                          "non-contiguous flattened sink heads");
+        const auto headOffset = outputTile.offsets[Dims4D::Act::N] * headsPerGroup + outputTile.offsets[Dims4D::Act::C];
+        const auto headSize = outputTile.shape[Dims4D::Act::N] * outputTile.shape[Dims4D::Act::C];
         TileInfo inSinkTile(getShape(getInputSink()));
-        transferTilingInfoBroadcastAware(inSinkTile, outputTile);
+        // A per-position sink carries one logit per query row (H == L) and must follow H tiling.
+        // A per-head sink keeps H == 1 and stays broadcast across query positions.
+        if (inSinkTile.shape[Dims4D::Act::H] != 1) {
+            inSinkTile.shape[Dims4D::Act::H] = outputTile.shape[Dims4D::Act::H];
+            inSinkTile.offsets[Dims4D::Act::H] = outputTile.offsets[Dims4D::Act::H];
+            inSinkTile.axis[Dims4D::Act::H] = outputTile.axis[Dims4D::Act::H];
+        }
+        inSinkTile.shape[Dims4D::Act::C] = headSize;
+        inSinkTile.offsets[Dims4D::Act::C] = headOffset;
+        inSinkTile.axis[Dims4D::Act::C] = outputTile.axis[Dims4D::Act::N] * outputTile.axis[Dims4D::Act::C];
         inTiles.tiles.push_back(inSinkTile);
     }
     if (getInputBias() != nullptr) {

@@ -535,9 +535,10 @@ func.func @main(%arg0: tensor<1x1024xi8>, %arg1: tensor<1x1024xsi32>) -> tensor<
     return %0 : tensor<1x1024xsi32>
 
     // CHECK:     [[CST:%.+]] = const.Declare tensor<1xsi32> = dense<256> : tensor<1xsi32>
-    // CHECK:     [[SELECT:%.+]] = IE.Select([[ARG0]], [[CST]], [[ARG1]])
+    // CHECK:     [[CONVERT_COND:%.+]] = IE.Convert([[ARG0]]) {dstElemType = i8} : tensor<1x1024xf16> -> tensor<1x1024xi8>
+    // CHECK:     [[SELECT:%.+]] = IE.Select([[CONVERT_COND]], [[CST]], [[ARG1]])
     // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
-    // CHECK-SAME:      tensor<1x1024xf16>, tensor<1xsi32>, tensor<1x1024xsi32> -> tensor<1x1024xsi32>
+    // CHECK-SAME:      tensor<1x1024xi8>, tensor<1xsi32>, tensor<1x1024xsi32> -> tensor<1x1024xsi32>
     // CHECK:     return [[SELECT]] : tensor<1x1024xsi32>
 }
 
@@ -545,8 +546,39 @@ func.func @main(%arg0: tensor<1x1024xi8>, %arg1: tensor<1x1024xsi32>) -> tensor<
 
 // -----
 
-// CHECK-LABEL: @SelectOpSi16ToFP16
-module @SelectOpSi16ToFP16 {
+// CHECK-LABEL: @SelectSI64NotConvertedToFP16
+module @SelectSI64NotConvertedToFP16 {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        // CHECK: DataInfo "input_cond" : tensor<4xsi16>
+        DataInfo "input_cond" : tensor<4xsi16>
+        // CHECK: DataInfo "input_data" : tensor<4xsi64>
+        DataInfo "input_data" : tensor<4xsi64>
+    }
+    outputsInfo : {
+        // CHECK: DataInfo "output" : tensor<4xsi64>
+        DataInfo "output" : tensor<4xsi64>
+    }
+
+// CHECK: func.func @main([[ARG0:[^:]+]]: tensor<4xsi16>, [[ARG1:[^:]+]]: tensor<4xsi64>) -> tensor<4xsi64>
+func.func @main(%arg0 : tensor<4xsi16>, %arg1 : tensor<4xsi64>) -> tensor<4xsi64> {
+    %cst = const.Declare tensor<4xsi64> = dense<0> : tensor<4xsi64>
+    %0 = IE.Select(%arg0, %arg1, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4xsi16>, tensor<4xsi64>, tensor<4xsi64> -> tensor<4xsi64>
+    return %0 : tensor<4xsi64>
+
+    // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<4xsi64>
+    // CHECK:     IE.Select([[ARG0]], [[ARG1]], [[CST]]) {{.*}} tensor<4xsi16>, tensor<4xsi64>, tensor<4xsi64> -> tensor<4xsi64>
+    // CHECK-NOT: IE.Convert
+}
+
+}
+
+// -----
+
+// CHECK-LABEL: @SelectOpSi16DoNotConvertToFP16
+module @SelectOpSi16DoNotConvertToFP16 {
 
 net.NetworkInfo
     entryPoint : @main
@@ -568,15 +600,12 @@ func.func @main(%arg0: tensor<1x1024xi8>, %arg1: tensor<1x1024xsi16>) -> tensor<
     %0 = IE.Select(%arg0, %cst, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024xi8>, tensor<1xsi16>, tensor<1x1024xsi16> -> tensor<1x1024xsi16>
     return %0 : tensor<1x1024xsi16>
 
-    // CHECK-DAG: [[FLAG_CONST:%.+]] = const.Declare tensor<1xf16> = dense<256> : tensor<1xsi16>, [#const.CastElemType<f16>]
-    // CHECK:     [[CONVERT_DATA:%.+]] = IE.Convert([[ARG1]])
-    // CHECK-SAME:      {dstElemType = f16} : tensor<1x1024xsi16> -> tensor<1x1024xf16>
-    // CHECK:     [[SELECT:%.+]] = IE.Select([[ARG0]], [[FLAG_CONST]], [[CONVERT_DATA]])
+    // CHECK:     [[CST:%.+]] = const.Declare tensor<1xsi16> = dense<256> : tensor<1xsi16>
+    // CHECK:     [[CONVERT_COND:%.+]] = IE.Convert([[ARG0]]) {dstElemType = i8} : tensor<1x1024xf16> -> tensor<1x1024xi8>
+    // CHECK:     [[SELECT:%.+]] = IE.Select([[CONVERT_COND]], [[CST]], [[ARG1]])
     // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
-    // CHECK-SAME:      tensor<1x1024xf16>, tensor<1xf16>, tensor<1x1024xf16> -> tensor<1x1024xf16>
-    // CHECK:     [[CONVERT_OUT:%.+]] = IE.Convert([[SELECT]])
-    // CHECK-SAME:      {dstElemType = si16} : tensor<1x1024xf16> -> tensor<1x1024xsi16>
-    // CHECK:     return [[CONVERT_OUT]] : tensor<1x1024xsi16>
+    // CHECK-SAME:      tensor<1x1024xi8>, tensor<1xsi16>, tensor<1x1024xsi16> -> tensor<1x1024xsi16>
+    // CHECK:     return [[SELECT]] : tensor<1x1024xsi16>
 }
 
 }
@@ -809,8 +838,7 @@ module @UnfusedNormalizeL2WithoutEpsilon {
 
     // CHECK:  func.func @main([[ARG0:%.+]]: tensor<1x192xf16>)
     func.func @main(%arg0: tensor<1x192xf16>) -> tensor<1x192xf16> {
-        %cst = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
-        %0 = IE.ReduceL2(%arg0, %cst) {keep_dims} : tensor<1x192xf16>, tensor<1xsi64> -> tensor<1x1xf16>
+        %0 = IE.ReduceL2(%arg0) {axes_value = [1], keep_dims} : tensor<1x192xf16> -> tensor<1x1xf16>
         %1 = IE.Divide(%arg0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x192xf16>, tensor<1x1xf16> -> tensor<1x192xf16>
         return %1 : tensor<1x192xf16>
         // CHECK:  [[REDUCEL2:%.+]] = IE.ReduceL2([[ARG0]])
@@ -931,8 +959,7 @@ module @ClampDivide {
 
     // CHECK:  func.func @main([[ARG0:%.+]]: tensor<1x192xf16>)
     func.func @main(%arg0: tensor<1x192xf16>) -> tensor<1x192xf16> {
-        %cst = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
-        %0 = IE.ReduceL2(%arg0, %cst) {keep_dims} : tensor<1x192xf16>, tensor<1xsi64> -> tensor<1x1xf16>
+        %0 = IE.ReduceL2(%arg0) {axes_value = [1], keep_dims} : tensor<1x192xf16> -> tensor<1x1xf16>
         %1 = IE.Clamp(%0) {max = 1.7976931348623157E+308 : f64, min = 9.999999960041972E-13 : f64} : tensor<1x1xf16> -> tensor<1x1xf16>
         %2 = IE.Divide(%arg0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x192xf16>, tensor<1x1xf16> -> tensor<1x192xf16>
         return %2 : tensor<1x192xf16>
@@ -1022,6 +1049,36 @@ module @SkipClampForDivideSelect {
         %4 = IE.Divide(%2, %3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x768xf32>, tensor<1x1xf32> -> tensor<1x768xf32>
         %5 = IE.Select(%1, %4, %cst_select) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1xi8>, tensor<1x768xf32>, tensor<1x768xf32> -> tensor<1x768xf32>
         return %5 : tensor<1x768xf32>
+        // CHECK-NOT:  IE.Clamp
+    }
+}
+
+// -----
+
+// CHECK-LABEL: @SkipClampForDivideConvertConvertSelect
+module @SkipClampForDivideConvertConvertSelect {
+    net.NetworkInfo
+        entryPoint : @main
+        inputsInfo : {
+            DataInfo "input1" : tensor<150x1x1xsi64>
+            DataInfo "input2" : tensor<150x1x768xf32>
+        }
+        outputsInfo : {
+            DataInfo "output" : tensor<1x768xf32>
+        }
+
+    func.func @main(%arg0 : tensor<150x1x1xsi64>, %arg1 : tensor<150x1x768xf32>) -> tensor<1x768xf32> {
+        %cst_greater = const.Declare tensor<1x1xsi64> = dense<0> : tensor<1x1xsi64>
+        %cst_select = const.Declare tensor<1x768xf32> = dense<0.000000e+00> : tensor<1x768xf32>
+        %0 = IE.ReduceSum(%arg0) {axes_value = [0]} : tensor<150x1x1xsi64> -> tensor<1x1xsi64>
+        %1 = IE.Greater(%0, %cst_greater) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1xsi64>, tensor<1x1xsi64> -> tensor<1x1xi8>
+        %2 = IE.ReduceSum(%arg1) {axes_value = [0]} : tensor<150x1x768xf32> -> tensor<1x768xf32>
+        %3 = IE.Convert(%0) {dstElemType = f32} : tensor<1x1xsi64> -> tensor<1x1xf32>
+        %4 = IE.Divide(%2, %3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x768xf32>, tensor<1x1xf32> -> tensor<1x768xf32>
+        %5 = IE.Convert(%4) {dstElemType = f16} : tensor<1x768xf32> -> tensor<1x768xf16>
+        %6 = IE.Convert(%5) {dstElemType = f32} : tensor<1x768xf16> -> tensor<1x768xf32>
+        %7 = IE.Select(%1, %6, %cst_select) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1xi8>, tensor<1x768xf32>, tensor<1x768xf32> -> tensor<1x768xf32>
+        return %7 : tensor<1x768xf32>
         // CHECK-NOT:  IE.Clamp
     }
 }
@@ -1169,5 +1226,529 @@ module @NotConvertI64ClampToFP16WithAffineReshape {
         // CHECK:       [[GATHER:%.+]] = IE.Gather([[CST]], [[AFFINE_RESHAPE]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} : tensor<12068x512xf16>, tensor<12xsi64> -> tensor<12x512xf16>
 
         // CHECK:       return [[GATHER]] : tensor<12x512xf16>
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @InterpolateInputF32ScaleF32
+module @InterpolateInputF32ScaleF32 {
+    net.NetworkInfo
+        entryPoint : @main
+        inputsInfo : {
+            DataInfo "data" : tensor<1x3x4x6xf32>
+            DataInfo "scales" : tensor<2xf32>
+        }
+        outputsInfo : {
+            DataInfo "output" : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        }
+
+    // CHECK:       func.func @main(
+    // CHECK-SAME:      [[DATA:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[SCALES:%[^:]+]]: tensor<2xf32>
+    // CHECK-SAME:    ) -> tensor<1x3x?x?xf16
+    func.func @main(%data: tensor<1x3x4x6xf32>, %scales: tensor<2xf32>)
+            -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}> {
+        %interp = IE.Interpolate(%data, %scales) {
+            attr = #IE.Interpolate<mode = <LINEAR>,
+                                   shape_calc_mode = <SCALES>,
+                                   coord_mode = <HALF_PIXEL>,
+                                   nearest_mode = <FLOOR>,
+                                   antialias = false,
+                                   pads_begin = [0, 0, 0, 0],
+                                   pads_end = [0, 0, 0, 0],
+                                   cube_coeff = -7.500000e-01 : f64>,
+            axes_attr = [2, 3],
+            operandSegmentSizes = array<i32: 1, 0, 1, 0>,
+            sizes_attr = []}
+            : tensor<1x3x4x6xf32>, tensor<2xf32>
+                -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        return %interp : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+
+        // CHECK-NOT:   IE.Convert({{.*}}) {dstElemType = f16} : tensor<2xf32>
+        // CHECK:       [[INTERP:%.+]] = IE.Interpolate([[DATA]], [[SCALES]])
+        // CHECK-SAME:    : tensor<1x3x4x6xf16>, tensor<2xf32>
+        // CHECK-SAME:        -> tensor<1x3x?x?xf16
+        // CHECK:       return [[INTERP]]
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @InterpolateInputF16ScaleF32
+module @InterpolateInputF16ScaleF32 {
+    net.NetworkInfo
+        entryPoint : @main
+        inputsInfo : {
+            DataInfo "data" : tensor<1x3x4x6xf16>
+            DataInfo "scales" : tensor<2xf32>
+        }
+        outputsInfo : {
+            DataInfo "output" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        }
+
+    // CHECK:       func.func @main(
+    // CHECK-SAME:      [[DATA:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[SCALES:%[^:]+]]: tensor<2xf32>
+    // CHECK-SAME:    ) -> tensor<1x3x?x?xf16
+    func.func @main(%data: tensor<1x3x4x6xf16>, %scales: tensor<2xf32>)
+            -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}> {
+        %interp = IE.Interpolate(%data, %scales) {
+            attr = #IE.Interpolate<mode = <LINEAR>,
+                                   shape_calc_mode = <SCALES>,
+                                   coord_mode = <HALF_PIXEL>,
+                                   nearest_mode = <FLOOR>,
+                                   antialias = false,
+                                   pads_begin = [0, 0, 0, 0],
+                                   pads_end = [0, 0, 0, 0],
+                                   cube_coeff = -7.500000e-01 : f64>,
+            axes_attr = [2, 3],
+            operandSegmentSizes = array<i32: 1, 0, 1, 0>,
+            sizes_attr = []}
+            : tensor<1x3x4x6xf16>, tensor<2xf32>
+                -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        return %interp : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+
+        // CHECK-NOT:   IE.Convert({{.*}}) {dstElemType = f16} : tensor<2xf32>
+        // CHECK:       [[INTERP:%.+]] = IE.Interpolate([[DATA]], [[SCALES]])
+        // CHECK-SAME:    : tensor<1x3x4x6xf16>, tensor<2xf32>
+        // CHECK-SAME:        -> tensor<1x3x?x?xf16
+        // CHECK:       return [[INTERP]]
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @InterpolateInputF16ScaleF16
+module @InterpolateInputF16ScaleF16 {
+    net.NetworkInfo
+        entryPoint : @main
+        inputsInfo : {
+            DataInfo "data" : tensor<1x3x4x6xf16>
+            DataInfo "scales" : tensor<2xf16>
+        }
+        outputsInfo : {
+            DataInfo "output" : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        }
+
+    // CHECK:       func.func @main(
+    // CHECK-SAME:      [[DATA:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[SCALES:%[^:]+]]: tensor<2xf16>
+    // CHECK-SAME:    ) -> tensor<1x3x?x?xf16
+    func.func @main(%data: tensor<1x3x4x6xf16>, %scales: tensor<2xf16>)
+            -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}> {
+        %interp = IE.Interpolate(%data, %scales) {
+            attr = #IE.Interpolate<mode = <LINEAR>,
+                                   shape_calc_mode = <SCALES>,
+                                   coord_mode = <HALF_PIXEL>,
+                                   nearest_mode = <FLOOR>,
+                                   antialias = false,
+                                   pads_begin = [0, 0, 0, 0],
+                                   pads_end = [0, 0, 0, 0],
+                                   cube_coeff = -7.500000e-01 : f64>,
+            axes_attr = [2, 3],
+            operandSegmentSizes = array<i32: 1, 0, 1, 0>,
+            sizes_attr = []}
+            : tensor<1x3x4x6xf16>, tensor<2xf16>
+                -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        return %interp : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+
+        // CHECK:       [[INTERP:%.+]] = IE.Interpolate([[DATA]], [[SCALES]])
+        // CHECK-SAME:    : tensor<1x3x4x6xf16>, tensor<2xf16>
+        // CHECK-SAME:        -> tensor<1x3x?x?xf16
+        // CHECK:       return [[INTERP]]
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @SharedScalesAcrossTwoSAPInterpolates
+module @SharedScalesAcrossTwoSAPInterpolates {
+    net.NetworkInfo
+        entryPoint : @main
+        inputsInfo : {
+            DataInfo "data0" : tensor<1x3x4x6xf32>
+            DataInfo "data1" : tensor<1x3x4x6xf32>
+            DataInfo "scales" : tensor<2xf32>
+        }
+        outputsInfo : {
+            DataInfo "out0" : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+            DataInfo "out1" : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        }
+
+    // CHECK:       func.func @main(
+    // CHECK-SAME:      [[D0:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[D1:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[SCALES:%[^:]+]]: tensor<2xf32>
+    func.func @main(%d0: tensor<1x3x4x6xf32>, %d1: tensor<1x3x4x6xf32>, %scales: tensor<2xf32>)
+            -> (tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>,
+                tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>) {
+        %i0 = IE.Interpolate(%d0, %scales) {
+            attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>,
+                                   nearest_mode = <FLOOR>, antialias = false,
+                                   pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0],
+                                   cube_coeff = -7.500000e-01 : f64>,
+            axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 1, 0>, sizes_attr = []}
+            : tensor<1x3x4x6xf32>, tensor<2xf32>
+                -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        %i1 = IE.Interpolate(%d1, %scales) {
+            attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>,
+                                   nearest_mode = <FLOOR>, antialias = false,
+                                   pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0],
+                                   cube_coeff = -7.500000e-01 : f64>,
+            axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 1, 0>, sizes_attr = []}
+            : tensor<1x3x4x6xf32>, tensor<2xf32>
+                -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        return %i0, %i1
+            : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>,
+              tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+
+        // CHECK-NOT:   IE.Convert({{.*}}) {dstElemType = f16} : tensor<2xf32>
+        // CHECK:       [[I0:%.+]] = IE.Interpolate([[D0]], [[SCALES]])
+        // CHECK-SAME:    : tensor<1x3x4x6xf16>, tensor<2xf32>
+        // CHECK:       [[I1:%.+]] = IE.Interpolate([[D1]], [[SCALES]])
+        // CHECK-SAME:    : tensor<1x3x4x6xf16>, tensor<2xf32>
+        // CHECK:       return [[I0]], [[I1]]
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @ScalesSharedWithMultiplyNotPreserved
+// The scales input feeds a SAP Interpolate and a Multiply. The non-Interpolate
+// user blocks f32 preservation, so the scales is converted to f16 as usual.
+module @ScalesSharedWithMultiplyNotPreserved {
+    net.NetworkInfo
+        entryPoint : @main
+        inputsInfo : {
+            DataInfo "data" : tensor<1x3x4x6xf32>
+            DataInfo "scales" : tensor<2xf32>
+        }
+        outputsInfo : {
+            DataInfo "interp" : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+            DataInfo "scaled" : tensor<2xf32>
+        }
+
+    // CHECK:       func.func @main(
+    // CHECK-SAME:      [[DATA:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[SCALES:%[^:]+]]: tensor<2xf16>
+    func.func @main(%data: tensor<1x3x4x6xf32>, %scales: tensor<2xf32>)
+            -> (tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>,
+                tensor<2xf32>) {
+        %interp = IE.Interpolate(%data, %scales) {
+            attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>,
+                                   nearest_mode = <FLOOR>, antialias = false,
+                                   pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0],
+                                   cube_coeff = -7.500000e-01 : f64>,
+            axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 1, 0>, sizes_attr = []}
+            : tensor<1x3x4x6xf32>, tensor<2xf32>
+                -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        %scaled = IE.Multiply(%scales, %scales) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+            : tensor<2xf32>, tensor<2xf32> -> tensor<2xf32>
+        return %interp, %scaled
+            : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>,
+              tensor<2xf32>
+
+        // Scales is narrowed to f16 (not preserved) because of the Multiply user.
+        // Scale remain fp32 with other user support TODO: E#221311
+        // CHECK:       [[INTERP:%.+]] = IE.Interpolate([[DATA]], [[SCALES]])
+        // CHECK-SAME:    : tensor<1x3x4x6xf16>, tensor<2xf16>
+        // CHECK-SAME:        -> tensor<1x3x?x?xf16
+        // CHECK:       [[SCALED:%.+]] = IE.Multiply([[SCALES]], [[SCALES]])
+        // CHECK-SAME:    : tensor<2xf16>, tensor<2xf16> -> tensor<2xf16>
+        // CHECK:       return [[INTERP]], [[SCALED]]
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @InterpolateInCalleePreservesScales
+// The f32 scales network input is forwarded through a func.call into a callee
+// (@foo) that holds the SAP Interpolate. The whole forwarding chain is kept at
+// f32: the @main argument, the call operand, the @foo argument, and the
+// Interpolate scales operand. This mirrors the post-outliner layout where the
+// body is outlined out of the entry function.
+module @InterpolateInCalleePreservesScales {
+    net.NetworkInfo
+        entryPoint : @main
+        inputsInfo : {
+            DataInfo "data" : tensor<1x3x4x6xf32>
+            DataInfo "scales" : tensor<2xf32>
+        }
+        outputsInfo : {
+            DataInfo "output" : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        }
+
+    // CHECK:       func.func @foo(
+    // CHECK-SAME:      [[FOO_DATA:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[FOO_SCALES:%[^:]+]]: tensor<2xf32>
+    // CHECK-SAME:    ) -> tensor<1x3x?x?xf16
+    func.func @foo(%data: tensor<1x3x4x6xf32>, %scales: tensor<2xf32>)
+            -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}> {
+        %interp = IE.Interpolate(%data, %scales) {
+            attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>,
+                                   nearest_mode = <FLOOR>, antialias = false,
+                                   pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0],
+                                   cube_coeff = -7.500000e-01 : f64>,
+            axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 1, 0>, sizes_attr = []}
+            : tensor<1x3x4x6xf32>, tensor<2xf32>
+                -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        return %interp : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+
+        // Scales stays f32 inside the callee; no Convert is inserted for it.
+        // CHECK-NOT:   IE.Convert({{.*}}) {dstElemType = f16} : tensor<2xf32>
+        // CHECK:       [[INTERP:%.+]] = IE.Interpolate([[FOO_DATA]], [[FOO_SCALES]])
+        // CHECK-SAME:    : tensor<1x3x4x6xf16>, tensor<2xf32>
+        // CHECK-SAME:        -> tensor<1x3x?x?xf16
+        // CHECK:       return [[INTERP]]
+    }
+
+    // CHECK:       func.func @main(
+    // CHECK-SAME:      [[DATA:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[SCALES:%[^:]+]]: tensor<2xf32>
+    // CHECK-SAME:    ) -> tensor<1x3x?x?xf16
+    func.func @main(%data: tensor<1x3x4x6xf32>, %scales: tensor<2xf32>)
+            -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}> {
+        %result = func.call @foo(%data, %scales)
+            : (tensor<1x3x4x6xf32>, tensor<2xf32>)
+                -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        return %result : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+
+        // Call site forwards the f32 scales unchanged, matching the @foo signature.
+        // CHECK-NOT:   IE.Convert({{.*}}) {dstElemType = f16} : tensor<2xf32>
+        // CHECK:       [[RES:%.+]] = call @foo([[DATA]], [[SCALES]])
+        // CHECK-SAME:    : (tensor<1x3x4x6xf16>, tensor<2xf32>)
+        // CHECK-SAME:        -> tensor<1x3x?x?xf16
+        // CHECK:       return [[RES]]
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @CalleeScalesAlsoUsedByMultiplyNotPreserved
+// The forwarded scales feeds a SAP Interpolate AND a Multiply inside the callee.
+// The non-Interpolate consumer breaks the forward cone, so the whole chain is
+// converted to f16 (no f32 preservation) and stays type-consistent.
+module @CalleeScalesAlsoUsedByMultiplyNotPreserved {
+    net.NetworkInfo
+        entryPoint : @main
+        inputsInfo : {
+            DataInfo "data" : tensor<1x3x4x6xf32>
+            DataInfo "scales" : tensor<2xf32>
+        }
+        outputsInfo : {
+            DataInfo "interp" : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+            DataInfo "scaled" : tensor<2xf32>
+        }
+
+    // CHECK:       func.func @foo(
+    // CHECK-SAME:      [[FOO_DATA:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[FOO_SCALES:%[^:]+]]: tensor<2xf16>
+    func.func @foo(%data: tensor<1x3x4x6xf32>, %scales: tensor<2xf32>)
+            -> (tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>,
+                tensor<2xf32>) {
+        %interp = IE.Interpolate(%data, %scales) {
+            attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>,
+                                   nearest_mode = <FLOOR>, antialias = false,
+                                   pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0],
+                                   cube_coeff = -7.500000e-01 : f64>,
+            axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 1, 0>, sizes_attr = []}
+            : tensor<1x3x4x6xf32>, tensor<2xf32>
+                -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        %scaled = IE.Multiply(%scales, %scales) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+            : tensor<2xf32>, tensor<2xf32> -> tensor<2xf32>
+        return %interp, %scaled
+            : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>,
+              tensor<2xf32>
+
+        // Multiply user blocks preservation: scales is narrowed to f16.
+        // CHECK:       [[INTERP:%.+]] = IE.Interpolate([[FOO_DATA]], [[FOO_SCALES]])
+        // CHECK-SAME:    : tensor<1x3x4x6xf16>, tensor<2xf16>
+        // CHECK:       [[SCALED:%.+]] = IE.Multiply([[FOO_SCALES]], [[FOO_SCALES]])
+        // CHECK-SAME:    : tensor<2xf16>, tensor<2xf16> -> tensor<2xf16>
+        // CHECK:       return [[INTERP]], [[SCALED]]
+    }
+
+    // CHECK:       func.func @main(
+    // CHECK-SAME:      [[DATA:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[SCALES:%[^:]+]]: tensor<2xf16>
+    func.func @main(%data: tensor<1x3x4x6xf32>, %scales: tensor<2xf32>)
+            -> (tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>,
+                tensor<2xf32>) {
+        %interp, %scaled = func.call @foo(%data, %scales)
+            : (tensor<1x3x4x6xf32>, tensor<2xf32>)
+                -> (tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>,
+                    tensor<2xf32>)
+        return %interp, %scaled
+            : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>,
+              tensor<2xf32>
+
+        // Call site is consistent: scales forwarded as f16.
+        // CHECK:       call @foo([[DATA]], [[SCALES]])
+        // CHECK-SAME:    : (tensor<1x3x4x6xf16>, tensor<2xf16>)
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @ScalesSharedAcrossCallsNotPreserved
+// Same idea as @ScalesSharedWithMultiplyNotPreserved, but the blocking
+// non-Interpolate consumer lives behind a func.call.
+// Preserving the Interpolate branch here would require materializing a separate
+// f32 copy of the scales for the Interpolate-only call. TODO: E#221311
+module @ScalesSharedAcrossCallsNotPreserved {
+    net.NetworkInfo
+        entryPoint : @main
+        inputsInfo : {
+            DataInfo "data" : tensor<1x3x4x6xf32>
+            DataInfo "scales" : tensor<2xf32>
+        }
+        outputsInfo : {
+            DataInfo "interp" : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+            DataInfo "scaled" : tensor<2xf32>
+        }
+
+    // CHECK:       func.func @consumeScales(
+    // CHECK-SAME:      [[CS_SCALES:%[^:]+]]: tensor<2xf16>
+    func.func @consumeScales(%scales: tensor<2xf32>) -> tensor<2xf32> {
+        %scaled = IE.Multiply(%scales, %scales) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+            : tensor<2xf32>, tensor<2xf32> -> tensor<2xf32>
+        return %scaled : tensor<2xf32>
+
+        // CHECK:       [[SCALED:%.+]] = IE.Multiply([[CS_SCALES]], [[CS_SCALES]])
+        // CHECK-SAME:    : tensor<2xf16>, tensor<2xf16> -> tensor<2xf16>
+        // CHECK:       return [[SCALED]]
+    }
+
+    // CHECK:       func.func @interpScales(
+    // CHECK-SAME:      [[IS_DATA:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[IS_SCALES:%[^:]+]]: tensor<2xf16>
+    func.func @interpScales(%data: tensor<1x3x4x6xf32>, %scales: tensor<2xf32>)
+            -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}> {
+        %interp = IE.Interpolate(%data, %scales) {
+            attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>,
+                                   nearest_mode = <FLOOR>, antialias = false,
+                                   pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0],
+                                   cube_coeff = -7.500000e-01 : f64>,
+            axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 1, 0>, sizes_attr = []}
+            : tensor<1x3x4x6xf32>, tensor<2xf32>
+                -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        return %interp : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+
+        // The shared scales is not preserved, so the Interpolate scales is f16 here too.
+        // CHECK:       [[INTERP:%.+]] = IE.Interpolate([[IS_DATA]], [[IS_SCALES]])
+        // CHECK-SAME:    : tensor<1x3x4x6xf16>, tensor<2xf16>
+        // CHECK:       return [[INTERP]]
+    }
+
+    // CHECK:       func.func @main(
+    // CHECK-SAME:      [[DATA:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[SCALES:%[^:]+]]: tensor<2xf16>
+    func.func @main(%data: tensor<1x3x4x6xf32>, %scales: tensor<2xf32>)
+            -> (tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>,
+                tensor<2xf32>) {
+        %scaled = func.call @consumeScales(%scales) : (tensor<2xf32>) -> tensor<2xf32>
+        %interp = func.call @interpScales(%data, %scales)
+            : (tensor<1x3x4x6xf32>, tensor<2xf32>)
+                -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        return %interp, %scaled
+            : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>,
+              tensor<2xf32>
+
+        // Both call sites forward the scales as f16; no f32 is preserved.
+        // CHECK:       [[SCALED:%.+]] = call @consumeScales([[SCALES]]) : (tensor<2xf16>) -> tensor<2xf16>
+        // CHECK:       [[INTERP:%.+]] = call @interpScales([[DATA]], [[SCALES]])
+        // CHECK-SAME:    : (tensor<1x3x4x6xf16>, tensor<2xf16>)
+        // CHECK:       return [[INTERP]], [[SCALED]]
+    }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @ScalesSharedAcrossCallsNotPreserved_ReverseCallOrder
+// Same as @ScalesSharedAcrossCallsNotPreserved, but the SAP-Interpolate call
+// precedes the blocking consumer call.
+module @ScalesSharedAcrossCallsNotPreserved_ReverseCallOrder {
+    net.NetworkInfo
+        entryPoint : @main
+        inputsInfo : {
+            DataInfo "data" : tensor<1x3x4x6xf32>
+            DataInfo "scales" : tensor<2xf32>
+        }
+        outputsInfo : {
+            DataInfo "interp" : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+            DataInfo "scaled" : tensor<2xf32>
+        }
+
+    // CHECK:       func.func @consumeScales(
+    // CHECK-SAME:      [[CS_SCALES:%[^:]+]]: tensor<2xf16>
+    func.func @consumeScales(%scales: tensor<2xf32>) -> tensor<2xf32> {
+        %scaled = IE.Multiply(%scales, %scales) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+            : tensor<2xf32>, tensor<2xf32> -> tensor<2xf32>
+        return %scaled : tensor<2xf32>
+
+        // CHECK:       [[SCALED:%.+]] = IE.Multiply([[CS_SCALES]], [[CS_SCALES]])
+        // CHECK-SAME:    : tensor<2xf16>, tensor<2xf16> -> tensor<2xf16>
+        // CHECK:       return [[SCALED]]
+    }
+
+    // CHECK:       func.func @interpScales(
+    // CHECK-SAME:      [[IS_DATA:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[IS_SCALES:%[^:]+]]: tensor<2xf16>
+    func.func @interpScales(%data: tensor<1x3x4x6xf32>, %scales: tensor<2xf32>)
+            -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}> {
+        %interp = IE.Interpolate(%data, %scales) {
+            attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SCALES>, coord_mode = <HALF_PIXEL>,
+                                   nearest_mode = <FLOOR>, antialias = false,
+                                   pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0],
+                                   cube_coeff = -7.500000e-01 : f64>,
+            axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 1, 0>, sizes_attr = []}
+            : tensor<1x3x4x6xf32>, tensor<2xf32>
+                -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        return %interp : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+
+        // The shared scales is not preserved, so the Interpolate scales is f16 here too.
+        // CHECK:       [[INTERP:%.+]] = IE.Interpolate([[IS_DATA]], [[IS_SCALES]])
+        // CHECK-SAME:    : tensor<1x3x4x6xf16>, tensor<2xf16>
+        // CHECK:       return [[INTERP]]
+    }
+
+    // CHECK:       func.func @main(
+    // CHECK-SAME:      [[DATA:%[^:]+]]: tensor<1x3x4x6xf16>,
+    // CHECK-SAME:      [[SCALES:%[^:]+]]: tensor<2xf16>
+    func.func @main(%data: tensor<1x3x4x6xf32>, %scales: tensor<2xf32>)
+            -> (tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>,
+                tensor<2xf32>) {
+        %interp = func.call @interpScales(%data, %scales)
+            : (tensor<1x3x4x6xf32>, tensor<2xf32>)
+                -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>
+        %scaled = func.call @consumeScales(%scales) : (tensor<2xf32>) -> tensor<2xf32>
+        return %interp, %scaled
+            : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 32, 48]> : tensor<4xsi64>, order = #NCHW}>,
+              tensor<2xf32>
+
+        // Both call sites forward the scales as f16; no f32 is preserved.
+        // CHECK:       [[INTERP:%.+]] = call @interpScales([[DATA]], [[SCALES]])
+        // CHECK-SAME:    : (tensor<1x3x4x6xf16>, tensor<2xf16>)
+        // CHECK:       [[SCALED:%.+]] = call @consumeScales([[SCALES]]) : (tensor<2xf16>) -> tensor<2xf16>
+        // CHECK:       return [[INTERP]], [[SCALED]]
     }
 }

@@ -5,8 +5,11 @@
 
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 using namespace vpux;
@@ -46,6 +49,25 @@ vpux::VPU::DistributionInfo vpux::VPU::MultiplyOp::getExplicitDistributionInfoAt
     return VPU::getSWExplicitDistributionInfo(mlir::cast<VPU::SWOpInterface>(getOperation()), shape, distributionMode,
                                               numTiles, numClusters, alignment, uniformDistributedSegments,
                                               overlapParams);
+}
+
+bool vpux::VPU::MultiplyOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& outputTile) {
+    const auto arch = config::getArch(getOperation());
+    // TODO: Remove check when issue is fixed
+    if (arch == config::ArchKind::NPU40XX) {
+        return VPU::isOperationSplitOverHeightCompatible(getOperation(), outputTile);
+    }
+    return VPU::isEltwiseSWOpSplitOverHeightCompatible(getOperation(), outputTile.shape);
+}
+
+bool vpux::VPU::MultiplyOp::isOperationSplitOverWidthCompatible(ShapeRef outputShape, ShapeRef /*offset*/,
+                                                                ShapeRef /*axis*/) {
+    return VPU::isEltwiseSWOpSplitOverWidthCompatible(getOperation(), outputShape);
+}
+
+bool vpux::VPU::MultiplyOp::isOperationSplitOverKernelCompatible(ShapeRef outputShape, ShapeRef /*offset*/,
+                                                                 ShapeRef /*axis*/) {
+    return VPU::isEltwiseSWOpSplitOverKernelCompatible(getOperation(), outputShape);
 }
 
 //

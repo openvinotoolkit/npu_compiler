@@ -74,6 +74,7 @@ func.func nested @ConvWithSprLUTKernel1x1(%input: !DataType, %weights: !WeightsT
 // CHECK:     DPUTask
 // CHECK-DAG: inEnd = [0, 0, 15]
 // CHECK-DAG: inStart = [0, 0, 0]
+// CHECK-DAG: is_dummy
 // CHECK-DAG: outEnd = [0, 0, 15]
 // CHECK-DAG: outStart = [0, 0, 0]
 // CHECK:     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
@@ -117,6 +118,7 @@ func.func nested @ConvWithSprLUTKernel3x3(%input: !DataType, %weights: !WeightsT
 // CHECK:     DPUTask
 // CHECK-DAG: inEnd = [2, 2, 15]
 // CHECK-DAG: inStart = [0, 0, 0]
+// CHECK-DAG: is_dummy
 // CHECK-DAG: outEnd = [0, 0, 15]
 // CHECK-DAG: outStart = [0, 0, 0]
 // CHECK:     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
@@ -159,6 +161,7 @@ func.func nested @ConvWithSprLUTKernel3x3Padding1x1x1x1(%input: !DataType, %weig
 // CHECK:     DPUTask
 // CHECK-DAG: inEnd = [1, 1, 15]
 // CHECK-DAG: inStart = [0, 0, 0]
+// CHECK-DAG: is_dummy
 // CHECK-DAG: outEnd = [0, 0, 15]
 // CHECK-DAG: outStart = [0, 0, 0]
 // CHECK:     pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>
@@ -202,6 +205,7 @@ func.func nested @ConvWithSprLUTKernel1x1Autopad(%input: !DataType, %weights: !W
 // CHECK:     DPUTask
 // CHECK-DAG: inEnd = [0, 0, 3]
 // CHECK-DAG: inStart = [0, 0, 0]
+// CHECK-DAG: is_dummy
 // CHECK-DAG: outEnd = [0, 0, 2]
 // CHECK-DAG: outStart = [0, 0, 0]
 // CHECK:     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
@@ -303,6 +307,7 @@ func.func nested @ConvWithODUAutopadAndHalo(
     // CHECK-NOT:   haloRegions
     // CHECK-SAME:  inEnd = [0, 0, 63],
     // CHECK-SAME:  inStart = [0, 0, 0],
+    // CHECK-SAME:  is_dummy,
     // CHECK-SAME:  mpe_mode = #VPU.mpe_mode<CUBOID_8x16>,
     // CHECK-SAME:  outEnd = [0, 0, 0],
     // CHECK-SAME:  outStart = [0, 0, 0],
@@ -339,6 +344,7 @@ func.func nested @EltwiseAddWithSprLUT(%input1: !DataType, %input2: !DataType, %
 // CHECK:     DPUTask
 // CHECK-DAG: inEnd = [0, 0, 31]
 // CHECK-DAG: inStart = [0, 0, 0]
+// CHECK-DAG: is_dummy
 // CHECK-DAG: outEnd = [0, 0, 31]
 // CHECK-DAG: outStart = [0, 0, 0]
 // CHECK:     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
@@ -380,6 +386,7 @@ func.func nested @MaxPoolWithSprLUT(%input1: !DataType, %weight_table: !WeightTa
 // CHECK:     DPUTask
 // CHECK-DAG: inEnd = [1, 1, 15]
 // CHECK-DAG: inStart = [0, 0, 0]
+// CHECK-DAG: is_dummy
 // CHECK-DAG: outEnd = [0, 0, 15]
 // CHECK-DAG: outStart = [0, 0, 0]
 // CHECK:     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
@@ -423,6 +430,7 @@ func.func nested @ConvWithSprLUTAndProfiling(%input: !DataType, %weights: !Weigh
 // CHECK:     DPUTask
 // CHECK-DAG: inEnd = [0, 0, 15]
 // CHECK-DAG: inStart = [0, 0, 0]
+// CHECK-DAG: is_dummy
 // CHECK-DAG: outEnd = [0, 0, 15]
 // CHECK-DAG: outStart = [0, 0, 0]
 // CHECK:     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>

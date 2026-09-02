@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2025 Intel Corporation
+// Copyright (C) 2022-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -35,8 +35,6 @@ class NCEMixedPrecisionTest_NPU3720 : public VpuOv2LayerTest, public testing::Wi
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         inputs.clear();
         const auto& funcInputs = function->inputs();
-
-        auto data_size = shape_size(targetInputStaticShapes[0]);
         ov::Tensor tensorData =
                 create_and_fill_tensor(funcInputs[0].get_element_type(), targetInputStaticShapes[0], 50, 0, 1, 1);
         inputs.insert({funcInputs[0].get_node_shared_ptr(), tensorData});

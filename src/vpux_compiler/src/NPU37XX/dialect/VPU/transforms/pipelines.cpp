@@ -38,6 +38,9 @@ void vpux::VPU::arch37xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
 
     pm.addPass(VPU::createMakeDistributedCopiesPass(log));
     pm.addPass(VPU::createAdjustDistributedTensorAroundOpsPass(log));
+
+    // restore dynamic tensor representation after MC tiling
+    pm.addPass(VPU::createDynamicDimsMaskToBoundedTensorsPass(log));
 }
 
 //
@@ -106,6 +109,11 @@ void vpux::VPU::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::createDetectInPlaceEltwisePass(log));
 
     pm.addPass(VPU::createCostModelAnalysisConstructPass(log));
+
+    if (options.enableShaveCodeGen) {
+        ShaveCodeGen::buildShaveCodeGenPipelineVPU(pm, log, options.enableShaveCodeGenTiling);
+    }
+
     if (options.enableSMPipeline) {
         VPU::buildSMPipeline(pm, vpux::MCAndTilingOptionsBase(options), log);
     } else {
@@ -124,9 +132,7 @@ void vpux::VPU::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::createSplitNCEOpsOntoWorkloadsPass(log));
     pm.addPass(VPU::createCorrectNCEWorkloadsPass(log));
     pm.addPass(VPU::createResolveEltwiseWithZTiledWorkloadsPass(log));
-    if (options.enableShaveCodeGen) {
-        ShaveCodeGen::buildShaveCodeGenPipelineVPU(pm);
-    }
+
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(createAdjustDynamicOpsBeforeBufferizationPass());
     pm.addPass(VPU::createLegalizeDynamicShapeConcatForSWLayersPass(log));
@@ -146,6 +152,10 @@ void vpux::VPU::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::createSplitGRUSequencePass(log));
     pm.addPass(VPU::createDecomposeMVNPass(log));
 
+    if (options.enableShaveCodeGen) {
+        ShaveCodeGen::buildShaveCodeGenPipelineVPU(pm, log, options.enableShaveCodeGenTiling);
+    }
+
     pm.addPass(VPU::createTilingStrategyAssignmentPass(
             /*enablePrefetchTiling=*/false, /*enableVPUNNCostForTiling*/ false,
             /*enableShaveDDRAccessOptimization*/ "true", /*enableDynAlignment=*/false,
@@ -154,10 +164,6 @@ void vpux::VPU::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::createApplyTilingPass(/*enableSCFTiling=*/false, /*enableDynAlignment=*/false, log));
     pm.addPass(VPU::createComputeInterpolateCoordinatesPass(/*enableExplicitDistributionInfoAttr*/ false, log));
 
-    pm.addPass(VPU::createBoundedTensorsToDynamicDimsMaskPass(log));
-    if (options.enableShaveCodeGen) {
-        ShaveCodeGen::buildShaveCodeGenPipelineVPU(pm);
-    }
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(createAdjustDynamicOpsBeforeBufferizationPass());
     pm.addPass(VPU::createLegalizeDynamicShapeConcatForSWLayersPass(log));

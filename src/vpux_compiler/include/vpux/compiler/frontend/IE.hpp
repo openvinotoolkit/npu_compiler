@@ -26,6 +26,7 @@
 #include <openvino/opsets/opset14.hpp>
 #include <openvino/opsets/opset15.hpp>
 #include <openvino/opsets/opset16.hpp>
+#include <openvino/opsets/opset17.hpp>
 #include <openvino/opsets/opset2.hpp>
 #include <openvino/opsets/opset3.hpp>
 #include <openvino/opsets/opset4.hpp>
@@ -35,9 +36,12 @@
 #include <openvino/opsets/opset8.hpp>
 #include <openvino/opsets/opset9.hpp>
 
+#include <ov_ops/dynamic_quantize.hpp>
 #include <ov_ops/nms_ie_internal.hpp>
 #include <ov_ops/rms.hpp>
 #include <ov_ops/rotary_positional_embeddings.hpp>
+
+#include <openvino/op/gated_delta_net.hpp>
 
 #include <intel_npu/ops/flash_attention_tile.hpp>
 
@@ -208,6 +212,7 @@ private:
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset4::Mish>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::Erf>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::Broadcast>& origNode);
+    mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset17::ErfInv>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset3::Broadcast>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset3::Bucketize>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::Transpose>& origNode);
@@ -309,8 +314,12 @@ private:
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::ShapeOf>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset4::Range>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset3::NonZero>& origNode);
+    mlir::Operation* parseNode(mlir::OpBuilder& builder,
+                               const std::shared_ptr<ov::op::internal::DynamicQuantize>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::op::internal::RMS>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::op::internal::RoPE>& origNode);
+    mlir::Operation* parseNode(mlir::OpBuilder& builder,
+                               const std::shared_ptr<ov::op::internal::GatedDeltaNet>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset14::Inverse>& origNode);
     mlir::Operation* parseNode(mlir::OpBuilder& builder,
                                const std::shared_ptr<ov::opset8::DeformableConvolution>& origNode);

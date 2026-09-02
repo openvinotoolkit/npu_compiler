@@ -9,6 +9,8 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -68,12 +70,56 @@ IE::FakeQuantizeOp createNewFqOp(mlir::OpBuilder& builder, IE::FakeQuantizeOp in
     return mlir::cast<IE::FakeQuantizeOp>(newInputFqOp);
 }
 
+// Re-encodes the fused weights as raw unsigned storage plus explicit
+// per-output-channel scale/zero-point.
+IE::DynamicDequantizeOp createNewDynDeqOp(mlir::OpBuilder& builder, IE::DynamicDequantizeOp origDynDeqOp,
+                                          Const::DeclareOp origWeightsConst, mlir::Location opLoc,
+                                          ArrayRef<float> rawWeightsData, ArrayRef<float> outLow,
+                                          ArrayRef<float> outHigh, int64_t levels) {
+    const auto origWeightsF32Type = mlir::cast<mlir::RankedTensorType>(origWeightsConst.getOutput().getType());
+    const auto newStorageType = mlir::IntegerType::get(
+            builder.getContext(), mlir::cast<mlir::IntegerType>(origWeightsF32Type.getElementType()).getWidth(),
+            mlir::IntegerType::Unsigned);
+
+    SmallVector<llvm::APInt> rawWeightsInts;
+    rawWeightsInts.reserve(rawWeightsData.size());
+    for (const auto val : rawWeightsData) {
+        rawWeightsInts.push_back(llvm::APInt(newStorageType.getWidth(), static_cast<uint64_t>(val)));
+    }
+    const auto rawWeightsType = mlir::RankedTensorType::get(origWeightsF32Type.getShape(), newStorageType);
+    auto newRawWeightsConst =
+            Const::createConst<llvm::APInt>(builder, origWeightsConst->getLoc(), rawWeightsType, rawWeightsInts);
+
+    const auto OC = outLow.size();
+    SmallVector<float> newScaleData(OC);
+    SmallVector<llvm::APInt> newZpInts;
+    newZpInts.reserve(OC);
+    for (size_t oc = 0; oc < OC; ++oc) {
+        const auto scale = calculateScale(outLow[oc], outHigh[oc], levels);
+        newScaleData[oc] = static_cast<float>(scale);
+        const auto zp = calculateZeroPoint(outLow[oc], outHigh[oc], levels, newStorageType);
+        newZpInts.push_back(llvm::APInt(newStorageType.getWidth(), static_cast<uint64_t>(zp)));
+    }
+    SmallVector<int64_t> perChannelShape{checked_cast<int64_t>(OC), 1, 1, 1};
+    const auto scaleType = mlir::RankedTensorType::get(perChannelShape, mlir::Float32Type::get(builder.getContext()));
+    auto newScaleConst = Const::createFloatConst(builder, origDynDeqOp.getScale().getLoc(), scaleType, newScaleData);
+    const auto zpType = mlir::RankedTensorType::get(perChannelShape, newStorageType);
+    auto newZpConst =
+            Const::createConst<llvm::APInt>(builder, appendLoc(origDynDeqOp.getLoc(), "new_zp"), zpType, newZpInts);
+
+    auto newDynDeqOp = builder.create<IE::DynamicDequantizeOp>(opLoc, newRawWeightsConst, newScaleConst, newZpConst,
+                                                               origDynDeqOp.getDstElemType());
+    newDynDeqOp->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR, mlir::UnitAttr::get(builder.getContext()));
+
+    return newDynDeqOp;
+}
+
 // Looking for:
 //       [input]        [Weights]
 //          |              |
 //      (Multiply)?        |
 //          |              |
-//        (Add)          (FQ2)
+//        (Add)          (DynDeq)
 //          |              |
 //        (FQ1)            |
 //          |              |
@@ -83,7 +129,7 @@ IE::FakeQuantizeOp createNewFqOp(mlir::OpBuilder& builder, IE::FakeQuantizeOp in
 //          |
 //       [output]
 //
-// Disclamer: following is a rough description of the idea behind this transformation
+// Disclaimer: following is a rough description of the idea behind this transformation.
 // ConvInput =  [In] * scales + shifts
 // ConvOutput = [ConvInput] * weights + biases
 // =>
@@ -95,7 +141,7 @@ IE::FakeQuantizeOp createNewFqOp(mlir::OpBuilder& builder, IE::FakeQuantizeOp in
 // So the result is:
 //       [input]      [new Weights]
 //          |              |
-//       (new FQ1)      (new FQ2)
+//       (new FQ1)      (new DynDeq)
 //          |              |
 //        (conv) --------- |
 //          |
@@ -107,7 +153,7 @@ struct InputScaleShiftPattern {
     std::optional<IE::MultiplyOp> scaleOp;
     IE::AddOp shiftOp;
     IE::FakeQuantizeOp inputFqOp;
-    SmallVector<IE::FakeQuantizeOp> weightsFqOps;
+    SmallVector<IE::DynamicDequantizeOp> weightsDynDeqOps;
     SmallVector<IE::ConvolutionOp> convOps;
     SmallVector<IE::AddOp> addOps;
 
@@ -169,13 +215,13 @@ std::optional<InputScaleShiftPattern> InputScaleShiftPattern::init(mlir::BlockAr
         }
         pattern.addOps.push_back(nextAddOp);
 
-        auto maybeWeightsFqOp = nextConvOp.getFilter().getDefiningOp<IE::FakeQuantizeOp>();
-        if (maybeWeightsFqOp == nullptr) {
+        auto maybeWeightsDynDeqOp = nextConvOp.getFilter().getDefiningOp<IE::DynamicDequantizeOp>();
+        if (maybeWeightsDynDeqOp == nullptr || !maybeWeightsDynDeqOp->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
             return std::nullopt;
         }
 
-        pattern.weightsFqOps.push_back(maybeWeightsFqOp);
-        auto weightsConst = maybeWeightsFqOp.getInput().getDefiningOp<Const::DeclareOp>();
+        pattern.weightsDynDeqOps.push_back(maybeWeightsDynDeqOp);
+        auto weightsConst = maybeWeightsDynDeqOp.getInput().getDefiningOp<Const::DeclareOp>();
         if (weightsConst == nullptr) {
             return std::nullopt;
         }
@@ -221,9 +267,9 @@ void rewritePattern(const InputScaleShiftPattern& pattern) {
     for (size_t idx = 0; idx < pattern.convOps.size(); ++idx) {
         auto convOp = pattern.convOps[idx];
         auto addOp = pattern.addOps[idx];
-        auto weightsFqOp = pattern.weightsFqOps[idx];
+        auto weightsDynDeqOp = pattern.weightsDynDeqOps[idx];
 
-        auto weightsConst = weightsFqOp.getInput().getDefiningOp<Const::DeclareOp>();
+        auto weightsConst = weightsDynDeqOp.getInput().getDefiningOp<Const::DeclareOp>();
         const auto weightsType = mlir::cast<NDTypeInterface>(weightsConst.getOutput().getType());
         const auto weightsShape = weightsType.getShape();
 
@@ -271,30 +317,42 @@ void rewritePattern(const InputScaleShiftPattern& pattern) {
             return;
         }
 
-        auto weightsInLowConst = weightsFqOp.getInputLow().getDefiningOp<Const::DeclareOp>();
-        auto weightsInLowData = IE::getConst(weightsInLowConst);
-        auto weightsInHighConst = weightsFqOp.getInputHigh().getDefiningOp<Const::DeclareOp>();
-        auto weightsInHighData = IE::getConst(weightsInHighConst);
-        auto weightsOutLowConst = weightsFqOp.getOutputLow().getDefiningOp<Const::DeclareOp>();
-        auto weightsOutLowData = IE::getConst(weightsOutLowConst);
-        auto weightsOutHighConst = weightsFqOp.getOutputHigh().getDefiningOp<Const::DeclareOp>();
-        auto weightsOutHighData = IE::getConst(weightsOutHighConst);
-        const auto validateSize = [&](SmallVector<float>& data) -> mlir::LogicalResult {
-            if (data.size() == OC) {
-                return mlir::success();
+        SmallVector<float> weightsScaleData;
+        SmallVector<float> weightsZpData{0.0f};
+        int64_t weightsFQLevels = 0;
+
+        // Read the weights' native quantization parameters (scale/zero-point) directly from the
+        // DynamicDequantize op.
+        {
+            const auto storageElemType =
+                    mlir::cast<NDTypeInterface>(weightsConst.getOutput().getType()).getElementType();
+            auto intStorageType = mlir::dyn_cast<mlir::IntegerType>(storageElemType);
+            if (intStorageType == nullptr) {
+                return;
+            }
+            weightsFQLevels = IE::getQuantizationLevels(intStorageType);
+
+            auto scaleConst = weightsDynDeqOp.getScale().getDefiningOp<Const::DeclareOp>();
+            if (scaleConst == nullptr) {
+                return;
+            }
+            weightsScaleData = IE::getConst(scaleConst);
+
+            if (weightsDynDeqOp.getZp() != nullptr) {
+                auto zpConst = weightsDynDeqOp.getZp().getDefiningOp<Const::DeclareOp>();
+                if (zpConst == nullptr) {
+                    return;
+                }
+                weightsZpData = IE::getConst(zpConst);
             }
 
-            if (data.size() == 1) {
-                return mlir::success();
+            // Only splat or strictly per-output-channel scale/zp are supported here; any other
+            // quantized-axis layout (e.g. per-[H,W] or per-group) must not be silently mis-indexed below.
+            const bool scaleSizeOk = weightsScaleData.size() == 1 || weightsScaleData.size() == OC;
+            const bool zpSizeOk = weightsZpData.size() == 1 || weightsZpData.size() == OC;
+            if (!scaleSizeOk || !zpSizeOk) {
+                return;
             }
-
-            return mlir::failure();
-        };
-
-        // constant should be either splat or per-(output)channel
-        if (mlir::failed(validateSize(weightsInLowData)) || mlir::failed(validateSize(weightsInHighData)) ||
-            mlir::failed(validateSize(weightsOutLowData)) || mlir::failed(validateSize(weightsOutHighData))) {
-            return;
         }
 
         // try to fuse main part in input FQ to keep accuracy in padding (ZP works like pad value here)
@@ -314,14 +372,11 @@ void rewritePattern(const InputScaleShiftPattern& pattern) {
         inputMax = std::max(inputMax, 0.);
 
         const auto maybeInputFQLevels = inputFqOp.getLevels();
-        const auto maybeWeightsFQLevels = weightsFqOp.getLevels();
-
-        if (!maybeInputFQLevels.has_value() || !maybeWeightsFQLevels.has_value()) {
+        if (!maybeInputFQLevels.has_value()) {
             return;
         }
 
         const auto inputFQLevels = maybeInputFQLevels.value();
-        const auto weightsFQLevels = maybeWeightsFQLevels.value();
 
         auto inputZP = checked_cast<double>(calculateZeroPoint(
                 inputMin, inputMax, inputFQLevels, mlir::IntegerType::get(ctx, 8, mlir::IntegerType::Unsigned)));
@@ -356,13 +411,9 @@ void rewritePattern(const InputScaleShiftPattern& pattern) {
 
         // TODO: #-151978 these computations should be replaced with constant folding transformations
         for (size_t oc = 0; oc < OC; ++oc) {
-            double weightsFqInLow = weightsInLowData[std::min(weightsInLowData.size() - 1, oc)];
-            double weightsFqInHigh = weightsInHighData[std::min(weightsInHighData.size() - 1, oc)];
-            double weightsFqOutLow = weightsOutLowData[std::min(weightsOutLowData.size() - 1, oc)];
-            double weightsFqOutHigh = weightsOutHighData[std::min(weightsOutHighData.size() - 1, oc)];
+            double weightsScale = weightsScaleData[std::min(weightsScaleData.size() - 1, oc)];
+            double weightsZp = weightsZpData[std::min(weightsZpData.size() - 1, oc)];
 
-            double weightsFqInRange = weightsFqInHigh - weightsFqInLow;
-            double weightsFqOutRange = weightsFqOutHigh - weightsFqOutLow;
             double scaleshiftBiasAcc = 0;
             double weightsMin = -0.000061035156;  // fp16 closest to zero values
             double weightsMax = 0.000061035156;   // used to avoid inf scales in future calculations
@@ -372,9 +423,8 @@ void rewritePattern(const InputScaleShiftPattern& pattern) {
                     for (size_t w = 0; w < W; ++w) {
                         const size_t idx = oc * IHW + ic * HW + h * W + w;
                         double storedWeight = weightsData[idx];
-                        // dequantize weights using FQ formula
-                        double realWeight = (storedWeight - weightsFqInLow) * weightsFqOutRange / weightsFqInRange +
-                                            weightsFqOutLow;
+                        // dequantize weights directly via their native scale/zero-point
+                        double realWeight = (storedWeight - weightsZp) * weightsScale;
                         // update weights to scaleshift scale per-channel difference
                         double rescaledWeight = realWeight * scaleData[ic] / inputScale;
                         // update biases to scaleshift shift per-channel difference
@@ -409,9 +459,6 @@ void rewritePattern(const InputScaleShiftPattern& pattern) {
         // when scales are spalt or absent, so the flag has now been removed.
         // TODO: #151977 probably original implementation should be restored
 
-        float newWeightsFqInLow = 0;
-        float newWeightsFqInHigh = weightsFQLevels - 1.0F;
-
         auto avgZeroPoints = std::round(sumOfZeroPoints / OC);
         for (size_t oc = 0; oc < OC; oc++) {
             double ol = newWeightsFqOutLow[oc];
@@ -437,18 +484,11 @@ void rewritePattern(const InputScaleShiftPattern& pattern) {
             }
         }
 
-        const auto newWeightsConst = Const::createFloatConst(
-                builder, weightsConst->getLoc(), mlir::cast<mlir::RankedTensorType>(weightsConst.getOutput().getType()),
-                ArrayRef(weightsData));
+        auto newDynDeqOp = createNewDynDeqOp(builder, weightsDynDeqOp, weightsConst,
+                                             takeOpLoc(inputFqOp, "new_weights_ddq_{0}", idx), weightsData,
+                                             newWeightsFqOutLow, newWeightsFqOutHigh, weightsFQLevels);
 
-        auto newWeightsFqOp =
-                createNewFqOp(builder, weightsFqOp, newWeightsConst, /*inLow=*/ArrayRef(newWeightsFqInLow),
-                              /*inHigh=*/ArrayRef(newWeightsFqInHigh), /*outLow=*/ArrayRef(newWeightsFqOutLow),
-                              /*outHigh=*/ArrayRef(newWeightsFqOutHigh));
-
-        auto newWeightsFqLoc = takeOpLoc(inputFqOp, "new_weights_fq_{0}", idx);
-        newWeightsFqOp->setLoc(newWeightsFqLoc);
-        convOp->getOpOperand(1).set(newWeightsFqOp.getOutput());
+        convOp->getOpOperand(1).set(newDynDeqOp.getResult());
     }
 }
 

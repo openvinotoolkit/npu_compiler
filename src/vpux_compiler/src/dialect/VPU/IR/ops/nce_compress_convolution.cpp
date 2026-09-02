@@ -81,6 +81,18 @@ SmallVector<int64_t> vpux::VPU::NCECompressConvolutionOp::getConstRawFilterShape
 }
 
 //
+// ShapeInfoOpInterface
+//
+
+mlir::LogicalResult vpux::VPU::NCECompressConvolutionOp::verifyShapeInfo() {
+    if (mlir::failed(vpux::VPU::verifyInputIs4D(getInput()))) {
+        return mlir::failure();
+    }
+
+    return vpux::VPU::verifyInputIs4D(getFilter());
+}
+
+//
 // isDeprecated
 //
 

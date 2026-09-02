@@ -202,7 +202,8 @@ void vpux::VPUIP::NCEClusterTaskOp::build(
           kernel_strides, kernel_padding, is_continued, cm_sp_pattern, is_segmented, out_channel_offset,
           input_channels_compression, is_zero_offset_weights_table, is_superdense, is_inplace, input_se_size,
           output_se_size, isPermuteQuantize, isSmallKernelOptimized, sparsityConfig,
-          /*profilingMetadata=*/nullptr, mpeEngineAttr, dynamicScaleConfig, localRegion, s2dd2sConfig);
+          /*profilingMetadata=*/nullptr, mpeEngineAttr, dynamicScaleConfig, localRegion, s2dd2sConfig,
+          /*split_id=*/nullptr);
 
     // The auto-generated builders don't populate the regions even if SizedRegion<1> is specified.
     for (auto& region : state.regions) {
@@ -270,7 +271,8 @@ VPUIP::DPUTaskOp vpux::VPUIP::NCEClusterTaskOp::addDPUTask(mlir::OpBuilder& buil
 
     return builder.create<VPUIP::DPUTaskOp>(getLoc(), outStart, outEnd, inStart, inEnd, pad, mpeMode,
                                             /*cluster_id=*/nullptr,
-                                            /*halo_regions=*/nullptr, /*workload_id =*/nullptr, variant_primitive_id);
+                                            /*halo_regions=*/nullptr, /*workload_id=*/nullptr, variant_primitive_id,
+                                            /*is_dummy=*/false, /*weight_table_offset=*/nullptr);
 }
 
 //

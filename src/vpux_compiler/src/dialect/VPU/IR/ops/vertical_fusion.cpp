@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <mlir/Interfaces/ControlFlowInterfaces.h>
 #include "vpux/compiler/dialect/VPU/IR/ops/control_flow.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -13,8 +14,8 @@ using namespace vpux;
 // RegionBranchOpInterface
 //
 
-mlir::OperandRange vpux::VPU::VerticalFusionOp::getEntrySuccessorOperands(mlir::RegionBranchPoint point) {
-    mlir::Region* pRegion = point.getRegionOrNull();
+mlir::OperandRange vpux::VPU::VerticalFusionOp::getEntrySuccessorOperands(mlir::RegionSuccessor point) {
+    auto pRegion = point.getSuccessor();
     unsigned int index = (pRegion != nullptr) ? pRegion->getRegionNumber() : 0;
     VPUX_THROW_UNLESS(index == 0, "Invalid region index: {0}", index);
     return getOperands();
@@ -22,16 +23,23 @@ mlir::OperandRange vpux::VPU::VerticalFusionOp::getEntrySuccessorOperands(mlir::
 
 void vpux::VPU::VerticalFusionOp::getSuccessorRegions(mlir::RegionBranchPoint point,
                                                       SmallVectorImpl<mlir::RegionSuccessor>& regions) {
-    mlir::Region* pRegion = point.getRegionOrNull();
+    auto predecessor = point.getTerminatorPredecessorOrNull();
 
-    if (pRegion != nullptr) {
-        unsigned int index = pRegion->getRegionNumber();
+    if (predecessor != nullptr) {
+        unsigned int index = predecessor->getParentRegion()->getRegionNumber();
         VPUX_THROW_UNLESS(index == 0, "Invalid region index: {0}", index);
-        regions.push_back(mlir::RegionSuccessor(getResults()));
+        regions.push_back(mlir::RegionSuccessor::parent());
         return;
     }
 
-    regions.emplace_back(&getOps(), getOps().getArguments());
+    regions.emplace_back(&getOps());
+}
+
+mlir::ValueRange vpux::VPU::VerticalFusionOp::getSuccessorInputs(mlir::RegionSuccessor successor) {
+    if (successor.isParent()) {
+        return getResults();
+    }
+    return successor.getSuccessor()->getArguments();
 }
 
 bool vpux::VPU::VerticalFusionOp::areTypesCompatible(mlir::Type, mlir::Type) {

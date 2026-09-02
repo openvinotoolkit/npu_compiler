@@ -295,12 +295,12 @@ public:
             auto input = prepareInput(builder, baseParams);
             eraseLater(input);
 
-            return builder.create<IE::MaxPoolOp>(loc, input.value(), getIntArrayAttr(ctx, maxPoolParams->m_kernelSize),
-                                                 getIntArrayAttr(ctx, maxPoolParams->m_strides),
-                                                 getIntArrayAttr(ctx, maxPoolParams->m_padsBegin),
-                                                 getIntArrayAttr(ctx, maxPoolParams->m_padsEnd),
-                                                 vpux::IE::RoundingTypeAttr::get(ctx, maxPoolParams->m_roundingType),
-                                                 nullptr, nullptr, nullptr, nullptr, nullptr);
+            return builder.create<IE::MaxPoolOp>(
+                    loc, input.value(), nullptr, getIntArrayAttr(ctx, maxPoolParams->m_kernelSize),
+                    getIntArrayAttr(ctx, maxPoolParams->m_strides), getIntArrayAttr(ctx, maxPoolParams->m_padsBegin),
+                    getIntArrayAttr(ctx, maxPoolParams->m_padsEnd),
+                    vpux::IE::RoundingTypeAttr::get(ctx, maxPoolParams->m_roundingType), nullptr, nullptr, nullptr,
+                    nullptr, nullptr);
         }
         return nullptr;
     }

@@ -50,13 +50,13 @@ module {
                                  prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
                 tilingStrategy = [1, 1, 6, 3]}
             -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
-        %depthConv = VPU.NCE.DepthConvolution(%permuted, %dwWeights) rawFilterShape [32, 1, 1, 1] {
+        %depthConv = VPU.NCE.DepthConvolution(%permuted, %dwWeights) rawFilterShape [32, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
                                  clamp_high = 3.4028234663852886E+38 : f64, prelu_alpha = [1.000000e+00],
                                  adder = 0.000000e+00 : f64>,
-                
+
                 strides = [1, 1],
                 tilingStrategy = [1, 1, 6, 3]}
             -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
@@ -68,7 +68,7 @@ module {
                 ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
                                  clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64,
                                  prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
-                
+
                 strides = [2, 2],
                 tilingStrategy = [1, 1, 6, 3]}
             : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>,
@@ -82,7 +82,7 @@ module {
                 ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
                                  clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64,
                                  prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
-                
+
                 strides = [1, 1],
                 tilingStrategy = [1, 1, 8, 3]}
             : tensor<1x128x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 128, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>,
@@ -95,7 +95,7 @@ module {
                 tilingStrategy = [1, 1, 9, 2]}
             : tensor<1x128x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 128, 720, 1280]> : tensor<4xsi64>, order = #NHWC}>
                 -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
-        %eltwise0 = VPU.NCE.Eltwise(%depthToSpace, %depthConv) {
+        %eltwise0 = VPU.NCE.Eltwise(%depthToSpace, %depthConv) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 op_type = #VPU.eltwise_type<ADD>,
                 ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
@@ -103,7 +103,7 @@ module {
                                  prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
                 tilingStrategy = [1, 1, 11, 3]}
             -> tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
-        %eltwise1 = VPU.NCE.Eltwise(%eltwise0, %permuted) {
+        %eltwise1 = VPU.NCE.Eltwise(%eltwise0, %permuted) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                 op_type = #VPU.eltwise_type<ADD>,
                 ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64,
@@ -114,23 +114,31 @@ module {
 
         return %eltwise1 : tensor<1x32x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 1440, 2560]> : tensor<4xsi64>, order = #NHWC}>
 
+        // DepthConv is hoisted (not fused) because it is a multi-user producer: it feeds both the deep chain
+        // (stridedConv→Conv→DepthToSpace) and the skip-connection eltwise. In collectTiledAndFusedOps the BFS
+        // fuses a producer only when all of its users are in the fused set (checkProducersUsers), so the
+        // graph splits into two tiled loops: LOOP1 for the deep chain and RESULT for the eltwise path.
         // CHECK:       [[CONVERTED:%.*]] = VPU.Convert([[ARG0]]
         // CHECK:       [[PERMUTED:%.*]] = VPU.NCE.Permute([[CONVERTED]]
+        // CHECK:       [[DEPTH_CONV:%.*]] = VPU.NCE.DepthConvolution([[PERMUTED]]
+        // CHECK:       [[LOOP1:%.*]] = scf.for
+        // CHECK:         scf.for
+        // CHECK:           tensor.extract_slice [[DEPTH_CONV]]
+        // CHECK:           VPU.NCE.Convolution
+        // CHECK:           VPU.NCE.Convolution
+        // CHECK:           VPU.DepthToSpace
+        // CHECK:           tensor.insert_slice
+        // CHECK:         scf.yield
+        // CHECK:       scf.yield
         // CHECK:       [[RESULT:%.*]] = scf.for
         // CHECK:         scf.for
-        // CHECK:           [[PERMUTED_SLICE:%.*]] = tensor.extract_slice [[PERMUTED]]
-        // CHECK:           [[DEPTH_CONV:%.*]] = VPU.NCE.DepthConvolution([[PERMUTED_SLICE]]
-        // CHECK:           [[PADDED:%.*]] = tensor.pad [[DEPTH_CONV]]
-        // CHECK:           [[STRIDED_CONV:%.*]] = VPU.NCE.Convolution([[PADDED]]
-        // CHECK:           [[PADDED_1:%.*]] = tensor.pad [[STRIDED_CONV]]
-        // CHECK:           [[CONV:%.*]] = VPU.NCE.Convolution([[PADDED_1]]
-        // CHECK:           [[DEPTH_TO_SPACE:%.*]] = VPU.DepthToSpace([[CONV]]
-        // CHECK:           [[DEPTH_CONV_SKIP:%.*]] = tensor.extract_slice [[DEPTH_CONV]]
-        // CHECK-SAME:          {skip_connection_slice}
-        // CHECK:           [[ELTWISE0:%.*]] = VPU.NCE.Eltwise([[DEPTH_TO_SPACE]], [[DEPTH_CONV_SKIP]])
-        // CHECK:           [[PERMUTED_SKIP:%.*]] = tensor.extract_slice [[PERMUTED]]
-        // CHECK:           [[ELTWISE1:%.*]] = VPU.NCE.Eltwise([[ELTWISE0]], [[PERMUTED_SKIP]])
-        // CHECK:           tensor.insert_slice [[ELTWISE1]]
+        // CHECK:           tensor.extract_slice [[LOOP1]]
+        // CHECK:           tensor.extract_slice [[DEPTH_CONV]]
+        // CHECK-NOT:       skip_connection_slice
+        // CHECK:           VPU.NCE.Eltwise
+        // CHECK:           tensor.extract_slice [[PERMUTED]]
+        // CHECK:           VPU.NCE.Eltwise
+        // CHECK:           tensor.insert_slice
         // CHECK:         scf.yield
         // CHECK:       scf.yield
         // CHECK:       return [[RESULT]] : tensor<1x32x?x?xf16

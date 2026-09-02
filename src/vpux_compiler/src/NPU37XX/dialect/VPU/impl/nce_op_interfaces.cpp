@@ -93,7 +93,7 @@ public:
 };
 class ReduceOpModel : public VPU::NCEReduceOpModel<ReduceOpModel, VPU::NCEReduceOp>, public ConvMpeModeModel {};
 class DepthConvolutionOpModel :
-        public VPU::NCEConvolutionOpModel<DepthConvolutionOpModel, VPU::NCEDepthConvolutionOp>,
+        public VPU::NCEDepthConvolutionOpModel<DepthConvolutionOpModel, VPU::NCEDepthConvolutionOp>,
         public Cuboid16MpeModeModel {};
 class CompressConvolutionOpModel :
         public VPU::NCECompressConvolutionOpModel<CompressConvolutionOpModel, VPU::NCECompressConvolutionOp>,
@@ -120,6 +120,15 @@ public:
     }
     mlir::Value getWeightTableBiasOperand(mlir::Operation* op) const {
         return mlir::cast<VPU::NCEEltwiseOp>(op).getWeightTableBias();
+    }
+    mlir::Value getReduceXyMax(mlir::Operation* op) const {
+        return mlir::cast<VPU::NCEEltwiseOp>(op).getReduceXyMax();
+    }
+    mlir::Value getReduceXyMin(mlir::Operation* op) const {
+        return mlir::cast<VPU::NCEEltwiseOp>(op).getReduceXyMin();
+    }
+    mlir::Value getReduceTensorMinMax(mlir::Operation* op) const {
+        return mlir::cast<VPU::NCEEltwiseOp>(op).getReduceTensorMinMax();
     }
 };
 class PermuteOpModel : public VPU::NCEEltwiseOpModel<PermuteOpModel, VPU::NCEPermuteOp>, public Cuboid16MpeModeModel {};

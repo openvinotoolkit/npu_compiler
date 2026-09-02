@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -27,48 +28,6 @@ namespace vpux::IE {
 }  // namespace vpux::IE
 
 namespace vpux {
-
-mlir::quant::QuantizedType createWeightsQuantizedType(mlir::Type weightsElemType, mlir::Type expressedType,
-                                                      double scale, int64_t zeroPoint) {
-    const auto storageParams = getStorageParams(weightsElemType);
-    VPUX_THROW_WHEN(mlir::failed(storageParams), "Unsupported quantized element type '{0}'", weightsElemType);
-
-    const auto [storageMin, storageMax, storageType] = *storageParams;
-    if (const auto quantileType = mlir::dyn_cast<vpux::type::QuantileType>(weightsElemType)) {
-        // Use QuantileType directly as storage type
-        // This represents quantile-backed quantization as quant.uniform with QuantileType storage
-
-        const auto flags = quantileType.shouldDefaultToSigned() ? mlir::quant::QuantizationFlags::Signed : 0;
-        return mlir::quant::UniformQuantizedType::get(flags, quantileType, expressedType, scale, zeroPoint, storageMin,
-                                                      storageMax);
-
-    } else {
-        return mlir::quant::UniformQuantizedType::get(
-                storageType.isUnsignedInteger() ? 0 : mlir::quant::QuantizationFlags::Signed, storageType,
-                expressedType, scale, zeroPoint, storageMin, storageMax);
-    }
-}
-
-mlir::quant::QuantizedType createWeightsQuantizedPerAxisType(mlir::Type weightsElemType, mlir::Type expressedType,
-                                                             ArrayRef<double> scales, int64_t zeroPoint,
-                                                             Dim quantizedDimension) {
-    const auto storageParams = getStorageParams(weightsElemType);
-    VPUX_THROW_WHEN(mlir::failed(storageParams), "Unsupported quantized element type '{0}'", weightsElemType);
-    const auto [storageMin, storageMax, storageType] = *storageParams;
-    if (const auto quantileType = mlir::dyn_cast<vpux::type::QuantileType>(weightsElemType)) {
-        // Use QuantileType directly as storage type.
-        // This represents quantile-backed quantization as quant.uniform with QuantileType storage
-        const auto flags = quantileType.shouldDefaultToSigned() ? mlir::quant::QuantizationFlags::Signed : 0;
-        return mlir::quant::UniformQuantizedPerAxisType::get(flags, quantileType, expressedType, scales,
-                                                             SmallVector<int64_t>(scales.size(), zeroPoint),
-                                                             quantizedDimension.ind(), storageMin, storageMax);
-    } else {
-        return mlir::quant::UniformQuantizedPerAxisType::get(
-                storageType.isUnsignedInteger() ? 0 : mlir::quant::QuantizationFlags::Signed, storageType,
-                expressedType, scales, SmallVector(scales.size(), zeroPoint), quantizedDimension.ind(), storageMin,
-                storageMax);
-    }
-}
 
 mlir::FailureOr<Dim> getSingleDim(ArrayRef<int64_t> shape) {
     const auto dimIt = std::find_if(shape.begin(), shape.end(), [](const auto d) {
@@ -154,53 +113,42 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::staticMatchAndRewrite
 
     const auto dstType =
             mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType()).getElementType();  // Usually F16/F32
-    mlir::quant::QuantizedType quantElemType = createWeightsQuantizedType(inputElemType, dstType,
-                                                                          /*scale*/ 1.0, /*shift*/ 0);
 
-    // Due to limited support for multi-axis quantization and per-channel/per-group zero points, we have to use
-    // DynamicDequantize. But in specific cases where shift is splat and scale is per-axis, Dequantize can be used
-    // instead of DynamicDequantize
-    auto useDequantize = [&](Const::ContentAttr scaleAttr, Const::ContentAttr shiftAttr) {
-        auto shiftValue = 0;
-        if (shiftAttr != nullptr) {
-            auto shiftContent = shiftAttr.fold();
-            if (!shiftContent.isSplat()) {
-                return false;
-            }
-            shiftValue = shiftContent.getSplatValue<int64_t>();
-            quantElemType = createWeightsQuantizedType(inputElemType, dstType,
-                                                       /*scale*/ 1.0, shiftValue);
-        }
-
-        if (scaleAttr != nullptr) {
-            if (scaleAttr.isSplat()) {
-                quantElemType = createWeightsQuantizedType(inputElemType, dstType,
-                                                           scaleAttr.fold().getSplatValue<double>(), shiftValue);
-            } else {
-                const auto scaleContent = scaleAttr.fold();
-                const auto scaleShape = scaleContent.getType().getShape();
-                const auto singleDimOrFail = getSingleDim(scaleShape.raw());
-                if (mlir::failed(singleDimOrFail)) {
-                    return false;
-                }
-                const auto quantDim = singleDimOrFail.value();
-                const auto scaleValues = to_small_vector(scaleContent.getValues<double>());
-                quantElemType =
-                        createWeightsQuantizedPerAxisType(inputElemType, dstType, scaleValues, shiftValue, quantDim);
-            }
-        }
-
-        return true;
-    };
-
-    auto scaleAttr = wdInfo.getStaticScaleAttr();
     auto shiftAttr = wdInfo.getStaticShiftAttr();
     auto shiftValue = wdInfo.getStaticShift();
-    bool canUseDequantize = useDequantize(scaleAttr, shiftAttr);
-    if (!canUseDequantize && shiftValue != nullptr) {
+
+    // ZP is always externalized as a DynamicDequantize tensor operand.
+    const auto storageParamsResult = getStorageParams(inputElemType);
+    if (mlir::failed(storageParamsResult)) {
+        _log.trace("Match failed: Could not get storage params for type {0}.", inputElemType);
+        return mlir::failure();
+    }
+    mlir::Type storageType;
+    std::tie(std::ignore, std::ignore, storageType) = *storageParamsResult;
+    if (auto quantileStorageType = mlir::dyn_cast_if_present<vpux::type::QuantileType>(storageType)) {
+        // getStorageParams() returns QuantileType itself as the storage type.
+        // For ZP tensor construction and bit-width calculations, use the underlying integer storage type.
+        storageType = quantileStorageType.getStorageType();
+    }
+    const auto bitWidth = storageType.getIntOrFloatBitWidth();
+
+    // f4E2M1FN is a symmetric floating-point format; zero-point shifts have no meaningful
+    // quantization semantics and are not supported for this storage type.
+    // A splat zero shift (equivalent to no shift) is allowed through; any non-zero or
+    // per-element shift is rejected.
+    if (mlir::isa<mlir::Float4E2M1FNType>(storageType) && shiftAttr != nullptr) {
+        const auto shiftContent = shiftAttr.fold();
+        if (!shiftContent.isSplat() || shiftContent.getSplatValue<double>() != 0.0) {
+            _log.trace("Match failed: Non-zero or per-element shift is not supported for f4E2M1FN storage type.");
+            return mlir::failure();
+        }
+    }
+
+    // Validate that non-splat shift has a supported element type (U2) matching the weights type
+    if (shiftAttr != nullptr && !shiftAttr.fold().isSplat() && shiftValue != nullptr) {
         auto shiftElemType = IE::getTrueElemType(shiftValue.getDefiningOp<Const::DeclareOp>());
         auto expectedShiftElemType = inputElemType;
-        if (auto quantileType = mlir::dyn_cast_or_null<vpux::type::QuantileType>(inputElemType)) {
+        if (auto quantileType = mlir::dyn_cast_if_present<vpux::type::QuantileType>(inputElemType)) {
             expectedShiftElemType = quantileType.getQuantileType();
         }
         if (!isSupportedShiftElemType(shiftElemType) || shiftElemType != expectedShiftElemType) {
@@ -213,29 +161,96 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::staticMatchAndRewrite
     const auto loc = wdInfo.getLastOp()->getLoc();
     rewriter.setInsertionPointAfter(origOp);
 
-    auto inputValue = rewriter.create<IE::QuantizeCastOp>(loc, IE::getTrueInputValue(origOp, rewriter), quantElemType)
-                              .getOutput();
-    if (auto transposeOp = mlir::dyn_cast_or_null<IE::TransposeOp>(wdInfo.getInput().getDefiningOp())) {
+    auto inputValue = IE::getTrueInputValue(origOp, rewriter);
+    if (auto transposeOp = mlir::dyn_cast_if_present<IE::TransposeOp>(wdInfo.getInput().getDefiningOp())) {
         inputValue = rewriter.create<IE::TransposeOp>(appendLoc(loc, "transpose_in"), inputValue, nullptr,
                                                       transposeOp.getOrderValueAttr())
                              .getOutput();
     }
 
-    mlir::Operation* dequantizeOp = nullptr;
-    if (canUseDequantize) {
-        dequantizeOp = rewriter.create<IE::DequantizeOp>(appendLoc(loc, "artificial_dequant"), inputValue, dstType)
-                               .getOperation();
-    } else {
-        // Shift has been considered as zero-point if it is splat or nullptr
-        auto realShiftValue = shiftAttr == nullptr || shiftAttr.isSplat()
-                                      ? nullptr
-                                      : IE::getTrueInputValue(shiftValue.getDefiningOp<Const::DeclareOp>(), rewriter);
-        dequantizeOp = rewriter.create<IE::DynamicDequantizeOp>(appendLoc(loc, "artificial_dequant"), inputValue,
-                                                                wdInfo.getStaticScale(), realShiftValue, dstType)
-                               .getOperation();
+    // DynamicDequantizeOp requires a non-null scale operand. When the WD chain has no
+    // Multiply (shift-only patterns), getStaticScale() returns nullptr; create a unit
+    // scale constant so the dequantization identity (scale=1.0) is explicit.
+    mlir::Value scaleValue = wdInfo.getStaticScale();
+    if (scaleValue == nullptr) {
+        const auto inputRank = mlir::cast<vpux::NDTypeInterface>(inputValue.getType()).getRank();
+        SmallVector<int64_t> scaleShape(inputRank, 1);
+        const auto scaleTensorType = mlir::RankedTensorType::get(scaleShape, dstType);
+        const auto unitScaleValueAttr = mlir::FloatAttr::get(mlir::cast<mlir::FloatType>(dstType), 1.0);
+        const auto unitScaleAttr = mlir::DenseElementsAttr::get(scaleTensorType, unitScaleValueAttr);
+        scaleValue = rewriter.create<Const::DeclareOp>(appendLoc(loc, "unit_scale"), scaleTensorType,
+                                                       Const::ContentAttr::get(unitScaleAttr))
+                             .getOutput();
     }
 
-    wdInfo.getLastOp()->replaceAllUsesWith(dequantizeOp);
+    // Build the ZP tensor operand. Both splat and non-splat shifts are externalized as
+    // explicit tensor inputs to DynamicDequantizeOp instead of being embedded in the quant type.
+    mlir::Value zpValue = nullptr;
+    if (shiftAttr != nullptr) {
+        auto shiftContent = shiftAttr.fold();
+        if (storageType.isInteger()) {
+            if (shiftContent.isSplat()) {
+                const auto inputRank = mlir::cast<vpux::NDTypeInterface>(inputValue.getType()).getRank();
+                SmallVector<int64_t> zpShape(inputRank, 1);
+                const auto zpVal = shiftContent.getSplatValue<int64_t>();
+                if (zpVal != 0) {
+                    const auto signedness =
+                            storageType.isSignedInteger() ? mlir::IntegerType::Signed : mlir::IntegerType::Unsigned;
+                    const auto zpType = mlir::IntegerType::get(rewriter.getContext(), bitWidth, signedness);
+                    const auto zpTensorType = mlir::RankedTensorType::get(zpShape, zpType);
+                    const auto zpDenseAttr =
+                            mlir::DenseElementsAttr::get(zpTensorType, mlir::IntegerAttr::get(zpType, zpVal));
+                    zpValue = rewriter.create<Const::DeclareOp>(appendLoc(loc, "zp"), zpTensorType,
+                                                                Const::ContentAttr::get(zpDenseAttr))
+                                      .getOutput();
+                }
+            } else {
+                // Non-splat integer shift: use getTrueInputValue to get the integer-typed shift tensor
+                zpValue = IE::getTrueInputValue(shiftValue.getDefiningOp<Const::DeclareOp>(), rewriter);
+            }
+        } else {
+            if (shiftContent.isSplat()) {
+                const auto zpVal = shiftContent.getSplatValue<double>();
+                if (zpVal != 0.0) {
+                    const auto inputRank = mlir::cast<vpux::NDTypeInterface>(inputValue.getType()).getRank();
+                    SmallVector<int64_t> zpShape(inputRank, 1);
+                    const auto zpTensorType = mlir::RankedTensorType::get(zpShape, storageType);
+                    const auto zpDenseAttr =
+                            mlir::DenseElementsAttr::get(zpTensorType, mlir::FloatAttr::get(storageType, zpVal));
+                    zpValue = rewriter.create<Const::DeclareOp>(appendLoc(loc, "zp"), zpTensorType,
+                                                                Const::ContentAttr::get(zpDenseAttr))
+                                      .getOutput();
+                }
+            } else {
+                zpValue = IE::getTrueInputValue(shiftValue.getDefiningOp<Const::DeclareOp>(), rewriter);
+            }
+        }
+    }
+
+    auto dequantizeOp = rewriter.create<IE::DynamicDequantizeOp>(appendLoc(loc, "artificial_dequant"), inputValue,
+                                                                 scaleValue, zpValue, dstType);
+
+    // Only mark with the synthetic attribute when the original develop-branch logic would have
+    // used a static IE.Dequantize (i.e., canUseDequantize was true). The bridge pass
+    // (ConvertConstantDynamicDequantizeToDequantize) converts only marked ops back to Dequantize.
+    // Conditions for canUseDequantize on develop:
+    //   - shift is null or splat
+    //   - scale is null, splat, or has a single non-unit dimension (per-axis)
+    auto scaleAttr = wdInfo.getStaticScaleAttr();
+
+    bool canUseDequantize = !(shiftAttr != nullptr && !shiftAttr.fold().isSplat());
+
+    if (canUseDequantize && scaleAttr != nullptr && !scaleAttr.isSplat()) {
+        const auto scaleShape = scaleAttr.fold().getType().getShape();
+        if (mlir::failed(getSingleDim(scaleShape.raw()))) {
+            canUseDequantize = false;
+        }
+    }
+    if (canUseDequantize) {
+        dequantizeOp->setAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR, mlir::UnitAttr::get(rewriter.getContext()));
+    }
+
+    wdInfo.getLastOp()->replaceAllUsesWith(dequantizeOp.getOperation());
     wdInfo.cleanUpCurrentWdChain(rewriter);
     return mlir::success();
 }
@@ -264,10 +279,15 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::dynamicMatchAndRewrit
         }
     }
 
+    mlir::Type shiftElemType = nullptr;
     if (auto dynamicShift = wdInfo.getDynamicShift()) {
-        auto shiftElemType = IE::getTrueElemType(*dynamicShift.user_begin());
+        shiftElemType = IE::getTrueElemType(*dynamicShift.user_begin());
+    } else if (auto staticShift = wdInfo.getStaticShift()) {
+        shiftElemType = IE::getTrueElemType(staticShift.getDefiningOp<Const::DeclareOp>());
+    }
+    if (shiftElemType != nullptr) {
         auto expectedShiftElemType = inputElemType;
-        if (auto quantileType = mlir::dyn_cast_or_null<vpux::type::QuantileType>(inputElemType)) {
+        if (auto quantileType = mlir::dyn_cast_if_present<vpux::type::QuantileType>(inputElemType)) {
             expectedShiftElemType = quantileType.getQuantileType();
         }
         if (!isSupportedShiftElemType(shiftElemType) || shiftElemType != expectedShiftElemType) {
@@ -279,37 +299,44 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::dynamicMatchAndRewrit
 
     const auto dstType =
             mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType()).getElementType();  // Usually F16/F32
-    const auto quantElemType = createWeightsQuantizedType(inputElemType, dstType, /*scale=*/1.0, /*shift*/ 0);
 
     const auto loc = wdInfo.getLastOp()->getLoc();
     rewriter.setInsertionPointAfter(origOp);
 
     mlir::Value scale = wdInfo.getDynamicScale();
     if (scale != nullptr) {
-        if (auto convertOp = mlir::dyn_cast_or_null<ConcreteOp>(*scale.user_begin())) {
+        if (auto convertOp = mlir::dyn_cast_if_present<ConcreteOp>(*scale.user_begin())) {
             scale = convertOp.getOutput();
             rewriter.setInsertionPointAfter(convertOp);
-        } else if (auto stridedSliceOp = mlir::dyn_cast_or_null<IE::StridedSliceOp>(scale.getDefiningOp())) {
+        } else if (auto stridedSliceOp = mlir::dyn_cast_if_present<IE::StridedSliceOp>(scale.getDefiningOp())) {
             rewriter.setInsertionPointAfter(stridedSliceOp);
-        } else if (auto gatherOp = mlir::dyn_cast_or_null<IE::GatherOp>(scale.getDefiningOp())) {
+        } else if (auto gatherOp = mlir::dyn_cast_if_present<IE::GatherOp>(scale.getDefiningOp())) {
             rewriter.setInsertionPointAfter(gatherOp);
+        } else if (auto affineReshapeOp = mlir::dyn_cast_if_present<IE::AffineReshapeOp>(scale.getDefiningOp())) {
+            rewriter.setInsertionPointAfter(affineReshapeOp);
         }
     } else {
         // Static embedding table pattern: scale is a constant; use it as a value input so that
-        // a unit-scale QuantizeCastOp is produced. This allows swap-operation-with-gather to
-        // hoist Gather before QuantizeCast without breaking the per-axis type dimension constraint.
+        // swap-operations-with-gather-and-slice can hoist Gather before the dequantize without breaking
+        // the per-axis type dimension constraint.
         scale = wdInfo.getStaticScale();
     }
 
-    auto inputValue = rewriter.create<IE::QuantizeCastOp>(loc, IE::getTrueInputValue(origOp, rewriter), quantElemType)
-                              .getOutput();
-    if (auto transposeOp = mlir::dyn_cast_or_null<IE::TransposeOp>(wdInfo.getInput().getDefiningOp())) {
+    auto inputValue = IE::getTrueInputValue(origOp, rewriter);
+    if (auto transposeOp = mlir::dyn_cast_if_present<IE::TransposeOp>(wdInfo.getInput().getDefiningOp())) {
         inputValue = rewriter.create<IE::TransposeOp>(appendLoc(loc, "transpose_in"), inputValue, nullptr,
                                                       transposeOp.getOrderValueAttr())
                              .getOutput();
     }
 
-    auto shift = wdInfo.hasShift() ? wdInfo.getDynamicShift() : nullptr;
+    mlir::Value shift = nullptr;
+    if (wdInfo.hasShift()) {
+        if (auto dynamicShift = wdInfo.getDynamicShift()) {
+            shift = dynamicShift;
+        } else if (auto staticShift = wdInfo.getStaticShift()) {
+            shift = IE::getTrueInputValue(staticShift.getDefiningOp<Const::DeclareOp>(), rewriter);
+        }
+    }
     auto dynamicDequantizeOp = rewriter.create<IE::DynamicDequantizeOp>(appendLoc(loc, "artificial_dyn_dequant"),
                                                                         inputValue, scale, shift, dstType);
     wdInfo.getLastOp()->replaceAllUsesWith(dynamicDequantizeOp);
@@ -340,8 +367,9 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::matchAndRewrite(Concr
         }
         if (wdInfo.hasScale() && wdInfo.hasShift()) {
             if (!((wdInfo.getDynamicScale() != nullptr && wdInfo.getDynamicShift() != nullptr) ||
-                  (wdInfo.getStaticScale() != nullptr && wdInfo.getStaticShift() != nullptr))) {
-                _log.trace("Match failed: The forms of scale and shift need to be consistent.");
+                  (wdInfo.getStaticScale() != nullptr && wdInfo.getStaticShift() != nullptr) ||
+                  (wdInfo.getDynamicScale() != nullptr && wdInfo.getStaticShift() != nullptr))) {
+                _log.trace("Match failed: unsupported combination of static and dynamic scale/shift.");
                 return mlir::failure();
             }
         }
@@ -350,7 +378,7 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::matchAndRewrite(Concr
 
         // Per-axis quantized constant weights feeding a Gather must go through dynamicMatchAndRewrite
         // so that scale is passed as a value input to DynamicDequantize rather than baked into the
-        // QuantizeCast per-axis type, which would block later swap-operation-with-gather optimizations.
+        // QuantizeCast per-axis type, which would block later swap-operations-with-gather-and-slice optimizations.
         const bool feedsGather =
                 !quantParamsAsInput && mlir::isa<Const::DeclareOp>(origOp) && wdInfo.isQuantizedConsumedByGather();
         if (feedsGather) {

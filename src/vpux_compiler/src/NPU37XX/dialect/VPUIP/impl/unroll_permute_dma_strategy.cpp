@@ -137,8 +137,7 @@ mlir::LogicalResult SingleClusterPermuteDMARewriter::unroll(VPUIP::PermuteDMAOp 
             if (VPU::isDistributedAttrWithExplicitShapesAndOffsets(distributionAttr)) {
                 distributionAttr = VPU::getNonOverlappedDistributedAttr(
                         subOutputShapes[idx], distributionAttr.getMode(), nullptr, distributionAttr.getNumClusters(),
-                        nullptr, distributionAttr.getUniformDistributedSegments(), dstType.getElementType(),
-                        dstDeclBuff.getContext());
+                        nullptr, distributionAttr.getUniformDistributedSegments(), dstDeclBuff.getContext());
             }
 
             const auto layout = mlir::AffineMapAttr::get(dimOrder.toAffineMap(ctx));

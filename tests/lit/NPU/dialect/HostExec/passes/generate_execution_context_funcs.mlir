@@ -10,11 +10,11 @@ module {
   // The module can be empty; the pass should add the functions.
 }
 
-// CHECK: llvm.func internal @_mlir_ciface_update_mutable_command_list
+// CHECK: llvm.func @_mlir_ciface_update_mutable_command_list
 // CHECK: llvm.call @npu_level_zero_update_mutable_command_list
-// CHECK: llvm.func internal @_mlir_ciface_destroy_execution_context
+// CHECK: llvm.func @_mlir_ciface_destroy_execution_context
 // CHECK: llvm.call @npu_level_zero_destroy_execution_context
-// CHECK: llvm.func internal @_mlir_ciface_reset_execution_context
+// CHECK: llvm.func @_mlir_ciface_reset_execution_context
 // CHECK: llvm.call @npu_level_zero_reset_execution_context
-// CHECK: llvm.func internal @_mlir_ciface_create_execution_context
+// CHECK: llvm.func @_mlir_ciface_create_execution_context
 // CHECK: llvm.call @npu_level_zero_create_execution_context

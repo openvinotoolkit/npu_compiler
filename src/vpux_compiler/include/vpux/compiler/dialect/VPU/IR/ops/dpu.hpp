@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/utils/asm.hpp"
 
+#include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/Interfaces/InferTypeOpInterface.h>
 #include <mlir/Interfaces/ViewLikeInterface.h>

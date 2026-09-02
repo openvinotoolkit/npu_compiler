@@ -6,8 +6,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --convert-vpuip-copy-to-sw-copy --canonicalize  %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 
-// -----
-
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !DDR_with_strides_u4 = memref<1x2x3x4xui4, {order = #NCHW, strides = [72, 36, 12, 3]}, @DDR>

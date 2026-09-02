@@ -29,10 +29,9 @@ bool FullPrefetchingVFScheduling::validate(VFConfig& config, const TilingOperati
     auto opTiling = tilingInfo->getRef(largest, index);
     VPUX_THROW_WHEN(!opTiling.has_value(), "There is no information about tile {0} of operation {1}", index, *largest);
     const auto& opTilingValue = opTiling.value().get();
-    const auto largestOpSize = VPU::getRequiredCMX(
-            largest, config.getOperationTypes(largest, opTilingValue.second, opTilingValue.first.tiles));
+    const auto largestOpSize = config.getOperationRequiredCMX(largest, opTilingValue.second, opTilingValue.first.tiles);
 
-    auto inputs = config.getInputs();
+    const auto& inputs = config.getInputs();
     llvm::SetVector<mlir::Operation*> ignoredOps(inputs.begin(), inputs.end());
     ignoredOps.insert(largest);
     ignoredOps.insert(config.getOutputs().begin(), config.getOutputs().end());

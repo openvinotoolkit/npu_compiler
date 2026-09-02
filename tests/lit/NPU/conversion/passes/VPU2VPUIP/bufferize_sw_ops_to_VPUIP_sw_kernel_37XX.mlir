@@ -38,7 +38,7 @@ func.func @StridedSlice2Dim(%input: tensor<3x40x40x15xf16>) -> tensor<3x40x20x5x
 
 // CHECK:  module @VPU.SW {
 // CHECK-NEXT:    func.func nested @builtin_StridedSlice(memref<*xf16>, memref<*xf16>, i64, none, none, none, i64, i64, i64) attributes {VPU.kernel_code = "strided_slice.cpp", VPU.kernel_entry = "strided_slice", VPU.kernel_name = "strided_slice", VPU.task_type = @COMPUTE}
-// CHECK-NEXT:    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK:         func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
 // CHECK-LABEL:  func.func @StridedSlice3Dim

@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_reduce_output_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
@@ -67,6 +68,18 @@ bool vpux::VPU::NCEConvolutionOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::
 }
 
 //
+// ShapeInfoOpInterface
+//
+
+mlir::LogicalResult vpux::VPU::NCEConvolutionOp::verifyShapeInfo() {
+    if (mlir::failed(vpux::VPU::verifyInputIs4D(getInput()))) {
+        return mlir::failure();
+    }
+
+    return vpux::VPU::verifyInputIs4D(getFilter());
+}
+
+//
 // isSupported
 //
 
@@ -112,11 +125,6 @@ mlir::LogicalResult vpux::VPU::NCEConvolutionOp::verify() {
 
     if (mlir::failed(VPU::NCEInvariant::verifyWeightTables(op))) {
         return mlir::failure();
-    }
-
-    // the data-pointer table is supported only for DW convolutions
-    if (getWeightTableDataPtr() != nullptr) {
-        return errorAt(op, "Data-pointer table is not supported for this op");
     }
 
     if (mlir::failed(vpux::VPU::verifyNCEOp(op))) {
@@ -318,6 +326,21 @@ void vpux::VPU::NCEConvolutionOp::adjustAttrs(const TilingInfo& inputTiling, con
     VPU::adjustRawFilterShape(this, outputTile);
 }
 
+vpux::OutputTiling vpux::VPU::NCEConvolutionOp::getOutputTiling(const vpux::TileInfo& firstOutputTile,
+                                                                vpux::Logger /*log*/) {
+    OutputTiling outputTiling;
+    outputTiling.push_back(firstOutputTile);
+    const auto reduceOutputTiles = VPU::getReduceOutputTiling(getOperation(), firstOutputTile);
+    outputTiling.append(reduceOutputTiles.begin(), reduceOutputTiles.end());
+    return outputTiling;
+}
+
+vpux::TileInfo vpux::VPU::NCEConvolutionOp::getMainOutputTile(mlir::OpResult secondaryOutput,
+                                                              const vpux::TileInfo& secondaryOutputTile,
+                                                              vpux::Logger /*log*/) {
+    return VPU::getMainTileFromReduceOutputTiling(getOperation(), {secondaryOutput, secondaryOutputTile});
+}
+
 mlir::FailureOr<OutputTiling> vpux::VPU::NCEConvolutionOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
     return vpux::getHWLayerTilingStrategy(this->getOperation(), tilingMode, log);
 }
@@ -338,6 +361,11 @@ bool vpux::VPU::NCEConvolutionOp::checkStrategyCompatibility(VPU::MultiClusterSt
     // Unsupported to broadcast the lowest dimension
     // Track E#120804
     if (outputDimsOrder.dimAt(outputDimsOrder.numDims() - 1) == Dims4D::Act::H) {
+        // SplitOverKernel tiles over C; reduce outputs have C=1 and cannot be partitioned per-cluster.
+        if (VPU::hasReduceOutputs(getOperation())) {
+            return strategy == VPU::MultiClusterStrategy::Clustering ||
+                   strategy == VPU::MultiClusterStrategy::SplitOverHeight;
+        }
         return strategy == VPU::MultiClusterStrategy::Clustering ||
                strategy == VPU::MultiClusterStrategy::SplitOverHeight ||
                strategy == VPU::MultiClusterStrategy::SplitOverKernel;
@@ -348,6 +376,14 @@ bool vpux::VPU::NCEConvolutionOp::checkStrategyCompatibility(VPU::MultiClusterSt
 
     if (batchSize > 1 && batchSize <= enabledTileNum) {
         return strategy == VPU::MultiClusterStrategy::SplitOverBatch;
+    }
+
+    // SplitOverKernel uses num_tiles over C. For ops with active reduce outputs the reduce result
+    // has C=1, so per-cluster partials cannot be distributed across clusters.
+    if (VPU::hasReduceOutputs(getOperation())) {
+        return strategy == VPU::MultiClusterStrategy::Clustering ||
+               strategy == VPU::MultiClusterStrategy::SplitOverHeight ||
+               strategy == VPU::MultiClusterStrategy::HKSwitch;
     }
 
     return strategy == VPU::MultiClusterStrategy::Clustering ||
@@ -379,6 +415,10 @@ bool VPU::NCEConvolutionOp::isOperationSplitOverWidthCompatible(ShapeRef outputS
 }
 
 bool VPU::NCEConvolutionOp::isOperationSplitOverKernelCompatible(ShapeRef outputShape, ShapeRef offset, ShapeRef axis) {
+    // SplitOverKernel tiles over C. Reduce outputs have C=1, so SOK is incompatible.
+    if (VPU::hasReduceOutputs(getOperation())) {
+        return false;
+    }
     return VPU::isOperationSplitOverKernelCompatible(getOperation(), outputShape, offset, axis);
 }
 
@@ -460,6 +500,10 @@ SmallVector<int64_t> vpux::VPU::NCEConvolutionOp::getConstRawFilterShape() {
 
 DimArr vpux::VPU::NCEConvolutionOp::restrictedFusionAxes() {
     return {Dims4D::Act::C};
+}
+
+bool vpux::VPU::NCEConvolutionOp::isVFSupported() {
+    return getReduceTensorMinMax() == nullptr;
 }
 
 vpux::NDTypeInterface vpux::VPU::NCEConvolutionOp::getDistributedTypeForOpOperand(

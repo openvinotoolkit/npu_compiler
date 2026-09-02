@@ -14,9 +14,11 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters/propagate_transpose_affine_reshape_common.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
@@ -39,40 +41,6 @@ namespace vpux::IE {
 using namespace vpux;
 
 namespace {
-// Returns an "origin" operation of the specified type (one of Ops), ignoring
-// pure view ops, for the given operation. This procedure assumes IR in question
-// is a chain of single-use operations.
-template <typename Op>
-Op findOriginOp(const Logger& log, mlir::Operation* current, bool checkPostOp = true, bool skipTranspose = false) {
-    // skip "pure view ops"
-    while (current && (IE::isPureViewOp(current) || (skipTranspose && mlir::isa<IE::TransposeOp>(current)))) {
-        // Note: for the sake of this pass, only single-use op chains are
-        // considered
-        auto operands = current->getOperands();
-        if (operands.size() != 1) {
-            log.trace("{0} at {1} has unexpected number of operands {2}, expected 1", current->getName(),
-                      current->getLoc(), operands.size());
-            return nullptr;
-        }
-
-        // ViewOp should have single user
-        if (!current->hasOneUse()) {
-            return nullptr;
-        }
-
-        current = operands[0].getDefiningOp();
-    }
-
-    auto originOp = mlir::dyn_cast_or_null<Op>(current);
-    if (checkPostOp) {
-        if (originOp == nullptr || originOp->hasAttr(vpux::OperationAttrName::POST_OP) ||
-            originOp->hasAttr(vpux::OperationAttrName::CLAMP)) {
-            return nullptr;
-        }
-    }
-
-    return originOp;
-}
 
 // Returns defining op of the specified type for some operand of the op ignoring IE.FakeQuantize ops
 template <typename Op>
@@ -88,38 +56,6 @@ Op findDefiningOp(mlir::Operation* op, const bool ignoreReshapeOp = false) {
         }
     }
     return nullptr;
-}
-
-// Returns a "target" operation of the specified type (one of Ops), ignoring
-// pure view ops, for operations that use the given operation's result. This procedure assumes IR in question
-// is a chain of single-use operations.
-template <typename Op>
-Op findTargetOp(const Logger&, mlir::Operation* current, bool checkPostOp = true) {
-    // Only consider operations with single use
-    if (!current->hasOneUse()) {
-        return nullptr;
-    }
-
-    auto user = *current->getUsers().begin();
-
-    // skip "pure view ops"
-    while (user != nullptr && IE::isPureViewOp(user)) {
-        // ViewOp should have single user
-        if (!user->hasOneUse()) {
-            return nullptr;
-        }
-        user = *user->getUsers().begin();
-    }
-
-    auto targetOp = mlir::dyn_cast_or_null<Op>(user);
-    if (checkPostOp) {
-        if (targetOp == nullptr || targetOp->hasAttr(vpux::OperationAttrName::POST_OP) ||
-            targetOp->hasAttr(vpux::OperationAttrName::CLAMP)) {
-            return nullptr;
-        }
-    }
-
-    return targetOp;
 }
 
 bool isSuitableConstant(Const::DeclareOp op) {
@@ -236,7 +172,7 @@ mlir::LogicalResult InsertMultiplyBeforeConcat::matchAndRewrite(IE::MultiplyOp o
     // *each* concat branch should have a convolution (so we could actually fuse
     // multiply in all the cases)
     for (auto [index, operand] : llvm::enumerate(concatOp->getOperands())) {
-        auto convOp = findOriginOp<IE::ConvolutionOp>(_log, operand.getDefiningOp());
+        auto convOp = findUnfusedProducer<IE::ConvolutionOp>(_log, operand.getDefiningOp());
         if (convOp == nullptr) {
             _log.trace("Ignore: IE.Multiply does not have preceding IE.Convolution in concat branch #{0} - no "
                        "possibility to fuse",
@@ -350,7 +286,7 @@ struct FuseStaticScaleToPpeBackward : public mlir::OpRewritePattern<IE::Multiply
         if (!validateAndExtract(origOp, _log, constSplatValue, nonConstMultiplyOperand)) {
             return mlir::failure();
         }
-        auto backwardTargetOp = findOriginOp<SupportedOp>(_log, nonConstMultiplyOperand.getDefiningOp());
+        auto backwardTargetOp = findUnfusedProducer<SupportedOp>(_log, nonConstMultiplyOperand.getDefiningOp());
         if (backwardTargetOp != nullptr && backwardTargetOp->hasOneUse()) {
             if (auto convOp = mlir::dyn_cast_or_null<IE::ConvolutionOp>(backwardTargetOp.getOperation())) {
                 if (convOp.getScale() != nullptr) {
@@ -388,7 +324,7 @@ struct FuseStaticScaleToPpeForward : public mlir::OpRewritePattern<IE::MultiplyO
         if (!validateAndExtract(origOp, _log, constSplatValue, nonConstMultiplyOperand)) {
             return mlir::failure();
         }
-        auto forwardTargetOp = findTargetOp<SupportedOp>(_log, origOp);
+        auto forwardTargetOp = findUnfusedConsumer<SupportedOp>(_log, origOp);
         if (forwardTargetOp == nullptr) {
             _log.trace("Ignore: IE.Multiply has no valid preceding or following operation - cannot fuse");
             return mlir::failure();
@@ -446,7 +382,7 @@ struct FuseStaticScaleToWeights : public mlir::OpRewritePattern<IE::MultiplyOp> 
         if (!validateAndExtract(origOp, _log, constSplatValue, nonConstMultiplyOperand)) {
             return mlir::failure();
         }
-        auto forwardTargetOp = findTargetOp<SupportedOp>(_log, origOp);
+        auto forwardTargetOp = findUnfusedConsumer<SupportedOp>(_log, origOp);
         if (forwardTargetOp == nullptr) {
             _log.trace("Ignore: IE.Multiply has no valid preceding or following operation - cannot fuse");
             return mlir::failure();
@@ -479,11 +415,102 @@ struct FuseStaticScaleToWeights : public mlir::OpRewritePattern<IE::MultiplyOp> 
             _log.trace("Ignore: FakeQuantizeOp has no constant output low or high - cannot fuse");
             return mlir::failure();
         }
+
+        rewriter.setInsertionPointAfter(fqOp);
         auto newFQ = getRescaledFQ(fqOp, outputLowConstOp, outputHighConstOp, rewriter, constSplatValue);
         // Only replace the weight operand of this specific convolution
         rewriter.modifyOpInPlace(forwardTargetOp, [&]() {
             forwardTargetOp->setOperand(1, newFQ.getOutput());
         });
+        rewriter.replaceOp(origOp, nonConstMultiplyOperand);
+        return mlir::success();
+    }
+
+private:
+    const Logger& _log;
+};
+
+// Forward fusion for the SDPA-style query-scale pattern where a single scalar
+// static scale (Q / sqrt(dk)) fans out to multiple per-head convolutions through Slice + Reshape:
+//
+//   IE.RoPE -> IE.Multiply(x, scalar)
+//        |-> IE.Slice -> view like op (e.g. IE.AffineReshape)* -> IE.Convolution (input #0)
+//        |-> IE.Slice -> view like op (e.g. IE.AffineReshape)* -> IE.Convolution (input #0)
+//        |-> ... (N branches)
+//
+// The scalar scale is fused into each convolution's static_scale (applied at the PPE).
+struct FuseRoPEQueryScaleToSlicedConvs : public mlir::OpRewritePattern<IE::MultiplyOp> {
+    FuseRoPEQueryScaleToSlicedConvs(mlir::MLIRContext* ctx, const Logger& log)
+            : mlir::OpRewritePattern<IE::MultiplyOp>(ctx, benefitMid), _log(log) {
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const final {
+        float constSplatValue = 1.0f;
+        mlir::Value nonConstMultiplyOperand;
+        if (!validateAndExtract(origOp, _log, constSplatValue, nonConstMultiplyOperand)) {
+            return mlir::failure();
+        }
+
+        if (!mlir::isa_and_present<IE::RoPEOp>(nonConstMultiplyOperand.getDefiningOp())) {
+            _log.trace("Ignore: IE.Multiply scaled operand is not produced by IE.RoPE");
+            return mlir::failure();
+        }
+
+        // Every user of the Multiply must be an IE.Slice whose single-use view chain
+        // reaches an IE.Convolution on its activation operand (#0).
+        SmallVector<IE::ConvolutionOp> targetConvs;
+        for (auto* user : origOp.getOutput().getUsers()) {
+            auto sliceOp = mlir::dyn_cast<IE::SliceOp>(user);
+            if (sliceOp == nullptr) {
+                _log.trace("Ignore: IE.Multiply user at {0} is not IE.Slice", user->getLoc());
+                return mlir::failure();
+            }
+
+            auto convOp = findUnfusedConsumer<IE::ConvolutionOp>(_log, sliceOp);
+            if (convOp == nullptr) {
+                _log.trace("Ignore: IE.Slice chain at {0} does not reach a single-use IE.Convolution without post-op",
+                           sliceOp->getLoc());
+                return mlir::failure();
+            }
+
+            if (convOp.getBias() != nullptr) {
+                _log.trace("Ignore: IE.Convolution at {0} has a bias - input-side scale cannot move to static_scale",
+                           convOp->getLoc());
+                return mlir::failure();
+            }
+
+            auto* inputDef = convOp.getInput().getDefiningOp();
+            while (inputDef != nullptr && inputDef != sliceOp.getOperation() && IE::isPureViewOp(inputDef)) {
+                inputDef = inputDef->getOperand(0).getDefiningOp();
+            }
+            if (inputDef != sliceOp.getOperation()) {
+                _log.trace("Ignore: scaled value does not feed IE.Convolution input #0 at {0}", convOp->getLoc());
+                return mlir::failure();
+            }
+
+            const auto convInElemType = mlir::cast<vpux::NDTypeInterface>(convOp.getInput().getType()).getElementType();
+            if (!convInElemType.isF16()) {
+                _log.trace("Ignore: IE.Convolution at {0} does not consume FP16 activations", convOp->getLoc());
+                return mlir::failure();
+            }
+
+            targetConvs.push_back(convOp);
+        }
+
+        if (targetConvs.empty()) {
+            return mlir::failure();
+        }
+
+        _log.trace("Forward fusing scalar static scale from IE.Multiply at {0} into {1} sliced convolutions",
+                   origOp->getLoc(), targetConvs.size());
+        for (auto convOp : targetConvs) {
+            const auto originalScale =
+                    convOp.getStaticScaleAttr() ? convOp.getStaticScaleAttr().getValueAsDouble() : 1.0;
+            const auto newScale = originalScale * constSplatValue;
+            rewriter.modifyOpInPlace(convOp, [&]() {
+                convOp.setStaticScaleAttr(mlir::FloatAttr::get(mlir::Float32Type::get(origOp.getContext()), newScale));
+            });
+        }
         rewriter.replaceOp(origOp, nonConstMultiplyOperand);
         return mlir::success();
     }
@@ -505,7 +532,7 @@ private:
 };
 
 template <class SupportedOp>
-bool isOpEligibleForFusion(SupportedOp origOp, const Logger& log) {
+bool isOpEligibleForFusion(SupportedOp origOp) {
     if (!origOp->hasOneUse()) {
         return false;
     }
@@ -519,45 +546,8 @@ bool isOpEligibleForFusion(SupportedOp origOp, const Logger& log) {
     }
 
     auto layerWithPostOp = mlir::dyn_cast_or_null<IE::LayerWithPostOpInterface>(origOp.getOperation());
-    if (layerWithPostOp == nullptr || layerWithPostOp.getPostOp()) {
-        return false;
-    }
 
-    if (origOp.getStaticScaleAttr() != nullptr) {
-        return false;
-    }
-
-    mlir::Type filterElemType;
-    auto dequantizeOp = findOriginOp<IE::DequantizeOp>(log, origOp.getFilter().getDefiningOp(), false);
-    if (dequantizeOp == nullptr) {
-        auto convertOp = findOriginOp<IE::ConvertOp>(log, origOp.getFilter().getDefiningOp(), false);
-        if (convertOp == nullptr) {
-            return false;
-        }
-        filterElemType = mlir::cast<vpux::NDTypeInterface>(convertOp.getInput().getType()).getElementType();
-    } else {
-        filterElemType = mlir::cast<vpux::NDTypeInterface>(dequantizeOp.getInput().getType()).getElementType();
-    }
-    // Check if dequantize scale is 1.0f. If not, we need to add a new multiply operation to multiply the scale value
-    // with dequantize scale in lowerring to VPU pass. The new multiply operation is fp32, and it will greatly degrade
-    // the performance, so here we need to avoid the case.
-    if (auto uniformQuantizedType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(filterElemType)) {
-        if (uniformQuantizedType.getScale() != 1.0f) {
-            return false;
-        }
-    } else if (!mlir::isa<vpux::type::QuantileType>(filterElemType)) {
-        return false;
-    }
-
-    // Check input type
-    auto inElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getElementType();
-    if ((!inElemType.isF16() && !inElemType.isF32())) {
-        return false;
-    }
-    auto inFakeQuantOp = findOriginOp<IE::FakeQuantizeOp>(log, origOp.getInput().getDefiningOp(), /*checkPostOp*/ false,
-                                                          /*skipTranspose*/ true);
-
-    return !inFakeQuantOp;
+    return !(layerWithPostOp == nullptr || layerWithPostOp.getPostOp());
 }
 
 template <class SupportedOp>
@@ -692,6 +682,16 @@ mlir::FailureOr<MultiplyToSupportedOpViewChain<SupportedOp>> findSupportedOpFrom
             continue;
         }
 
+        // A scale whose every dimension is 1 is a scalar broadcast (e.g. tensor<1x1x1x1xf16>).
+        // Scalar scales must be handled by the FuseStaticScale* patterns, not channel-wise fusion.
+        const bool isScalarScale = llvm::all_of(irange(scaleInputShape.size()), [&](size_t i) {
+            return scaleInputShape[Dim(i)] == 1;
+        });
+        if (isScalarScale) {
+            log.trace("Skip: scale has all-ones shape (scalar broadcast) - defer to FuseStaticScale* patterns");
+            continue;
+        }
+
         return chain;
     }
 
@@ -709,7 +709,7 @@ mlir::LogicalResult FuseChannelWiseScales<SupportedOp>::matchAndRewrite(IE::Mult
         return mlir::failure();
     }
 
-    auto outFakeQuantOp = findTargetOp<IE::FakeQuantizeOp>(_log, origOp, false);
+    auto outFakeQuantOp = findUnfusedConsumer<IE::FakeQuantizeOp>(_log, origOp, false);
     if (outFakeQuantOp) {
         _log.nest().trace("Skip: IE.Multiply has FakeQuantize user");
         return mlir::failure();
@@ -726,26 +726,23 @@ mlir::LogicalResult FuseChannelWiseScales<SupportedOp>::matchAndRewrite(IE::Mult
     auto scaleInput = chain.scaleInput;
     auto nonScaleInput = chain.nonScaleInput;
 
-    if (!isOpEligibleForFusion<SupportedOp>(nceOp, _log)) {
+    if (!isOpEligibleForFusion<SupportedOp>(nceOp)) {
         _log.nest().trace("Skip: Not an eligible operation");
         return mlir::failure();
     }
 
-    const auto nceOutShape = getShape(nceOp.getOutput());
-    const auto nceChannel = nceOutShape[Dims4D::Act::C];
+    mlir::Value scales;
 
-    const auto scaleTableShape = VPU::NCESparsity::inferWeightsTableShape(nceChannel, /*newFormat=*/true);
-    const auto scaleShapeAttr = getIntArrayAttr(ctx, scaleTableShape.raw());
-    rewriter.setInsertionPointAfter(origOp);
-
-    // Reshape scale tensor into weights-table layout expected by IE.Convolution scale input.
-    mlir::Value scales =
-            rewriter.create<IE::ReshapeOp>(appendLoc(origOp->getLoc(), "_Reshape"), scaleInput, scaleShapeAttr)
-                    .getOutput();
-
-    // scales input need to be FP32
-    scales = rewriter.createOrFold<IE::ConvertOp>(appendLoc(origOp->getLoc(), "_Convert"), scales,
-                                                  mlir::TypeAttr::get(mlir::Float32Type::get(ctx)));
+    if (mlir::isa_and_present<Const::DeclareOp>(scaleInput.getDefiningOp())) {
+        scales = rewriter.createOrFold<IE::ConvertOp>(appendLoc(origOp->getLoc(), "_Convert"), scaleInput,
+                                                      mlir::TypeAttr::get(mlir::Float32Type::get(ctx)));
+        const auto OC = getShape(nceOp.getOutput())[Dims4D::Act::C];
+        const SmallVector<int64_t> wtScaleShape = {OC, 1, 1, 1};
+        scales = rewriter.createOrFold<IE::ReshapeOp>(appendLoc(origOp->getLoc(), "wt_scale_reshape"), scales,
+                                                      getIntArrayAttr(ctx, wtScaleShape));
+    } else {
+        scales = IE::createConvertPoolingForScaleTable(scaleInput, rewriter);
+    }
 
     // If the target op already has a scale tensor, multiply the two scale tensors together so that
     // the combined scale replaces both.  This keeps scale-only data out of the target op output path.
@@ -767,6 +764,17 @@ mlir::LogicalResult FuseChannelWiseScales<SupportedOp>::matchAndRewrite(IE::Mult
     if (auto convOp = mlir::dyn_cast<IE::ConvolutionOp>(nceOp.getOperation())) {
         newNceOp = IE::cloneConvolutionOp(rewriter, convOp, outType, convOp.getInput(), convOp.getFilter(),
                                           convOp.getBias(), scales, convOp.getZeroPoints());
+    } else if (auto maxPoolOp = mlir::dyn_cast<IE::MaxPoolOp>(nceOp.getOperation())) {
+        newNceOp = rewriter.create<IE::MaxPoolOp>(
+                maxPoolOp->getLoc(), outType, maxPoolOp.getInput(), scales, maxPoolOp.getKernelSize(),
+                maxPoolOp.getStrides(), maxPoolOp.getPadsBegin(), maxPoolOp.getPadsEnd(), maxPoolOp.getRoundingType(),
+                maxPoolOp.getPostOpAttr(), maxPoolOp.getClampAttr(), maxPoolOp.getStaticScaleAttr(),
+                maxPoolOp.getOutputPaddingAttr(), maxPoolOp.getInputPaddingAttr());
+    } else if (auto addOp = mlir::dyn_cast<IE::AddOp>(nceOp.getOperation())) {
+        newNceOp = rewriter.create<IE::AddOp>(addOp.getLoc(), outType, addOp.getInput1(), addOp.getInput2(), scales,
+                                              addOp.getAutoBroadcastAttr(), addOp.getPostOpAttr(), addOp.getClampAttr(),
+                                              addOp.getStaticScaleAttr(), addOp.getOutputPaddingAttr(),
+                                              addOp.getInputPaddingAttr());
     } else {
         VPUX_THROW("FuseChannelWiseScales: We don't support other op type now '{0}'", nceOp->getName());
     }
@@ -811,6 +819,8 @@ void FuseScalePass::safeRunOnFunc() {
         // by FuseStaticScale patterns, therefore require a separate func walk
         mlir::RewritePatternSet patterns(&ctx);
         patterns.add<FuseStaticScaleToPpeBackward<IE::ConvolutionOp>>(&ctx, _log);
+        // #E-225186, will enabled this after the issue is fixed,
+        // patterns.add<FuseStaticScaleToPpeBackward<IE::AddOp>>(&ctx, _log);
         patterns.add<FuseStaticScaleToPpeBackward<IE::AvgPoolOp>>(&ctx, _log);
         patterns.add<FuseStaticScaleToWeights<IE::ConvolutionOp>>(&ctx, _log);
         // For a pooling operation, use standard pattern (no scale check)
@@ -820,7 +830,11 @@ void FuseScalePass::safeRunOnFunc() {
         // before multiplication are larger than the values after multiplication, which can
         // cause the supported operation to overflow during accumulation.
         patterns.add<FuseStaticScaleToPpeForwardWithScaleCheck<IE::ConvolutionOp>>(&ctx, _log);
+        // Fuse a scalar scale that fans out to per-head IE.Convolutions (e.g. the SDPA
+        // query scale Q / sqrt(dk)) into each convolution's static_scale.
+        patterns.add<FuseRoPEQueryScaleToSlicedConvs>(&ctx, _log);
         patterns.add<FuseChannelWiseScales<IE::ConvolutionOp>>(&ctx, _log);
+        patterns.add<FuseChannelWiseScales<IE::MaxPoolOp>>(&ctx, _log);
         collectOpsAndApplyPatterns(func, std::move(patterns));
     }
 }

@@ -76,6 +76,49 @@ bool vpux::IE::isSupportedElemTypeInfoCase(mlir::Operation* op, bool seOpsEnable
             });
 }
 
+void vpux::IE::propagateElemTypeDownForSliceOp(IE::SliceOp slice, IE::LayerDataInfo<mlir::Type>& info) {
+    const auto inputElemType = info.getInput(0);
+    const auto perAxisQType = mlir::dyn_cast_if_present<mlir::quant::UniformQuantizedPerAxisType>(inputElemType);
+    if (perAxisQType == nullptr) {
+        propagateElementTypeDown(info);
+        return;
+    }
+
+    const auto offsets = parseIntArrayAttr<int64_t>(slice.getStaticOffsets());
+    const auto sizes = parseIntArrayAttr<int64_t>(slice.getStaticSizes());
+    const auto quantizedDim = perAxisQType.getQuantizedDimension();
+
+    if (quantizedDim < 0 || checked_cast<size_t>(quantizedDim) >= offsets.size() || offsets.size() != sizes.size()) {
+        return;
+    }
+
+    auto inputShape = getShape(slice.getInput());
+    if (offsets[quantizedDim] != 0 || sizes[quantizedDim] != inputShape[Dim(quantizedDim)]) {
+        return;
+    }
+
+    const auto outputQuantizedDimSize = sizes[quantizedDim];
+    if (outputQuantizedDimSize < 0 || checked_cast<size_t>(outputQuantizedDimSize) > perAxisQType.getScales().size()) {
+        return;
+    }
+
+    const auto outputQuantizedDimSizeVal = checked_cast<size_t>(outputQuantizedDimSize);
+    const auto inputScales = perAxisQType.getScales();
+    const auto inputZeroPoints = perAxisQType.getZeroPoints();
+    const SmallVector<double> outputScales(inputScales.begin(), inputScales.begin() + outputQuantizedDimSizeVal);
+    const SmallVector<int64_t> outputZeroPoints(inputZeroPoints.begin(),
+                                                inputZeroPoints.begin() + outputQuantizedDimSizeVal);
+
+    const auto outputElemType = mlir::quant::UniformQuantizedPerAxisType::get(
+            perAxisQType.getFlags(), perAxisQType.getStorageType(), perAxisQType.getExpressedType(), outputScales,
+            outputZeroPoints, perAxisQType.getQuantizedDimension(), perAxisQType.getStorageTypeMin(),
+            perAxisQType.getStorageTypeMax());
+
+    for (size_t outputInd = 0; outputInd < info.getNumOutputs(); ++outputInd) {
+        info.setOutput(outputInd, outputElemType);
+    }
+}
+
 void vpux::IE::propagateElemTypeDownForAffineReshapeOp(IE::AffineReshapeOp affineReshape,
                                                        IE::LayerDataInfo<mlir::Type>& info) {
     auto outputElemType = inferElemTypeAffineReshape(affineReshape, info.getInput(0));

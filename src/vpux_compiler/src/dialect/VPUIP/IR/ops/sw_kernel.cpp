@@ -35,10 +35,13 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/asm.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/kernel_data_type.hpp"
 
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/TypeSwitch.h>
 #include <llvm/ADT/bit.h>
+#include <mlir/Dialect/Arith/IR/Arith.h>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/Attributes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 
@@ -66,10 +69,14 @@ static SmallVector<int64_t> permuteIntArrayAttr(const DimsOrder& inOrder, mlir::
     }
     const auto& origPerm = inOrder.toPermutation();
     const auto origArray = parseIntArrayAttr<int64_t>(arrayAttr);
-    SmallVector<int64_t> permArray(arrayAttr.size());
-    for (const auto srcInd : irange(origPerm.size())) {
+    const auto permSize = origPerm.size();
+    VPUX_THROW_UNLESS(arrayAttr.size() == permSize,
+                      "permuteIntArrayAttr: arrayAttr size {0} does not match permutation size {1}", arrayAttr.size(),
+                      permSize);
+    SmallVector<int64_t> permArray(permSize);
+    for (size_t srcInd = 0; srcInd < permSize; ++srcInd) {
         const auto dstInd = origPerm[srcInd].ind();
-        const auto revSrcInd = origPerm.size() - 1 - srcInd;
+        const auto revSrcInd = permSize - 1 - srcInd;
         const auto revDstInd = dstInd;
         permArray[revSrcInd] = origArray[revDstInd];
     }
@@ -93,6 +100,55 @@ static SmallVector<int64_t> getAxesArrayRevertAndOrderAware(mlir::Value tensorAr
         revertedAxesArray[srcInd] = VPUIP::computeReverseMemDim(tensorArg, axes[srcInd]);
     }
     return revertedAxesArray;
+}
+
+// Extract per-axis tile offsets that SCF tiling stamps into an Interpolate offsets tensor.
+// The SW-kernel Interpolate ABI encodes offsets as static attributes and has no operand for runtime
+// offsets, so every element must be a compile-time constant here. Static and multicluster tiling
+// resolve these offsets to constants before bufferization (full loop unrolling / per-cluster
+// specialization). Only genuinely loop-dependent offsets, produced when Interpolate is SCF-tiled
+// with dynamic loop bounds, remain non-constant at this point; such cases are rejected with an
+// actionable diagnostic instead of emitting a kernel with invalid offsets.
+static SmallVector<int64_t> extractConstOffsetsTensor(mlir::Value offsetsTensor, mlir::Location loc,
+                                                      llvm::StringRef operandName) {
+    if (offsetsTensor == nullptr) {
+        return {};
+    }
+
+    if (auto constOffsets = offsetsTensor.getDefiningOp<Const::DeclareOp>()) {
+        const auto content = constOffsets.getContent();
+        return to_small_vector(content.getValues<int64_t>());
+    }
+
+    if (auto fromElements = offsetsTensor.getDefiningOp<mlir::tensor::FromElementsOp>()) {
+        SmallVector<int64_t> offsets;
+        offsets.reserve(fromElements.getElements().size());
+        for (auto element : fromElements.getElements()) {
+            // Look through IndexCast/ExtSI ops that may not have been folded yet.
+            auto val = element;
+            if (auto castOp = val.getDefiningOp<mlir::arith::IndexCastOp>()) {
+                val = castOp.getIn();
+            }
+            if (auto extOp = val.getDefiningOp<mlir::arith::ExtSIOp>()) {
+                val = extOp.getIn();
+            }
+            auto maybeVal = mlir::getConstantIntValue(val);
+            VPUX_THROW_WHEN(!maybeVal.has_value(),
+                            "Interpolate SW-kernel lowering requires a compile-time-constant '{0}', but a "
+                            "non-constant (runtime) offset remains at '{1}'. Dynamic offsets can be produced "
+                            "when Interpolate is SCF-tiled with non-constant tile positions (dynamic loop bounds). "
+                            "The SW-kernel ABI does not support runtime offsets. Resolve the tiling to static "
+                            "offsets (e.g. full loop unrolling) before SW-kernel lowering.",
+                            operandName, loc);
+            offsets.push_back(maybeVal.value());
+        }
+        return offsets;
+    }
+
+    VPUX_THROW("Interpolate SW-kernel lowering requires a compile-time-constant '{0}', but at location '{1}' it is "
+               "produced by an unsupported non-constant offset source. The SW-kernel ABI does not support runtime "
+               "offsets; resolve the tiling to static offsets (e.g. full loop unrolling) before SW-kernel lowering.",
+               operandName, loc);
 }
 
 // Build a bit-mask to indicate present inputs/outputs
@@ -139,6 +195,18 @@ mlir::ArrayAttr optionalIoAttr(mlir::Operation* op) {
                 mask |= (attention.getInputBias() ? 1 : 0) << 6;   // InputBias
                 mask |= 1 << 7;                                    // InputDataStorage
                 mask |= (attention.getDpuStorage() ? 1 : 0) << 8;  // InputDpuStorage
+                mask |= 1 << 9;                                    // output
+            })
+            .Case<VPU::AttentionDMAOp>([&](VPU::AttentionDMAOp attention) {
+                mask |= 1 << 0;                                    // InputQ
+                mask |= 1 << 1;                                    // InputK
+                mask |= 1 << 2;                                    // InputV
+                mask |= (attention.getInputMask() ? 1 : 0) << 3;   // InputMask
+                mask |= (attention.getInputScale() ? 1 : 0) << 4;  // InputScale
+                mask |= (attention.getInputSink() ? 1 : 0) << 5;   // InputSink
+                mask |= (attention.getInputBias() ? 1 : 0) << 6;   // InputBias
+                mask |= 1 << 7;                                    // AuxBuffer
+                mask |= (attention.getSeqLenK() ? 1 : 0) << 8;     // seqLenK
                 mask |= 1 << 9;                                    // output
             })
             .Case<VPU::PadOp>([&](VPU::PadOp pad) {
@@ -616,7 +684,8 @@ mlir::LogicalResult SwKernelOp::verify() {
                                "SW Kernel dynamicInputShapes size doesn't match with number of positive elements in "
                                "dynamicInputShapesMap");
             }
-            for (const auto& i : getDynamicInputShapesMap().value_or(llvm::ArrayRef<int32_t>())) {
+            const auto dynamicInputShapesMapVal = getDynamicInputShapesMap().value_or(ArrayRef<int32_t>());
+            for (const auto& i : dynamicInputShapesMapVal) {
                 if (i >= checked_cast<std::remove_reference<decltype(i)>::type>(getDynamicInputShapes().size())) {
                     return errorAt(
                             op, "SW Kernel dynamicInputShapesMap contains values which are out of dynamicInputShapes "
@@ -651,7 +720,8 @@ mlir::LogicalResult SwKernelOp::verify() {
                                "SW Kernel dynamicOutputShapes size doesn't match with number of positive elements in "
                                "dynamicOutputShapesMap");
             }
-            for (const auto& i : getDynamicOutputShapesMap().value_or(llvm::ArrayRef<int32_t>())) {
+            const auto dynamicOutputShapesMapVal = getDynamicOutputShapesMap().value_or(ArrayRef<int32_t>());
+            for (const auto& i : dynamicOutputShapesMapVal) {
                 if (i >= checked_cast<std::remove_reference<decltype(i)>::type>(getDynamicOutputShapeBuffs().size())) {
                     return errorAt(
                             op, "SW Kernel dynamicOutputShapesMap contains values which are out of dynamicOutputShapes "
@@ -690,6 +760,80 @@ mlir::LogicalResult SwKernelOp::inferReturnTypes(mlir::MLIRContext* ctx, std::op
     return mlir::success();
 }
 
+bool isConfigSupported(VPU::ConvertOp op) {
+    const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType();
+    const auto oType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType()).getElementType();
+
+    using DT = sw_params::DataType;
+    const DT in = getDataTypeFromMlirType(iType);
+    const DT out = getDataTypeFromMlirType(oType);
+
+    constexpr auto mode = [](DT i, DT o) -> uint64_t {
+        return (static_cast<uint64_t>(i) << 32) | static_cast<uint64_t>(o);
+    };
+
+    const uint64_t curMode = mode(in, out);
+
+    static constexpr uint64_t supportedModes[] = {
+            mode(DT::NN_FP16, DT::NN_FP32),  // frequent modes
+            mode(DT::NN_FP32, DT::NN_FP16), mode(DT::NN_I4, DT::NN_FP16),   mode(DT::NN_I32, DT::NN_I64),
+            mode(DT::NN_I64, DT::NN_FP16),  mode(DT::NN_I64, DT::NN_I32),   mode(DT::NN_FP16, DT::NN_I32),
+            mode(DT::NN_I32, DT::NN_FP16),  mode(DT::NN_U8, DT::NN_FP16),   mode(DT::NN_I8, DT::NN_FP16),
+            mode(DT::NN_I32, DT::NN_FP32),  mode(DT::NN_I8, DT::NN_I32),    mode(DT::NN_U8, DT::NN_I32),
+            mode(DT::NN_FP16, DT::NN_U8),
+
+            mode(DT::NN_U8, DT::NN_FP32),  // less frequent modes
+            mode(DT::NN_I8, DT::NN_FP32),   mode(DT::NN_I32, DT::NN_U8),    mode(DT::NN_I32, DT::NN_I8),
+            mode(DT::NN_I32, DT::NN_U64),   mode(DT::NN_FP16, DT::NN_I8),   mode(DT::NN_FP32, DT::NN_U8),
+            mode(DT::NN_FP32, DT::NN_I8),   mode(DT::NN_FP32, DT::NN_I32),  mode(DT::NN_U16, DT::NN_FP16),
+            mode(DT::NN_FP16, DT::NN_U16),  mode(DT::NN_I8, DT::NN_I64),    mode(DT::NN_FP16, DT::NN_I64),
+            mode(DT::NN_FP32, DT::NN_I64),  mode(DT::NN_U8, DT::NN_I64),    mode(DT::NN_I64, DT::NN_I8),
+            mode(DT::NN_I64, DT::NN_FP32),  mode(DT::NN_I64, DT::NN_U8),    mode(DT::NN_U64, DT::NN_U32),
+            mode(DT::NN_U32, DT::NN_U64),   mode(DT::NN_U4, DT::NN_U8),     mode(DT::NN_U4, DT::NN_I8),
+            mode(DT::NN_U4, DT::NN_FP16),   mode(DT::NN_I4, DT::NN_I8),     mode(DT::NN_BF16, DT::NN_FP16),
+            mode(DT::NN_I64, DT::NN_FP64),  mode(DT::NN_FP64, DT::NN_I64),  mode(DT::NN_I8, DT::NN_U8),
+            mode(DT::NN_U8, DT::NN_I8),     mode(DT::NN_FP64, DT::NN_FP16), mode(DT::NN_FP16, DT::NN_FP64),
+    };
+
+    return llvm::is_contained(supportedModes, curMode);
+}
+
+bool isConfigSupported(VPU::DequantizeOp op) {
+    const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType();
+    const auto oType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType()).getElementType();
+
+    using DT = sw_params::DataType;
+    const DT in = getDataTypeFromMlirType(iType);
+    const DT out = getDataTypeFromMlirType(oType);
+    const auto arch = config::getArch(op.getOperation());
+
+    // Supported on all arches
+    if (in == DT::NN_U8 && out == DT::NN_FP32) {
+        return true;
+    }
+
+    if (out == DT::NN_FP16) {
+        // Supported on all arches
+        if (in == DT::NN_U8 || in == DT::NN_I8 || in == DT::NN_U16 || in == DT::NN_I16) {
+            return true;
+        }
+
+        if (arch >= config::ArchKind::NPU40XX) {
+            if (in == DT::NN_I4 || in == DT::NN_U4) {
+                return true;
+            }
+        }
+
+        if (arch >= config::ArchKind::NPU50XX) {
+            if (in == DT::NN_BF8 || in == DT::NN_HF8) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 // A SW-Kernel implementation may be split into multiple files:
 //  -  to reduce code-size/stalls
 //  -  to reduce general impact when adding a network specific optimization
@@ -702,10 +846,14 @@ std::tuple<SmallString, SmallString, SmallString> getKernelImpl(VPUOp op) = dele
 
 std::pair<SmallString, SmallString> getKernelImpl(VPU::ConvertOp op) {
     const auto arch = config::getArch(op.getOperation());
-    if (arch != config::ArchKind::NPU37XX) {
-        const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType();
-        const auto oType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType()).getElementType();
+    const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType();
+    const auto oType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType()).getElementType();
 
+    using DT = sw_params::DataType;
+    const DT inDT = getDataTypeFromMlirType(iType);
+    const DT outDT = getDataTypeFromMlirType(oType);
+
+    if (arch != config::ArchKind::NPU37XX) {
         if (iType.isF16() && oType.isF32()) {
             // FP16 -> FP32
             return std::pair<SmallString, SmallString>{"convert_p00", "convert_p00.cpp"};
@@ -726,6 +874,19 @@ std::pair<SmallString, SmallString> getKernelImpl(VPU::ConvertOp op) {
             }
         }
     }
+
+    if (inDT == DT::NN_NF4 && outDT == DT::NN_FP16) {
+        return std::pair<SmallString, SmallString>{"convert_p03", "convert_p03.cpp"};
+    }
+
+    if (arch != config::ArchKind::NPU37XX) {
+        if (inDT == DT::NN_FP16 && (outDT == DT::NN_U4 || outDT == DT::NN_I4)) {
+            return std::pair<SmallString, SmallString>{"convert_p03", "convert_p03.cpp"};
+        }
+    }
+
+    VPUX_THROW_UNLESS(isConfigSupported(op), "Unsupported ConvertOp configuration: {0} -> {1} on arch {2}", iType,
+                      oType, config::stringifyArchKind(arch));
     return std::pair<SmallString, SmallString>{"convert", "convert.cpp"};
 }
 
@@ -766,6 +927,14 @@ std::tuple<SmallString, SmallString> getKernelImpl(VPU::AttentionOp op) {
     return std::tuple<SmallString, SmallString>{"attention", "attention.cpp"};
 }
 
+std::tuple<SmallString, SmallString, SmallString> getKernelImpl(VPU::AttentionDMAOp op) {
+    if (VPU::AttentionDMAOp::fitsForNonFlashKernel(op)) {
+        return std::tuple<SmallString, SmallString, SmallString>{"attention_dma", "attention_dma.cpp", "attention_dma"};
+    }
+    return std::tuple<SmallString, SmallString, SmallString>{"attention_dma_flash", "attention_dma_flash.cpp",
+                                                             "attention_dma"};
+}
+
 std::pair<SmallString, SmallString> getKernelImpl(VPU::MVNOp op) {
     const auto arch = config::getArch(op.getOperation());
     if ((arch != config::ArchKind::NPU37XX) && (!vpux::IE::hasDynamicTensors(op))) {
@@ -799,6 +968,10 @@ std::pair<SmallString, SmallString> getKernelImpl(VPU::RMSOp op) {
         }
     }
     return std::pair<SmallString, SmallString>{"rms_norm", "rms_norm.cpp"};
+}
+
+std::pair<SmallString, SmallString> getKernelImpl(VPU::GatedDeltaNetOp) {
+    return std::pair<SmallString, SmallString>{"gated_delta_net", "gated_delta_net.cpp"};
 }
 
 std::pair<SmallString, SmallString> getKernelImpl(VPU::DepthToSpaceOp op) {
@@ -843,7 +1016,35 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
 
     return llvm::TypeSwitch<mlir::Operation*, VPUIP::KernelInfo>(origOp)
             .Case<VPU::GenericSwLayerOp>([&](VPU::GenericSwLayerOp genericSwLayerOp) {
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{},
+                SmallVector<mlir::Attribute> attrs;
+
+                // Handle tiling attributes if present
+                if (genericSwLayerOp.getTilingPropertiesAttr() != nullptr) {
+                    // Verify no dynamic sizes/offsets exist
+                    VPUX_THROW_WHEN(!genericSwLayerOp.getDynamicSizes().empty(), "Dynamic sizes not supported at '{0}'",
+                                    genericSwLayerOp->getLoc());
+                    VPUX_THROW_WHEN(!genericSwLayerOp.getDynamicOffsets().empty(),
+                                    "Dynamic offsets not supported at '{0}'", genericSwLayerOp->getLoc());
+
+                    // Extract and add static sizes/offsets (in this order) to match the
+                    // kernel calling convention established when the GenericSwLayerOp was
+                    // outlined.
+                    // FIXME: E#224707 - lift the int32 constraint on sizes/offsets.
+                    // For now we check that the sizes/offsets do fit in a 32 bit signed integer.
+                    const auto tilingProps = genericSwLayerOp.getTilingPropertiesAttr();
+                    if (const auto staticSizes = tilingProps.getStaticSizes()) {
+                        for (int64_t size : staticSizes.asArrayRef()) {
+                            attrs.push_back(getIntAttr(ctx, checked_cast<int32_t>(size)));
+                        }
+                    }
+                    if (const auto staticOffsets = tilingProps.getStaticOffsets()) {
+                        for (int64_t offset : staticOffsets.asArrayRef()) {
+                            attrs.push_back(getIntAttr(ctx, checked_cast<int32_t>(offset)));
+                        }
+                    }
+                }
+
+                return VPUIP::KernelInfo{attrs,
                                          {genericSwLayerOp.getCallee().getLeafReference().getValue()},
                                          {"jit_generated"}};
             })
@@ -859,7 +1060,7 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"activation_exp"}};
             })
             .Case<VPU::GatherOp>([&](VPU::GatherOp gather) {
-                const auto axisParam = computeReverseMemDim(gather.getInput(), gather.getAxisValue().value());
+                const auto axisParam = computeReverseMemDim(gather.getInput(), gather.getAxisValue());
                 const auto axisParamAttr = getIntAttr(gather.getContext(), axisParam);
                 const auto indicesShape = getShape(gather.getIndices());
                 const auto indicesRankParamAttr =
@@ -1058,14 +1259,67 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 VPUX_THROW_WHEN(interpolate.getAttr().getAntialias().getValue() == true,
                                 "Antialiasing is not supported.");
 
-                const auto initialInputOffset =
+                auto initialInputOffsetLogical =
                         interpolate.getInitialInputOffsetAttr().has_value()
-                                ? permuteIntArrayAttr(inOrder, interpolate.getInitialInputOffsetAttr().value())
+                                ? parseIntArrayAttr<int64_t>(interpolate.getInitialInputOffsetAttr().value())
                                 : SmallVector<int64_t>(inOrder.numDims(), 0);
-                const auto initialOutputOffset =
+                auto initialOutputOffsetLogical =
                         interpolate.getInitialOutputOffsetAttr().has_value()
-                                ? permuteIntArrayAttr(inOrder, interpolate.getInitialOutputOffsetAttr().value())
+                                ? parseIntArrayAttr<int64_t>(interpolate.getInitialOutputOffsetAttr().value())
                                 : SmallVector<int64_t>(inOrder.numDims(), 0);
+
+                if (auto dynInputOffsetsTensor = interpolate.getDynamicInputOffsets();
+                    dynInputOffsetsTensor != nullptr) {
+                    const auto dynInputOffsets = extractConstOffsetsTensor(dynInputOffsetsTensor, interpolate->getLoc(),
+                                                                           "dynamic_input_offsets");
+                    VPUX_THROW_WHEN(dynInputOffsets.size() != initialInputOffsetLogical.size(),
+                                    "dynamic_input_offsets size {0} does not match rank {1} at '{2}'",
+                                    dynInputOffsets.size(), initialInputOffsetLogical.size(), interpolate->getLoc());
+                    bool replaced = false;
+                    for (auto i : irange(initialInputOffsetLogical.size())) {
+                        if (initialInputOffsetLogical[i] == mlir::ShapedType::kDynamic) {
+                            initialInputOffsetLogical[i] = dynInputOffsets[i];
+                            replaced = true;
+                        } else {
+                            VPUX_THROW_WHEN(initialInputOffsetLogical[i] != dynInputOffsets[i],
+                                            "Conflicting static and dynamic input offsets at dim {0} for '{1}'", i,
+                                            interpolate->getLoc());
+                        }
+                    }
+                    VPUX_THROW_WHEN(!replaced,
+                                    "dynamic_input_offsets provided but initial_input_offset_attr has no dynamic "
+                                    "sentinel at '{0}'",
+                                    interpolate->getLoc());
+                }
+
+                if (auto dynOutputOffsetsTensor = interpolate.getDynamicOutputOffsets();
+                    dynOutputOffsetsTensor != nullptr) {
+                    const auto dynOutputOffsets = extractConstOffsetsTensor(
+                            dynOutputOffsetsTensor, interpolate->getLoc(), "dynamic_output_offsets");
+                    VPUX_THROW_WHEN(dynOutputOffsets.size() != initialOutputOffsetLogical.size(),
+                                    "dynamic_output_offsets size {0} does not match rank {1} at '{2}'",
+                                    dynOutputOffsets.size(), initialOutputOffsetLogical.size(), interpolate->getLoc());
+                    bool replaced = false;
+                    for (auto i : irange(initialOutputOffsetLogical.size())) {
+                        if (initialOutputOffsetLogical[i] == mlir::ShapedType::kDynamic) {
+                            initialOutputOffsetLogical[i] = dynOutputOffsets[i];
+                            replaced = true;
+                        } else {
+                            VPUX_THROW_WHEN(initialOutputOffsetLogical[i] != dynOutputOffsets[i],
+                                            "Conflicting static and dynamic output offsets at dim {0} for '{1}'", i,
+                                            interpolate->getLoc());
+                        }
+                    }
+                    VPUX_THROW_WHEN(!replaced,
+                                    "dynamic_output_offsets provided but initial_output_offset_attr has no dynamic "
+                                    "sentinel at '{0}'",
+                                    interpolate->getLoc());
+                }
+
+                const auto initialInputOffset =
+                        permuteIntArrayAttr(inOrder, getIntArrayAttr(ctx, initialInputOffsetLogical));
+                const auto initialOutputOffset =
+                        permuteIntArrayAttr(inOrder, getIntArrayAttr(ctx, initialOutputOffsetLogical));
 
                 const auto modeAttr = getIntAttr(ctx, mode);
                 const auto coordModeAttr = getIntAttr(ctx, coordMode);
@@ -1079,9 +1333,8 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 const auto initialInputOffsetAttr = getIntArrayAttr(ctx, initialInputOffset);
                 const auto initialOutputOffsetAttr = getIntArrayAttr(ctx, initialOutputOffset);
 
-                // Shape calculation mode and original scales for SCALES mode
-                const auto shapeCalcMode = static_cast<int64_t>(interpolate.getAttr().getShapeCalcMode().getValue());
-                const auto shapeCalcModeAttr = getIntAttr(ctx, shapeCalcMode);
+                // useScaleAttr is the sole signal that scales_attr is the authoritative
+                // coordinate-transform scale; shape_calc_mode is not read or serialized.
 
                 // Default to 1.0 (identity scale) for both slots. The kernel struct always reads
                 // original_scales[0] (rh) and original_scales[1] (rw) regardless of how many axes
@@ -1090,55 +1343,29 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 // cause the kernel to compute 1/0 = infinity for the unused axis; 1.0 is a safe
                 // no-op (scale of 1 → coordinate maps to itself).
                 SmallVector<double> originalScales(2, 1.0);
-                if (shapeCalcMode == static_cast<int64_t>(IE::InterpolateCalcMode::SCALES)) {
-                    // Detect SCF tiling by comparing initial_input_dims_attr against the actual
-                    // tensor shape. When SCF tiling splits the op, initial_input_dims_attr holds
-                    // the pre-tiling global shape (set by backInferTileInfo), which differs from
-                    // the tile's actual shape; scales_attr is then rewritten to the tile-local
-                    // ratio by adjustAttrs() and must not be passed to the kernel. When no SCF
-                    // tiling occurs (including when initial_input_dims_attr is set by multi-cluster
-                    // strategy evaluation), initial_input_dims_attr equals the actual shape and
-                    // scales_attr holds the user-specified scale (authoritative).
-                    const auto actualInputShape = to_small_vector(getShape(interpolate.getInput()));
-                    bool isTiled = false;
-                    if (interpolate.getInitialInputDimsAttr().has_value()) {
-                        const auto initialDims =
-                                parseIntArrayAttr<int64_t>(interpolate.getInitialInputDimsAttr().value());
-                        isTiled =
-                                (initialDims != SmallVector<int64_t>(actualInputShape.begin(), actualInputShape.end()));
-                    }
 
-                    if (isTiled) {
-                        // SCF-tiled: use global dims ratio from initial (pre-tiling) dimensions.
-                        for (size_t i = 0; i < scalingAxis.size() && i < 2; i++) {
-                            const auto axis = checked_cast<unsigned>(scalingAxis[i]);
-                            const auto inDim = mlir::cast<mlir::IntegerAttr>(initialInputDim[axis]).getInt();
-                            const auto outDim = mlir::cast<mlir::IntegerAttr>(initialOutputDim[axis]).getInt();
-                            originalScales[i] = static_cast<double>(outDim) / inDim;
-                        }
-                    } else if (interpolate.getScalesAttrAttr()) {
-                        // Non-tiled: scales_attr is a positional array indexed by position in axes_attr.
-                        // For each kernel slot (scalingAxis[i]), find the axis's position in axisParam and
-                        // use that as the index into scalesVec. Synthetically added neighbor axes (not
-                        // present in axisParam) keep the default 1.0.
-                        const auto scalesVec = parseFPArrayAttr<double>(interpolate.getScalesAttrAttr());
-                        for (size_t i = 0; i < scalingAxis.size() && i < 2; i++) {
-                            const auto targetAxis = scalingAxis[i];
-                            auto it = std::find(axisParam.begin(), axisParam.end(), targetAxis);
-                            if (it != axisParam.end()) {
-                                auto idx = static_cast<size_t>(std::distance(axisParam.begin(), it));
-                                if (idx < scalesVec.size()) {
-                                    originalScales[i] = scalesVec[idx];
-                                }
-                            } else {
-                                const auto axis = checked_cast<unsigned>(targetAxis);
-                                VPUX_THROW_WHEN(initialInputDim[axis] != initialOutputDim[axis],
-                                                "Synthetic neighbor axis {0} has mismatched I/O dims at '{1}'",
-                                                targetAxis, interpolate->getLoc());
+                // Read scales_attr only when useScaleAttr marks the op as SCALES-authored: only then
+                // is scales_attr the authoritative coordinate-transform scale. For SIZES-authored ops
+                // (tiled or not), the marker is absent, so any incidental scales_attr (e.g. canonical-
+                // form leftovers) is ignored and the kernel uses the initial_IH/initial_OH dim ratio —
+                // matching the VPU-dialect back-inference.
+                const bool useScaleAttr = interpolate.getUseScaleAttr();
+                if (interpolate.getScalesAttrAttr() && useScaleAttr) {
+                    const auto scalesVec = parseFPArrayAttr<double>(interpolate.getScalesAttrAttr());
+                    for (size_t i = 0; i < scalingAxis.size() && i < 2; i++) {
+                        const auto targetAxis = scalingAxis[i];
+                        auto it = std::find(axisParam.begin(), axisParam.end(), targetAxis);
+                        if (it != axisParam.end()) {
+                            auto idx = static_cast<size_t>(std::distance(axisParam.begin(), it));
+                            if (idx < scalesVec.size()) {
+                                originalScales[i] = scalesVec[idx];
                             }
                         }
                     }
                 }
+                // Serialize the marker itself (1 → kernel uses 1/original_scales; 0 → dim ratio).
+                // This replaces the former shape_calc_mode enum in the kernel ABI slot.
+                const auto useScaleAttrParamAttr = getIntAttr(ctx, useScaleAttr ? 1 : 0);
                 const auto originalScalesAttr = getFPArrayAttr(ctx, originalScales);
 
                 // INT64_MAX added as a delimiter to find where MemRefData fields are ended in case of variadic number
@@ -1149,7 +1376,7 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                                                  delimiterAttr, modeAttr, coordModeAttr, nearestModeAttr, antialiasAttr,
                                                  tileAttr, initialInputDimsParamAttr, initialOutputDimsParamAttr,
                                                  axisParamAttr, cubeCoeffParamAttr, initialInputOffsetAttr,
-                                                 initialOutputOffsetAttr, shapeCalcModeAttr, originalScalesAttr},
+                                                 initialOutputOffsetAttr, useScaleAttrParamAttr, originalScalesAttr},
                                          {"interpolate"}};
             })
             .Case<VPU::InterpolateDMAOp>([&](VPU::InterpolateDMAOp interpDMA) {
@@ -1224,13 +1451,43 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
             .Case<VPU::ErfOp>([&](VPU::ErfOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"activation_erf"}};
             })
+            .Case<VPU::ErfInvOp>([&](VPU::ErfInvOp) {
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"activation_erfinv"}};
+            })
             .Case<VPU::CeilingOp>([&](VPU::CeilingOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"activation_ceil"}};
             })
             .Case<VPU::DivideOp>([&](VPU::DivideOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"eltwise_div"}};
             })
-            .Case<VPU::MultiplyOp>([&](VPU::MultiplyOp) {
+            .Case<VPU::MultiplyOp>([&](VPU::MultiplyOp op) {
+                const auto oType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType());
+                const auto outElemType = oType.getElementType();
+                VPUX_THROW_UNLESS(!mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outElemType),
+                                  "Multiply layer op does not support per-axis quantized output on shv at '{0}'",
+                                  op->getLoc());
+
+                const auto quantParams = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(outElemType);
+                if (quantParams != nullptr) {
+                    const auto storageType = quantParams.getStorageType();
+                    VPUX_THROW_UNLESS(
+                            storageType.isInteger(8),
+                            "Multiply layer op supports only i8/u8 per-tensor quantized output on shv at '{0}'",
+                            op->getLoc());
+
+                    const auto in1Shape = mlir::cast<vpux::NDTypeInterface>(op.getInput1().getType()).getShape();
+                    const auto in2Shape = mlir::cast<vpux::NDTypeInterface>(op.getInput2().getType()).getShape();
+                    VPUX_THROW_UNLESS(in1Shape == in2Shape,
+                                      "Multiply layer op with quantized output supports only non-broadcasted inputs "
+                                      "on shv at '{0}'",
+                                      op->getLoc());
+
+                    const double outScale = quantParams.getScale();
+                    const int64_t outZP = quantParams.getZeroPoint();
+                    return VPUIP::KernelInfo{
+                            SmallVector<mlir::Attribute>{getFPAttr(ctx, outScale), getIntAttr(ctx, outZP)},
+                            {"eltwise_mul_quantized_output"}};
+                }
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"eltwise_mul"}};
             })
             .Case<VPU::AddOp>([&](VPU::AddOp) {
@@ -1454,6 +1711,25 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                         SmallVector<mlir::Attribute>{axisParamAttr, modeIntAttr, sortModeAttr, kValueAttr},
                         {"topk"}};
             })
+            .Case<VPU::TopKDmaOp>([&](VPU::TopKDmaOp topk) {
+                const auto axisParam = computeReverseMemDim(topk.getInput(), topk.getAxis());
+                const auto mode = static_cast<int64_t>(topk.getModeAttr().getValue());
+                const auto sortMode = static_cast<int64_t>(topk.getSortAttr().getValue());
+                const auto kValue = topk.getKValue();
+
+                const auto axisParamAttr = getIntAttr(ctx, axisParam);
+                const auto modeIntAttr = getIntAttr(ctx, mode);
+                const auto sortModeAttr = getIntAttr(ctx, sortMode);
+                const auto kValueAttr = getIntAttr(ctx, kValue);
+
+                int64_t numTiles = getNumTiles(topk.getAuxBuffer());
+                int64_t numShaves = (static_cast<VPU::SwIoDmaOpInterface>(topk)).getDuplicatedNumShaves();
+                const auto runInfoAttr = getIntAttr(ctx, (numShaves << 32) | numTiles);
+
+                return VPUIP::KernelInfo{
+                        SmallVector<mlir::Attribute>{axisParamAttr, modeIntAttr, sortModeAttr, kValueAttr, runInfoAttr},
+                        {"topk_dma"}};
+            })
             .Case<VPU::ExtractImagePatchesOp>([&](VPU::ExtractImagePatchesOp op) {
                 auto sizes = parseIntArrayAttr<int64_t>(op.getSizesAttr());
                 auto strides = parseIntArrayAttr<int64_t>(op.getStridesAttr());
@@ -1599,7 +1875,12 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{paramsAttr}, {"quantize"}};
             })
             .Case<VPU::DequantizeOp>([&](VPU::DequantizeOp op) {
+                const auto arch = config::getArch(op.getOperation());
+                const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
                 const auto oType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType());
+                VPUX_THROW_UNLESS(isConfigSupported(op),
+                                  "Unsupported DequantizeOp configuration: {0} -> {1} on arch {2}", iType, oType,
+                                  config::stringifyArchKind(arch));
                 mlir::ArrayAttr paramsAttr;
                 getQuantParamsAttr(op.getInput(), oType.getElementType(), paramsAttr);
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{paramsAttr}, {"dequantize"}};
@@ -2020,6 +2301,38 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 const auto runInfoAttr = getIntAttr(op.getContext(), (numShaves << 32) | numTiles);
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{runInfoAttr}, {"activation_atan_dma"}};
             })
+            .Case<VPU::AttentionDMAOp>([&](VPU::AttentionDMAOp op) {
+                int64_t numTiles = getNumTiles(op.getAuxBuffer());
+                int64_t numShaves = (static_cast<VPU::SwIoDmaOpInterface>(op)).getDuplicatedNumShaves();
+
+                // Pack AttentionDMAAttrs: {int32_t spad_size, float mask_threshold, uint32_t numTiles, uint32_t
+                // numShaves}
+                int32_t padSize = 0;
+                if (op.getPadSizeSAttr() != nullptr) {
+                    if (op.getPadSizeS().has_value()) {
+                        padSize = static_cast<int32_t>(op.getPadSizeS().value());
+                    }
+                }
+                const auto maskThreshold = static_cast<float>(config::getSoftmaxMaskAwareThreshold(op.getOperation()));
+                uint32_t thresholdBits;
+                std::memcpy(&thresholdBits, &maskThreshold, sizeof(uint32_t));
+                // First i64: {spad_size(low32), mask_threshold(high32)}
+                int64_t packedAttrs = static_cast<int64_t>(static_cast<uint64_t>(static_cast<uint32_t>(padSize)) |
+                                                           (static_cast<uint64_t>(thresholdBits) << 32));
+                const auto packedAttr = getIntAttr(ctx, packedAttrs);
+                // Second i64: {numTiles(low32), numShaves(high32)}
+                const auto runInfoAttr = getIntAttr(op.getContext(), (numShaves << 32) | numTiles);
+
+                auto [kernelEntry, kernelSrc, kernelName] = getKernelImpl(op);
+
+                SmallVector<mlir::Attribute> params{optionalIoAttr(op), packedAttr};
+                if (kernelEntry == SmallString("attention_dma_flash")) {
+                    params.push_back(getIntAttr(ctx, static_cast<int64_t>(0)));  // flashInfoAttr
+                }
+                params.push_back(runInfoAttr);
+
+                return VPUIP::KernelInfo{params, {kernelEntry}, {kernelSrc}, {kernelName}};
+            })
             .Case<VPU::AsinhOp>([&](VPU::AsinhOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"activation_asinh"}};
             })
@@ -2409,6 +2722,14 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                         {"convolution"}};
             })
             .Case<VPU::GroupConvolutionOp>([&](VPU::GroupConvolutionOp op) {
+                // SW Kernel must not have post_op/clamp
+                VPUX_THROW_WHEN(op.getClampAttr() != nullptr,
+                                "GroupConvolution SW kernel does not support a clamp attribute, got '{0}' at '{1}'",
+                                op.getClampAttr(), op->getLoc());
+                VPUX_THROW_WHEN(op.getPostOpAttr() != nullptr,
+                                "GroupConvolution SW kernel does not support a post_op attribute, got '{0}' at '{1}'",
+                                op.getPostOpAttr(), op->getLoc());
+
                 auto group = static_cast<int64_t>(op.getGroups().value());
                 auto padsEnd = parseIntArrayAttr<int64_t>(op.getPadsEnd());
                 auto padsBegin = parseIntArrayAttr<int64_t>(op.getPadsBegin());
@@ -2520,6 +2841,15 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                                          kernelEntry,
                                          kernelSrc,
                                          {"rms_norm"}};
+            })
+            .Case<VPU::GatedDeltaNetOp>([&](VPU::GatedDeltaNetOp op) {
+                auto [kernelEntry, kernelSrc] = getKernelImpl(op);
+                const auto fuseAttr = getIntAttr(op.getContext(), static_cast<int64_t>(op.getFuseQkL2norm() ? 1 : 0));
+                return VPUIP::KernelInfo{
+                        SmallVector<mlir::Attribute>{fuseAttr, op.getQL2NormEpsAttr(), op.getKL2NormEpsAttr()},
+                        kernelEntry,
+                        kernelSrc,
+                        {"gated_delta_net"}};
             })
             .Case<VPU::ReduceSquareOp>([&](VPU::ReduceSquareOp op) {
                 const auto inType = mlir::cast<vpux::NDTypeInterface>(op.getInputs().front().getType());

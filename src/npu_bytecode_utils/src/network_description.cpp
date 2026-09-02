@@ -16,6 +16,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <iostream>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <vector>
@@ -271,9 +273,9 @@ const details::DataSectionInfo* getMetadataSectionInfo(BytecodeReader& reader) {
     return nullptr;
 }
 
-void dumpDescriptors(const char* kind, const std::vector<IODescriptor>& descriptors) {
+void dumpDescriptors([[maybe_unused]] const char* kind, const std::vector<IODescriptor>& descriptors) {
     NPU_VM_LOG_TRACE("{} count: {}", kind, descriptors.size());
-    size_t index = 0;
+    [[maybe_unused]] size_t index = 0;
     for ([[maybe_unused]] const auto& descriptor : descriptors) {
         NPU_VM_LOG_TRACE("{}[{}] name='{}', precision={}, shape={}, driver_index={}, "
                          "dynamic_strides={}, state_in={}, state_out={}, shape_tensor={}",
@@ -300,6 +302,7 @@ std::optional<NetworkMetadata> parseNetworkMetadata(const uint8_t* bytecodePtr, 
     if (bytecodePtr == nullptr || bytecodeSize == 0) {
         return std::nullopt;
     }
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) - function receives pointer to const
     Span<uint8_t> bytecodeView(const_cast<uint8_t*>(bytecodePtr), bytecodeSize);
     BytecodeReader reader(bytecodeView);
     if (!reader.parseFile()) {
@@ -381,6 +384,104 @@ std::optional<NetworkMetadata> parseNetworkMetadata(BytecodeReader& reader) {
     network.bindRelatedDescriptors();
     dumpNetworkMetadata(network);
     return network;
+}
+
+void printMetadataEntry(Span<uint8_t> metadata) {
+    if (metadata.empty()) {
+        std::cout << "(empty)";
+        return;
+    }
+
+    MetadataRecordKind kind{};
+    if (!parseValueFrom(metadata, kind)) {
+        NPU_VM_LOG_ERROR("Failed to parse metadata record kind");
+        return;
+    }
+
+    switch (kind) {
+    case MetadataRecordKind::Network: {
+        uint64_t nameIndex = 0;
+        uint64_t numStreams = 0;
+        uint64_t numCmdlists = 0;
+        if (!parseValueFrom(metadata, nameIndex) || !parseValueFrom(metadata, numStreams) ||
+            !parseValueFrom(metadata, numCmdlists)) {
+            NPU_VM_LOG_ERROR("Failed to parse network_metadata fields");
+            return;
+        }
+        std::cout << "networkMetadata<nameIndex=" << nameIndex << ", numStreams=" << numStreams
+                  << ", numCmdlists=" << numCmdlists << ">";
+        break;
+    }
+    case MetadataRecordKind::Input:
+    case MetadataRecordKind::Output:
+    case MetadataRecordKind::ProfilingOutput: {
+        uint64_t nameIndex = 0;
+        uint64_t typeIndex = 0;
+        uint64_t shapeIndex = 0;
+        uint32_t indexUsedByDriver = 0;
+        uint8_t hasDynamicStrides = 0;
+        uint8_t tensorNameCount = 0;
+        if (!parseValueFrom(metadata, nameIndex) || !parseValueFrom(metadata, typeIndex) ||
+            !parseValueFrom(metadata, shapeIndex) || !parseValueFrom(metadata, indexUsedByDriver) ||
+            !parseValueFrom(metadata, hasDynamicStrides) || !parseValueFrom(metadata, tensorNameCount)) {
+            NPU_VM_LOG_ERROR("Failed to parse metadata descriptor fields");
+            return;
+        }
+
+        const char* kindStr = (kind == MetadataRecordKind::Input)    ? "inputMetadata"
+                              : (kind == MetadataRecordKind::Output) ? "outputMetadata"
+                                                                     : "profilingOutputMetadata";
+        std::cout << kindStr << "<nameIndex=" << nameIndex << ", typeIndex=" << typeIndex
+                  << ", shapeIndex=" << shapeIndex << ", driverIdx=" << indexUsedByDriver
+                  << ", dynamicStrides=" << (hasDynamicStrides ? "true" : "false")
+                  << ", tensorNameCount=" << static_cast<uint32_t>(tensorNameCount);
+
+        for (uint8_t i = 0; i < tensorNameCount; ++i) {
+            uint64_t tensorNameIndex = 0;
+            if (!parseValueFrom(metadata, tensorNameIndex)) {
+                NPU_VM_LOG_ERROR("Failed to parse tensor name index at position {}", static_cast<uint32_t>(i));
+                return;
+            }
+            std::cout << ", tensorName[" << static_cast<uint32_t>(i) << "]=" << tensorNameIndex;
+        }
+
+        uint8_t hasShapeFromIRModel = 0;
+        if (!parseValueFrom(metadata, hasShapeFromIRModel)) {
+            NPU_VM_LOG_ERROR("Failed to parse hasShapeFromIRModel field");
+            return;
+        }
+        std::cout << ", hasShapeFromIRModel=" << (hasShapeFromIRModel ? "true" : "false");
+        if (hasShapeFromIRModel) {
+            uint64_t shapeFromIRModelIndex = 0;
+            if (!parseValueFrom(metadata, shapeFromIRModelIndex)) {
+                NPU_VM_LOG_ERROR("Failed to parse shapeFromIRModelIndex field");
+                return;
+            }
+            std::cout << ", shapeFromIRModelIndex=" << shapeFromIRModelIndex;
+        }
+
+        uint8_t hasNodeFriendlyName = 0;
+        if (!parseValueFrom(metadata, hasNodeFriendlyName)) {
+            NPU_VM_LOG_ERROR("Failed to parse hasNodeFriendlyName field");
+            return;
+        }
+        std::cout << ", hasNodeFriendlyName=" << (hasNodeFriendlyName ? "true" : "false");
+        if (hasNodeFriendlyName) {
+            uint64_t nodeFriendlyNameIndex = 0;
+            if (!parseValueFrom(metadata, nodeFriendlyNameIndex)) {
+                NPU_VM_LOG_ERROR("Failed to parse nodeFriendlyNameIndex field");
+                return;
+            }
+            std::cout << ", nodeFriendlyNameIndex=" << nodeFriendlyNameIndex;
+        }
+
+        std::cout << ">";
+        break;
+    }
+    default:
+        NPU_VM_LOG_ERROR("Unknown metadata kind: {}", static_cast<uint8_t>(kind));
+        break;
+    }
 }
 
 }  // namespace intel_npu::vm

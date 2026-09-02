@@ -108,7 +108,7 @@ def VPU_DetectionOutputSortOp:
         VPU_LayerOp<
             "DetectionOutputSort",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMainOutputTile"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
                                                                      "isOperationSplitOverWidthCompatible",
@@ -158,7 +158,7 @@ def VPU_DetectionOutputNmsCaffeOp:
         VPU_LayerOp<
             "DetectionOutputNmsCaffe",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMainOutputTile"]>
             ]
         > {
     let summary = "DetectionOutputNmsCaffe VPU layer";
@@ -564,6 +564,55 @@ def VPU_AttentionOp :
 }
 
 
+def VPU_AttentionDMAOp :
+        VPU_SwIoDmaOp<
+            "AttentionDMA",
+            [
+                AttrSizedOperandSegments,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
+            ]
+        > {
+    let summary = "Attention VPU layer with DMA support";
+
+    let arguments = (ins
+        RankedTensorOf<[F16, F32]>:$inputQ,
+        RankedTensorOf<[F16, F32]>:$inputK,
+        RankedTensorOf<[F16, F32]>:$inputV,
+        Optional<RankedTensorOf<[F16, F32, Bool8]>>:$inputMask,
+        Optional<RankedTensorOf<[F16, F32]>>:$inputScale,
+        Optional<RankedTensorOf<[F16, F32]>>:$inputSink,
+        Optional<RankedTensorOf<[F16, F32]>>:$inputBias,
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$aux_buffer,
+        Optional<AnyTypeOf<[RankedTensorOf<[SI32]>, VPU_DistributedTensor]>>:$seqLenK,
+        OptionalAttr<IntAttr>:$padSizeS,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
+    );
+
+    let results = (outs
+        RankedTensorOf<[F16, F32]>:$output
+    );
+
+    let extraClassDeclaration = [{
+        static bool fitsForNonFlashKernel(vpux::VPU::AttentionDMAOp origOp);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$inputQ,
+            "::mlir::Value":$inputK,
+            "::mlir::Value":$inputV,
+            "::mlir::Value":$inputMask,
+            "::mlir::Value":$inputScale,
+            "::mlir::Value":$inputSink,
+            "::mlir::Value":$inputBias,
+            "::mlir::Value":$seqLenK,
+            "::mlir::IntegerAttr":$padSizeS
+        )>
+    ];
+}
+
 def VPU_RoPEOp :
         VPU_LayerOp<
             "RoPE",
@@ -614,16 +663,25 @@ def VPU_NonMaxSuppressionOp :
         VPU_LayerOp<
             "NonMaxSuppression",
             [
-                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>
+                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
+                VPU_BoundsRepresentationInterface
             ]
         > {
     let summary = "NonMaxSuppression VPU layer";
 
+    let description = [{
+        VPU-level NonMaxSuppression op. Output count is data-dependent; shape inference produces:
+          * static output shape `<B*C*min(N,K) x 3>` for fully static inputs;
+          * dynamic shape with explicit bounds for BoundedTensorType inputs (via
+            BoundsRepresentationInterface, default representation is BOUNDS).
+
+        The static branch is a compatibility shim while ConvertNMS9ToNMSIEInternal is enabled in
+        the frontend; once it is disabled, static inputs should also yield a bounded dynamic output.
+    }];
+
     let arguments = (ins
         3DTensorOf<[F16, F32]>:$in_box_coords,
         3DTensorOf<[F16, F32]>:$in_box_scores,
-        1DTensorOf<[F16, F32]>:$iou_threshold,
-        1DTensorOf<[F16, F32]>:$score_threshold,
         AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$dataBuffer,
 
         IE_BoxEncodingTypeAttr:$box_encoding,
@@ -632,7 +690,9 @@ def VPU_NonMaxSuppressionOp :
         OptionalAttr<IntAttr>:$max_output_boxes_per_class_value,
         OptionalAttr<F64Attr>:$iou_threshold_value,
         OptionalAttr<F64Attr>:$score_threshold_value,
-        OptionalAttr<F64Attr>:$soft_nms_sigma_value
+        OptionalAttr<F64Attr>:$soft_nms_sigma_value,
+
+        DefaultValuedAttr<VPU_BoundsRepresentationAttr, "vpux::VPU::BoundsRepresentation::BOUNDS">:$bounds_representation
     );
 
     let results = (outs
@@ -645,14 +705,13 @@ def VPU_NonMaxSuppressionOp :
         OpBuilder<(ins
             "mlir::Value":$inBoxCoords,
             "mlir::Value":$inBoxScores,
-            "mlir::Value":$iouThreshold,
-            "mlir::Value":$scoreThreshold,
             "IE::BoxEncodingTypeAttr":$boxEncoding,
             "mlir::UnitAttr":$sortResultDescending,
             "mlir::IntegerAttr":$maxOutputBoxesPerClassValue,
             "mlir::FloatAttr":$iouThresholdValue,
             "mlir::FloatAttr":$scoreThresholdValue,
-            "mlir::FloatAttr":$softNmsSigmaValue
+            "mlir::FloatAttr":$softNmsSigmaValue,
+            "vpux::VPU::BoundsRepresentationAttr":$boundsRepresentation
         )>
     ];
 
@@ -879,7 +938,8 @@ def VPU_SelectOp :
                 VPU_TilingBuilderOpInterface,
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
             ]
         > {
     let summary = "Select VPU layer";
@@ -945,7 +1005,7 @@ def VPU_TopKOp :
         VPU_LayerOp<
             "TopK",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMainOutputTile"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
@@ -999,6 +1059,42 @@ def VPU_TopKOp :
     let hasVerifier = 1;
     let checkInferredMemSpace = 0;
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
+}
+
+def VPU_TopKDmaOp :
+        VPU_SwIoDmaOp<
+            "TopKDma"
+        > {
+    let summary = "TopK VPU layer with DMA support";
+
+    let arguments = (ins
+        AnyRankedTensor:$input,
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$aux_buffer,
+
+        IntAttr:$k_value,
+        IntAttr:$axis,
+        IE_TopKModeAttr:$mode,
+        IE_TopKSortTypeAttr:$sort,
+        TypeAttr:$index_element_type,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
+    );
+
+    let results = (outs
+        AnyRankedTensor:$output_values,
+        AnyRankedTensor:$output_indices
+    );
+
+    let builders = [
+        OpBuilder<(ins
+            "mlir::Value":$input,
+            "mlir::IntegerAttr":$kValue,
+            "mlir::IntegerAttr":$axis,
+            "IE::TopKModeAttr":$mode,
+            "IE::TopKSortTypeAttr":$sort,
+            "mlir::TypeAttr":$indexElementType,
+            "VPU::MultiClusterStrategyAttr":$multiClusterStrategy
+        )>
+    ];
 }
 
 def VPU_PermuteCastOp :
@@ -1101,7 +1197,7 @@ def VPU_FlashSDPAOp :
         VPU_LayerOp<
             "FlashSDPA",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMainOutputTile"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
                 DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>
@@ -1176,6 +1272,10 @@ def VPU_FlashSDPAOp :
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
 
         bool fitIntoCMXAfterKeyValueTiling(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem, int64_t kvNumBlocks);
+
+        // SourceSequenceLength covered by a single Key/Value block when the operation is
+        // unrolled 'kvNumBlocks' times on that dimension.
+        int64_t getKeyValueBlockSize(int64_t kvNumBlocks);
     }] # baseExtraClassDeclaration;
 
     let hasVerifier = 1;
@@ -1187,7 +1287,7 @@ def VPU_LogSoftmaxTopKOp :
         VPU_LayerOp<
             "LogSoftmaxTopK",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMainOutputTile"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
             ]
@@ -1229,7 +1329,7 @@ def VPU_LogSoftmaxPeakOp :
         VPU_LayerOp<
             "LogSoftmaxPeak",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMainOutputTile"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
             ]

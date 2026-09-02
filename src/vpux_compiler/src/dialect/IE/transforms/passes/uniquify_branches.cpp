@@ -476,6 +476,34 @@ bool MoveAffineReshapeBeforeSlice::isLegalTransformation(IE::SliceOp sliceOp, IE
         return false;
     }
 
+    // Every Slice branch sharing this root (sliceOp itself + siblings) must map its
+    // offset exactly to the hoisted output coordinate; otherwise getNewOffsets would
+    // produce a non-integer offset for the unaligned branch. doesSliceAndLayerOpModifySameAxis
+    // operates on a single sliceOp and bails out early on the highestDim path, so this
+    // all-branch check belongs here.
+    if (sliceAxes.size() != 1) {
+        return false;
+    }
+    const auto sliceAxis = sliceAxes[0];
+    const auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(layerOp.getDimMapping());
+    const auto sliceDim = Dim(dimMapping[sliceAxis][0]);
+    const auto newSizes = parseIntArrayAttr<int64_t>(layerOp.getShapeValueAttr());
+    const auto newSizeForDim = newSizes[sliceDim.ind()];
+    const auto sliceSizeVal = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes())[sliceAxis];
+    if (sliceSizeVal == 0) {
+        return false;
+    }
+    for (auto user : sliceOp.getSource().getUsers()) {
+        auto siblingSlice = mlir::dyn_cast<IE::SliceOp>(user);
+        if (siblingSlice == nullptr) {
+            continue;
+        }
+        const auto siblingOffset = parseIntArrayAttr<int64_t>(siblingSlice.getStaticOffsets())[sliceAxis];
+        if ((siblingOffset * newSizeForDim) % sliceSizeVal != 0) {
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -526,12 +554,6 @@ bool MoveAffineReshapeBeforeSlice::doesSliceAndLayerOpModifySameAxis(IE::SliceOp
         return true;
     }
 
-    // Slice offset must also be aligned to subDimProduct
-    const auto sliceOffset = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
-    if (sliceOffset[sliceAxis] % subDimProduct != 0) {
-        return true;
-    }
-
     return false;
 }
 
@@ -579,8 +601,8 @@ SmallVector<int64_t> MoveAffineReshapeBeforeSlice::getNewOffsets(IE::SliceOp sli
     // newSizeForDim / sliceSizeVal is the per-element stride of sliceAxis in the output:
     // 1 for passthrough, sub-dim product for merge, 1/inner for split.
     // Multiplying before dividing avoids truncation for overlapping (unaligned) slices.
-    // Division is exact in all cases (AffineReshape validity + alignment check in
-    // doesSliceAndLayerOpModifySameAxis).
+    // Division is exact in all cases (AffineReshape validity + per-branch alignment
+    // check in isLegalTransformation).
     VPUX_THROW_UNLESS(sliceSizeVal > 0, "Slice size cannot be zero for {0}", sliceOp);
     VPUX_THROW_UNLESS((sliceOffsetVal * newSizeForDim) % sliceSizeVal == 0,
                       "Non-exact offset mapping for {0}: offset={1}, newSize={2}, sliceSize={3}", sliceOp,
@@ -735,6 +757,9 @@ mlir::LogicalResult MoveReorderBeforeSplit::matchAndRewrite(IE::ReorderOp layerO
     }
 
     for (const auto& res : maybeSplitOp.getOutputs()) {
+        if (!res.hasOneUse()) {
+            return mlir::failure();
+        }
         auto currReorderOp = mlir::dyn_cast_or_null<IE::ReorderOp>(*res.getUsers().begin());
         if (currReorderOp == nullptr || !currReorderOp.getResult().hasOneUse() ||
             layerOp.getDstOrder() != currReorderOp.getDstOrder()) {

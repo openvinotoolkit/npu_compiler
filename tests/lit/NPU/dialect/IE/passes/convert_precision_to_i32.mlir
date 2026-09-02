@@ -104,6 +104,89 @@ func.func @SelectOpSi64ConvertToSi32(%arg0: tensor<1x1024xsi64>, %arg1: tensor<1
 
 // -----
 
+// CHECK-LABEL: @SelectI8CondSi64Data
+// CHECK-SAME:    [[COND:%[^:]+]]: tensor<1x1024xi8>
+// CHECK-SAME:    [[IN1:%[^:]+]]: tensor<1x1024xsi32>
+// CHECK-SAME:    [[IN2:%[^:]+]]: tensor<1x1024xsi32>
+func.func @SelectI8CondSi64Data(%arg0: tensor<1x1024xi8>, %arg1: tensor<1x1024xsi64>, %arg2: tensor<1x1024xsi64>) -> tensor<1x1024xsi64> {
+    %0 = IE.Select(%arg0, %arg1, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024xi8>, tensor<1x1024xsi64>, tensor<1x1024xsi64> -> tensor<1x1024xsi64>
+    return %0 : tensor<1x1024xsi64>
+
+    // CHECK: [[COND_CAST:%.+]] = IE.Convert([[COND]]) {dstElemType = si32} : tensor<1x1024xi8> -> tensor<1x1024xsi32>
+    // CHECK: [[SELECT:%.+]] = IE.Select([[COND_CAST]], [[IN1]], [[IN2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024xsi32>, tensor<1x1024xsi32>, tensor<1x1024xsi32> -> tensor<1x1024xsi32>
+    // CHECK: return [[SELECT]] : tensor<1x1024xsi32>
+}
+
+// -----
+
+// CHECK-LABEL: @SelectI8DataNonSi32Cond
+// CHECK-SAME:    [[COND:%[^:]+]]: tensor<1x1024xi8>
+// CHECK-SAME:    [[IN1:%[^:]+]]: tensor<1x1024xi8>
+// CHECK-SAME:    [[IN2:%[^:]+]]: tensor<1x1024xi8>
+func.func @SelectI8DataNonSi32Cond(%arg0: tensor<1x1024xi8>, %arg1: tensor<1x1024xi8>, %arg2: tensor<1x1024xi8>) -> tensor<1x1024xi8> {
+    %0 = IE.Select(%arg0, %arg1, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024xi8>, tensor<1x1024xi8>, tensor<1x1024xi8> -> tensor<1x1024xi8>
+    return %0 : tensor<1x1024xi8>
+
+    // CHECK-DAG: [[IN2_CAST:%.+]] = IE.Convert([[IN2]]) {dstElemType = si32} : tensor<1x1024xi8> -> tensor<1x1024xsi32>
+    // CHECK-DAG: [[IN1_CAST:%.+]] = IE.Convert([[IN1]]) {dstElemType = si32} : tensor<1x1024xi8> -> tensor<1x1024xsi32>
+    // CHECK-DAG: [[COND_CAST:%.+]] = IE.Convert([[COND]]) {dstElemType = si32} : tensor<1x1024xi8> -> tensor<1x1024xsi32>
+    // CHECK: [[SELECT:%.+]] = IE.Select([[COND_CAST]], [[IN1_CAST]], [[IN2_CAST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024xsi32>, tensor<1x1024xsi32>, tensor<1x1024xsi32> -> tensor<1x1024xsi32>
+    // CHECK: [[OUT_CAST:%.+]] = IE.Convert([[SELECT]]) {dstElemType = i8} : tensor<1x1024xsi32> -> tensor<1x1024xi8>
+    // CHECK: return [[OUT_CAST]] : tensor<1x1024xi8>
+}
+
+// -----
+
+// CHECK-LABEL: @SelectSi16DataNonSi32Cond
+// CHECK-SAME:    [[COND:%[^:]+]]: tensor<1x1024xi8>
+// CHECK-SAME:    [[IN1:%[^:]+]]: tensor<1x1024xsi16>
+// CHECK-SAME:    [[IN2:%[^:]+]]: tensor<1x1024xsi16>
+func.func @SelectSi16DataNonSi32Cond(%arg0: tensor<1x1024xi8>, %arg1: tensor<1x1024xsi16>, %arg2: tensor<1x1024xsi16>) -> tensor<1x1024xsi16> {
+    %0 = IE.Select(%arg0, %arg1, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024xi8>, tensor<1x1024xsi16>, tensor<1x1024xsi16> -> tensor<1x1024xsi16>
+    return %0 : tensor<1x1024xsi16>
+
+    // CHECK-DAG: [[IN2_CAST:%.+]] = IE.Convert([[IN2]]) {dstElemType = si32} : tensor<1x1024xsi16> -> tensor<1x1024xsi32>
+    // CHECK-DAG: [[IN1_CAST:%.+]] = IE.Convert([[IN1]]) {dstElemType = si32} : tensor<1x1024xsi16> -> tensor<1x1024xsi32>
+    // CHECK-DAG: [[COND_CAST:%.+]] = IE.Convert([[COND]]) {dstElemType = si32} : tensor<1x1024xi8> -> tensor<1x1024xsi32>
+    // CHECK: [[SELECT:%.+]] = IE.Select([[COND_CAST]], [[IN1_CAST]], [[IN2_CAST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024xsi32>, tensor<1x1024xsi32>, tensor<1x1024xsi32> -> tensor<1x1024xsi32>
+    // CHECK: [[OUT_CAST:%.+]] = IE.Convert([[SELECT]]) {dstElemType = si16} : tensor<1x1024xsi32> -> tensor<1x1024xsi16>
+    // CHECK: return [[OUT_CAST]] : tensor<1x1024xsi16>
+}
+
+// -----
+
+// CHECK-LABEL: @SelectI8CondSi32Data
+// CHECK-SAME:    [[COND:%[^:]+]]: tensor<1x1024xi8>
+// CHECK-SAME:    [[IN1:%[^:]+]]: tensor<1x1024xsi32>
+// CHECK-SAME:    [[IN2:%[^:]+]]: tensor<1x1024xsi32>
+func.func @SelectI8CondSi32Data(%arg0: tensor<1x1024xi8>, %arg1: tensor<1x1024xsi32>, %arg2: tensor<1x1024xsi32>) -> tensor<1x1024xsi32> {
+    %0 = IE.Select(%arg0, %arg1, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024xi8>, tensor<1x1024xsi32>, tensor<1x1024xsi32> -> tensor<1x1024xsi32>
+    return %0 : tensor<1x1024xsi32>
+
+    // CHECK: [[COND_CAST:%.+]] = IE.Convert([[COND]]) {dstElemType = si32} : tensor<1x1024xi8> -> tensor<1x1024xsi32>
+    // CHECK: [[SELECT:%.+]] = IE.Select([[COND_CAST]], [[IN1]], [[IN2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024xsi32>, tensor<1x1024xsi32>, tensor<1x1024xsi32> -> tensor<1x1024xsi32>
+    // CHECK: return [[SELECT]] : tensor<1x1024xsi32>
+}
+
+// -----
+
+// CHECK-LABEL: @SelectI8DataSi32Cond
+// CHECK-SAME:    [[COND:%[^:]+]]: tensor<1x1024xsi32>
+// CHECK-SAME:    [[IN1:%[^:]+]]: tensor<1x1024xi8>
+// CHECK-SAME:    [[IN2:%[^:]+]]: tensor<1x1024xi8>
+func.func @SelectI8DataSi32Cond(%arg0: tensor<1x1024xsi32>, %arg1: tensor<1x1024xi8>, %arg2: tensor<1x1024xi8>) -> tensor<1x1024xi8> {
+    %0 = IE.Select(%arg0, %arg1, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024xsi32>, tensor<1x1024xi8>, tensor<1x1024xi8> -> tensor<1x1024xi8>
+    return %0 : tensor<1x1024xi8>
+
+    // CHECK-DAG: [[IN2_CAST:%.+]] = IE.Convert([[IN2]]) {dstElemType = si32} : tensor<1x1024xi8> -> tensor<1x1024xsi32>
+    // CHECK-DAG: [[IN1_CAST:%.+]] = IE.Convert([[IN1]]) {dstElemType = si32} : tensor<1x1024xi8> -> tensor<1x1024xsi32>
+    // CHECK: [[SELECT:%.+]] = IE.Select([[COND]], [[IN1_CAST]], [[IN2_CAST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024xsi32>, tensor<1x1024xsi32>, tensor<1x1024xsi32> -> tensor<1x1024xsi32>
+    // CHECK: [[OUT_CAST:%.+]] = IE.Convert([[SELECT]]) {dstElemType = i8} : tensor<1x1024xsi32> -> tensor<1x1024xi8>
+    // CHECK: return [[OUT_CAST]] : tensor<1x1024xi8>
+}
+
+// -----
+
 // CHECK-LABEL: @TwoFunctions
 module @TwoFunctions {
     net.NetworkInfo entryPoint : @main inputsInfo : {

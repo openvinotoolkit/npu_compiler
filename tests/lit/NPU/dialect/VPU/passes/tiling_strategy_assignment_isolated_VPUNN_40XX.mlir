@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --tiling-strategy-assignment="tiling-mode=ISOLATED enable-vpunn-cost-for-tiling=true" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --tiling-strategy-assignment="tiling-mode=ISOLATED enable-vpunn-cost-for-tiling=true" %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -111,7 +111,7 @@ func.func @SplitNCEEltwiseAddOverW(
         %arg0: tensor<1x1024x24x16xf16, {order = #NHWC}>,
         %arg1: tensor<1x1024x24x16xf16, {order = #NHWC}>)
             -> tensor<1x1024x24x16xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
     } -> tensor<1x1024x24x16xf16, {order = #NHWC}>
@@ -133,7 +133,7 @@ func.func @SplitNCEEltwiseAddOverW(
 // CHECK-LABEL: @SplitNCEEltwiseAddSameInput
 // CHECK-SAME:      [[INPUT:%arg[0-9]]]: tensor<1x2048x14x14xf16, {order = #NHWC}>
 func.func @SplitNCEEltwiseAddSameInput(%arg0: tensor<1x2048x14x14xf16, {order = #NHWC}>) -> tensor<1x2048x14x14xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
     } -> tensor<1x2048x14x14xf16, {order = #NHWC}>

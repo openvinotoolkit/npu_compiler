@@ -26,7 +26,7 @@ func.func @IncreaseNumTilesForNCEConv(%input: tensor<1x16x480x320x!qElemType0, {
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1],
         tilingStrategy = [1, 1, 3, 1]
     } : tensor<1x16x480x320x!qElemType0, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<32x16x1x1x!qElemType1, {order = #NHWC}>, sparsity_map=tensor<32x1x1x128xi1>, is_weights, #VPU.SparsityCompression<axis = 0 : i64, numElems = dense<0> : tensor<32xi64>, alignment = 16 : i64>>, tensor<32x1x1x4xsi32> -> tensor<1x32x480x320x!qElemType0, {order = #NHWC}>
@@ -68,17 +68,17 @@ func.func @NotChangeTilingStrategyForVF(%input: tensor<1x32x135x240xf16, {order 
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
             } : tensor<1x32x135x240xf16, {order = #NHWC}>, tensor<128x32x3x3xf16, {order = #NHWC}>, tensor<128x1x1x4xsi32> -> tensor<1x128x135x240xf16, {order = #NHWC}>
         %conv1 = VPU.NCE.Convolution(%conv0, %arg4, %arg5) rawFilterShape [32, 128, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
             } : tensor<1x128x135x240xf16, {order = #NHWC}>, tensor<32x128x3x3xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x135x240xf16, {order = #NHWC}>
-        %add = VPU.NCE.Eltwise(%conv1, %arg1) {
+        %add = VPU.NCE.Eltwise(%conv1, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             is_inplace = true,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             op_type = #VPU.eltwise_type<ADD>,
@@ -120,7 +120,7 @@ func.func @NotChangeTilingStrategyForUnevenUnrolling(%input: tensor<1x48x771x771
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
-        
+
         strides = [1, 1],
         tilingStrategy = [1, 1, 55, 1]
     } : tensor<1x48x771x771xf16, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<32x48x3x3xf16, {order = #NHWC}>, sparsity_map=tensor<32x1x1x512xi1>, is_weights, #VPU.SparsityCompression<axis = 0 : i64, numElems = dense<0> : tensor<32xi64>, alignment = 16 : i64>>, tensor<32x1x1x4xsi32> -> tensor<1x32x769x769xf16, {order = #NHWC}>

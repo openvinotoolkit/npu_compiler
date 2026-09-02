@@ -35,6 +35,7 @@ constexpr size_t BUFFER_CREATE_BASE_OPERAND_COUNT = 3;   // dst, elem_type, rank
 constexpr size_t BUFFER_SUBVIEW_BASE_OPERAND_COUNT = 3;  // dst, src, rank
 constexpr size_t BUFFER_VIEW_BASE_OPERAND_COUNT = 5;     // dst, src, byte_offset, elem_type, rank
 constexpr size_t BUFFER_STORE_BASE_OPERAND_COUNT = 3;    // buffer, value, rank
+constexpr size_t BUFFER_LOAD_BASE_OPERAND_COUNT = 3;     // dst, buffer, rank
 void appendRegisterOperands(SmallVector<int16_t>& dst, mlir::ValueRange operands) {
     for (auto operand : operands) {
         dst.push_back(bytecode::getRegisterNumber(operand));
@@ -72,7 +73,7 @@ void bytecode::BufferCreateOp::serialize(vpux::bytecode::BytecodeWriter& writer)
     VPUX_THROW_UNLESS(std::distance(typeSectionOps.begin(), typeSectionOps.end()) == 1,
                       "Expected exactly one TypeSectionOp in the module");
     const auto typeIndexMap = bytecode::buildTypeIndexMap(*typeSectionOps.begin());
-    const auto elemTypeName = getElemTypeAttr().getLeafReference();
+    const auto elemTypeName = getElemTypeAttr().getLeafReference().getValue();
     auto it = typeIndexMap.find(elemTypeName);
     VPUX_THROW_UNLESS(it != typeIndexMap.end(), "Element type '@{0}' not found in type section", elemTypeName);
     const auto elemTypeIdx = it->second;
@@ -85,25 +86,27 @@ void bytecode::BufferCreateOp::serialize(vpux::bytecode::BytecodeWriter& writer)
     operands.push_back(checked_cast<int16_t>(getShape().size()));
     appendRegisterOperands(operands, getShape());
     appendRegisterOperands(operands, getStrides());
-    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), getAddressingMode(), operands);
+    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), operands);
 }
 
 mlir::LogicalResult bytecode::BufferCreateOp::verifySymbolUses(mlir::SymbolTableCollection& symbolTables) {
     auto elemTypeAttr = getElemTypeAttr();
     auto module = getOperation()->getParentOfType<mlir::ModuleOp>();
-    auto typeSections = module.getOps<bytecode::TypeSectionOp>();
-    if (typeSections.empty()) {
-        return emitOpError() << "no type section found in module";
+    if (!module) {
+        return emitOpError("expected to be inside a module");
     }
-    auto* resolved = symbolTables.lookupNearestSymbolFrom((*typeSections.begin()).getOperation(), elemTypeAttr);
+    auto* resolved = symbolTables.lookupSymbolIn(module, elemTypeAttr);
     if (!resolved) {
         return emitOpError() << "references undefined symbol " << elemTypeAttr;
+    }
+    if (!mlir::isa<bytecode::TypeOp>(resolved)) {
+        return emitOpError() << "symbol " << elemTypeAttr << " does not reference a bytecode.type op";
     }
     return mlir::success();
 }
 
 void bytecode::BufferGetDimOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
-    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), getAddressingMode(),
+    writer.appendInstruction(static_cast<uint16_t>(getOpcode()),
                              SmallVector<int16_t>{getRegisterNumber(getDst()), getRegisterNumber(getLhs()),
                                                   getRegisterNumber(getRhs())});
 }
@@ -133,7 +136,7 @@ void bytecode::BufferSubviewOp::serialize(vpux::bytecode::BytecodeWriter& writer
     appendRegisterOperands(operands, getSizes());
     appendRegisterOperands(operands, getStrides());
 
-    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), getAddressingMode(), operands);
+    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), operands);
 }
 
 mlir::LogicalResult bytecode::BufferViewOp::verify() {
@@ -155,7 +158,7 @@ void bytecode::BufferViewOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     VPUX_THROW_UNLESS(std::distance(typeSectionOps.begin(), typeSectionOps.end()) == 1,
                       "Expected exactly one TypeSectionOp in the module");
     const auto typeIndexMap = bytecode::buildTypeIndexMap(*typeSectionOps.begin());
-    const auto elemTypeName = getElemTypeAttr().getLeafReference();
+    const auto elemTypeName = getElemTypeAttr().getLeafReference().getValue();
     auto it = typeIndexMap.find(elemTypeName);
     VPUX_THROW_UNLESS(it != typeIndexMap.end(), "Element type '@{0}' not found in type section", elemTypeName);
     const auto elemTypeIdx = it->second;
@@ -170,19 +173,21 @@ void bytecode::BufferViewOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     operands.push_back(checked_cast<int16_t>(getShape().size()));
     appendRegisterOperands(operands, getShape());
     appendRegisterOperands(operands, getStrides());
-    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), getAddressingMode(), operands);
+    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), operands);
 }
 
 mlir::LogicalResult bytecode::BufferViewOp::verifySymbolUses(mlir::SymbolTableCollection& symbolTables) {
     auto elemTypeAttr = getElemTypeAttr();
     auto module = getOperation()->getParentOfType<mlir::ModuleOp>();
-    auto typeSections = module.getOps<bytecode::TypeSectionOp>();
-    if (typeSections.empty()) {
-        return emitOpError() << "no type section found in module";
+    if (!module) {
+        return emitOpError("expected to be inside a module");
     }
-    auto* resolved = symbolTables.lookupNearestSymbolFrom((*typeSections.begin()).getOperation(), elemTypeAttr);
+    auto* resolved = symbolTables.lookupSymbolIn(module, elemTypeAttr);
     if (!resolved) {
         return emitOpError() << "references undefined symbol " << elemTypeAttr;
+    }
+    if (!mlir::isa<bytecode::TypeOp>(resolved)) {
+        return emitOpError() << "symbol " << elemTypeAttr << " does not reference a bytecode.type op";
     }
     return mlir::success();
 }
@@ -203,5 +208,24 @@ void bytecode::BufferStoreOp::serialize(vpux::bytecode::BytecodeWriter& writer) 
     operands.push_back(checked_cast<int16_t>(getIndices().size()));
     appendRegisterOperands(operands, getIndices());
 
-    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), getAddressingMode(), operands);
+    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), operands);
+}
+
+mlir::LogicalResult bytecode::BufferLoadOp::verify() {
+    return verifyEncodedRank(getOperation(), getIndices().size());
+}
+
+size_t bytecode::BufferLoadOp::getBinarySize() {
+    const auto numOperands = BUFFER_LOAD_BASE_OPERAND_COUNT + getIndices().size();
+    return intel_npu::vm::OPCODE_SIZE + numOperands * intel_npu::vm::OPERAND_SIZE;
+}
+
+void bytecode::BufferLoadOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
+    SmallVector<int16_t> operands;
+    operands.push_back(getRegisterNumber(getDst()));
+    operands.push_back(getRegisterNumber(getBuffer()));
+    operands.push_back(checked_cast<int16_t>(getIndices().size()));
+    appendRegisterOperands(operands, getIndices());
+
+    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), operands);
 }

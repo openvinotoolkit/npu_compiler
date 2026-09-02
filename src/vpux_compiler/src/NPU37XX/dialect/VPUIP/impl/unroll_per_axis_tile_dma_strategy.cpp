@@ -93,8 +93,7 @@ mlir::LogicalResult SingleClusterPerAxisTileDMARewriter::unroll(VPUIP::PerAxisTi
             if (VPU::isDistributedAttrWithExplicitShapesAndOffsets(distributionAttr)) {
                 distributionAttr = VPU::getNonOverlappedDistributedAttr(
                         subOutShape, distributionAttr.getMode(), nullptr, distributionAttr.getNumClusters(), nullptr,
-                        distributionAttr.getUniformDistributedSegments(), dstType.getElementType(),
-                        dstDeclBuff.getContext());
+                        distributionAttr.getUniformDistributedSegments(), dstDeclBuff.getContext());
             }
 
             const auto layout = mlir::AffineMapAttr::get(dimOrder.toAffineMap(ctx));

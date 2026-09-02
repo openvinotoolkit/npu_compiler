@@ -14,8 +14,10 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/eltwise_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_reduce_output_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
@@ -57,6 +59,10 @@ bool vpux::VPU::NCEEltwiseOp::fitIntoCMX(vpux::NDTypeInterface input1, vpux::NDT
     if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
         VPUX_THROW("getWeightTableBuffers function failed");
     }
+    if (mlir::failed(getReduceOutputBuffers(op, buffers, output))) {
+        VPUX_THROW("getReduceOutputBuffers failed at '{0}' for op '{1}', outputTileShape '{2}', axes_value '{3}'",
+                   getLoc(), op->getName(), output.getShape(), op->getAttr("axes_value"));
+    }
 
     auto totalAvailableCMXSize =
             reservedMem.count() == 0 ? getTotalCMXSize(op).count() : getTotalCMXFragmentationAwareSize(op).count();
@@ -78,6 +84,11 @@ bool vpux::VPU::NCEEltwiseOp::fitIntoCMX(vpux::NDTypeInterface input1, vpux::NDT
     if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
         VPUX_THROW("getWeightTableBuffers function failed");
     }
+    // In-place mode: the main output shares input1's buffer, so derive reduce output sizes from input1.
+    if (mlir::failed(getReduceOutputBuffers(op, buffers, input1))) {
+        VPUX_THROW("getReduceOutputBuffers failed at '{0}' for op '{1}', outputTileShape '{2}', axes_value '{3}'",
+                   getLoc(), op->getName(), input1.getShape(), op->getAttr("axes_value"));
+    }
 
     auto totalAvailableCMXSize =
             reservedMem.count() == 0 ? getTotalCMXSize(op).count() : getTotalCMXFragmentationAwareSize(op).count();
@@ -85,6 +96,18 @@ bool vpux::VPU::NCEEltwiseOp::fitIntoCMX(vpux::NDTypeInterface input1, vpux::NDT
     return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(op), buffers).count() +
                    reservedMem.count() <=
            totalAvailableCMXSize;
+}
+
+//
+// ShapeInfoOpInterface
+//
+
+mlir::LogicalResult vpux::VPU::NCEEltwiseOp::verifyShapeInfo() {
+    if (mlir::failed(vpux::VPU::verifyInputIs4D(getInput1()))) {
+        return mlir::failure();
+    }
+
+    return vpux::VPU::verifyInputIs4D(getInput2());
 }
 
 //
@@ -162,7 +185,11 @@ mlir::LogicalResult vpux::VPU::NCEEltwiseOp::inferReturnTypes(mlir::MLIRContext*
     auto outputType = mlir::RankedTensorType::get(outputShape, inputType.getElementType(), tensorAttr);
 
     inferredReturnTypes.push_back(outputType);
-    return mlir::success();
+
+    // Infer the extra NCE output types if any
+    auto resultSegmentSizes = op.getProperties().getResultSegmentSizes();
+
+    return inferReduceExtraNCETypes(loc, outputType, op.getAxesValue(), resultSegmentSizes, inferredReturnTypes);
 }
 
 //
@@ -229,6 +256,11 @@ bool VPU::NCEEltwiseOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, 
     // These depend on a particular tile
     const auto OC = output.getShape()[Dims4D::Act::C];
 
+    // Compute output distribution once; needed for both the main-output buffer (non-inplace)
+    // and for deriving the reduce-output buffer sizes via getReduceOutputBuffers.
+    const auto outputDistributionMap = std::make_pair(
+            output, getOutputDistributionAttrFromOp(nceOp, output, numClusters, strategy, siblingsAnalysis));
+
     SmallVector<Byte> buffers = {VPU::getTotalAllocSizeWithDistribution(
                                          getInput1().getType(),
                                          getActivationDistributionAttrFromOp(nceOp, getInput1(), getInput1().getType(),
@@ -241,14 +273,16 @@ bool VPU::NCEEltwiseOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, 
     addSprLutBufferIfPresent(ppeAttr, buffers);
 
     if (!this->getIsInplace().value_or(false)) {
-        buffers.push_back(VPU::getTotalAllocSizeWithDistribution(
-                getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
-                                                                       strategy, siblingsAnalysis)));
+        buffers.push_back(
+                VPU::getTotalAllocSizeWithDistribution(outputDistributionMap.first, outputDistributionMap.second));
     }
 
     const auto op = getOperation();
     if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
         VPUX_THROW("getWeightTableBuffers function failed");
+    }
+    if (mlir::failed(getReduceOutputBuffers(op, buffers, outputDistributionMap))) {
+        VPUX_THROW("getReduceOutputBuffers function failed");
     }
 
     return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(getOperation()), buffers).count() +
@@ -270,6 +304,17 @@ vpux::NDTypeInterface vpux::VPU::NCEEltwiseOp::getDistributedTypeForOpOperand(ml
     return nullptr;
 }
 
+DimArr vpux::VPU::NCEEltwiseOp::restrictedFusionAxes() {
+    if (getReduceXyMax() != nullptr || getReduceXyMin() != nullptr) {
+        return {Dims4D::Act::C};
+    }
+    return {};
+}
+
+bool vpux::VPU::NCEEltwiseOp::isVFSupported() {
+    return getReduceTensorMinMax() == nullptr;
+}
+
 //
 // sparsitySupport
 //
@@ -289,6 +334,21 @@ vpux::InputTiling vpux::VPU::NCEEltwiseOp::backInferTileInfo(const vpux::TileInf
 
 void vpux::VPU::NCEEltwiseOp::adjustAttrs(const TilingInfo&, const TileInfo&) {
     // Do nothing
+}
+
+vpux::OutputTiling vpux::VPU::NCEEltwiseOp::getOutputTiling(const vpux::TileInfo& firstOutputTile,
+                                                            vpux::Logger /*log*/) {
+    OutputTiling outputTiling;
+    outputTiling.push_back(firstOutputTile);
+    const auto reduceOutputTiles = VPU::getReduceOutputTiling(getOperation(), firstOutputTile);
+    outputTiling.append(reduceOutputTiles.begin(), reduceOutputTiles.end());
+    return outputTiling;
+}
+
+vpux::TileInfo vpux::VPU::NCEEltwiseOp::getMainOutputTile(mlir::OpResult secondaryOutput,
+                                                          const vpux::TileInfo& secondaryOutputTile,
+                                                          vpux::Logger /*log*/) {
+    return VPU::getMainTileFromReduceOutputTiling(getOperation(), {secondaryOutput, secondaryOutputTile});
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::NCEEltwiseOp::getTilingStrategy(TilingMode tilingMode, Logger log) {

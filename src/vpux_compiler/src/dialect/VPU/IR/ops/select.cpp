@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -87,6 +88,15 @@ void vpux::VPU::SelectOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::Operation
                                 ::mlir::Value input2, ::mlir::Value input3,
                                 vpux::IE::AutoBroadcastTypeAttr auto_broadcast) {
     build(odsBuilder, odsState, input1, input2, input3, auto_broadcast, {});
+}
+
+bool vpux::VPU::SelectOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& outputTile) {
+    return VPU::isEltwiseSWOpSplitOverHeightCompatible(getOperation(), outputTile.shape);
+}
+
+bool vpux::VPU::SelectOp::isOperationSplitOverWidthCompatible(ShapeRef outputShape, ShapeRef /*offset*/,
+                                                              ShapeRef /*axis*/) {
+    return VPU::isEltwiseSWOpSplitOverWidthCompatible(getOperation(), outputShape);
 }
 
 bool vpux::VPU::SelectOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {

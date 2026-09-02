@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/utils/convert_op_types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dynamic_shape_propagation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
@@ -78,7 +79,19 @@ void BoundedTensorsToDynamicDimsMask::safeRunOnModule() {
         auto outType = ndType.changeTypeComponents(typeComponents);
         return outType;
     });
+    mlir::ConversionTarget target(ctx);
+    VPU::configureDynamismConversionPassEnvironment(_log, module, typeConverter, target);
 
+    if (mlir::failed(vpux::IE::runConvertOpTypes(module, typeConverter, target, _log))) {
+        signalPassFailure();
+    }
+}
+
+}  // namespace
+
+void vpux::VPU::configureDynamismConversionPassEnvironment(Logger& log, mlir::ModuleOp module,
+                                                           mlir::TypeConverter& typeConverter,
+                                                           mlir::ConversionTarget& target) {
     const auto convert = [](mlir::OpBuilder& builder, mlir::RankedTensorType type, mlir::ValueRange inputs,
                             mlir::Location loc) -> mlir::Value {
         VPUX_THROW_UNLESS(inputs.size() == 1, "Got wrong number of inputs : {0}", inputs.size());
@@ -91,11 +104,10 @@ void BoundedTensorsToDynamicDimsMask::safeRunOnModule() {
     typeConverter.addSourceMaterialization(convert);
     typeConverter.addTargetMaterialization(convert);
 
-    const auto isLegalOp = [&](mlir::Operation* op) {
+    const auto isLegalOp = [&typeConverter](mlir::Operation* op) {
         return typeConverter.isLegal(op);
     };
 
-    mlir::ConversionTarget target(ctx);
     // Mark dialects used by ShaveCodeGen as legal.
     target.addLegalDialect<mlir::arith::ArithDialect, mlir::math::MathDialect, mlir::linalg::LinalgDialect>();
 
@@ -124,14 +136,15 @@ void BoundedTensorsToDynamicDimsMask::safeRunOnModule() {
     static constexpr StringLiteral vpuSwModuleName{"VPU.SW"};
     auto swModule = module.lookupSymbol<mlir::ModuleOp>(vpuSwModuleName);
 
-    const auto entryFuncOp = vpux::net::findEntryPointFunc(module, _log);
-    target.addDynamicallyLegalOp<mlir::func::FuncOp>([&](mlir::func::FuncOp funcOp) {
+    const auto entryFuncOp = vpux::net::findEntryPointFunc(module, log);
+    target.addDynamicallyLegalOp<mlir::func::FuncOp>([hostCompileMode, entryFuncOp, swModule, &log,
+                                                      &typeConverter](mlir::func::FuncOp funcOp) {
         if (hostCompileMode && (funcOp == entryFuncOp)) {
-            _log.trace("Skipping function {0} in HostCompile mode", funcOp.getName());
+            log.trace("Skipping function {0} in HostCompile mode", funcOp.getName());
             return true;
         }
         if (swModule != nullptr && funcOp->getParentOfType<mlir::ModuleOp>() == swModule && !funcOp.isExternal()) {
-            _log.trace("Skipping ShaveCodeGen function {0}", funcOp.getName());
+            log.trace("Skipping ShaveCodeGen function {0}", funcOp.getName());
             return true;
         }
         return typeConverter.isSignatureLegal(funcOp.getFunctionType());
@@ -140,17 +153,11 @@ void BoundedTensorsToDynamicDimsMask::safeRunOnModule() {
     if (swModule != nullptr) {
         // Recursively mark the software module external as legal to prevent interactions
         // with outlined ShaveCodeGen functions. All external functions should be ShaveCodeGen-specific.
-        target.markOpRecursivelyLegal<mlir::func::FuncOp>([&](mlir::func::FuncOp funcOp) {
+        target.markOpRecursivelyLegal<mlir::func::FuncOp>([swModule](mlir::func::FuncOp funcOp) {
             return funcOp->getParentOfType<mlir::ModuleOp>() == swModule && !funcOp.isExternal();
         });
     }
-
-    if (mlir::failed(vpux::IE::runConvertOpTypes(module, typeConverter, target, _log))) {
-        signalPassFailure();
-    }
 }
-
-}  // namespace
 
 //
 // createDynamicTensorBoundsToStaticShapePass

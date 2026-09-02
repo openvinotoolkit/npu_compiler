@@ -2274,7 +2274,7 @@ TEST_P(MLIR_ContentSetupTest_SwapRelocateWeightsTableAndSubView, SwapRelocateWei
     checkRelocateWeightsTableAttr(actualTransformations[1], _expectedRelocateWeightsTableAttr);
 }
 
-SmallVector<SwapRelocateWeightsTableAndSubViewParams, 5> swapRelocateWeightsTableAndSubView = {
+SmallVector<SwapRelocateWeightsTableAndSubViewParams, 8> swapRelocateWeightsTableAndSubView = {
         SwapRelocateWeightsTableAndSubViewParams{{4, 1, 1, 4},
                                                  {{0, 0, 0, 0}, {2, 1, 1, 4}},
                                                  {{100}, 16777215, {0}, 64, 0, std::nullopt},
@@ -2328,6 +2328,41 @@ TEST_F(MLIR_ContentSetupTest, DoNotSwapRelocateWeightsTableAndSubView) {
     contentAttrSetup = contentAttrSetup.subview(ShapeRef(offset), ShapeRef(shape));
 
     // check
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 2);
+
+    auto expectedRelocateWeightsTableAttr = Const::RelocateWeightsTableAttr::get(
+            getIntArrayAttr(&ctx, ArrayRef(weightsPtr)), getIntAttr(&ctx, sparsityPtr),
+            getIntArrayAttr(&ctx, ArrayRef(offsets)), getIntAttr(&ctx, weightsTableSize),
+            getIntAttr(&ctx, weightsElemBitSize), nullptr, getIntAttr(&ctx, channelOffset), getIntAttr(&ctx, 0));
+
+    checkRelocateWeightsTableAttr(actualTransformations[0], expectedRelocateWeightsTableAttr);
+    checkSubViewAttr(actualTransformations[1], offset, shape);
+}
+
+// Current code that swaps SubView and RelocateWeightsTable is not capable of handling SubView on groups.
+// Test that it doesn't try to swap it. This test can be removed after swap code has been updated to handle
+// splits on group dimension.
+TEST_F(MLIR_ContentSetupTest, DoNotSwapRelocateWeightsTableAndSubViewOn5DGroupDim) {
+    SmallVector<int64_t> baseContentShape = {2, 4, 1, 1, 4};
+    auto baseContentAttrSetup = getContentSetup(ArrayRef(baseContentShape), getSInt32Type(&ctx));
+
+    SmallVector<uint32_t> weightsPtr = {100, 200, 300, 400};
+    auto sparsityPtr = 16777215;
+    SmallVector<int64_t> offsets = {0, 2, 4, 6};
+    auto weightsTableSize = 128;
+    auto weightsElemBitSize = 16;
+    auto channelOffset = 0;
+
+    auto contentAttrSetup = baseContentAttrSetup.relocateWeightsTablePointers(
+            weightsPtr, sparsityPtr, ShapeRef(offsets), weightsTableSize, weightsElemBitSize, nullptr, channelOffset,
+            0);
+
+    SmallVector<int64_t> offset = {1, 0, 0, 0, 0};
+    SmallVector<int64_t> shape = {1, 4, 1, 1, 4};
+
+    contentAttrSetup = contentAttrSetup.subview(ShapeRef(offset), ShapeRef(shape));
+
     auto actualTransformations = contentAttrSetup.getTransformations();
     EXPECT_EQ(actualTransformations.size(), 2);
 
@@ -2448,6 +2483,83 @@ TEST_F(MLIR_ContentSetupTest, MoveSubViewIntoFuseSplitInHalf) {
                               {1, 0, 0, 0}, {3, 2, 1, 1}, false, {}, {}, {});
 }
 
+// Test that SubView covering full weights constant includes that weights constant
+// after moving SubView into Fuse.
+// Initial fused constant includes 4 bytes of weight table and 8 bytes of weights.
+// Constant is then sliced to include 2 bytes of weight table and full 8 bytes of weights.
+TEST_F(MLIR_ContentSetupTest, MoveSubViewIntoFuse2ComponentsSecondCoveredFully) {
+    auto tensorType = getInt8Type(&ctx);
+
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{1}, tensorType);
+
+    auto weightsTable =
+            getContentAttr<uint8_t>(ArrayRef<int64_t>{4, 1, 1, 1}, tensorType, SmallVector<uint8_t>{1, 1, 1, 1});
+    auto weights = getContentAttr<uint8_t>(ArrayRef<int64_t>{4, 2, 1, 1}, tensorType,
+                                           SmallVector<uint8_t>{1, 1, 1, 1, 1, 1, 1, 1});
+    auto fusedType = mlir::RankedTensorType::get({1, 1, 1, 12}, tensorType);
+    auto fusedConstantSetup = baseContentAttrSetup.fuse(fusedType, weightsTable, weights, {}, {});
+
+    auto fusedWithSubView = fusedConstantSetup.subview(ShapeRef{0, 0, 0, 2}, ShapeRef{1, 1, 1, 10});
+
+    auto actualTransformations = fusedWithSubView.getTransformations();
+    ASSERT_EQ(actualTransformations.size(), 1);
+
+    auto fuse = mlir::dyn_cast<Const::FuseWeightsAttr>(actualTransformations[0]);
+    ASSERT_TRUE(fuse != nullptr);
+
+    auto actualWT = fuse.getWeightsTable();
+    ASSERT_TRUE(actualWT != nullptr);
+    auto wtTransformations = actualWT.getTransformations();
+    ASSERT_EQ(wtTransformations.size(), 1);
+    checkSubViewAttr(wtTransformations[0], {2, 0, 0, 0}, {2, 1, 1, 1});
+
+    auto actualWeights = fuse.getWeights();
+    ASSERT_TRUE(actualWeights != nullptr);
+    ASSERT_EQ(actualWeights.getTransformations().size(), 0);
+}
+
+// Test that SubView covering weights fully includes that weights constant after moving SubView
+// into Fuse.
+// Initial fused constant includes 4 bytes of weight table, 4 bytes of weights and 4 bytes of activations.
+// Constant is then sliced to contain 2 bytes of weight table, 4 bytes of weights and 2 bytes of activations.
+TEST_F(MLIR_ContentSetupTest, MoveSubViewIntoFuse3ComponentsCoverMiddleFully) {
+    auto tensorType = getInt8Type(&ctx);
+
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{1}, tensorType);
+
+    auto weightsTable =
+            getContentAttr<uint8_t>(ArrayRef<int64_t>{4, 1, 1, 1}, tensorType, SmallVector<uint8_t>{1, 1, 1, 1});
+    auto weights = getContentAttr<uint8_t>(ArrayRef<int64_t>{4, 1, 1, 1}, tensorType, SmallVector<uint8_t>{1, 1, 1, 1});
+    auto activations =
+            getContentAttr<uint8_t>(ArrayRef<int64_t>{4, 1, 1, 1}, tensorType, SmallVector<uint8_t>{1, 1, 1, 1});
+    auto fusedType = mlir::RankedTensorType::get({1, 1, 1, 12}, tensorType);
+    auto fusedConstantSetup = baseContentAttrSetup.fuse(fusedType, weightsTable, weights, {}, activations);
+
+    auto fusedWithSubView = fusedConstantSetup.subview(ShapeRef{0, 0, 0, 2}, ShapeRef{1, 1, 1, 8});
+
+    auto actualTransformations = fusedWithSubView.getTransformations();
+    ASSERT_EQ(actualTransformations.size(), 1);
+
+    auto fuse = mlir::dyn_cast<Const::FuseWeightsAttr>(actualTransformations[0]);
+    ASSERT_TRUE(fuse != nullptr);
+
+    auto actualWT = fuse.getWeightsTable();
+    ASSERT_TRUE(actualWT != nullptr);
+    auto wtTransformations = actualWT.getTransformations();
+    ASSERT_EQ(wtTransformations.size(), 1);
+    checkSubViewAttr(wtTransformations[0], {2, 0, 0, 0}, {2, 1, 1, 1});
+
+    auto actualWeights = fuse.getWeights();
+    ASSERT_TRUE(actualWeights != nullptr);
+    ASSERT_EQ(actualWeights.getTransformations().size(), 0);
+
+    auto actualActivations = fuse.getActivations();
+    ASSERT_TRUE(actualActivations != nullptr);
+    auto activationsTransformations = actualActivations.getTransformations();
+    ASSERT_EQ(activationsTransformations.size(), 1);
+    checkSubViewAttr(activationsTransformations[0], {0, 0, 0, 0}, {2, 1, 1, 1});
+}
+
 TEST_F(MLIR_ContentSetupTest, MoveSubViewIntoFuseUnalignedViewIntoWeights) {
     auto tensorType = getInt8Type(&ctx);
 
@@ -2466,6 +2578,40 @@ TEST_F(MLIR_ContentSetupTest, MoveSubViewIntoFuseUnalignedViewIntoWeights) {
     EXPECT_EQ(actualTransformations.size(), 1);
     checkFuseAttrAfterSubView(actualTransformations[0], false, false, {}, {}, false, {}, {}, {}, true, true,
                               {1, 0, 0, 0}, {2, 1, 1, 2}, true, {1, 1, 1, 4}, {0, 0, 0, 1}, {1, 1, 1, 3});
+}
+
+TEST_F(MLIR_ContentSetupTest, MoveSubViewIntoFuseWeightsWithDifferentMemLayout) {
+    // Test if moveSubViewIntoFuse handles memory layouts correctly.
+    // Below test creates a Fuse transform with only weights in NHWC format and then slices them
+    // in half. Expected behavior is to slice weights on H dimension.
+    auto tensorType = getInt8Type(&ctx);
+
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{1}, tensorType);
+
+    const Shape weightsShape{1, 16, 3, 5};
+    const auto weightsBaseType = vpux::getTensorType(weightsShape, tensorType, DimsOrder::NHWC, nullptr);
+    const std::vector<uint8_t> weightsVals(weightsShape.totalSize(), 1);
+    const auto weightsBaseAttr = Const::createConstContent(weightsBaseType, ArrayRef(weightsVals));
+    auto weights = Const::ContentAttr::get(weightsBaseAttr);
+
+    auto fusedType = mlir::RankedTensorType::get({1, 1, 1, 240}, tensorType);
+    auto fusedConstantSetup = baseContentAttrSetup.fuse(fusedType, {}, weights, {}, {});
+
+    auto fusedWithSubView = fusedConstantSetup.subview(ShapeRef{0, 0, 0, 0}, ShapeRef{1, 1, 1, 120});
+    auto actualTransformations = fusedWithSubView.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 1);
+
+    auto fuse = mlir::dyn_cast<Const::FuseWeightsAttr>(actualTransformations[0]);
+    ASSERT_TRUE(fuse != nullptr);
+
+    auto actualWeights = fuse.getWeights();
+    ASSERT_TRUE(actualWeights != nullptr);
+    auto actualWeightTransformations = actualWeights.getTransformations();
+    ASSERT_EQ(actualWeightTransformations.size(), 3);
+
+    checkSubViewAttr(actualWeightTransformations[0], {0, 0, 0, 0}, {1, 16, 2, 5});
+    checkReshapeAttr(actualWeightTransformations[1], ShapeRef({1, 1, 1, 160}));
+    checkSubViewAttr(actualWeightTransformations[2], {0, 0, 0, 0}, {1, 1, 1, 120});
 }
 
 TEST_F(MLIR_ContentSetupTest, MoveSubViewIntoFuseUnalignedViewIntoUnslicableWeights) {

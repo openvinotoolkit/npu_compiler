@@ -174,10 +174,10 @@ VPUIP::DistributedBufferType ConstantFusing::getDistributedBufferType(VPUIP::Dis
                         "DistributedBuffer for fused constant has mode different from DUPLICATED, type = {0}",
                         origDistType);
 
-        auto newDistribution = VPU::getNonOverlappedDistributedAttr(
-                typeInterface.getShape(), origDistributionInfoAttr.getMode(), nullptr,
-                origDistributionInfoAttr.getNumClusters(), nullptr,
-                origDistributionInfoAttr.getUniformDistributedSegments(), typeInterface.getElementType(), ctx);
+        auto newDistribution =
+                VPU::getNonOverlappedDistributedAttr(typeInterface.getShape(), origDistributionInfoAttr.getMode(),
+                                                     nullptr, origDistributionInfoAttr.getNumClusters(), nullptr,
+                                                     origDistributionInfoAttr.getUniformDistributedSegments(), ctx);
 
         return VPUIP::DistributedBufferType::get(ctx, typeInterface.getShape().raw(), typeInterface.getElementType(),
                                                  layoutAttr, memKindAttr, newDistribution);

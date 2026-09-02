@@ -631,9 +631,9 @@ VPU::DistributedTensorType DynamicDequantWeightsTypeRewriter::createAlignedType(
                                                                                 ArrayRef<int64_t> alignment,
                                                                                 int64_t numClusters,
                                                                                 bool uniformDistributedSegments) const {
-    const auto distribution = VPU::getNonOverlappedDistributedNative(
-            baseType.getShape(), VPU::DistributionMode::SEGMENTED, numTiles, numClusters, alignment,
-            uniformDistributedSegments, baseType.getElementType());
+    const auto distribution =
+            VPU::getNonOverlappedDistributedNative(baseType.getShape(), VPU::DistributionMode::SEGMENTED, numTiles,
+                                                   numClusters, alignment, uniformDistributedSegments);
     const auto distributionAttr = VPU::DistributionInfo::getAttrFromClass(baseType.getContext(), distribution);
 
     return mlir::cast<VPU::DistributedTensorType>(

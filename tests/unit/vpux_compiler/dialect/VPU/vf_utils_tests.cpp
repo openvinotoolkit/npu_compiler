@@ -94,7 +94,8 @@ TEST_F(MLIR_VPU_VFUtils, VF_UtilsTilingLimitWithPermutation) {
     ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
 
     func->walk([&](VPU::VerticalFusionOp vfOp) {
-        auto config = VPU::VF::v2::VFConfig(vfOp);
+        VPU::VF::v2::VFCacheAnalysis cache(vfOp.getOperation());
+        auto config = VPU::VF::v2::VFConfig(vfOp, cache);
         auto tilingLimit = getTilingLimit(Dims4D::Act::H, config, /*multiDimTiling=*/false);
         EXPECT_EQ(tilingLimit, 8);
     });

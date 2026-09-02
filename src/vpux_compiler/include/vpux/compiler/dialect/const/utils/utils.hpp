@@ -26,6 +26,9 @@ mlir::StringRef getOvKey(Const::DeclareOp declareOp);
 /// Checks whether the given constant is an OpenVino constant.
 bool isOpenVINOConstant(Const::DeclareOp declareOp);
 
+// Returns whether the given value is a constant.
+bool isConstValue(mlir::Value value);
+
 /// Returns a new zero-value constant of the specified **tensor** type. Supports
 /// float and quantized types.
 mlir::Value createZerosConst(mlir::OpBuilder& builder, mlir::Location loc, mlir::RankedTensorType type);
@@ -76,6 +79,7 @@ mlir::Value createDenseConst(mlir::OpBuilder& builder, mlir::Location loc, mlir:
     return createConst<In>(builder, loc, type, valueArray);
 }
 
+mlir::Type getWeightsConstFilterElemType(mlir::Type activationElemType);
 mlir::Value buildWeightsConst(mlir::OpBuilder& builder, mlir::Location loc, mlir::RankedTensorType type,
                               ArrayRef<float> values);
 

@@ -91,7 +91,7 @@ func.func @SuperdenseNCEAveragePool(%arg0: tensor<1x16x15x15xf16, {mem_space = @
 func.func @SuperdenseNCEEltwise(%arg0: tensor<1x16x15x15xf16, {mem_space = @CMX_NN, order = #NHWC}>,
                  %arg1: tensor<1x16x15x15xf16, {mem_space = @CMX_NN, order = #NHWC}>
                  ) -> tensor<1x16x15x15xf16, {mem_space = @CMX_NN, order = #NCHW}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         minimumHardwareExecutionCost = 585 : i64,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
@@ -204,7 +204,7 @@ func.func @InterpolateNearest(
 
 func.func @InterpolateBilinear(
     %arg0: tensor<1x64x5x10xf16, {order = #NHWC}>,           // data
-    %arg1: tensor<64x64x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,  // weights
+    %arg1: tensor<64x64x2x2xf16, {mem_space = @CMX_NN, order = #NHWC}>,  // weights
     %arg2: tensor<64x1x1x4xsi32, {mem_space = @CMX_NN}>          // weight table
 ) -> tensor<1x64x10x20xf16, {order = #NHWC, mem_space = @CMX_NN}> {
     %sparsityMap = const.Declare tensor<1x64x11x21xi1> = dense<1> : tensor<1x64x11x21xi1>

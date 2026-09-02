@@ -5,13 +5,11 @@
 
 #include "vpux/compiler/act_kernels/shave_binary_resources.h"
 #include "vpux/compiler/core/interfaces/dialect_cache.hpp"
-#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/core/IR/dialect.hpp"
 
 #include <mlir/IR/MLIRContext.h>
 
 #include <cstdint>
-#include <fstream>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -82,47 +80,6 @@ void ShaveBinaryResources::addCompiledElf(llvm::StringRef funcName, std::unique_
     auto& ref = _elfPermStorage.back();
 
     _shaveBinaryResourcesMap.insert(std::make_pair(symbolName, std::make_pair(ref.get(), size)));
-}
-
-void ShaveBinaryResources::loadElfData(mlir::ModuleOp module) {
-#if defined(_WIN32) || defined(_WIN64)
-    return;
-#endif
-    auto& sbr = getShaveBinaryResources(module->getContext());
-
-    std::string line;
-
-    std::ifstream ifileList("FileList.in", std::ifstream::in);
-    if (!ifileList.is_open()) {
-        return;
-    }
-
-    while (std::getline(ifileList, line)) {
-        std::vector<uint8_t> binary;
-
-        std::ifstream ifileElf(line, std::ifstream::in);
-        VPUX_THROW_UNLESS(ifileElf.is_open(), "ELF file not found.");
-
-        // Get length of file:
-        ifileElf.seekg(0, std::ios::end);
-        int length = ifileElf.tellg();
-        ifileElf.seekg(0, std::ios::beg);
-
-        auto buffer = std::vector<char>(length);
-        ifileElf.read(buffer.data(), length);
-        ifileElf.close();
-
-        binary.insert(binary.end(), buffer.begin(), buffer.end());
-
-        std::string funcName;
-        std::getline(ifileList, funcName);
-
-        config::ArchKind archKind = config::getArch(module.getOperation());
-
-        sbr.addCompiledElf(funcName, binary, archKind, true);
-    }
-
-    ifileList.close();
 }
 
 ShaveBinaryResources& vpux::getShaveBinaryResources(mlir::MLIRContext* ctx) {

@@ -30,6 +30,7 @@ TEST_P(EinsumLayerTestCommon, NPU5010) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(EinsumLayerTestCommon, NPU5020) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

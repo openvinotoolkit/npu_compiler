@@ -17,7 +17,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @empty_body @fn_name @fn_type {
+    bytecode.func @empty_body @string_section::@fn_name @type_section::@fn_type {
         bytecode.ret
     }
 }
@@ -40,7 +40,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @single_use @fn_name @fn_type {
+    bytecode.func @single_use @string_section::@fn_name @type_section::@fn_type {
         %0 = bytecode.virtual_general_register
         bytecode.set_imm %0, 42
         bytecode.ret
@@ -66,7 +66,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @multi_use @fn_name @fn_type {
+    bytecode.func @multi_use @string_section::@fn_name @type_section::@fn_type {
         %0 = bytecode.virtual_general_register
         bytecode.set_imm %0, 1
         bytecode.set_imm %0, 2
@@ -96,7 +96,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @dead_virtual @fn_name @fn_type {
+    bytecode.func @dead_virtual @string_section::@fn_name @type_section::@fn_type {
         %0 = bytecode.virtual_general_register
         bytecode.ret
     }
@@ -121,7 +121,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @reuse_after_free @fn_name @fn_type {
+    bytecode.func @reuse_after_free @string_section::@fn_name @type_section::@fn_type {
         %0 = bytecode.virtual_general_register
         bytecode.set_imm %0, 1
         %1 = bytecode.virtual_general_register
@@ -151,7 +151,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @overlap_two @fn_name @fn_type {
+    bytecode.func @overlap_two @string_section::@fn_name @type_section::@fn_type {
         %0 = bytecode.virtual_general_register
         %1 = bytecode.virtual_general_register
         bytecode.set %0, %1
@@ -179,7 +179,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @nested_ranges @fn_name @fn_type {
+    bytecode.func @nested_ranges @string_section::@fn_name @type_section::@fn_type {
         %outer = bytecode.virtual_general_register
         bytecode.set_imm %outer, 10
         %inner = bytecode.virtual_general_register
@@ -213,7 +213,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @chain_reuse @fn_name @fn_type {
+    bytecode.func @chain_reuse @string_section::@fn_name @type_section::@fn_type {
         %0 = bytecode.virtual_general_register
         bytecode.set_imm %0, 1
         %1 = bytecode.virtual_general_register
@@ -252,7 +252,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @free_pool_order @fn_name @fn_type {
+    bytecode.func @free_pool_order @string_section::@fn_name @type_section::@fn_type {
         %0 = bytecode.virtual_general_register
         %1 = bytecode.virtual_general_register
         bytecode.set %0, %1
@@ -286,7 +286,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @three_live @fn_name @fn_type {
+    bytecode.func @three_live @string_section::@fn_name @type_section::@fn_type {
         %dst = bytecode.virtual_general_register
         %lhs = bytecode.virtual_general_register
         %rhs = bytecode.virtual_general_register
@@ -320,7 +320,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @def_vs_use_order @fn_name @fn_type {
+    bytecode.func @def_vs_use_order @string_section::@fn_name @type_section::@fn_type {
         %v0 = bytecode.virtual_general_register
         %v1 = bytecode.virtual_general_register
         bytecode.set_imm %v1, 1
@@ -350,7 +350,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @single_point @fn_name @fn_type {
+    bytecode.func @single_point @string_section::@fn_name @type_section::@fn_type {
         %0 = bytecode.virtual_general_register
         bytecode.set_imm %0, 7
         %1 = bytecode.virtual_general_register
@@ -387,7 +387,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [@buf, @i64], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @params_only @fn_name @fn_type {
+    bytecode.func @params_only @string_section::@fn_name @type_section::@fn_type {
         %p0 = bytecode.virtual_parameter_register 0
         %p1 = bytecode.virtual_parameter_register 1
         bytecode.set %p0, %p1
@@ -417,7 +417,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [@i64, @i64, @i64], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @sparse_param @fn_name @fn_type {
+    bytecode.func @sparse_param @string_section::@fn_name @type_section::@fn_type {
         %p2 = bytecode.virtual_parameter_register 2
         bytecode.set_imm %p2, 100
         bytecode.ret
@@ -445,7 +445,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [@i64], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @dup_param @fn_name @fn_type {
+    bytecode.func @dup_param @string_section::@fn_name @type_section::@fn_type {
         %p0a = bytecode.virtual_parameter_register 0
         %p0b = bytecode.virtual_parameter_register 0
         bytecode.set %p0a, %p0b
@@ -474,7 +474,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [@i64, @i64], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @mixed @fn_name @fn_type {
+    bytecode.func @mixed @string_section::@fn_name @type_section::@fn_type {
         %a = bytecode.virtual_general_register
         %b = bytecode.virtual_general_register
         %p0 = bytecode.virtual_parameter_register 0
@@ -512,7 +512,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [@i64], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @interleaved @fn_name @fn_type {
+    bytecode.func @interleaved @string_section::@fn_name @type_section::@fn_type {
         %a = bytecode.virtual_general_register
         bytecode.set_imm %a, 1
         %p0 = bytecode.virtual_parameter_register 0
@@ -547,13 +547,13 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @func_a @fna_name @fn_type {
+    bytecode.func @func_a @string_section::@fna_name @type_section::@fn_type {
         %0 = bytecode.virtual_general_register
         %1 = bytecode.virtual_general_register
         bytecode.set %0, %1
         bytecode.ret
     }
-    bytecode.func @func_b @fnb_name @fn_type {
+    bytecode.func @func_b @string_section::@fnb_name @type_section::@fn_type {
         %0 = bytecode.virtual_general_register
         bytecode.set_imm %0, 5
         bytecode.ret
@@ -591,7 +591,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [@i64, @i64], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @unused_params @fn_name @fn_type {
+    bytecode.func @unused_params @string_section::@fn_name @type_section::@fn_type {
         %0 = bytecode.virtual_general_register
         bytecode.set_imm %0, 7
         bytecode.ret
@@ -622,7 +622,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [@i64, @i64], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @unused_trailing_param @fn_name @fn_type {
+    bytecode.func @unused_trailing_param @string_section::@fn_name @type_section::@fn_type {
         %p0 = bytecode.virtual_parameter_register 0
         bytecode.set_imm %p0, 1
         bytecode.ret
@@ -652,7 +652,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [@i64, @i64, @i64], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @params_never_used @fn_name @fn_type {
+    bytecode.func @params_never_used @string_section::@fn_name @type_section::@fn_type {
         bytecode.ret
     }
 }
@@ -677,7 +677,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @intra_nonentry @fn_name @fn_type {
+    bytecode.func @intra_nonentry @string_section::@fn_name @type_section::@fn_type {
         bytecode.jmp ^bb1
     ^bb1:
         %vgr = bytecode.virtual_general_register
@@ -709,7 +709,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @cross_and_intra @fn_name @fn_type {
+    bytecode.func @cross_and_intra @string_section::@fn_name @type_section::@fn_type {
         %cross = bytecode.virtual_general_register
         bytecode.jmp ^bb1
     ^bb1:
@@ -746,7 +746,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @cross_reuse @fn_name @fn_type {
+    bytecode.func @cross_reuse @string_section::@fn_name @type_section::@fn_type {
         %a = bytecode.virtual_general_register
         bytecode.jmp ^bb1
     ^bb1:
@@ -792,7 +792,7 @@ bytecode.type_section @type_section {
     bytecode.type @fn_type #bytecode.function_type<arguments = [], results = []>
 }
 bytecode.func_section @func_section {
-    bytecode.func @loop_backedge @fn_name @fn_type {
+    bytecode.func @loop_backedge @string_section::@fn_name @type_section::@fn_type {
         %a = bytecode.virtual_general_register
         bytecode.set_imm %a, 42
         bytecode.jmp ^loop_hdr

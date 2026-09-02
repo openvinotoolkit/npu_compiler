@@ -279,11 +279,11 @@ private:
         switch (element_type) {
         case ov::element::f16: {
             auto b = inputTensor.data<ov::element_type_traits<ov::element::f16>::value_type>();
-            generate_uniform_vector(b, totalSize, seedB, low, high);
+            generate_uniform_vector(b, totalSize, seed, low, high);
         } break;
         case ov::element::f32: {
             auto b = inputTensor.data<ov::element_type_traits<ov::element::f32>::value_type>();
-            generate_uniform_vector(b, totalSize, seedB, low, high);
+            generate_uniform_vector(b, totalSize, seed, low, high);
         } break;
         default:
             throw std::runtime_error("Unsupported element type.");
@@ -307,7 +307,6 @@ private:
     }
     void update_realistic_input_tensor(ov::Tensor inputTensor, int batch_size, int seq_length, int input_size,
                                        int seed) {
-        auto totalSize = ov::shape_size(inputTensor.get_shape());
         auto element_type = inputTensor.get_element_type();
         switch (element_type) {
         case ov::element::f16: {
@@ -433,7 +432,7 @@ private:
         return out.str();
     }
 
-    void saveVector(ov::Tensor inputTensor, const std::string& filename) {
+    void saveVector([[maybe_unused]] ov::Tensor inputTensor, [[maybe_unused]] const std::string& filename) {
 #ifdef LSTM_PRINT_DEBUG_STATISTICS
         std::ofstream outFile(filename, std::ios::binary);  // Open in binary mode
         if (!outFile) {
@@ -636,6 +635,7 @@ TEST_P(LSTMSequenceLayerTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(LSTMSequenceLayerTestCommon, NPU5010_HW_SINGLE_CLUSTER) {
     setDefaultHardwareMode();
     setSingleClusterMode();

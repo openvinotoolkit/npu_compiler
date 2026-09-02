@@ -241,6 +241,6 @@ TEST_F(MLIR_ContentSetupCallStackNoObserverTest, NoObserver) {
         }
 
         EXPECT_TRUE(addAttr != nullptr);
-        EXPECT_TRUE(csCache.getSpecificCallStack(baseContent, addAttr).empty());
+        EXPECT_EQ(csCache.getSpecificCallStack(baseContent, addAttr), "NO_TRACE_FOR_PARSED_BASE_CONTENT");
     });
 }

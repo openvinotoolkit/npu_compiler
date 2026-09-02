@@ -25,10 +25,9 @@ using namespace vpux;
 
 void bytecode::SelectOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto dstReg = getRegisterNumber(getDst());
     const auto condReg = getRegisterNumber(getCond());
     const auto trueReg = getRegisterNumber(getTrueVal());
     const auto falseReg = getRegisterNumber(getFalseVal());
-    writer.appendInstruction(opcode, addrMode, SmallVector<int16_t>{dstReg, condReg, trueReg, falseReg});
+    writer.appendInstruction(opcode, SmallVector<int16_t>{dstReg, condReg, trueReg, falseReg});
 }

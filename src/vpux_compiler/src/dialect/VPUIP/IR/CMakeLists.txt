@@ -21,7 +21,6 @@ add_npu_library(${TARGET_NAME}
         npu_costmodel
       PRIVATE
         npu_elf
-        openvino::npu_al
         npu_compiler_dialect_vpurt
         npu_compiler_dialect_const
         npu_compiler_dialect_hostexec

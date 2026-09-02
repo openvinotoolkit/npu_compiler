@@ -19,6 +19,8 @@
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/Interfaces/CallInterfaces.h>
+#include <mlir/Interfaces/SideEffectInterfaces.h>
+#include <mlir/Interfaces/ViewLikeInterface.h>
 #include <functional>
 #include <type_traits>
 
@@ -121,9 +123,154 @@ void updateReturnOps(mlir::func::FuncOp func, ArrayRef<mlir::BlockArgument> appe
     });
 }
 
-bool isUsedOnlyByMemrefCopy(mlir::Value value) {
-    auto users = value.getUsers();
-    return std::distance(users.begin(), users.end()) == 1 && mlir::isa<mlir::memref::CopyOp>(*users.begin());
+// Peels view-like ops (memref.subview, memref.cast, ...) and returns the underlying buffer.
+// Two values share memory when their roots are the same value.
+mlir::Value getViewRoot(mlir::Value value) {
+    while (auto viewOp = mlir::dyn_cast_or_null<mlir::ViewLikeOpInterface>(value.getDefiningOp())) {
+        value = viewOp.getViewSource();
+    }
+    return value;
+}
+
+// Returns true when `value` is a block argument, or a view of one (for example memref.subview of an
+// scf.for iter_arg). Such a target denotes memory owned by the caller, so letting the call write into it
+// directly preserves the semantics of the copy being removed.
+bool isRootedAtBlockArg(mlir::Value value) {
+    return mlir::isa<mlir::BlockArgument>(getViewRoot(value));
+}
+
+// Collects the view-like ops and their operands that define `target` and are located after `callOp`, in
+// definition order. Those ops must be moved above the call for `target` to be usable as a call operand.
+// Returns false when an op cannot be moved, i.e. it has side effects or lives in another block.
+bool collectOpsToHoistAboveCall(mlir::Value target, mlir::Operation* callOp,
+                                SmallVector<mlir::Operation*>& opsToHoist) {
+    auto* defOp = target.getDefiningOp();
+    if (defOp == nullptr || defOp->getBlock() != callOp->getBlock() || defOp->isBeforeInBlock(callOp)) {
+        return true;
+    }
+    if (!mlir::isMemoryEffectFree(defOp)) {
+        return false;
+    }
+    for (auto operand : defOp->getOperands()) {
+        if (!collectOpsToHoistAboveCall(operand, callOp, opsToHoist)) {
+            return false;
+        }
+    }
+    if (!llvm::is_contained(opsToHoist, defOp)) {
+        opsToHoist.push_back(defOp);
+    }
+    return true;
+}
+
+// Returns true when the copies can be replaced by letting the call write into `target` directly.
+// The write to `target` moves from the last copy up to the call, so every operation in between must leave
+// `target` alone, otherwise it would observe the new contents early or have its own write overwritten.
+// The copies being erased are skipped, and memory effect free ops cannot interfere.
+// Values that alias `target` through view ops are compared by their root buffer.
+bool canMoveWriteToCall(mlir::Value target, mlir::Operation* callOp, ArrayRef<mlir::memref::CopyOp> copies) {
+    auto lastCopy = copies.back();
+    // The linear scan below only makes sense when all the copies sit in the call's block
+    if (llvm::any_of(copies, [&](mlir::memref::CopyOp copyOp) {
+            return copyOp->getBlock() != callOp->getBlock();
+        })) {
+        return false;
+    }
+
+    const auto targetRoot = getViewRoot(target);
+    for (auto* op = callOp->getNextNode(); op != lastCopy.getOperation(); op = op->getNextNode()) {
+        const auto isErasedCopy = llvm::any_of(copies, [&](mlir::memref::CopyOp copyOp) {
+            return copyOp.getOperation() == op;
+        });
+        if (mlir::isMemoryEffectFree(op) || isErasedCopy) {
+            continue;
+        }
+        if (llvm::any_of(op->getOperands(), [&](mlir::Value operand) {
+                return getViewRoot(operand) == targetRoot;
+            })) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Follows the chain of memref.copy ops from a call result and returns the first target that is owned by the
+// caller, either a block argument (the function's own appended output argument, or an enclosing loop's
+// iter_arg) or a view of one, so it can be reused as the call's output argument directly.
+// Copies traversed along  the way are recorded in `copiesToErase`, as they become redundant once the call
+// writes into that target.  memref.dim users are ignored as shape queries. Returns null if the chain branches,
+// has another consumer, or never reaches such a target.
+mlir::Value findCopyChainBlockArgTarget(mlir::Value result, SmallVector<mlir::memref::CopyOp>& copiesToErase) {
+    mlir::Value current = result;
+    while (true) {
+        mlir::memref::CopyOp onwardCopy = nullptr;
+        for (auto* user : current.getUsers()) {
+            if (mlir::isa<mlir::memref::DimOp>(user)) {
+                continue;
+            }
+            auto copyUser = mlir::dyn_cast<mlir::memref::CopyOp>(user);
+            if (copyUser == nullptr) {
+                // Some other consumer reads the buffer - fusing it away would drop that use.
+                return nullptr;
+            }
+            if (copyUser.getTarget() == current) {
+                // The copy that produced `current`, not a consumer of it.
+                continue;
+            }
+            if (copyUser.getSource() != current || onwardCopy != nullptr) {
+                // `current` is overwritten by another copy, or there is more than one onward copy: ambiguous.
+                return nullptr;
+            }
+            onwardCopy = copyUser;
+        }
+        if (onwardCopy == nullptr) {
+            return nullptr;
+        }
+        copiesToErase.push_back(onwardCopy);
+        current = onwardCopy.getTarget();
+        if (isRootedAtBlockArg(current)) {
+            return current;
+        }
+    }
+}
+
+// Tries to eliminate the memref.copy(s) after a call result by reusing the terminal caller-owned copy
+// target as the call's output argument, casting it if needed and erasing the redundant copies. The view ops
+// defining the target are hoisted above the call when needed, so that the target dominates its new use.
+// Returns nullptr if the chain never reaches such a target, or if reusing it would change behaviour.
+mlir::Value tryEliminateResultCopy(mlir::CallOpInterface callOp, mlir::Value result, size_t index,
+                                   mlir::OpBuilder& builder) {
+    SmallVector<mlir::memref::CopyOp> copiesToErase;
+    auto copyTarget = findCopyChainBlockArgTarget(result, copiesToErase);
+    if (copyTarget == nullptr) {
+        return nullptr;
+    }
+
+    if (!canMoveWriteToCall(copyTarget, callOp, copiesToErase)) {
+        return nullptr;
+    }
+
+    SmallVector<mlir::Operation*> opsToHoist;
+    if (!collectOpsToHoistAboveCall(copyTarget, callOp, opsToHoist)) {
+        return nullptr;
+    }
+    for (auto* op : opsToHoist) {
+        op->moveBefore(callOp);
+    }
+
+    auto funcOp = getCalledFunction(callOp);
+    auto funcType = funcOp.getFunctionType();
+    size_t numInputs = funcType.getNumInputs() - funcType.getNumResults();
+    auto memRefType = mlir::cast<mlir::MemRefType>(funcType.getInput(numInputs + index));
+
+    mlir::Value outParam = copyTarget;
+    if (memRefType != outParam.getType()) {
+        auto castBufferOp = builder.create<mlir::memref::CastOp>(callOp.getLoc(), memRefType, outParam);
+        outParam = castBufferOp.getResult();
+    }
+    for (auto copyOp : copiesToErase) {
+        copyOp.erase();
+    }
+    return outParam;
 }
 
 // Updates call op
@@ -150,25 +297,11 @@ void updateCallOp(const mlir::DenseSet<mlir::CallOpInterface>& callOps, vpux::Lo
                     !mlir::isa<mlir::MemRefType>(resType) && !mlir::isa<vpux::VPUIP::DistributedBufferType>(resType),
                     "Only MemRefType and DistributedBufferType are supported for now, got {0}", result.getType());
 
-            mlir::Value outParam = nullptr;
-            if (isUsedOnlyByMemrefCopy(result)) {
-                auto funcOp = getCalledFunction(callOp);
-                auto funcType = funcOp.getFunctionType();
-                size_t numInputs = funcType.getNumInputs() - funcType.getNumResults();
-                auto memRefType = mlir::cast<mlir::MemRefType>(funcType.getInput(numInputs + index));
-                mlir::memref::CopyOp copyOp = mlir::cast<mlir::memref::CopyOp>(*result.getUsers().begin());
-                outParam = copyOp.getTarget();
-                builder.setInsertionPointAfter(copyOp);
-                if (memRefType != outParam.getType()) {
-                    auto castBufferOp = builder.create<mlir::memref::CastOp>(callOp.getLoc(), memRefType, outParam);
-                    outParam = castBufferOp.getResult();
-                }
-                copyOp.erase();
-            }
+            mlir::Value outParam = tryEliminateResultCopy(callOp, result, index, builder);
             if (outParam == nullptr) {
-                // Dynamic memrefs in outlined kernel results must be allocated using upper bounds
-                // from the callee's NetworkInfo so the buffer is large enough for the worst-case
-                // runtime shape. Static memrefs and non-outlined calls use the standard path
+                // Dynamic memrefs in outlined kernel results have no dominating destination to reuse, so
+                // allocate a buffer using upper bounds from the callee's NetworkInfo, large enough for the
+                // worst-case runtime shape. Static memrefs and non-outlined calls use the standard path.
                 if (auto memrefType = mlir::dyn_cast<mlir::MemRefType>(resType);
                     memrefType && memrefType.getNumDynamicDims() > 0 && isOutlinedFunction) {
                     outParam = VPUIP::allocateCallBoundaryMemref(callOp, index, /*isInput=*/false, memrefType, builder,
@@ -213,21 +346,26 @@ void updateCallOp(const mlir::DenseSet<mlir::CallOpInterface>& callOps, vpux::Lo
 
 namespace vpux::VPUIP {
 template <typename CopyOp>
-void allocateBuffersForNetResults(const mlir::DenseSet<mlir::CallOpInterface>& callOps,
-                                  const mlir::DenseSet<mlir::func::FuncOp>& funcOps, vpux::Logger& log) {
+void updateFuncBoundariesForNetResults(const mlir::DenseSet<mlir::func::FuncOp>& funcOps, vpux::Logger& log) {
     for (auto func : funcOps) {
         SmallVector<mlir::BlockArgument> appendedEntryArgs;
         updateFuncOp(func, appendedEntryArgs);
         updateReturnOps<CopyOp>(func, appendedEntryArgs, log);
     }
+}
 
+void updateCallsForNetResults(const mlir::DenseSet<mlir::CallOpInterface>& callOps, vpux::Logger& log) {
     updateCallOp(callOps, log);
 }
 
-template void allocateBuffersForNetResults<VPUIP::CopyOp>(const mlir::DenseSet<mlir::CallOpInterface>& callOps,
-                                                          const mlir::DenseSet<mlir::func::FuncOp>& funcOps,
-                                                          Logger& log);
-template void allocateBuffersForNetResults<mlir::memref::CopyOp>(const mlir::DenseSet<mlir::CallOpInterface>& callOps,
-                                                                 const mlir::DenseSet<mlir::func::FuncOp>& funcOps,
-                                                                 Logger& log);
+void allocateBuffersForNetResults(const mlir::DenseSet<mlir::CallOpInterface>& callOps,
+                                  const mlir::DenseSet<mlir::func::FuncOp>& funcOps, vpux::Logger& log) {
+    updateFuncBoundariesForNetResults<VPUIP::CopyOp>(funcOps, log);
+    updateCallsForNetResults(callOps, log);
+}
+
+template void updateFuncBoundariesForNetResults<VPUIP::CopyOp>(const mlir::DenseSet<mlir::func::FuncOp>& funcOps,
+                                                               Logger& log);
+template void updateFuncBoundariesForNetResults<mlir::memref::CopyOp>(const mlir::DenseSet<mlir::func::FuncOp>& funcOps,
+                                                                      Logger& log);
 }  // namespace vpux::VPUIP

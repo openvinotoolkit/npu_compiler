@@ -24,6 +24,7 @@ extern "C" {
 #endif
 
 #pragma pack(push, 1)
+
 // Structure for the hardware profiling VPU5
 typedef struct ALIGN_MEDIA(16) {
     uint64_t descAddr : 64;

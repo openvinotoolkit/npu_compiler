@@ -59,17 +59,17 @@ func.func @SkipUnrollMaxPoolingBatch(%arg0: tensor<2x128x32x64xf16>) -> tensor<2
 // -----
 
 // CHECK-LABEL: @SkipUnrollConvolutionBatch
-// CHECK-SAME:      [[IN1:%.+]]: tensor<3x3x62x62xf32>
-func.func @SkipUnrollConvolutionBatch(%arg0: tensor<3x3x62x62xf32>) -> tensor<3x48x60x60xf32> {
+// CHECK-SAME:      [[IN1:%.+]]: tensor<2x3x62x62xf32>
+func.func @SkipUnrollConvolutionBatch(%arg0: tensor<2x3x62x62xf32>) -> tensor<2x48x60x60xf32> {
     %CST = const.Declare tensor<48x3x3x3xf32> = dense<1.0> : tensor<48x3x3x3xf32>
     %CONV = IE.Convolution(%arg0, %CST) {
         dilations = [1, 1],
         pads_begin = [0, 0],
         pads_end = [0, 0],
         strides = [1, 1]
-    } : tensor<3x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<3x48x60x60xf32>
+    } : tensor<2x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<2x48x60x60xf32>
 
-    return %CONV : tensor<3x48x60x60xf32>
+    return %CONV : tensor<2x48x60x60xf32>
 
     // CHECK:   [[CST_0:%.+]] = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> :
     // CHECK-SAME:      tensor<48x3x3x3xf32>
@@ -79,7 +79,7 @@ func.func @SkipUnrollConvolutionBatch(%arg0: tensor<3x3x62x62xf32>) -> tensor<3x
     // CHECK-SAME:      pads_begin = [0, 0],
     // CHECK-SAME:      pads_end = [0, 0],
     // CHECK-SAME:      strides = [1, 1]
-    // CHECK-SAME:  } : tensor<3x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<3x48x60x60xf32>
+    // CHECK-SAME:  } : tensor<2x3x62x62xf32>, tensor<48x3x3x3xf32> -> tensor<2x48x60x60xf32>
 
-    // CHECK:   return [[CONV_0]] : tensor<3x48x60x60xf32>
+    // CHECK:   return [[CONV_0]] : tensor<2x48x60x60xf32>
 }

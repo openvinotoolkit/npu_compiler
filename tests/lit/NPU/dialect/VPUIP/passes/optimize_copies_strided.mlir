@@ -434,3 +434,63 @@ func.func @RemoveCMXToCMXCopyAndInsertNewCopyWithReshapeCopyUser(%arg0 : memref<
 
     // CHECK:       return  [[COPY_1]], [[CONCATVIEW]]
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// SubView with a non-trivial stride on dim0 (e.g. stride=[4,1,1,1] on shape [4352,1,1,1])
+// reads every 4th element of the source. The resulting Copy must NOT be replaced with a ViewOp:
+// ViewOp would reinterpret the strided layout as contiguous, reading wrong data.
+
+// CHECK-LABEL: func.func @DoNotReplaceOutStridedSubViewCopyWithViewOp
+// CHECK-SAME:      [[ARG0:%.+]]: memref<17408x1x1x1xf16, @DDR>
+func.func @DoNotReplaceOutStridedSubViewCopyWithViewOp(%arg0: memref<17408x1x1x1xf16, @DDR>) -> memref<4352x1x1x1xf16, @DDR> {
+    %0 = memref.alloc() : memref<4352x1x1x1xf16, @DDR>
+    %1 = VPUIP.SubView %arg0 [0, 0, 0, 0] [4352, 1, 1, 1] [4, 1, 1, 1] : memref<17408x1x1x1xf16, @DDR> to memref<4352x1x1x1xf16, {order = #NCHW, strides = [4, 1, 1, 1]}, @DDR>
+    %2 = VPUIP.Copy inputs(%1 : memref<4352x1x1x1xf16, {order = #NCHW, strides = [4, 1, 1, 1]}, @DDR>) outputs(%0 : memref<4352x1x1x1xf16, @DDR>) -> memref<4352x1x1x1xf16, @DDR>
+    return %2 : memref<4352x1x1x1xf16, @DDR>
+
+    // CHECK-NOT: VPUIP.ViewOp
+    // CHECK:     [[SUBVIEW:%.+]] = VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [4352, 1, 1, 1] [4, 1, 1, 1]
+    // CHECK-SAME:    memref<17408x1x1x1xf16, @DDR> to memref<4352x1x1x1xf16, {order = #NCHW, strides = [4, 1, 1, 1]}, @DDR>
+    // CHECK:     [[COPY:%.+]] = VPUIP.Copy inputs([[SUBVIEW]] : memref<4352x1x1x1xf16, {order = #NCHW, strides = [4, 1, 1, 1]}, @DDR>)
+    // CHECK-SAME:    outputs({{%.+}} : memref<4352x1x1x1xf16, @DDR>) -> memref<4352x1x1x1xf16, @DDR>
+    // CHECK:     return [[COPY]] : memref<4352x1x1x1xf16, @DDR>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: func.func @DoNotReplaceStridedInputSubViewCopyWithViewOp
+// CHECK-SAME: ([[ARG0:%.+]]: memref<17408x1x1x1xf16, {order = #NCHW, strides = [4, 1, 1, 1]}, @DDR>)
+func.func @DoNotReplaceStridedInputSubViewCopyWithViewOp(
+    %arg0: memref<17408x1x1x1xf16, {order = #NCHW, strides = [4, 1, 1, 1]}, @DDR>)
+    -> memref<4352x1x1x1xf16, @DDR> {
+
+    %out = memref.alloc() : memref<4352x1x1x1xf16, @DDR>
+
+    %sub = VPUIP.SubView %arg0 [0, 0, 0, 0] [4352, 1, 1, 1]
+        : memref<17408x1x1x1xf16, {order = #NCHW, strides = [4, 1, 1, 1]}, @DDR>
+          to memref<4352x1x1x1xf16, {order = #NCHW, strides = [4, 1, 1, 1]}, @DDR>
+
+    %copy = VPUIP.Copy
+        inputs(%sub : memref<4352x1x1x1xf16, {order = #NCHW, strides = [4, 1, 1, 1]}, @DDR>)
+        outputs(%out : memref<4352x1x1x1xf16, @DDR>)
+        -> memref<4352x1x1x1xf16, @DDR>
+
+    return %copy : memref<4352x1x1x1xf16, @DDR>
+
+    // CHECK-NOT: VPUIP.ViewOp
+
+    // CHECK: [[SUBVIEW:%.+]] = VPUIP.SubView [[ARG0]] [0, 0, 0, 0] [4352, 1, 1, 1]
+    // CHECK-SAME: memref<17408x1x1x1xf16, {order = #NCHW, strides = [4, 1, 1, 1]}, @DDR>
+    // CHECK-SAME: to memref<4352x1x1x1xf16, {order = #NCHW, strides = [4, 1, 1, 1]}, @DDR>
+
+    // CHECK: [[COPY:%.+]] = VPUIP.Copy
+    // CHECK-SAME: inputs([[SUBVIEW]] : memref<4352x1x1x1xf16, {order = #NCHW, strides = [4, 1, 1, 1]}, @DDR>)
+    // CHECK-SAME: outputs({{%.+}} : memref<4352x1x1x1xf16, @DDR>) -> memref<4352x1x1x1xf16, @DDR>
+
+    // CHECK: return [[COPY]] : memref<4352x1x1x1xf16, @DDR>
+}

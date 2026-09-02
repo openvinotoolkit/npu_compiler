@@ -120,7 +120,22 @@ mlir::LogicalResult IE::MaxPoolRewriter::matchAndRewrite(IE::MaxPoolOp origOp, m
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
-        return rewriter.create<IE::MaxPoolOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput,
+        mlir::Value paddedScale = nullptr;
+        if (origOp.getScale() != nullptr) {
+            if (outChanPadsEnd == 0) {
+                paddedScale = origOp.getScale();
+            } else {
+                const auto scaleShape = getShape(origOp.getScale());
+
+                Shape scalePadsEnd(scaleShape.size(), 0);
+                scalePadsEnd[Dims4D::Act::N] = checked_cast<uint32_t>(outChanPadsEnd);
+
+                paddedScale = rewriter.createOrFold<IE::ExpandOp>(takeOpLoc(origOp, "expand_scale"), origOp.getScale(),
+                                                                  std::nullopt, ShapeRef(scalePadsEnd));
+            }
+        }
+
+        return rewriter.create<IE::MaxPoolOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, paddedScale,
                                               origOp.getKernelSize(), origOp.getStrides(), origOp.getPadsBegin(),
                                               origOp.getPadsEnd(), origOp.getRoundingType(), origOp.getPostOpAttr(),
                                               origOp.getClampAttr(), origOp.getStaticScaleAttr(), outputPaddingAttr,
@@ -158,6 +173,21 @@ mlir::LogicalResult IE::ConvolutionRewriter::matchAndRewrite(IE::ConvolutionOp o
             }
         }
 
+        mlir::Value paddedScale;
+        if (origOp.getScale() != nullptr) {
+            if (outChanPadEnd == 0) {
+                paddedScale = origOp.getScale();
+            } else {
+                const auto scaleShape = getShape(origOp.getScale());
+
+                Shape scalePadsEnd(scaleShape.size(), 0);
+                scalePadsEnd[Dims4D::Act::N] = checked_cast<uint32_t>(outChanPadEnd);
+
+                paddedScale = rewriter.createOrFold<IE::ExpandOp>(takeOpLoc(origOp, "expand_scale"), origOp.getScale(),
+                                                                  std::nullopt, ShapeRef(scalePadsEnd));
+            }
+        }
+
         const Shape outPadBefore(checked_cast<size_t>(origOp.getType().getRank()), 0);
         Shape outPadAfter(checked_cast<size_t>(origOp.getType().getRank()), 0);
         outPadAfter[Dims4D::Act::C] = outChanPadEnd;
@@ -169,7 +199,7 @@ mlir::LogicalResult IE::ConvolutionRewriter::matchAndRewrite(IE::ConvolutionOp o
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
         return rewriter.create<IE::ConvolutionOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput,
-                                                  paddedFilter, paddedBiases, origOp.getScale(), origOp.getZeroPoints(),
+                                                  paddedFilter, paddedBiases, paddedScale, origOp.getZeroPoints(),
                                                   origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(),
                                                   origOp.getDilations(), origOp.getPostOpAttr(), origOp.getClampAttr(),
                                                   origOp.getStaticScaleAttr(), outputPaddingAttr, inputPaddingAttr);
@@ -527,7 +557,22 @@ mlir::LogicalResult IE::AvgPoolRewriter::matchAndRewrite(IE::AvgPoolOp origOp, m
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
-        return rewriter.create<IE::AvgPoolOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput,
+        mlir::Value paddedScale = nullptr;
+        if (origOp.getScale() != nullptr) {
+            if (outChanPadsEnd == 0) {
+                paddedScale = origOp.getScale();
+            } else {
+                const auto scaleShape = getShape(origOp.getScale());
+
+                Shape scalePadsEnd(scaleShape.size(), 0);
+                scalePadsEnd[Dims4D::Act::N] = checked_cast<uint32_t>(outChanPadsEnd);
+
+                paddedScale = rewriter.createOrFold<IE::ExpandOp>(takeOpLoc(origOp, "expand_scale"), origOp.getScale(),
+                                                                  std::nullopt, ShapeRef(scalePadsEnd));
+            }
+        }
+
+        return rewriter.create<IE::AvgPoolOp>(takeOpLoc(origOp, "expanded"), newOutputType, expandedInput, paddedScale,
                                               origOp.getKernelSize(), origOp.getStrides(), origOp.getPadsBegin(),
                                               origOp.getPadsEnd(), origOp.getRoundingType(), origOp.getExcludePads(),
                                               origOp.getPostOpAttr(), origOp.getClampAttr(),

@@ -232,7 +232,7 @@ NDTypeInterface OptimizeSubviewCopiesPass::getNewCMXType(mlir::Value input, mlir
     const auto newDistribution = VPU::getNonOverlappedDistributedAttr(
             inputShape, oldDistribution.getMode(), oldDistribution.getNumTiles(), oldDistribution.getNumClusters(),
             oldDistribution.getAlignment(), oldDistribution.getUniformDistributedSegments(),
-            outputType.getElementType(), prevCopyOutType.getContext());
+            prevCopyOutType.getContext());
     return outputType.changeShapeForExplicitDistribution(inputShape, newDistribution);
 }
 

@@ -30,6 +30,7 @@ public:
     mlir::LogicalResult matchAndRewrite(VPU::VerticalFusionOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 protected:
+    VFConfig createVFConfig(VPU::VerticalFusionOp vfOp) const override;
     std::optional<VFCase> findVFCase(VPU::VerticalFusionOp prevOp, VPU::VerticalFusionOp currentOp,
                                      VPU::VerticalFusionOp mergedOp) const override;
     bool checkVFCostFunction(VPU::VerticalFusionOp prevOp, VPU::VerticalFusionOp currentOp,

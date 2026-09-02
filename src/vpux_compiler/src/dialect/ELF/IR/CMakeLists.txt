@@ -12,6 +12,7 @@ add_npu_library(npu_compiler_dialect_elf
         npu_compiler_dialect_core
         npu_compiler_dialect_vpurt
         npu_compiler_dialect_config
+        npu_compiler_backend_common
         npu_core_utils
         npu_logger
       PRIVATE
@@ -26,5 +27,4 @@ add_npu_library(npu_compiler_dialect_elf
         npu_compiler_dialect_elfnpu37xx
         npu_compiler_dialect_npureg40xx
         MLIRFuncDialect
-        openvino::npu_al
 )

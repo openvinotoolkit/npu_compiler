@@ -103,6 +103,19 @@ uint32_t getActCompressionEntryTileMask(VPUASM::NNDMAOp dmaOp, ELF::SymbolRefere
     return 0;
 }
 
+uint32_t getDynamicSequenceLengthBuffTileMask(VPUASM::NNDMAOp dmaOp, ELF::SymbolReferenceMap& symRefMap) {
+    if (auto dynSeqLenBuff = dmaOp.getDynamicSequenceLengthBuff().value_or(nullptr)) {
+        auto dynSeqLenRef = symRefMap.lookupSymbol(dynSeqLenBuff);
+        VPUX_THROW_UNLESS(dynSeqLenRef, "Could not find symbol name entry for {0} of {1}", dynSeqLenBuff, dmaOp);
+
+        if (mlir::isa<VPUASM::DeclareBufferOp>(dynSeqLenRef)) {
+            auto dynSeqLenBuffer = mlir::cast<VPUASM::DeclareBufferOp>(dynSeqLenRef);
+            return getTileSelectMaskForBuffer(dynSeqLenBuffer);
+        }
+    }
+    return 0;
+}
+
 SparsityMap getSparsityMapBuffTileMask(VPUASM::NNDMAOp dmaOp, ELF::SymbolReferenceMap& symRefMap) {
     auto sparsityMapBuffer = dmaOp.getActCompressionSparsityMap();
     SparsityMap sparsityMap{};
@@ -122,54 +135,65 @@ SparsityMap getSparsityMapBuffTileMask(VPUASM::NNDMAOp dmaOp, ELF::SymbolReferen
 
 void setResourceRequirement(mlir::ModuleOp moduleOp, elf::NetworkMetadata& metadata) {
     metadata.mResourceRequirements.nn_slice_count_ = VPUIP::getNumTilesUsed(moduleOp);
-    uint32_t workspace_offset = 0;
-    // E#179925 Compiler workspace is to be extended to include stacks and metadata
-    if (config::getArch(moduleOp) != config::ArchKind::NPU40XX) {
-        workspace_offset = CMX_WORKSPACE_OFFSET;
+    uint32_t reserved_memory = 0;
+    if (config::getArch(moduleOp) == config::ArchKind::NPU40XX) {
+        reserved_memory += 2 * static_cast<uint32_t>(CMX_SHAVE_STACK_SIZE.count());
+        reserved_memory += static_cast<uint32_t>(HW_RESERVED_CMX.count());
+        reserved_memory += static_cast<uint32_t>(CMX_METADATA_SIZE.count());
     }
     metadata.mResourceRequirements.nn_slice_length_ =
-            workspace_offset +
-            checked_cast<uint32_t>(config::getAvailableMemory(moduleOp, vpux::VPU::MemoryKind::CMX_NN).getByteSize());
+            checked_cast<uint32_t>(config::getAvailableMemory(moduleOp, vpux::VPU::MemoryKind::CMX_NN).getByteSize()) -
+            reserved_memory;
 }
 
 SmallVector<uint32_t> getCMXStackFrames(mlir::ModuleOp moduleOp) {
     auto tileOp = config::getTileExecutor(moduleOp);
     auto tileCount = checked_cast<uint32_t>(tileOp.getCount());
     auto shvPerTile = checked_cast<uint32_t>(tileOp.getSubExecutor(config::ExecutorKind::SHAVE_ACT).getCount());
+    // First two stacks reserved at the beginning of the CMX space
+    const size_t defaultStacksNum = 2;
 
-    SmallVector<uint32_t> stacksOffsets(shvPerTile);
+    SmallVector<uint32_t> stacksOffsets;
     // SHAVE stacks grows backwards!
     // Set the address to the end of the allocated section so it does not override
     // outside of its buffer
     auto stackSize = static_cast<uint32_t>(CMX_SHAVE_STACK_SIZE.count());
-    // First two stacks reserved at the beginning of the CMX space
-    stacksOffsets[0] = stackSize;
-    stacksOffsets[1] = stacksOffsets[0] + stackSize;
 
-    const size_t defaultStacksNum = 2;
-    // Check if additional stack frames are needed
-    if (auto extraStacks = shvPerTile - defaultStacksNum; extraStacks > 0) {
-        auto shaveStacksMem = config::getCMXStackFramesReservedMemory(moduleOp, VPU::MemoryKind::CMX_NN);
-        VPUX_THROW_WHEN(shaveStacksMem == nullptr, "Missing reserved CMX memory for additional shave stack frames");
-        auto shaveStacksMemOffset = shaveStacksMem.getOffset();
-        VPUX_THROW_WHEN(shaveStacksMemOffset == std::nullopt,
+    auto shaveStacksMem = config::getCMXStackFramesReservedMemory(moduleOp);
+    VPUX_THROW_WHEN(shaveStacksMem == nullptr, "Missing reserved CMX memory for shave stack frames");
+    auto shaveStacksMemOffset = shaveStacksMem.getOffset();
+    VPUX_THROW_WHEN(shaveStacksMemOffset == std::nullopt, "No address allocated for shave stack frames in CMX");
+    auto shaveStacksMemSize = checked_cast<uint32_t>(shaveStacksMem.getByteSize());
+    VPUX_THROW_WHEN(shaveStacksMemSize < defaultStacksNum * stackSize,
+                    "Insufficient memory allocated for shave stack frames in CMX");
+
+    for (auto stackIdx : irange(defaultStacksNum)) {
+        stacksOffsets.push_back(shaveStacksMemOffset.value() + (stackIdx + 1) * stackSize);
+    }
+
+    if (shvPerTile > defaultStacksNum) {
+        auto additionalStacksNum = shvPerTile - defaultStacksNum;
+        auto additionalShaveStacksMem = config::getCMXAdditionalStackFramesReservedMemory(moduleOp);
+        VPUX_THROW_WHEN(additionalShaveStacksMem == nullptr,
+                        "Missing reserved CMX memory for additional shave stack frames");
+        auto additionalShaveStacksMemOffset = additionalShaveStacksMem.getOffset();
+        VPUX_THROW_WHEN(additionalShaveStacksMemOffset == std::nullopt,
                         "No address allocated for additional shave stack frames in CMX");
-        auto shaveStacksMemSize = checked_cast<uint32_t>(shaveStacksMem.getByteSize());
-        VPUX_THROW_WHEN(shaveStacksMemSize < extraStacks * stackSize,
+        auto additionalShaveStacksMemSize = checked_cast<uint32_t>(additionalShaveStacksMem.getByteSize());
+        VPUX_THROW_WHEN(additionalShaveStacksMemSize < additionalStacksNum * stackSize,
                         "Insufficient memory allocated for additional shave stack frames in CMX");
 
-        for (auto extraStackIdx : irange(extraStacks)) {
-            // Additional stacks reserved after CMX workspace
-            stacksOffsets[defaultStacksNum + extraStackIdx] =
-                    CMX_WORKSPACE_OFFSET + shaveStacksMemOffset.value() + (extraStackIdx + 1) * stackSize;
+        for (auto stackIdx : irange(additionalStacksNum)) {
+            stacksOffsets.push_back(additionalShaveStacksMemOffset.value() + (stackIdx + 1) * stackSize);
         }
     }
 
-    SmallVector<uint32_t> stackFrameAddrs(tileCount * shvPerTile);
+    SmallVector<uint32_t> stackFrameAddrs(static_cast<size_t>(tileCount) * shvPerTile);
     for (auto tileIdx : irange(tileCount)) {
         for (auto offset : llvm::enumerate(stacksOffsets)) {
             // Combine base address with offset to point inside reserved CMX memory
-            stackFrameAddrs[tileIdx * shvPerTile + offset.index()] = offset.value() | CMX_BASE_ADDR;
+            stackFrameAddrs[static_cast<size_t>(tileIdx) * shvPerTile + offset.index()] =
+                    offset.value() | CMX_BASE_ADDR;
         }
     }
     return stackFrameAddrs;

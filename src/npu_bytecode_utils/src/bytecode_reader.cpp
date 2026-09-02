@@ -7,6 +7,7 @@
 #include "npu_bytecode_utils/instructions.hpp"
 #include "npu_bytecode_utils/logger.hpp"
 #include "npu_bytecode_utils/magic_number.hpp"
+#include "npu_bytecode_utils/network_description.hpp"
 #include "npu_bytecode_utils/print_utils.hpp"
 #include "npu_bytecode_utils/section_header_table.hpp"
 #include "npu_bytecode_utils/span.hpp"
@@ -24,21 +25,11 @@
 namespace {
 
 bool checkInstructionInBounds(intel_npu::vm::Span<uint8_t> functionBody, intel_npu::vm::OpCode opcode) {
-    const auto decodeByteSize = intel_npu::vm::getInstructionSizeDecodeByteSize(opcode);
-    if (!decodeByteSize.has_value()) {
-        NPU_VM_LOG_ERROR("Unknown opcode {}", static_cast<uint16_t>(opcode));
-        return false;
-    }
-    if (functionBody.size() < decodeByteSize.value()) {
-        NPU_VM_LOG_ERROR(
-                "Reached end of function body while decoding an instruction. This likely means the function body "
-                "is malformed");
-        return false;
-    }
-
     const auto instructionSize = intel_npu::vm::getInstructionSize(opcode, functionBody.begin(), functionBody.size());
     if (!instructionSize.has_value()) {
-        NPU_VM_LOG_ERROR("Unknown opcode {}", static_cast<uint16_t>(opcode));
+        NPU_VM_LOG_ERROR(
+                "Failed to decode instruction size for opcode {}: unknown opcode or malformed instruction body",
+                static_cast<uint16_t>(opcode));
         return false;
     }
     if (functionBody.size() < instructionSize.value()) {
@@ -57,7 +48,7 @@ void printFunctionBody(intel_npu::vm::Span<uint8_t> body, size_t indentLevel = 0
         printIndent(indentLevel);
         std::cout << opcode;
         for (size_t i = 0; i < operands.size(); ++i) {
-            std::cout << " " << operands[i];
+            std::cout << " " << operands.at(i);
             if (i < operands.size() - 1) {
                 std::cout << ",";
             }
@@ -65,7 +56,7 @@ void printFunctionBody(intel_npu::vm::Span<uint8_t> body, size_t indentLevel = 0
         std::cout << std::endl;
     };
 
-    while (body.begin() != nullptr && body.size() > 0) {
+    while (body.begin() != nullptr && !body.empty()) {
         if (body.size() < intel_npu::vm::OPCODE_SIZE) {
             NPU_VM_LOG_ERROR(
                     "Reached end of function body while decoding an opcode. This likely means the function body "
@@ -334,34 +325,34 @@ void printFunctionBody(intel_npu::vm::Span<uint8_t> body, size_t indentLevel = 0
         }
         case OpCode::CALL: {
             // Instruction layout: `call rs, N, rN..., M, rM...`
-            //   rs    - register holding the callee function index (index into the function section)
+            //   rs    - register holding the callee function index
             //   N     - immediate: number of destination registers that will receive the return values
             //   rN... - N destination register operands (in call order; mapped by `retv` on return)
             //   M     - immediate: number of argument registers passed to the callee
             //   rM... - M argument register operands; loaded into callee parameter registers [G, G+M)
             const auto funcIdxReg = getOperand(body.begin(), 0);
-            const auto N = getOperand(body.begin(), 1);
-            if (N < 0) {
+            const auto n = getOperand(body.begin(), 1);
+            if (n < 0) {
                 NPU_VM_LOG_ERROR("Malformed call instruction: negative destination register count");
                 return;
             }
 
-            std::vector<int64_t> operands = {funcIdxReg, static_cast<int64_t>(N)};
+            std::vector<int64_t> operands = {funcIdxReg, static_cast<int64_t>(n)};
             // Collect N destination registers (indices 2..2+N-1)
-            for (int16_t i = 0; i < N; ++i) {
+            for (int16_t i = 0; i < n; ++i) {
                 operands.push_back(getOperand(body.begin(), 2 + i));
             }
             // M is stored immediately after the N destination registers (index 2+N)
-            const auto M = getOperand(body.begin(), 2 + N);
-            if (M < 0) {
+            const auto m = getOperand(body.begin(), 2 + n);
+            if (m < 0) {
                 NPU_VM_LOG_ERROR("Malformed call instruction: negative argument register count");
                 return;
             }
 
-            operands.push_back(static_cast<int64_t>(M));
+            operands.push_back(static_cast<int64_t>(m));
             // Collect M argument registers (indices 3+N..3+N+M-1)
-            for (int16_t i = 0; i < M; ++i) {
-                operands.push_back(getOperand(body.begin(), 3 + N + i));
+            for (int16_t i = 0; i < m; ++i) {
+                operands.push_back(getOperand(body.begin(), 3 + n + i));
             }
             printInstruction("call", operands);
             break;
@@ -417,14 +408,27 @@ void printFunctionBody(intel_npu::vm::Span<uint8_t> body, size_t indentLevel = 0
             printInstruction("buffer.get_dim", {dstRegNum, bufRegNum, dimRegNum});
             break;
         }
+        case OpCode::BUFFER_LOAD: {
+            std::vector<int64_t> operands;
+            operands.push_back(getOperand(body.begin(), 0));  // dst
+            operands.push_back(getOperand(body.begin(), 1));  // buffer
+            const auto rank = getOperand(body.begin(), 2);
+            operands.push_back(rank);
+            for (int64_t i = 0; i < rank; ++i) {
+                operands.push_back(getOperand(body.begin(), 3 + i));
+            }
+            printInstruction("buffer.load", operands);
+            break;
+        }
         case OpCode::BUFFER_SUBVIEW: {
             std::vector<int64_t> operands;
             operands.push_back(getOperand(body.begin(), 0));  // dst
             operands.push_back(getOperand(body.begin(), 1));  // src
             const auto rank = getOperand(body.begin(), 2);
             operands.push_back(rank);
+            constexpr auto offsetsStartIndex = 3;
             for (int64_t i = 0; i < 3 * rank; ++i) {
-                operands.push_back(getOperand(body.begin(), 3 + i));
+                operands.push_back(getOperand(body.begin(), offsetsStartIndex + i));
             }
             printInstruction("buffer.subview", operands);
             break;
@@ -437,8 +441,9 @@ void printFunctionBody(intel_npu::vm::Span<uint8_t> body, size_t indentLevel = 0
             operands.push_back(getOperand(body.begin(), 3));  // elem_type
             const auto rank = getOperand(body.begin(), 4);
             operands.push_back(rank);
+            constexpr auto shapeStartIndex = 5;
             for (int64_t i = 0; i < 2 * rank; ++i) {
-                operands.push_back(getOperand(body.begin(), 5 + i));
+                operands.push_back(getOperand(body.begin(), shapeStartIndex + i));
             }
             printInstruction("buffer.view", operands);
             break;
@@ -728,15 +733,15 @@ void printConstant(intel_npu::vm::Span<uint8_t> constant, bool printFull) {
             return;
         }
         for (size_t i = 0; i < numBytesToPrintBeforeAndAfter; ++i) {
-            std::cout << intel_npu::vm::toHex(constant[i]);
+            std::cout << intel_npu::vm::toHex(constant.at(i));
         }
         std::cout << "...";
         for (size_t i = constant.size() - numBytesToPrintBeforeAndAfter; i < constant.size(); ++i) {
-            std::cout << intel_npu::vm::toHex(constant[i]);
+            std::cout << intel_npu::vm::toHex(constant.at(i));
         }
     };
 
-    if (constant.size() == 0) {
+    if (constant.empty()) {
         std::cout << "(empty)";
         return;
     }
@@ -750,7 +755,7 @@ void printConstant(intel_npu::vm::Span<uint8_t> constant, bool printFull) {
 }
 
 void printString(intel_npu::vm::Span<uint8_t> string) {
-    if (string.size() == 0) {
+    if (string.empty()) {
         std::cout << "\"\"";
         return;
     }
@@ -765,11 +770,11 @@ void printString(intel_npu::vm::Span<uint8_t> string) {
 }
 
 void printType(intel_npu::vm::Span<uint8_t> type) {
-    if (type.size() == 0) {
+    if (type.empty()) {
         std::cout << "(empty)";
         return;
     }
-    auto typeCode = static_cast<intel_npu::vm::TypeCode>(type[0]);
+    auto typeCode = static_cast<intel_npu::vm::TypeCode>(type.at(0));
     auto typeData = type.subspan(1);
 
     switch (typeCode) {
@@ -837,14 +842,14 @@ intel_npu::vm::Version intel_npu::vm::BytecodeReader::getMinSupportedVersion() {
 }
 
 intel_npu::vm::Version intel_npu::vm::BytecodeReader::getMaxSupportedVersion() {
-    return Version{1, 0, 0};
+    return Version{1, 1, 0};
 }
 
 intel_npu::vm::SectionHeaderTable& intel_npu::vm::BytecodeReader::getSectionHeaderTable() {
     return _sectionHeaderTable;
 }
 
-const std::vector<std::vector<uint8_t>>& intel_npu::vm::BytecodeReader::getSections() const {
+const std::vector<intel_npu::vm::Span<uint8_t>>& intel_npu::vm::BytecodeReader::getSections() const {
     return _sections;
 }
 
@@ -853,7 +858,7 @@ intel_npu::vm::Span<uint8_t> intel_npu::vm::BytecodeReader::getDataSectionEntry(
     const auto& sectionHeaders = _sectionHeaderTable.getSectionHeaders();
     const auto& sections = getSections();
     for (size_t i = 0; i < sectionHeaders.size(); ++i) {
-        const auto& header = sectionHeaders[i];
+        const auto& header = sectionHeaders.at(i);
         if (header.type != sectionType) {
             continue;
         }
@@ -868,18 +873,22 @@ intel_npu::vm::Span<uint8_t> intel_npu::vm::BytecodeReader::getDataSectionEntry(
                              dataSectionInfo->numData);
             return {};
         }
+        if (entryIndex >= dataSectionInfo->dataInfos.size()) {
+            NPU_VM_LOG_ERROR("Entry index {} out of bounds for section with {} data infos", entryIndex,
+                             dataSectionInfo->dataInfos.size());
+            return {};
+        }
         if (i >= sections.size()) {
             NPU_VM_LOG_ERROR("Could not find associated section with section header {}", i);
             return {};
         }
-        const auto& dataInfo = dataSectionInfo->dataInfos[entryIndex];
-        auto& sectionContent = sections[i];
+        const auto& dataInfo = dataSectionInfo->dataInfos.at(entryIndex);
+        auto& sectionContent = sections.at(i);
         if (dataInfo.offset > sectionContent.size() || dataInfo.size > sectionContent.size() - dataInfo.offset) {
             NPU_VM_LOG_ERROR("Entry with offset {} and size {} exceeds section bounds", dataInfo.offset, dataInfo.size);
             return {};
         }
-        const auto dataStart = const_cast<uint8_t*>(sectionContent.data() + dataInfo.offset);
-        return intel_npu::vm::Span<uint8_t>{dataStart, dataInfo.size};
+        return sectionContent.subspan(dataInfo.offset, dataInfo.size);
     }
     return {};
 }
@@ -889,13 +898,13 @@ std::optional<std::string> intel_npu::vm::BytecodeReader::getString(size_t strin
     if (stringEntry.empty()) {
         return std::nullopt;
     }
-    const auto stringStart = reinterpret_cast<const char*>(stringEntry.begin());
     auto stringSize = stringEntry.size();
     // Remove the null terminator from the end of the string, since std::string does not require a null terminator
-    if (stringSize > 0 && stringStart[stringSize - 1] == '\0') {
+    if (stringSize > 0 && stringEntry.at(stringSize - 1) == '\0') {
         --stringSize;
     }
-    return std::string(stringStart, stringSize);
+    auto subString = stringEntry.subspan(0, stringSize);
+    return std::string(subString.begin(), subString.end());
 }
 
 std::optional<intel_npu::vm::FunctionType> intel_npu::vm::BytecodeReader::getFunctionType(size_t typeIndex) const {
@@ -904,7 +913,7 @@ std::optional<intel_npu::vm::FunctionType> intel_npu::vm::BytecodeReader::getFun
         return std::nullopt;
     }
     intel_npu::vm::FunctionType funcType{};
-    const auto typeCode = static_cast<TypeCode>(typeEntry[0]);
+    const auto typeCode = static_cast<TypeCode>(typeEntry.at(0));
     if (typeCode != TypeCode::FUNCTION) {
         NPU_VM_LOG_ERROR("Type entry at index {} has invalid type code {}, expected FUNCTION type code", typeIndex,
                          static_cast<uint8_t>(typeCode));
@@ -958,13 +967,13 @@ bool intel_npu::vm::BytecodeReader::isVersionSupported(intel_npu::vm::Span<uint8
 }
 
 bool intel_npu::vm::BytecodeReader::isVersionSupported() const {
-    return isVersionSupported(Span<uint8_t>{const_cast<uint8_t*>(_bytecode.data()), _bytecode.size()});
+    return isVersionSupported(_bytecode);
 }
 
 bool intel_npu::vm::BytecodeReader::parseFileHeader() {
     // Wrap the raw bytecode in a Span that tracks the current read position.
     // Each parseFrom() call advances the span past the consumed bytes.
-    auto bytecodeBuffer = intel_npu::vm::Span<uint8_t>{_bytecode.data(), _bytecode.size()};
+    auto bytecodeBuffer = _bytecode;
 
     if (!_magicNumber.parseFrom(bytecodeBuffer)) {
         NPU_VM_LOG_ERROR("Failed to parse magic number");
@@ -985,7 +994,7 @@ bool intel_npu::vm::BytecodeReader::parseFileHeader() {
 }
 
 bool intel_npu::vm::BytecodeReader::parseSections() {
-    auto bytecodeBuffer = intel_npu::vm::Span<uint8_t>{_bytecode.data(), _bytecode.size()};
+    auto bytecodeBuffer = _bytecode;
 
     for (const auto& header : _sectionHeaderTable.getSectionHeaders()) {
         const auto sectionType = header.type;
@@ -997,8 +1006,7 @@ bool intel_npu::vm::BytecodeReader::parseSections() {
                     static_cast<uint64_t>(sectionType), offset, size, bytecodeBuffer.size());
             return false;
         }
-        auto sectionBuffer = bytecodeBuffer.subspan(offset, size);
-        _sections.emplace_back(sectionBuffer.begin(), sectionBuffer.end());
+        _sections.push_back(bytecodeBuffer.subspan(offset, size));
     }
 
     return true;
@@ -1030,7 +1038,7 @@ void intel_npu::vm::BytecodeReader::printFunctionSection(const intel_npu::vm::Se
                              sectionContent.size());
             continue;
         }
-        const auto body = intel_npu::vm::Span<uint8_t>(sectionContent.begin() + funcInfo.bodyOffset, funcInfo.bodySize);
+        const auto body = sectionContent.subspan(funcInfo.bodyOffset, funcInfo.bodySize);
         printFunctionBody(body, indentLevel + 2);
     }
 }
@@ -1048,24 +1056,23 @@ void intel_npu::vm::BytecodeReader::printDataSection(const intel_npu::vm::Sectio
         return;
     }
     for (size_t cstIdx = 0; cstIdx < dataSectionInfo->dataInfos.size(); ++cstIdx) {
-        const auto& dataInfo = dataSectionInfo->dataInfos[cstIdx];
+        const auto& dataInfo = dataSectionInfo->dataInfos.at(cstIdx);
         intel_npu::vm::printIndent(indentLevel + 1);
         std::cout << intel_npu::vm::getSectionTypeString(sectionType) << " " << cstIdx << ": ";
         if (dataInfo.offset > sectionContent.size() || dataInfo.size > sectionContent.size() - dataInfo.offset) {
             NPU_VM_LOG_ERROR("Entry with offset {} and size {} exceeds section bounds", dataInfo.offset, dataInfo.size);
             continue;
         }
-        const auto content = intel_npu::vm::Span<uint8_t>(sectionContent.begin() + dataInfo.offset, dataInfo.size);
-        if (sectionType == intel_npu::vm::SectionType::ConstantSection) {
-            printConstant(content, printFull);
-        } else if (sectionType == intel_npu::vm::SectionType::KernelSection) {
+        const auto content = sectionContent.subspan(dataInfo.offset, dataInfo.size);
+        if (sectionType == intel_npu::vm::SectionType::ConstantSection ||
+            sectionType == intel_npu::vm::SectionType::KernelSection) {
             printConstant(content, printFull);
         } else if (sectionType == intel_npu::vm::SectionType::StringSection) {
             printString(content);
         } else if (sectionType == intel_npu::vm::SectionType::TypeSection) {
             printType(content);
         } else if (sectionType == intel_npu::vm::SectionType::MetadataSection) {
-            printConstant(content, printFull);
+            intel_npu::vm::printMetadataEntry(content);
         } else {
             NPU_VM_LOG_ERROR("Unsupported section type for body section printing: {}",
                              static_cast<uint64_t>(sectionType));
@@ -1121,9 +1128,8 @@ void intel_npu::vm::BytecodeReader::printFile(bool printFull, size_t indentLevel
             NPU_VM_LOG_ERROR("Could not find associated section with section header {}", i);
             continue;
         }
-        auto sectionContent = intel_npu::vm::Span<uint8_t>(_sections[i].data(), _sections[i].size());
-
-        const auto& header = sectionHeaders[i];
+        auto sectionContent = _sections.at(i);
+        const auto& header = sectionHeaders.at(i);
         if (header.type == SectionType::FuncSection) {
             printFunctionSection(header, sectionContent, functionSectionIdx++, indentLevel + 1);
         } else if (header.type == SectionType::ConstantSection) {

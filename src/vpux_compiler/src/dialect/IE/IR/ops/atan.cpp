@@ -29,3 +29,9 @@ mlir::LogicalResult vpux::IE::AtanOp::inferReturnTypeComponents(
 
     return mlir::success();
 }
+
+mlir::LogicalResult vpux::IE::AtanOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                        mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
+}

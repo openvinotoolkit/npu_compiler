@@ -6,8 +6,10 @@
 #include "vpux/compiler/conversion/passes/IE2VPU/convert_IE_to_VPU_NCE.hpp"
 #include "vpux/compiler/conversion.hpp"
 
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
@@ -135,14 +137,21 @@ mlir::LogicalResult ConvToNCE::matchAndRewrite(IE::ConvolutionOp origOp, mlir::P
     Const::ContentAttr bias;
     if (origOp.getBias() != nullptr) {
         auto biasConstOp = origOp.getBias().getDefiningOp<Const::DeclareOp>();
+        if (biasConstOp == nullptr) {
+            _log.trace("Skipping non-constant bias for IE.ConvolutionOp: weight_table_bias is not supported here");
+            return mlir::failure();
+        }
         bias = biasConstOp.getContentAttr();
     }
     const auto& ppeConfig = VPU::getPpeConfig(ctx);
     const auto ppeAttr = ppeConfig.retrievePPEAttribute(origOp);
 
-    VPU::MPEEngineAttr mpeEngineModeAttr = nullptr;
+    VPU::MPEEngineAttr mpeEngineAttr = nullptr;
     if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(origOp.getOperation())) {
-        mpeEngineModeAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineMode());
+        const auto weightZp = getPerTensorZeroPointAttr(origOp.getFilter());
+        const auto activationZp = getPerTensorZeroPointAttr(origOp.getInput());
+
+        mpeEngineAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineWithZP(weightZp, activationZp));
     }
 
     const auto isNewWeightTableFormat = VPU::MPEEngineConfig::useNewWeightTableFormat(origOp, isCompressConvSupported);
@@ -178,7 +187,7 @@ mlir::LogicalResult ConvToNCE::matchAndRewrite(IE::ConvolutionOp origOp, mlir::P
     if (isCompressConvSupported) {
         rewriter.replaceOpWithNewOp<VPU::NCECompressConvolutionOp>(
                 origOp, origOp.getType(), origOp.getInput(), maybeAlignedFilter, weightsTable, origOp.getStridesAttr(),
-                padAttr, ppeAttr, mpeEngineModeAttr, /*rawFilterShape=*/mlir::ValueRange{},
+                padAttr, ppeAttr, mpeEngineAttr, /*rawFilterShape=*/mlir::ValueRange{},
                 mlir::DenseI64ArrayAttr::get(ctx, parseIntArrayAttr<int64_t>(rawFilterShape)),
                 /*multi_cluster_strategyAttr=*/nullptr, cmSpPatternAttr, origOp.getOutputPaddingAttr(),
                 origOp.getInputPaddingAttr());
@@ -194,19 +203,65 @@ mlir::LogicalResult ConvToNCE::matchAndRewrite(IE::ConvolutionOp origOp, mlir::P
                 auto staticScaleEqualToOne =
                         scaleTableContent.isSplat() && isFloatEqual(scaleTableContent.getSplatValue<float>(), 1.0f);
                 if (!staticScaleEqualToOne) {
-                    scaleTensor = rewriter.create<IE::MultiplyOp>(
-                            origOp.getLoc(), scaleTensor, newWeightsTableTensors.scaleTensor,
-                            IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
+                    if (auto maxpoolOp = findUnfusedProducer<IE::MaxPoolOp>(_log, origOp.getScale().getDefiningOp())) {
+                        // Insert before maxpoolOp so the new ops dominate the view-op chain
+                        // that follows maxpoolOp and now uses multiply as its input.
+                        // Also move the scale constant (a Const::DeclareOp with no operands)
+                        // before maxpoolOp to satisfy dominance for the reshape that uses it.
+                        rewriter.moveOpBefore(constOp, maxpoolOp);
+                        rewriter.setInsertionPoint(maxpoolOp);
+
+                        auto output = maxpoolOp.getOutput();
+                        auto input1 = maxpoolOp.getInput();
+                        auto maxpoolInputShape = getShape(input1);
+                        auto constantShape = getShape(newWeightsTableTensors.scaleTensor);
+
+                        if (maxpoolInputShape[Dims4D::Act::C] != constantShape[Dims4D::Act::N]) {
+                            // Convert the FP32 scale constant to FP16 to match the activation tensor element type.
+                            const auto fp16ElemTypeAttr = mlir::TypeAttr::get(mlir::Float16Type::get(ctx));
+                            auto scaleFp16 = rewriter.createOrFold<IE::ConvertOp>(
+                                    appendLoc(maxpoolOp.getLoc(), "scale_convert_fp16"),
+                                    newWeightsTableTensors.scaleTensor, fp16ElemTypeAttr);
+
+                            auto input2 = rewriter.createOrFold<IE::ReshapeOp>(
+                                    appendLoc(maxpoolOp.getLoc(), "scale_reshape_in_2"), scaleFp16,
+                                    getIntArrayAttr(ctx, maxpoolInputShape));
+
+                            const auto nhwcOrderAttr = mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(ctx));
+                            auto layoutCast2 = rewriter.createOrFold<IE::LayoutCastOp>(
+                                    appendLoc(maxpoolOp.getLoc(), "scale_layout_cast_in_1"), input2, nhwcOrderAttr);
+                            auto outputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
+
+                            auto multiply =
+                                    rewriter.create<IE::MultiplyOp>(appendLoc(maxpoolOp.getLoc(), "scale_multiply"),
+                                                                    outputType, maxpoolOp.getInput(), layoutCast2,
+                                                                    IE::AutoBroadcastType::NUMPY, nullptr, nullptr,
+                                                                    nullptr, nullptr)
+                                            .getOutput();
+
+                            maxpoolOp.getOutput().replaceAllUsesWith(multiply);
+                        } else {
+                            auto newPoolOp = mlir::cast<IE::MaxPoolOp>(rewriter.clone(*maxpoolOp));
+                            rewriter.modifyOpInPlace(newPoolOp, [&] {
+                                newPoolOp.getScaleMutable().assign(newWeightsTableTensors.scaleTensor);
+                            });
+                            maxpoolOp.getOutput().replaceAllUsesWith(newPoolOp.getOutput());
+                        }
+                        rewriter.setInsertionPoint(origOp.getOperation());
+                    } else {
+                        scaleTensor = rewriter.create<IE::MultiplyOp>(
+                                origOp.getLoc(), scaleTensor, newWeightsTableTensors.scaleTensor,
+                                IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
+                    }
                 }
             }
         }
 
         rewriter.replaceOpWithNewOp<VPU::NCEConvolutionOp>(
                 origOp, origOp.getType(), /*reduceXyMax*/ nullptr, /*reduceXyMin*/ nullptr,
-                /*reduceGlobalMinMax*/ nullptr, origOp.getInput(), maybeAlignedFilter, weightsTable,
-                newWeightsTableTensors.dataPointerTensor, newWeightsTableTensors.sparsityPointerTensor, scaleTensor,
+                /*reduceGlobalMinMax*/ nullptr, origOp.getInput(), maybeAlignedFilter, weightsTable, scaleTensor,
                 newWeightsTableTensors.biasTensor, newWeightsTableTensors.zeroPointTensor, origOp.getStridesAttr(),
-                padAttr, ppeAttr, mpeEngineModeAttr, /*rawFilterShape=*/mlir::ValueRange{},
+                padAttr, ppeAttr, mpeEngineAttr, /*rawFilterShape=*/mlir::ValueRange{},
                 parseIntArrayAttr<int64_t>(rawFilterShape),
                 /*multi_cluster_strategyAttr=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr(),
                 /*axes_value=*/nullptr);
@@ -292,9 +347,12 @@ mlir::LogicalResult MatMulToNCE::matchAndRewrite(IE::MatMulOp origOp, mlir::Patt
     const auto& ppeConfig = VPU::getPpeConfig(ctx);
     const auto ppeAttr = ppeConfig.retrievePPEAttribute(origOp);
 
-    VPU::MPEEngineAttr mpeEngineModeAttr = nullptr;
+    VPU::MPEEngineAttr mpeEngineAttr = nullptr;
     if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(origOp.getOperation())) {
-        mpeEngineModeAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineMode());
+        const auto input1 = getPerTensorZeroPointAttr(origOp.getInput2());
+        const auto input2 = getPerTensorZeroPointAttr(origOp.getInput1());
+
+        mpeEngineAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineWithZP(input1, input2));
     }
 
     auto filterShape = getShape(input2).toValues();
@@ -361,10 +419,9 @@ mlir::LogicalResult MatMulToNCE::matchAndRewrite(IE::MatMulOp origOp, mlir::Patt
     // result type unlike NCE.Convolution
     auto nceOp = rewriter.create<VPU::NCEMatMulOp>(
             origOp.getLoc(), newOutputType, /*reduceXyMax*/ nullptr, /*reduceXyMin*/ nullptr,
-            /*reduceGlobalMinMax*/ nullptr, input1, input2, weightsTable, newWeightsTableTensors.dataPointerTensor,
-            newWeightsTableTensors.sparsityPointerTensor, newWeightsTableTensors.scaleTensor,
+            /*reduceGlobalMinMax*/ nullptr, input1, input2, weightsTable, newWeightsTableTensors.scaleTensor,
             newWeightsTableTensors.biasTensor, newWeightsTableTensors.zeroPointTensor, stridesAttr, padAttr, ppeAttr,
-            mpeEngineModeAttr, /*rawFilterShape=*/mlir::ValueRange{}, filterShape.raw(),
+            mpeEngineAttr, /*rawFilterShape=*/mlir::ValueRange{}, filterShape.raw(),
             /* multiClusterStrategyAttr = */ nullptr, /*axes_value=*/nullptr);
 
     // Convert from 5D inputs to 4D.
@@ -387,10 +444,40 @@ mlir::LogicalResult DepthConvToNCE::matchAndRewrite(IE::GroupConvolutionOp origO
     const auto filterShape = getShape(filter);
     const auto OC = filterShape[Dims4D::Filter::OC];
 
-    Const::ContentAttr bias;
+    const auto isNewWeightTableFormat = VPU::MPEEngineConfig::useNewWeightTableFormat(origOp, /*isCompressConv=*/false);
+
+    Const::ContentAttr constBias;
+    mlir::Value runtimeBias;
     if (origOp.getBias() != nullptr) {
         auto biasConstOp = origOp.getBias().getDefiningOp<Const::DeclareOp>();
-        bias = biasConstOp.getContentAttr();
+        if (biasConstOp != nullptr) {
+            constBias = biasConstOp.getContentAttr();
+        } else {
+            if (!isNewWeightTableFormat) {
+                _log.trace("Skipping non-constant bias for IE.GroupConvolutionOp: legacy weight table format does "
+                           "not support weight_table_bias");
+                return mlir::failure();
+            }
+            // Bias tensor rank is not constrained by IE.GroupConvolutionOp; accept any shape as long as it
+            // contains OC elements. Uses the declared (not bounded) shape: a bounded dynamic shape's bounds
+            // are always static, so checking those would miss a genuinely dynamic bias here and crash later
+            // in createRuntimeBiasForWeightTable, which operates on the declared shape.
+            const auto biasShape = getShape(origOp.getBias());
+            if (!biasShape.isStatic()) {
+                _log.trace("Skipping non-constant bias for IE.GroupConvolutionOp: unable to statically determine "
+                           "bias element count for shape {0}",
+                           biasShape);
+                return mlir::failure();
+            }
+            if (biasShape.totalSize() != OC) {
+                _log.trace("Skipping non-constant bias for IE.GroupConvolutionOp: bias has {0} elements, expected "
+                           "{1} (OC)",
+                           biasShape.totalSize(), OC);
+                return mlir::failure();
+            }
+            runtimeBias =
+                    VPU::createRuntimeBiasForWeightTable(rewriter, takeOpLoc(origOp, "bias"), origOp.getBias(), OC);
+        }
     }
 
     const auto alignedFilter = VPU::alignDepthWiseWeightsTensor(rewriter, origOp.getLoc(), filter);
@@ -400,12 +487,14 @@ mlir::LogicalResult DepthConvToNCE::matchAndRewrite(IE::GroupConvolutionOp origO
     const auto& ppeConfig = VPU::getPpeConfig(ctx);
     const auto ppeAttr = ppeConfig.retrievePPEAttribute(origOp);
 
-    VPU::MPEEngineAttr mpeEngineModeAttr = nullptr;
+    VPU::MPEEngineAttr mpeEngineAttr = nullptr;
     if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(origOp.getOperation())) {
-        mpeEngineModeAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineMode());
+        const auto weightZp = getPerTensorZeroPointAttr(origOp.getFilter());
+        const auto activationZp = getPerTensorZeroPointAttr(origOp.getInput());
+
+        mpeEngineAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineWithZP(weightZp, activationZp));
     }
 
-    const auto isNewWeightTableFormat = VPU::MPEEngineConfig::useNewWeightTableFormat(origOp, false);
     const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(_arch, isNewWeightTableFormat);
     const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(_arch, isNewWeightTableFormat);
 
@@ -420,9 +509,12 @@ mlir::LogicalResult DepthConvToNCE::matchAndRewrite(IE::GroupConvolutionOp origO
                                                                               takeOpLoc(origOp, "zp"))
                                                    : nullptr;
 
+    // `constBias` is left default-constructed (null) when a non-constant bias is used (see above);
+    // `runtimeBias` is passed so NewWeightsTableTensors wires it directly into biasTensor instead
+    // of materializing a placeholder Const-backed bias table from the null constBias.
     const auto weightsTableParams =
-            VPU::WeightsTableParams(origOp, origOp.getInput(), adaptedOutElemType, alignedFilter, bias, OC,
-                                    ppeConverter, biasConverter, /*constScale=*/nullptr, zeroPoints);
+            VPU::WeightsTableParams(origOp, origOp.getInput(), adaptedOutElemType, alignedFilter, constBias, OC,
+                                    ppeConverter, biasConverter, /*constScale=*/nullptr, zeroPoints, runtimeBias);
     const auto weightsTableVec = isNewWeightTableFormat
                                          ? std::vector<int32_t>{}
                                          : VPU::createWeightsTableData(weightsTableParams, /*hasAutopad=*/false);
@@ -438,12 +530,13 @@ mlir::LogicalResult DepthConvToNCE::matchAndRewrite(IE::GroupConvolutionOp origO
     const auto rawFilterShape = getIntArrayAttr(rewriter, filterShape);
 
     auto nceOp = rewriter.create<VPU::NCEDepthConvolutionOp>(
-            origOp->getLoc(), origOp.getType(), origOp.getInput(), alignedFilter, weightsTable,
-            newWeightsTableTensors.dataPointerTensor, newWeightsTableTensors.sparsityPointerTensor,
-            newWeightsTableTensors.scaleTensor, newWeightsTableTensors.biasTensor,
-            newWeightsTableTensors.zeroPointTensor, origOp.getStridesAttr(), padAttr, ppeAttr, mpeEngineModeAttr,
+            origOp->getLoc(), origOp.getType(), /*reduce_xy_max=*/nullptr, /*reduce_xy_min=*/nullptr,
+            /*reduce_tensor_min_max=*/nullptr, origOp.getInput(), alignedFilter, weightsTable,
+            newWeightsTableTensors.dataPointerTensor, newWeightsTableTensors.scaleTensor,
+            newWeightsTableTensors.biasTensor, origOp.getStridesAttr(), padAttr, ppeAttr, mpeEngineAttr,
             /*rawFilterShape=*/mlir::ValueRange{}, parseIntArrayAttr<int64_t>(rawFilterShape),
-            /*multi_cluster_strategyAttr=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            /*multi_cluster_strategyAttr=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr(),
+            /*axes_value=*/nullptr);
 
     rewriter.replaceOp(origOp, nceOp.getOutput());
     return mlir::success();
@@ -461,11 +554,12 @@ mlir::LogicalResult MaxPoolToNCE::matchAndRewrite(IE::MaxPoolOp origOp, mlir::Pa
     const auto padAttr = VPU::getPaddingAttr(ctx, PadInfo(origOp.getPadsBegin(), origOp.getPadsEnd()));
     const auto ppeAttr = VPU::getPpeConfig(ctx).retrievePPEAttribute(origOp);
 
-    VPU::MPEEngineAttr mpeEngineModeAttr = nullptr;
+    VPU::MPEEngineAttr mpeEngineAttr = nullptr;
     if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(origOp.getOperation())) {
-        mpeEngineModeAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineMode());
+        const auto activationZp = getPerTensorZeroPointAttr(origOp.getInput());
+        mpeEngineAttr = mlir::cast<VPU::MPEEngineAttr>(
+                mpeEngineInterface.getMPEEngineWithZP(/*weightZp=*/nullptr, activationZp));
     }
-
     auto inputElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getElementType();
     auto outputElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType()).getElementType();
     bool isInputQuantizedPerAxis = mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inputElemType);
@@ -474,10 +568,9 @@ mlir::LogicalResult MaxPoolToNCE::matchAndRewrite(IE::MaxPoolOp origOp, mlir::Pa
     // Generate scale and bias tables for per-axis quantization.
     // For per-tensor or non-quantized cases, PPE handles quantization directly without requiring scale tables.
     const auto getScaleAndBias = [&]() -> std::pair<mlir::Value, mlir::Value> {
-        if (!isInputQuantizedPerAxis && !isOutputQuantizedPerAxis) {
+        if (!isInputQuantizedPerAxis && !isOutputQuantizedPerAxis && origOp.getScale() == nullptr) {
             return {nullptr, nullptr};
         }
-
         const auto output = origOp.getOutput();
         const auto outputShape = getShape(output);
         const auto OC = outputShape[Dims4D::Act::C];
@@ -492,10 +585,25 @@ mlir::LogicalResult MaxPoolToNCE::matchAndRewrite(IE::MaxPoolOp origOp, mlir::Pa
         const auto newWeightsTableTensors = VPU::NewWeightsTableTensors(
                 isNewWeightTableFormat,
                 VPU::WeightsTableParams(origOp, origOp.getInput(), output, /*weights=*/nullptr, bias, OC, ppeConverter,
-                                        biasConverter, /*constScale=*/nullptr, /*zeroPoints=*/nullptr),
+                                        biasConverter, origOp.getStaticScaleAttr(), /*zeroPoints=*/nullptr),
                 rewriter, origOp->getLoc(), newWtShape);
 
-        return {newWeightsTableTensors.scaleTensor, newWeightsTableTensors.biasTensor};
+        auto scaleTensor = origOp.getScale() != nullptr ? origOp.getScale() : newWeightsTableTensors.scaleTensor;
+
+        if (newWeightsTableTensors.scaleTensor != nullptr && origOp.getScale() != nullptr) {
+            if (auto constOp = mlir::dyn_cast<Const::DeclareOp>(newWeightsTableTensors.scaleTensor.getDefiningOp())) {
+                auto scaleTableContent = constOp.getContent();
+                auto staticScaleEqualToOne =
+                        scaleTableContent.isSplat() && isFloatEqual(scaleTableContent.getSplatValue<float>(), 1.0f);
+                if (!staticScaleEqualToOne) {
+                    scaleTensor = rewriter.create<IE::MultiplyOp>(
+                            origOp.getLoc(), scaleTensor, newWeightsTableTensors.scaleTensor,
+                            IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
+                }
+            }
+        }
+
+        return {scaleTensor, newWeightsTableTensors.biasTensor};
     };
 
     const auto [scaleTensor, biasTensor] = getScaleAndBias();
@@ -504,7 +612,7 @@ mlir::LogicalResult MaxPoolToNCE::matchAndRewrite(IE::MaxPoolOp origOp, mlir::Pa
             origOp->getLoc(), origOp.getType(), /*reduceXyMax*/ nullptr,
             /*reduceXyMin*/ nullptr, /*reduceGlobalMinMax*/ nullptr, origOp.getInput(), /*weightsTable=*/nullptr,
             scaleTensor, biasTensor, origOp.getKernelSizeAttr(), origOp.getStridesAttr(), padAttr, ppeAttr,
-            mpeEngineModeAttr,
+            mpeEngineAttr,
             /*multi_cluster_strategyAttr=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr(),
             /*s2dd2s_config=*/nullptr, /*axes*/ nullptr);
 
@@ -523,11 +631,12 @@ mlir::LogicalResult AveragePoolToNCE::matchAndRewrite(IE::AvgPoolOp origOp, mlir
     const auto padAttr = VPU::getPaddingAttr(ctx, PadInfo(origOp.getPadsBegin(), origOp.getPadsEnd()));
     const auto ppeAttr = VPU::getPpeConfig(ctx).retrievePPEAttribute(origOp);
 
-    VPU::MPEEngineAttr mpeEngineModeAttr = nullptr;
+    VPU::MPEEngineAttr mpeEngineAttr = nullptr;
     if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(origOp.getOperation())) {
-        mpeEngineModeAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineMode());
+        const auto activationZp = getPerTensorZeroPointAttr(origOp.getInput());
+        mpeEngineAttr = mlir::cast<VPU::MPEEngineAttr>(
+                mpeEngineInterface.getMPEEngineWithZP(/*weightZp=*/nullptr, activationZp));
     }
-
     auto inputElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getElementType();
     auto outputElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType()).getElementType();
     bool isInputQuantizedPerAxis = mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inputElemType);
@@ -536,10 +645,9 @@ mlir::LogicalResult AveragePoolToNCE::matchAndRewrite(IE::AvgPoolOp origOp, mlir
     // Generate scale and bias tables for per-axis quantization.
     // For per-tensor or non-quantized cases, PPE handles quantization directly without requiring scale tables.
     const auto getScaleAndBias = [&]() -> std::pair<mlir::Value, mlir::Value> {
-        if (!isInputQuantizedPerAxis && !isOutputQuantizedPerAxis) {
+        if (!isInputQuantizedPerAxis && !isOutputQuantizedPerAxis && origOp.getScale() == nullptr) {
             return {nullptr, nullptr};
         }
-
         const auto output = origOp.getOutput();
         const auto outputShape = getShape(output);
         const auto OC = outputShape[Dims4D::Act::C];
@@ -551,21 +659,65 @@ mlir::LogicalResult AveragePoolToNCE::matchAndRewrite(IE::AvgPoolOp origOp, mlir
         const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(_arch, isNewWeightTableFormat);
 
         const auto newWtShape = VPU::NCESparsity::inferWeightsTableShape(OC, /*newFormat=*/true);
+
+        // For the new weight table format the PPE scale field is not applied by hardware; fold the
+        // averaging factor (1 / kernel_h * kernel_w) into the scale table so the hardware computes the
+        // correct per-channel average.  Multiply with any existing static scale to preserve prior behavior.
+        mlir::FloatAttr constScaleAttr = origOp.getStaticScaleAttr();
+        if (isNewWeightTableFormat) {
+            const auto kernelSizeArr = parseIntArrayAttr<int64_t>(origOp.getKernelSizeAttr());
+            const auto avgFactor = 1.0 / static_cast<double>(kernelSizeArr[0] * kernelSizeArr[1]);
+            const auto staticScaleValue =
+                    origOp.getStaticScaleAttr() ? origOp.getStaticScaleAttr().getValueAsDouble() : 1.0;
+            auto constScaleValue = avgFactor * staticScaleValue;
+
+            // When SPRLUT is active, pReluAlpha in the PPE is set to 1/outQuantScale to perform output
+            // quantization after the activation.  getMultShiftFunc also divides by outQuantScale, which
+            // would double-count it.  Multiply constScale by outQuantScale here to cancel that division
+            // so the scale table contains only the pre-activation factor (avgFactor).
+            if (const auto ppeFpAttr = mlir::dyn_cast<VPU::PPEFpAttr>(ppeAttr)) {
+                if (ppeFpAttr.getSprlut() != nullptr) {
+                    const auto outElemType =
+                            mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType()).getElementType();
+                    if (const auto qType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(outElemType)) {
+                        constScaleValue *= qType.getScale();
+                    }
+                }
+            }
+
+            constScaleAttr = mlir::FloatAttr::get(mlir::Float64Type::get(origOp.getContext()), constScaleValue);
+        }
+
         const auto newWeightsTableTensors = VPU::NewWeightsTableTensors(
                 isNewWeightTableFormat,
                 VPU::WeightsTableParams(origOp, origOp.getInput(), output, /*weights=*/nullptr, bias, OC, ppeConverter,
-                                        biasConverter, /*constScale=*/nullptr, /*zeroPoints=*/nullptr),
+                                        biasConverter, constScaleAttr, /*zeroPoints=*/nullptr),
                 rewriter, origOp->getLoc(), newWtShape);
 
-        return {newWeightsTableTensors.scaleTensor, newWeightsTableTensors.biasTensor};
+        auto scaleTensor = origOp.getScale() != nullptr ? origOp.getScale() : newWeightsTableTensors.scaleTensor;
+
+        if (newWeightsTableTensors.scaleTensor != nullptr && origOp.getScale() != nullptr) {
+            if (auto constOp = mlir::dyn_cast<Const::DeclareOp>(newWeightsTableTensors.scaleTensor.getDefiningOp())) {
+                auto scaleTableContent = constOp.getContent();
+                auto staticScaleEqualToOne =
+                        scaleTableContent.isSplat() && isFloatEqual(scaleTableContent.getSplatValue<float>(), 1.0f);
+                if (!staticScaleEqualToOne) {
+                    scaleTensor = rewriter.create<IE::MultiplyOp>(
+                            origOp.getLoc(), scaleTensor, newWeightsTableTensors.scaleTensor,
+                            IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
+                }
+            }
+        }
+
+        return {scaleTensor, newWeightsTableTensors.biasTensor};
     };
 
     const auto [scaleTensor, biasTensor] = getScaleAndBias();
 
     auto nceOp = rewriter.create<VPU::NCEAveragePoolOp>(
             origOp->getLoc(), origOp.getType(), origOp.getInput(), scaleTensor, biasTensor, origOp.getKernelSizeAttr(),
-            origOp.getStridesAttr(), padAttr, ppeAttr, mpeEngineModeAttr, /*multi_cluster_strategyAttr=*/nullptr,
-            origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            origOp.getStridesAttr(), padAttr, ppeAttr, mpeEngineAttr,
+            /*multi_cluster_strategyAttr=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
     rewriter.replaceOp(origOp, nceOp.getOutput());
     return mlir::success();
@@ -586,14 +738,16 @@ mlir::LogicalResult PermuteQuantizeToNCEPermute::matchAndRewrite(IE::PermuteQuan
     auto* ctx = getContext();
     const auto ppeAttr = VPU::getPpeConfig(ctx).retrievePPEAttribute(origOp);
 
-    VPU::MPEEngineAttr mpeEngineModeAttr = nullptr;
+    VPU::MPEEngineAttr mpeEngineAttr = nullptr;
     if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(origOp.getOperation())) {
-        mpeEngineModeAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineMode());
+        const auto activationZp = getPerTensorZeroPointAttr(origOp.getInput());
+        mpeEngineAttr = mlir::cast<VPU::MPEEngineAttr>(
+                mpeEngineInterface.getMPEEngineWithZP(/*weightZp=*/nullptr, activationZp));
     }
 
     auto nceOp = rewriter.create<VPU::NCEPermuteOp>(origOp->getLoc(), outType, origOp.getInput(),
                                                     getIntAttr(ctx, expandedChannels), dstElemAttr,
-                                                    origOp.getDstOrderAttr(), ppeAttr, mpeEngineModeAttr,
+                                                    origOp.getDstOrderAttr(), ppeAttr, mpeEngineAttr,
                                                     /*multi_cluster_strategyAttr=*/nullptr);
 
     rewriter.replaceOp(origOp, nceOp.getOutput());

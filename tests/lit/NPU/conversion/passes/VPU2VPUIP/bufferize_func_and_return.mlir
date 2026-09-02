@@ -97,40 +97,28 @@ func.func @SparseTensors(%input: !SparseTensor) -> !SparseTensorCmx {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK: func.func @TensorsWithBounds(
-// CHECK-SAME:  !VPUIP.BoundedBuffer<
-// CHECK-SAME:      data=memref<1x18x3x3xf32, {order = #NHWC}>,
-// CHECK-SAME:      dynamic_shape=memref<4xsi32>>
-// CHECK-SAME: ) -> !VPUIP.BoundedBuffer<
-// CHECK-SAME:          data=memref<1x18x3x3xf32, {order = #NHWC}, @CMX_NN>,
-// CHECK-SAME:          dynamic_shape=memref<4xsi32, @CMX_NN>
-func.func @TensorsWithBounds(%arg0: tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}>) -> tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC, mem_space = @CMX_NN}> {
-    %0 = VPU.Copy(%arg0) {out_mem_space = @CMX_NN} : tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}> -> tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC, mem_space = @CMX_NN}>
-    return %0 : tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC, mem_space = @CMX_NN}>
-    // CHECK: return
-    // CHECK-SAME: !VPUIP.BoundedBuffer<
-    // CHECK-SAME:  data=memref<1x18x3x3xf32, {order = #NHWC}, @CMX_NN>,
-    // CHECK-SAME:  dynamic_shape=memref<4xsi32, @CMX_NN>
+// CHECK: func.func @TensorsWithBounds
+// CHECK-SAME: ([[ARG:%.+]]: memref<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>)
+// CHECK-SAME:  -> memref<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}, @CMX_NN>
+func.func @TensorsWithBounds(%arg0: tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC, mem_space = @CMX_NN}> {
+    %0 = VPU.Copy(%arg0) {out_mem_space = @CMX_NN} : tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC, mem_space = @CMX_NN}>
+    return %0 : tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC, mem_space = @CMX_NN}>
+    // CHECK: [[OUTPUT:%.+]] = VPUIP.Copy inputs([[ARG]]
+    // CHECK: return [[OUTPUT]]
 }
 
 // -----
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK: func.func @TensorsWithBounds(
-// CHECK-SAME:  !VPUIP.BoundedBuffer<
-// CHECK-SAME:      data=memref<1x18x3x3xf32, {order = #NHWC}>,
-// CHECK-SAME:      dynamic_shape=memref<4xsi32>>
-// CHECK-SAME: ) -> !VPUIP.BoundedBuffer<
-// CHECK-SAME:          data=memref<1x18x3x3xf32, {order = #NHWC}>,
-// CHECK-SAME:          dynamic_shape=memref<4xsi32>
-func.func @TensorsWithBounds(%arg0: tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}>) -> tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}> {
-    %0 = VPU.ReLU(%arg0) : tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}> -> tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}>
-    return %0 : tensor<1x18x3x3xf32, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]>: tensor<4xsi64>, order = #NHWC}>
-    // CHECK: return
-    // CHECK-SAME: !VPUIP.BoundedBuffer<
-    // CHECK-SAME:  data=memref<1x18x3x3xf32, {order = #NHWC}>,
-    // CHECK-SAME:  dynamic_shape=memref<4xsi32>
+// CHECK: func.func @TensorsWithBounds
+// CHECK-SAME:  ([[ARG:%.+]]: memref<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>)
+// CHECK-SAME:  -> memref<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>
+func.func @TensorsWithBounds(%arg0: tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}> {
+    %0 = VPU.ReLU(%arg0) : tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>
+    return %0 : tensor<1x18x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 18, 3, 3]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK: [[OUTPUT:%.+]] = VPUIP.SW.Kernel {{.*}} @VPU.SW::@builtin_ReLU inputs([[ARG]]
+    // CHECK: return [[OUTPUT]]
 }
 
 // -----

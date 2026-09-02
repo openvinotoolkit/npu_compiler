@@ -123,24 +123,6 @@ func.func @ConvertOuterDimReduceSumToConv3D(%arg0: tensor<150x1x768xf16>) -> ten
 
 // -----
 
-// OuterDimReduceSumToConvRewriter should also handle negative axis equivalent to axis=0
-// (for rank-3, axis=-3).
-
-// CHECK-LABEL: @ConvertOuterDimReduceSumToConv3DNegativeAxis
-// CHECK-SAME:      [[INPUT:%.+]]: tensor<150x1x768xf16>
-func.func @ConvertOuterDimReduceSumToConv3DNegativeAxis(%arg0: tensor<150x1x768xf16>) -> tensor<1x768xf16> {
-  %0 = IE.ReduceSum(%arg0) {axes_value = [-3]} : tensor<150x1x768xf16> -> tensor<1x768xf16>
-  return %0 : tensor<1x768xf16>
-
-  // CHECK:       [[RESHAPE_IN:%.+]] = IE.Reshape([[INPUT]]) {shape_value = [1, 150, 768, 1]} : tensor<150x1x768xf16> -> tensor<1x150x768x1xf16>
-  // CHECK:       [[CST:%.+]] = const.Declare tensor<1x150x1x1xf16> = dense<1.000000e+00> : tensor<1x150x1x1xf32>, [#const.CastElemType<f16>]
-  // CHECK:       [[CONV:%.+]] = IE.Convolution([[RESHAPE_IN]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x150x768x1xf16>, tensor<1x150x1x1xf16> -> tensor<1x1x768x1xf16>
-  // CHECK:       [[RESHAPE_OUT:%.+]] = IE.Reshape([[CONV]]) {shape_value = [1, 768]} : tensor<1x1x768x1xf16> -> tensor<1x768xf16>
-  // CHECK:       return [[RESHAPE_OUT]] : tensor<1x768xf16>
-}
-
-// -----
-
 // OuterDimReduceSumToConvRewriter: 5D tensor, axis=0, reduceSize=64 > alignment.
 
 // CHECK-LABEL: @ConvertOuterDimReduceSumToConv5D

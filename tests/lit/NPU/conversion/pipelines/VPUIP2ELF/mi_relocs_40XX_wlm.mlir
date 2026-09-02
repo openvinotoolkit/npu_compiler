@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --lower-VPUIP-to-ELF %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --dma-task-profiling-reserve-mem --lower-VPUIP-to-ELF %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 //
 
@@ -17,14 +17,6 @@ net.NetworkInfo
     outputsInfo : {
         DataInfo "hswish" : tensor<1x32xf16>
     }
-
-config.Resources 6 of @NCE at 1.700000e+03 MHz {
-  builtin.module @ReservedMemory {
-      module @DmaProfilingReservedMemory {
-      config.MemoryResource 512 bytes of @CMX_NN offset 0
-      }
-  }
-}
 
 VPURT.SW.Runtime
     entryPoint: @VPU.SW::@runtime
@@ -56,8 +48,8 @@ module @VPU.SW {
 
 func.func @main(%1: memref<1x1x1x32xf16>, %2: memref<1x1x1x32xf16>) -> memref<1x1x1x32xf16> {
 
-    %in_tile0_cmx  = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x32xf16, [@CMX_NN, 0]>
-    %out_tile0_cmx = VPURT.DeclareBuffer <CMX_NN> [0] <2000> -> memref<1x1x1x32xf16, [@CMX_NN, 0]>
+    %in_tile0_cmx  = VPURT.DeclareBuffer <CMX_NN> [0] <1571328> -> memref<1x1x1x32xf16, [@CMX_NN, 0]>
+    %out_tile0_cmx = VPURT.DeclareBuffer <CMX_NN> [0] <1571392> -> memref<1x1x1x32xf16, [@CMX_NN, 0]>
 
     %dummy_buf = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
 

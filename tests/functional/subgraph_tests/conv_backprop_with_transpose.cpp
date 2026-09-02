@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023-2025 Intel Corporation
+// Copyright (C) 2023-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -50,7 +50,6 @@ public:
     std::shared_ptr<ov::Node> buildConvBackpropData2D(const ov::Output<ov::Node>& param, size_t channelNum) {
         const ov::Shape inputShape = param.get_shape();
 
-        const ov::element::Type_t inputs_et = ov::element::f16;
         const auto weightsSize = inputShape.at(1) * channelNum * 2 * 2;
         std::vector<float> values(weightsSize, 1.f);
         const auto weightsShape = ov::Shape{inputShape.at(1), channelNum, 2, 2};

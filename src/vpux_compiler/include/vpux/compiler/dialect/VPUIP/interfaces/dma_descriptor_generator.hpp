@@ -109,7 +109,8 @@ public:
 
 public:
     VPUIP::DMADescriptorAttr generate(vpux::NDTypeInterface inType, vpux::NDTypeInterface outType,
-                                      mlir::ArrayAttr padsBegin, mlir::ArrayAttr padsEnd, int64_t elemTypeSize) const;
+                                      mlir::ArrayAttr padsBegin, mlir::ArrayAttr padsEnd,
+                                      const Bit& elemTypeSize) const;
 
 private:
     mlir::MLIRContext* _ctx;

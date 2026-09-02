@@ -115,3 +115,50 @@ func.func @ConvChannel2DTiling(%arg0: tensor<1x512x64x64xf16, {order = #NHWC}>) 
     //CHECK:  scf.yield [[LOOP_H]]
     //CHECK:  return [[LOOP_C]] : tensor<1x256x64x64xf16, {order = #NHWC}>
 }
+
+// -----
+
+// Regression guard for the STATIC DepthToSpace SCF-tiling block-size alignment fix
+// (updateDepthToSpaceBlockAlignmentMultiplier in src/vpux_compiler/src/core/tiling.cpp: alignment is now
+// applied for the single-layer static case as well, while remaining disabled for static fused VF chains).
+//
+// The output H (12) is tiled into 4 pieces. Without alignment the tile size would be 3,
+// is then non-integer and DepthToSpace fails to legalize. With the fix the output tile is
+// snapped up to 4 (a multiple of block_size), so:
+//   * the loop step is 4 (even) and 12 / 4 = 3 evenly-divisible tiles, no remainder,
+//   * every input tile is an exact 2 (= 4 / block_size) with integer offset iv floordiv 2,
+//   * no tile can overrun the input extent on unroll.
+//
+// The test feeds a VPU.DepthToSpace straight into apply-tiling, so it exercises the generic SCF
+// tiling path independently of platform (the D2S->TransposedConv rewrite is an IE-dialect step that
+// does not run here); before the fix `apply-tiling` reports "failed to legalize 'VPU.DepthToSpace'".
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @D2SStaticBlockAligned
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x6x4xf16, {order = #NHWC}>
+func.func @D2SStaticBlockAligned(%arg0: tensor<1x16x6x4xf16, {order = #NHWC}>) -> tensor<1x4x12x8xf32, {order = #NHWC}> {
+    %0 = VPU.DepthToSpace(%arg0) {
+        block_size = 2 : i64,
+        dstElemType = f32,
+        mode = #IE.depth_to_space_mode<BLOCKS_FIRST>,
+        tilingStrategy = [1, 1, 4, 1]
+    } : tensor<1x16x6x4xf16, {order = #NHWC}> -> tensor<1x4x12x8xf32, {order = #NHWC}>
+
+    return %0 : tensor<1x4x12x8xf32, {order = #NHWC}>
+
+    // Output loop step is block-aligned: %c4 (a multiple of block_size=2), and 12 / 4 = 3
+    // tiles divide the output H evenly (no remainder tile to overflow).
+    // CHECK:       [[C0:%.+]] = arith.constant 0 : index
+    // CHECK:       [[C12:%.+]] = arith.constant 12 : index
+    // CHECK:       [[C4:%.+]] = arith.constant 4 : index
+    // CHECK:       scf.for [[IV:%.+]] = [[C0]] to [[C12]] step [[C4]]
+    // Input offset is an integer (iv floordiv block_size) and the input tile size is an exact 2
+    // (= output tile 4 / block_size 2) — the property the alignment fix restores for static shapes.
+    // CHECK:         [[OFF:%.+]] = affine.apply {{.*}}([[IV]])
+    // CHECK:         [[SLICE:%.+]] = tensor.extract_slice [[INPUT]][0, 0, [[OFF]], 0] [1, 16, 2, 4]
+    // CHECK-SAME:        to tensor<1x16x2x4xf16, {order = #NHWC}>
+    // CHECK:         [[D2S:%.+]] = VPU.DepthToSpace([[SLICE]]
+    // CHECK-SAME:        tensor<1x16x2x4xf16, {order = #NHWC}> -> tensor<1x4x4x8xf32, {order = #NHWC}>
+    // CHECK:         tensor.insert_slice [[D2S]] into {{.*}}[0, 0, [[IV]], 0] [1, 4, 4, 8]
+}

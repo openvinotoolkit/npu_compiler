@@ -201,7 +201,7 @@ func.func @InterpSplitOverC(
 
     %0 = VPU.Interpolate(%input1) {
             attr = #IE.Interpolate<antialias = false, coord_mode = <HALF_PIXEL>, cube_coeff = -7.500000e-01, mode = <LINEAR>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>,
-            axes_attr = [2, 3], sizes_attr = [256, 256], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0> } :
+            axes_attr = [2, 3], sizes_attr = [256, 256], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0> } :
           tensor<1x24x64x64xf16> -> tensor<1x24x256x256xf16>
 
     return %0 : tensor<1x24x256x256xf16>
@@ -234,7 +234,7 @@ func.func @InterpSplitOverC(
 
     %0 = VPU.Interpolate(%input1) {
             attr = #IE.Interpolate<antialias = false, coord_mode = <TF_HALF_PIXEL_FOR_NN>, cube_coeff = -7.500000e-01, mode = <LINEAR>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>,
-            axes_attr = [2, 3], sizes_attr = [144, 256], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} :
+            axes_attr = [2, 3], sizes_attr = [144, 256], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>} :
         tensor<1x4x360x640xf16> -> tensor<1x4x144x256xf16>
 
     return %0 : tensor<1x4x144x256xf16>
@@ -267,7 +267,7 @@ func.func @InterpSplitOverH(
 
     %0 = VPU.Interpolate(%input1) {
             attr = #IE.Interpolate<antialias = false, coord_mode = <ALIGN_CORNERS>, cube_coeff = -7.500000e-01, mode = <LINEAR>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>,
-            axes_attr = [2, 3], sizes_attr = [860, 620], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} :
+            axes_attr = [2, 3], sizes_attr = [860, 620], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>} :
         tensor<1x1x1000x800xf16> -> tensor<1x1x860x620xf16>
 
     return %0 : tensor<1x1x860x620xf16>
@@ -300,7 +300,7 @@ func.func @InterpCubicSplitOverC(
 
     %0 = VPU.Interpolate(%input1) {
             attr = #IE.Interpolate<antialias = false, coord_mode = <TF_HALF_PIXEL_FOR_NN>, cube_coeff = -7.500000e-01, mode = <CUBIC>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>,
-            axes_attr = [2, 3], sizes_attr = [144, 256], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} :
+            axes_attr = [2, 3], sizes_attr = [144, 256], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>} :
         tensor<1x4x360x640xf16> -> tensor<1x4x144x256xf16>
 
     return %0 : tensor<1x4x144x256xf16>
@@ -333,7 +333,7 @@ func.func @InterpCubicSplitOverH(
 
     %0 = VPU.Interpolate(%input1) {
             attr = #IE.Interpolate<antialias = false, coord_mode = <ALIGN_CORNERS>, cube_coeff = -7.500000e-01, mode = <CUBIC>, nearest_mode = <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>,
-            axes_attr = [2, 3], sizes_attr = [860, 620], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} :
+            axes_attr = [2, 3], sizes_attr = [860, 620], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>} :
         tensor<1x1x1000x800xf16> -> tensor<1x1x860x620xf16>
 
     return %0 : tensor<1x1x860x620xf16>
@@ -366,7 +366,7 @@ func.func @InterpSplitOverC(
 
     %0 = VPU.Interpolate(%input1) {
             attr = #IE.Interpolate<antialias = false, coord_mode = <HALF_PIXEL>, cube_coeff = -7.500000e-01, mode = <LINEAR>, nearest_mode =  <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>,
-            axes_attr = [2, 3], sizes_attr = [256, 256], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0> } :
+            axes_attr = [2, 3], sizes_attr = [256, 256], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0> } :
         tensor<1x24x64x64xf16>-> tensor<1x24x256x256xf16>
 
     return %0 : tensor<1x24x256x256xf16>
@@ -401,7 +401,7 @@ func.func @InterpSplitOverH(
     %0 = VPU.Interpolate(%arg0) {
         attr = #IE.Interpolate<antialias = false, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01 : f64, mode = <LINEAR_ONNX>, nearest_mode =  <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>,
         axes_attr = [2, 3],
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
         sizes_attr = [192, 320],
         tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} :
         tensor<1x64x48x80xf16, {order = #NHWC}> -> tensor<1x64x192x320xf16, {order = #NHWC}>
@@ -443,7 +443,7 @@ func.func @InterpSplitOverCNoCommonFactor(
     %0 = VPU.Interpolate(%arg0) {
         attr = #IE.Interpolate<antialias = false, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01 : f64, mode = <LINEAR_ONNX>, nearest_mode =  <ROUND_PREFER_FLOOR>, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>,
         axes_attr = [2, 3],
-        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+        operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
         sizes_attr = [121, 121],
         tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]} :
         tensor<1x64x31x31xf16, {order = #NHWC}> -> tensor<1x64x121x121xf16, {order = #NHWC}>
@@ -488,7 +488,7 @@ func.func @NoTilingClusterNCEConv(%arg0: !DistributedTensor0) -> !DistributedTen
 
     %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [128, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-                
+
                 strides = [1, 1],
                 ppe = #VPU.PPEStub<>
             } : !DistributedTensor0, tensor<128x32x3x3xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<128x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> -> !DistributedTensor1
@@ -987,7 +987,7 @@ func.func @SplitNCEConvOverOH(%arg0: tensor<1x32x64x64xf16, {order = #NHWC}>) ->
 
     %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [256, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        
+
         strides = [1, 1],
         ppe = #VPU.PPEStub<>
     } : tensor<1x32x64x64xf16, {order = #NHWC}>, tensor<256x32x3x3xf16, {order = #NHWC}>, tensor<256x1x1x4xsi32, {order = #NCHW}> -> tensor<1x256x64x64xf16, {order = #NHWC}>
@@ -1042,7 +1042,7 @@ func.func @SplitQuantNCEConvOverOH(%arg0: tensor<1x32x64x64x!qElemType, {order =
 
     %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [512, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        
+
         strides = [1, 1],
         ppe = #VPU.PPEStub<>
     } : tensor<1x32x64x64x!qElemType, {order = #NHWC}>, tensor<512x32x3x3x!qElemType2, {order = #NHWC}>, tensor<512x1x1x4xsi32, {order = #NCHW}> -> tensor<1x512x64x64x!qElemType1, {order = #NHWC}>
@@ -1091,7 +1091,7 @@ func.func @SplitQuantNCEConvOverOC(%arg0: tensor<1x32x8x8x!qElemType, {order = #
     %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [9216, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         ppe = #VPU.PPEStub<>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        
+
         strides = [1, 1]
     } : tensor<1x32x8x8x!qElemType, {order = #NHWC}>, tensor<9216x32x3x3x!qElemType2, {order = #NHWC}>, tensor<9216x1x1x4xsi32, {order = #NCHW}> -> tensor<1x9216x8x8x!qElemType1, {order = #NHWC}>
 
@@ -1172,7 +1172,7 @@ func.func @SplitNCEEltwiseAddOverC(
         %arg0: tensor<1x1024x24x24xf16, {order = #NHWC}>,
         %arg1: tensor<1x1024x24x24xf16, {order = #NHWC}>)
             -> tensor<1x1024x24x24xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg1) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
     } -> tensor<1x1024x24x24xf16, {order = #NHWC}>
@@ -1217,7 +1217,7 @@ func.func @SplitNCEEltwiseAddOverC(
 // CHECK-LABEL: @SplitNCEEltwiseAddSameInput
 // CHECK-SAME:      [[INPUT:%arg[0-9]]]: tensor<1x4096x14x14xf16, {order = #NHWC}>
 func.func @SplitNCEEltwiseAddSameInput(%arg0: tensor<1x4096x14x14xf16, {order = #NHWC}>) -> tensor<1x4096x14x14xf16, {order = #NHWC}> {
-    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {
+    %0 = VPU.NCE.Eltwise(%arg0, %arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         op_type = #VPU.eltwise_type<ADD>,
         ppe = #VPU.PPEStub<>
     } -> tensor<1x4096x14x14xf16, {order = #NHWC}>
@@ -1893,7 +1893,7 @@ func.func @SplitSparseNCEConvOverOH(%arg0: tensor<1x32x80x80xf16, {order = #NHWC
 
     %0 = VPU.NCE.Convolution(%arg0, %weights_sparse, %weights_table) rawFilterShape [160, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        
+
         strides = [1, 1],
         ppe = #VPU.PPEStub<>
     } : tensor<1x32x80x80xf16, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<160x32x3x3xf16, {order = #NHWC}>, sparsity_map=tensor<160x1x1x384xi1>, is_weights>, tensor<160x1x1x4xsi32, {order = #NCHW}> -> tensor<1x160x80x80xf16, {order = #NHWC}>
@@ -1954,7 +1954,7 @@ func.func @SplitSparseQuantNCEConvOverOH(%arg0: tensor<1x32x80x80x!qElemType, {o
 
     %0 = VPU.NCE.Convolution(%arg0, %weights_sparse, %weights_table) rawFilterShape [320, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-        
+
         strides = [1, 1],
         ppe = #VPU.PPEStub<>
     } : tensor<1x32x80x80x!qElemType, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<320x32x3x3x!qElemType2, {order = #NHWC}>, sparsity_map=tensor<320x1x1x384xi1>, is_weights>, tensor<320x1x1x4xsi32, {order = #NCHW}> -> tensor<1x320x80x80x!qElemType1, {order = #NHWC}>
@@ -2618,11 +2618,11 @@ func.func @NCEInterpTileOverC(
 
 // CHECK-LABEL: func.func @NCEInterpBilinearTileOverH
 // CHECK-SAME:        [[DATA:%arg[0-9]]]: tensor<1x64x48x48xf16, {order = #NHWC}>
-// CHECK-SAME:        [[WEIGHTS:%arg[0-9]]]: tensor<64x64x3x3xf16, {order = #NHWC}>
+// CHECK-SAME:        [[WEIGHTS:%arg[0-9]]]: tensor<64x64x1x1xf16, {order = #NHWC}>
 // CHECK-SAME:        [[WT:%arg[0-9]]]: tensor<64x1x1x4xsi32>
 func.func @NCEInterpBilinearTileOverH(
                 %data: tensor<1x64x48x48xf16, {order = #NHWC}>,
-                %weights: tensor<64x64x3x3xf16, {order = #NHWC}>,
+                %weights: tensor<64x64x1x1xf16, {order = #NHWC}>,
                 %weightsTable: tensor<64x1x1x4xsi32>)
           -> tensor<1x64x144x144xf16, {order = #NHWC}> {
     %sparsityMap = const.Declare tensor<1x64x144x144xi1> = dense<1> : tensor<1x64x144x144xi1>

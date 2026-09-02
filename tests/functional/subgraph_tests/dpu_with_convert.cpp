@@ -29,7 +29,7 @@ class DpuWithF16ToF32ConvertTestBase :
                 std::accumulate(inputStaticShape.begin(), inputStaticShape.end(), 1, std::multiplies<size_t>());
         auto inputTensor = ov::Tensor{ov::element::f16, inputStaticShape};
         auto inputData = inputTensor.data<ov::element_type_traits<ov::element::f16>::value_type>();
-        for (size_t i = 0; i < totalSize; i++) {
+        for (int64_t i = 0; i < totalSize; i++) {
             inputData[i] = std::sin(i);
         }
         inputs = {{funcInputs[0].get_node_shared_ptr(), inputTensor}};
@@ -76,7 +76,7 @@ class DpuWithF16ToF32ConvertTestBase :
     }
 
 protected:
-    virtual std::shared_ptr<ov::Node> buildDpuOp(const ov::ParameterVector&, const size_t) = 0;
+    virtual std::shared_ptr<ov::Node> buildDpuOp(const ov::ParameterVector&, size_t) = 0;
     virtual ov::ParameterVector getParams(const ov::Shape& lhsInputShape) {
         init_input_shapes(static_shapes_to_test_representation({lhsInputShape}));
 
@@ -97,7 +97,7 @@ public:
 
 class ConvWithF16ToF32ConvertTest : public DpuWithF16ToF32ConvertTestBase {
     std::shared_ptr<ov::Node> buildDpuOp(const ov::ParameterVector& params, const size_t outCh) override {
-        const ov::Shape& inputShape = params.at(0)->output(0).get_shape();
+        const ov::Shape inputShape = params.at(0)->output(0).get_shape();
         const auto weightsSize = inputShape.at(1) * outCh * 1 * 1;
         std::vector<float> values(weightsSize, 1.f);
         const auto weightsShape = ov::Shape{outCh, inputShape.at(1), 1, 1};
@@ -113,7 +113,7 @@ class ConvWithF16ToF32ConvertTest : public DpuWithF16ToF32ConvertTestBase {
 
 class GroupConvWithF16ToF32ConvertTest : public DpuWithF16ToF32ConvertTestBase {
     std::shared_ptr<ov::Node> buildDpuOp(const ov::ParameterVector& params, const size_t /*outCh*/) override {
-        const ov::Shape& inputShape = params.at(0)->output(0).get_shape();
+        const ov::Shape inputShape = params.at(0)->output(0).get_shape();
         const auto weightsSize = inputShape.at(1) * 1 * 1;
         std::vector<float> values(weightsSize, 1.f);
         const auto weightsShape = ov::Shape{inputShape.at(1), 1, 1, 1, 1};

@@ -13,6 +13,14 @@
 
 using namespace vpux;
 
+mlir::LogicalResult vpux::IE::SubtractOp::verifyShapeInfo() {
+    if (mlir::failed(vpux::IE::verifyInputIs4D(getInput1()))) {
+        return mlir::failure();
+    }
+
+    return vpux::IE::verifyInputIs4D(getInput2());
+}
+
 mlir::LogicalResult vpux::IE::SubtractOp::inferReturnTypeComponents(
         mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc, mlir::ValueShapeRange operands,
         mlir::DictionaryAttr attrs, mlir::OpaqueProperties prop, mlir::RegionRange,
@@ -52,8 +60,8 @@ mlir::LogicalResult vpux::IE::SubtractOp::reifyResultShapes(mlir::OpBuilder& bui
 }
 
 mlir::LogicalResult vpux::IE::SubtractOp::verify() {
-    if (getScales()) {
-        return errorAt(*this, "scales operand is not yet supported; "
+    if (getScale()) {
+        return errorAt(*this, "scale operand is not yet supported; "
                               "implement scale tensor input support before enabling this path");
     }
     return mlir::success();

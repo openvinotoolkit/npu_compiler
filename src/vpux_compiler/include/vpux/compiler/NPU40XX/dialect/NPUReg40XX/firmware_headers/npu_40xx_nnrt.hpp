@@ -18,7 +18,9 @@ namespace npu40xx {
 #include <details/api/vpu_dma_hw_40xx.h>
 #include <details/api/vpu_media_hw.h>
 #include <details/api/vpu_nce_hw_40xx.h>
+#include <details/api/vpu_nnrt_api.h>
 #include <details/api/vpu_nnrt_api_40xx.h>
+#include <details/api/vpu_nnrt_api_ver.h>
 #include <details/api/vpu_nnrt_wlm.h>
 #include <details/api/vpu_pwrmgr_api.h>
 #include <details/api/vpu_nnrt_shavert.h>
@@ -27,13 +29,14 @@ static constexpr size_t NNRT_API_UD2024_44_MAJOR_VERSION = 11;
 static constexpr size_t NNRT_API_UD2024_44_MINOR_VERSION = 4;
 static constexpr size_t NNRT_API_UD2024_44_PATCH_VERSION = 10;
 
+static constexpr size_t NNRT_API_UD2025_38_MAJOR_VERSION = 11;
+static constexpr size_t NNRT_API_UD2025_38_MINOR_VERSION = 13;
+static constexpr size_t NNRT_API_UD2025_38_PATCH_VERSION = 3;
+
 // In 11.5.0 barrier FIFOs support for WLM was introduced
 static constexpr size_t NNRT_API_WLM_BARRIER_FIFO_MAJOR_VERSION = 11;
 static constexpr size_t NNRT_API_WLM_BARRIER_FIFO_MINOR_VERSION = 5;
 static constexpr size_t NNRT_API_WLM_BARRIER_FIFO_PATCH_VERSION = 0;
-
-static constexpr auto VPU_METADATA_STORAGE_START = static_cast<uint32_t>(npu40xx::nn_public::align_storage(alignof(npu40xx::nn_public::VpuDPUInvariant),
-                                                                 npu40xx::nn_public::VPU_METADATA_STORAGE_ADDR));
 
 #define VPU_CONCAT_NNRT_API_VER(MAJOR, MINOR) (((MAJOR) << 16) | (MINOR))
 

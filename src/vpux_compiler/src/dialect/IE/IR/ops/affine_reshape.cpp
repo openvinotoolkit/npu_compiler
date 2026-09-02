@@ -143,24 +143,20 @@ mlir::LogicalResult FuseAffineReshapes::matchAndRewrite(IE::AffineReshapeOp orig
     const auto outputShape = mlir::cast<mlir::ShapedType>(outputType).getShape();
     const auto outputShapeAttr = getIntArrayAttr(getContext(), outputShape);
 
-    // Fusing AffineReshape with any of the above mentioned ops might result in another AffineReshape or not,
-    // depending on the resulting input and output shapes.
-    // E. g. 1 x 24 x 2 x 2 -> AffineReshape -> 1 x 24 x 4 -> AffineReshape -> 1 x 24 x 4 x 1
-    //       mapping: id0 = od0, id1 = od1 and id2 * id3 = od2 * od3 (not an AffineReshape)
-    // If the Reshape that replaces the two ops ends up being a valid AffineReshape, then it will be converted by
-    // Reshape's canonicalizer.
-    // TODO: E#70418 1. support reshape(in: NHWC, out: NHWC) 2. support different in&out order of reshape
-    if (inputDimsOrder == outputDimsOrder && inputDimsOrder == DimsOrder::NHWC) {
-        const auto reassociationMap = vpux::IE::getReassociationMap(inputShape, outputShape);
+    // Fusing AffineReshape with any of the above mentioned ops might result in another AffineReshape or not.
+    const auto reassociationMap = vpux::IE::getReassociationMap(inputShape, outputShape);
+    if (mlir::succeeded(reassociationMap)) {
+        const auto outputLayout = Const::inferAffineReshapeOutputLayout(
+                inputDimsOrder.toPermutation(), getIntArrayOfArray(getContext(), reassociationMap.value()));
 
-        if (mlir::failed(reassociationMap)) {
-            return mlir::failure();
+        if (outputLayout.has_value() && outputLayout.value() == outputDimsOrder) {
+            rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(origOp, prevOp.getInput(),
+                                                             getIntArrayOfArray(getContext(), reassociationMap.value()),
+                                                             outputShapeAttr);
+            return mlir::success();
         }
-
-        rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(
-                origOp, prevOp.getInput(), getIntArrayOfArray(getContext(), reassociationMap.value()), outputShapeAttr);
-        return mlir::success();
     }
+
     // Reshape's output dim order is limited to NCHW, so the compiler will not fuse the ops in this case
     if (outputDimsOrder != DimsOrder::NCHW) {
         return mlir::failure();

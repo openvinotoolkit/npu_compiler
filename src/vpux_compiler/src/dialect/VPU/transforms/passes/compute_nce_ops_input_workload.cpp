@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -339,8 +340,7 @@ void ComputeNCEInputWorkloadsPass::safeRunOnFunc() {
 
     func.walk([&](NCEOpInterface nceOp) {
         const auto perClusterStartOffsets = getInputOffsetsPerCluster(nceOp, _log);
-        auto workloads = nceOp.getWorkloads().getOps<DPUWorkloadOp>();
-        for (auto workload : llvm::make_early_inc_range(workloads)) {
+        for (auto workload : VPU::collectAllWorkloads(nceOp)) {
             if (!workload.getStaticInOffsets().has_value() || !workload.getStaticInSizes().has_value()) {
                 mlir::OpBuilder builder(workload);
                 SmallVector<int64_t> inStart = {};

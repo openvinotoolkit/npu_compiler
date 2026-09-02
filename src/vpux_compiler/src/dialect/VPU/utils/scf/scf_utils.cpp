@@ -5,19 +5,25 @@
 
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
 #include "vpux/compiler/core/attributes/dim.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_analysis_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
+#include "vpux/compiler/utils/interpolate_bound.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/range.hpp"
 #include "vpux/utils/core/small_vector.hpp"
 
 #include <mlir/Analysis/SliceAnalysis.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/AffineExpr.h>
@@ -382,24 +388,46 @@ std::optional<vpux::Dim> vpux::VPU::getSinglePaddedExpandDim(mlir::Operation* op
     return vpux::Dim(*paddedIdx);
 }
 
-bool vpux::VPU::checkFusion(mlir::OpOperand& consumer, mlir::OpResult producerCandidate,
-                            const llvm::SetVector<mlir::Operation*>& producers, const MergeConfiguration& mergeConfig) {
-    // TODO E-172888 rewrite unified code for checking compatibility with current VF
+// Find a compatible MC strategy for the producer without mutating IR.
+// Returns the strategy that would make fusion compatible, or nullopt if none exists.
+// Each candidate is validated with areDistributionAttrsCompatible — the same criterion used by
+// default VF's alignMCStrategy search.
+// Hard-legality constraints are checked before the search in planFusion (checkMCFusionHardLegality).
+// The NCE eltwise segmented-like guard is intentionally not applied in the SCF fusion path.
+static std::optional<VPU::MultiClusterStrategy> findProducerStrategyForFusion(
+        VPU::ClusteredOpInterface producerClusterOp, VPU::ClusteredOpInterface consumerClusterOp,
+        mlir::OpOperand& consumer, VPU::SiblingOpsAnalysis& siblingAnalysis) {
+    auto consumerDistrType = mlir::cast<VPU::DistributedTensorType>(
+            mlir::cast<VPU::DistributedTypeInterface>(
+                    consumerClusterOp.getDistributedTypeForOpOperand(consumer, true, siblingAnalysis))
+                    .getDistributedTypes()
+                    .front());
 
+    return VPU::VF::v2::findCompatibleMCStrategyForVF(
+            producerClusterOp, [&](VPU::MultiClusterStrategy /*strategy*/, VPU::DistributedTensorType newOutDataType) {
+                return areDistributionAttrsCompatible(newOutDataType, consumerDistrType, true).succeeded();
+            });
+}
+
+VPU::SCFFusionPlan vpux::VPU::planFusion(mlir::OpOperand& consumer, mlir::OpResult producerCandidate,
+                                         const llvm::SetVector<mlir::Operation*>& producers,
+                                         const MergeConfiguration& mergeConfig) {
     auto* producer = producerCandidate.getOwner();
 
     if (!mlir::isa<mlir::TilingInterface>(producer)) {
-        return false;
+        return SCFFusionPlan::rejected();
     }
 
+    // A pure-view producer is fusable only if the active merge policy allows it; different
+    // pipelines (DefaultHW, HostCompile) plug in their own view-like policy. A pure-view
+    // consumer is always fusable (no MC strategy alignment is required across it).
     if (VPU::isPureViewOp(producer)) {
-        return mergeConfig.viewLikePolicy(producer);
+        return mergeConfig.viewLikePolicy(producer) ? SCFFusionPlan::accepted() : SCFFusionPlan::rejected();
+    } else if (mergeConfig.vfOpsRestriction != nullptr && !mergeConfig.vfOpsRestriction(producer)) {
+        return SCFFusionPlan::rejected();
     }
-
-    // so far no checks for consumer with view like ops
-    // MC strategies alignment should be brought here and E-218728 should be resolved.
     if (VPU::isPureViewOp(consumer.getOwner())) {
-        return true;
+        return SCFFusionPlan::accepted();
     }
 
     // Single-dim end-padded Expand can be fused as an SCF VF producer, but isn't
@@ -407,11 +435,22 @@ bool vpux::VPU::checkFusion(mlir::OpOperand& consumer, mlir::OpResult producerCa
     // copy optimization, strategy assignment — that need Expand's non-view behavior).
     // Accept it here explicitly instead of widening `isPureViewOp`.
     if (getSinglePaddedExpandDim(producer).has_value()) {
-        return true;
+        return SCFFusionPlan::accepted();
+    }
+
+    // Same exception on the consumer side: such an Expand carries no multiClusterStrategy of
+    // its own (it only pads the channel dim), so the hasMCStrategy XOR check below would reject
+    // an otherwise-fusable producer purely because Expand has no strategy to compare.
+    // Restrict to actual SCF (dynamic-shape) consumers: getSinglePaddedExpandDim only checks that
+    // the padded dim's input is static, not that the op has any dynamic tensors at all.
+    if (IE::hasDynamicTensors(consumer.getOwner()) && getSinglePaddedExpandDim(consumer.getOwner()).has_value()) {
+        return SCFFusionPlan::accepted();
     }
 
     auto producerShape = getShape(producerCandidate);
-    auto alignment = getAlignment(producer, producerShape, producerShape);
+    // Only required alignment is needed here; skip dynamic-dimension alignment.
+    // This guard avoids required-alignment conflicts for NCE ops.
+    auto alignment = getAlignment(producer, producerShape, producerShape, /*canUseDynamicAlignment=*/false);
     const auto opAddsComputationalCost = [](auto* operation) {
         auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(operation);
 
@@ -421,37 +460,79 @@ bool vpux::VPU::checkFusion(mlir::OpOperand& consumer, mlir::OpResult producerCa
     };
     if (llvm::any_of(producers, opAddsComputationalCost)) {
         if (alignment[Dims4D::Act::W.ind()] > 1 || alignment[Dims4D::Act::H.ind()] > 1) {
-            return false;
+            return SCFFusionPlan::rejected();
         }
     }
 
-    const auto hasMCStategy = [](mlir::Operation* operation) {
+    const auto hasMCStrategy = [](mlir::Operation* operation) {
         auto clusterOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(operation);
         return clusterOp != nullptr && clusterOp.getMultiClusterStrategy().has_value();
     };
 
-    auto consumerHasStrategy = hasMCStategy(consumer.getOwner());
-    auto producerHasStrategy = hasMCStategy(producer);
+    auto* consumerOp = consumer.getOwner();
+    auto consumerHasStrategy = hasMCStrategy(consumerOp);
+    auto producerHasStrategy = hasMCStrategy(producer);
 
     if (!consumerHasStrategy && !producerHasStrategy) {
-        return true;
+        return SCFFusionPlan::accepted();
     }
 
     if (consumerHasStrategy ^ producerHasStrategy) {
-        return false;
+        return SCFFusionPlan::rejected();
     }
 
-    auto producerClusterOp = mlir::cast<VPU::ClusteredOpInterface>(producerCandidate.getOwner());
-    auto consumerClusterOp = mlir::cast<VPU::ClusteredOpInterface>(consumer.getOwner());
+    auto producerClusterOp = mlir::cast<VPU::ClusteredOpInterface>(producer);
+    auto consumerClusterOp = mlir::cast<VPU::ClusteredOpInterface>(consumerOp);
 
-    VPU::SiblingOpsAnalysis siblingAnalisys(consumer.getOwner());
+    VPU::SiblingOpsAnalysis siblingAnalysis(consumerOp);
 
+    auto producerDistrType = mlir::cast<VPU::DistributedTensorType>(
+            mlir::cast<VPU::DistributedTypeInterface>(
+                    producerClusterOp.getDistributedTypeForOpResult(producerCandidate,
+                                                                    producerClusterOp.getMultiClusterStrategy().value(),
+                                                                    siblingAnalysis, false))
+                    .getDistributedTypes()
+                    .front());
     auto consumerDistrType = mlir::cast<VPU::DistributedTensorType>(
-            consumerClusterOp.getDistributedTypeForOpOperand(consumer, false, siblingAnalisys));
-    auto producerDistrType = mlir::cast<VPU::DistributedTensorType>(producerClusterOp.getDistributedTypeForOpResult(
-            producerCandidate, producerClusterOp.getMultiClusterStrategy().value(), siblingAnalisys, false));
+            mlir::cast<VPU::DistributedTypeInterface>(
+                    consumerClusterOp.getDistributedTypeForOpOperand(consumer, false, siblingAnalysis))
+                    .getDistributedTypes()
+                    .front());
 
-    return areDistributionAttrsCompatible(producerDistrType, consumerDistrType, true).succeeded();
+    // Hard legality gate: reject non-adjustable constraints (E#112803 sparse operands with
+    // true-overlapped distributions, E#92130 SW ops without DMA lowering paired with
+    // true-overlapped distributions). These checks correspond to the default VF isLegalFusion
+    // hard-legality path; SCF has no separate isLegalFusion, so they are applied here.
+    if (!checkMCFusionHardLegality(producerDistrType, consumerDistrType, producer, consumerOp, consumer.get())) {
+        return SCFFusionPlan::rejected();
+    }
+
+    // Check current-strategy compatibility using areDistributionAttrsCompatible — the same
+    // criterion the pre-refactor SCF fusion check used. The eltwise segmented-like guard from
+    // checkCurrentMCStrategyCompatibility is intentionally NOT applied here: it is a cost-model
+    // heuristic from the default VF isMCStrategyAligned path that rejects valid skip-connection
+    // topologies (Conv→Eltwise with SEGMENTED|MULTICASTED vs OVERLAPPED) that develop fuses.
+    if (areDistributionAttrsCompatible(producerDistrType, consumerDistrType, true).succeeded()) {
+        return SCFFusionPlan::accepted();
+    }
+
+    // Strategies are incompatible — search for a compatible producer strategy without mutating IR
+    auto compatibleStrategy =
+            findProducerStrategyForFusion(producerClusterOp, consumerClusterOp, consumer, siblingAnalysis);
+    if (compatibleStrategy.has_value()) {
+        return SCFFusionPlan::acceptedWithAdjustment(producer, compatibleStrategy.value());
+    }
+
+    return SCFFusionPlan::rejected();
+}
+
+void vpux::VPU::applyFusionPlan(const SCFFusionPlan& plan) {
+    // Sole MC strategy mutation point of the SCF fusion path. Reached only after the caller has
+    // committed to the fusion, so the producer strategy change is non-speculative.
+    if (plan.producerToAdjust != nullptr && plan.newProducerStrategy.has_value()) {
+        auto clusterOp = mlir::cast<VPU::ClusteredOpInterface>(plan.producerToAdjust);
+        clusterOp.setMultiClusterStrategy(plan.newProducerStrategy.value());
+    }
 }
 
 bool vpux::VPU::isNceOpWithPadAttr(mlir::Operation* op) {
@@ -1034,6 +1115,58 @@ bool isPadInsideSpatiallySegmentedForallLoop(mlir::tensor::PadOp padOp) {
                        });
 }
 
+TensorBoundResolver vpux::VPU::getInterpolateScalesBoundResolver() {
+    return [](mlir::Value tensor) -> std::optional<int64_t> {
+        // Walk forward from the tensor to its consumers looking for an Interpolate that uses it as scales.
+        // Scale tensors are often passed to a helper function, so func.call operands are followed into the
+        // matching callee argument as well.
+        llvm::SmallVector<mlir::Value> worklist{tensor};
+        llvm::SmallDenseSet<mlir::Value> visited{tensor};
+
+        while (!worklist.empty()) {
+            auto current = worklist.pop_back_val();
+            for (auto* user : current.getUsers()) {
+                mlir::Value inputVal = nullptr;
+                if (auto dma = mlir::dyn_cast<VPU::InterpolateDMAOp>(user)) {
+                    if (dma.getScales() == current) {
+                        inputVal = dma.getInput();
+                    }
+                } else if (auto interp = mlir::dyn_cast<VPU::InterpolateOp>(user)) {
+                    if (interp.getScales() == current) {
+                        inputVal = interp.getInput();
+                    }
+                }
+                if (inputVal != nullptr) {
+                    if (auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(inputVal.getType())) {
+                        return llvm::bit_cast<int64_t>(getInterpolateScalesBound(ndType));
+                    }
+                    return std::nullopt;
+                }
+
+                auto callOp = mlir::dyn_cast<mlir::func::CallOp>(user);
+                if (callOp == nullptr) {
+                    continue;
+                }
+                auto calleeOp =
+                        mlir::SymbolTable::lookupNearestSymbolFrom<mlir::func::FuncOp>(callOp, callOp.getCalleeAttr());
+                if (calleeOp == nullptr || calleeOp.isExternal()) {
+                    continue;
+                }
+                for (auto& operand : callOp->getOpOperands()) {
+                    if (operand.get() != current) {
+                        continue;
+                    }
+                    auto calleeArg = calleeOp.getArgument(operand.getOperandNumber());
+                    if (visited.insert(calleeArg).second) {
+                        worklist.push_back(calleeArg);
+                    }
+                }
+            }
+        }
+        return std::nullopt;
+    };
+}
+
 void vpux::VPU::restorePaddingAttribute(mlir::Operation* region, Logger log) {
     SmallVector<std::pair<mlir::Operation*, mlir::tensor::PadOp>> worklist;
     region->walk([&](mlir::tensor::PadOp padOp) {
@@ -1081,6 +1214,19 @@ void vpux::VPU::restorePaddingAttribute(mlir::Operation* region, Logger log) {
         mapper.map(nceOp->getOperand(0), inputOperand);
         auto newNceOp = rewriter.clone(*nceOp, mapper);
         newNceOp->setAttr("pad", restoredPadAttr);
+
+        // Clear workloads that were computed for the pre-restore state (padded input,
+        // zero pad). After padding is restored to the NCE op, the workloads' input
+        // sizes and per-workload padding are invalid. Downstream
+        // SplitNCEOpsOntoWorkloadsPass will re-generate correct workloads.
+        if (auto nceIface = mlir::dyn_cast<VPU::NCEOpInterface>(newNceOp)) {
+            auto& workloads = nceIface.getWorkloads();
+            for (auto& block : llvm::make_early_inc_range(workloads.getBlocks())) {
+                block.clear();
+                block.erase();
+            }
+        }
+
         vpux::inferReturnTypes(newNceOp, vpux::InferShapedTypeMode::SHAPE);
 
         // Replace all uses of the original convolution operation with the new one
@@ -1090,6 +1236,19 @@ void vpux::VPU::restorePaddingAttribute(mlir::Operation* region, Logger log) {
             padOp.erase();
         }
     }
+
+    // Clear ALL workloads for NCE ops in the region. After loop unrolling, shapes
+    // are static but workloads computed by WorkloadsForNCEOpsSCFPass for bounded
+    // (max-iteration) shapes may be invalid for iterations with smaller actual
+    // shapes (e.g., uneven tile division). Downstream SplitNCEOpsOntoWorkloadsPass
+    // will regenerate correct workloads from the actual static shapes.
+    region->walk([&](VPU::NCEOpInterface nceOp) {
+        auto& workloads = nceOp.getWorkloads();
+        for (auto& block : llvm::make_early_inc_range(workloads.getBlocks())) {
+            block.clear();
+            block.erase();
+        }
+    });
 }
 
 bool vpux::VPU::isDependentOnForallIv(mlir::OpFoldResult ofr, mlir::scf::ForallOp forallOp) {

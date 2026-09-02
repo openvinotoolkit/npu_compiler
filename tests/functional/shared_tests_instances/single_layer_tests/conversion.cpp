@@ -47,11 +47,13 @@ TEST_P(ConversionLayerTestCommon_HW, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(ConversionLayerTestCommon_HW, NPU5020_HW) {
     setDefaultHardwareMode();
     setBatchCompilerMode("unroll");
     run(Platform::NPU5020);
 }
+
 TEST_P(ShaveCodeGenConversionLayerTest, NPU5010) {
     setReferenceSoftwareMode();
     setPluginCompilerType();
@@ -67,6 +69,7 @@ TEST_P(ConversionLayerTestCommon, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(ConversionLayerTestCommon, NPU5020_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);
@@ -136,6 +139,10 @@ const std::vector<ConversionTypes> conversionOpTypes = {
 
 const std::vector<std::vector<ov::Shape>> inShape = {{{1, 2, 3, 5}}};
 
+const std::vector<std::vector<ov::Shape>> inShapeFP16To4 = {{{1, 2, 2, 16}}, {{1, 2, 3, 5}}};
+
+const std::vector<std::vector<ov::Shape>> inShape1 = {{{1, 2, 3, 4}}};
+
 const std::vector<std::vector<ov::Shape>> inShapeTiling = {{{2000, 2000}}};
 
 const std::vector<std::vector<ov::Shape>> inShapeOdd = {{{1, 1, 1, 111}}};
@@ -167,11 +174,14 @@ const auto configParamsU4Tiling = genParams({u4}, {f16, u8, i8}, inShapeTiling);
 const auto configParamsU2Tiling = genParams({u2}, {f16}, inShapeTiling, false);
 const auto configParamsI4Tiling = genParams({i4}, {i8, f16}, inShapeTiling);
 const auto configParamsU4OddShape = genParams({u4}, {f16, u8, i8}, inShapeOdd);
+const auto configParamsNF4ToF16 = genParams({nf4}, {f16}, inShape1, false);
 const auto configParamsU16ToF16 = genParams({u16}, {f16}, inShapeOdd);
 const auto configParamsF16ToU16 = genParams({f16}, {u16}, inShapeOdd);
 const auto configParamsF8ToF16 = genParams({f8e4m3, f8e5m2}, {f16}, inShapeOdd, false);
 const auto configParamsF16ToF8 = genParams({f16}, {f8e4m3, f8e5m2}, inShapeOdd, false);
 const auto configParamsF32ToF16Tiling = genParams({f32}, {f16}, inShapeTiling);
+const auto configParamsF16ToU4 = genParams({f16}, {u4}, inShapeFP16To4, false);
+const auto configParamsF16ToI4 = genParams({f16}, {i4}, inShapeFP16To4, false);
 
 const std::vector<std::vector<ov::test::InputShape>> dynamicShapes = {
         {generateTestShape(std::vector<BoundedDim>{1, 16, 2048_Dyn, 2048}, hostCompileSmallShapesLimitationCallback)},
@@ -234,6 +244,9 @@ INSTANTIATE_TEST_SUITE_P(smoke_f8_f16_Conversion, ConversionLayerTestCommon_HW, 
 INSTANTIATE_TEST_SUITE_P(smoke_f16_f8_Conversion, ConversionLayerTestCommon_HW, configParamsF16ToF8,
                          ConversionLayerTest::getTestCaseName);
 
+INSTANTIATE_TEST_SUITE_P(smoke_nf4_f16_Conversion, ConversionLayerTestCommon_HW, configParamsNF4ToF16,
+                         ConversionLayerTest::getTestCaseName);
+
 INSTANTIATE_TEST_SUITE_P(smoke_i32_u64_Conversion, ConversionLayerTestCommon_HW, configParamsI32ToU64,
                          ConversionLayerTest::getTestCaseName);
 
@@ -259,6 +272,11 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_precommit_u4_odd_Conversion, Convers
                          configParamsU4OddShape, ConversionLayerTest::getTestCaseName);
 
 // ------ SW ------
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_f16_u4_Conversion, ConversionLayerTestCommon, configParamsF16ToU4,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_f16_i4_Conversion, ConversionLayerTestCommon, configParamsF16ToI4,
+                         ConversionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Conversion, ConversionLayerTestCommon, configParams,
                          ConversionLayerTest::getTestCaseName);

@@ -247,7 +247,7 @@ def ELF_BinarySizeOpInterface : OpInterface<"BinarySizeOpInterface"> {
 
         InterfaceMethod<
             "Get the offset of an operation inside an ELF section op",
-            "int64_t",
+            "std::optional<int64_t>",
             "getMemoryOffset", (ins), [{}],
             /*defaultImplementation*/ [{
                 if($_op->hasAttr(BinarySizeOpInterface::elfMemOffsetAttrName())) {
@@ -255,10 +255,10 @@ def ELF_BinarySizeOpInterface : OpInterface<"BinarySizeOpInterface"> {
                     return attr.getUInt();
                 }
                 else {
-                    return 0;
+                    return std::nullopt;
                 }
             }]
-        >
+        >,
     ];
 
     let extraClassDeclaration = [{

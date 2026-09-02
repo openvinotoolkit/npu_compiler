@@ -45,7 +45,7 @@ bool shouldConvertPowerOp(IE::PowerOp powerOp) {
 
     const auto exponent = constAttr.fold().getSplatValue<float>();
     auto isIntegerExponent = isFloatEqual(std::floor(exponent), exponent);
-    auto isConversionBeneficial = (static_cast<int64_t>(exponent) <= MAX_CONVERSION_EXPONENT);
+    auto isConversionBeneficial = (exponent >= 1.0f) && (exponent <= static_cast<float>(MAX_CONVERSION_EXPONENT));
     return isIntegerExponent && isConversionBeneficial;
 }
 

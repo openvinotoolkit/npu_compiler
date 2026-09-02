@@ -448,7 +448,7 @@ func.func @PropagateMultiply(%arg0: tensor<1x16x1x128xf16>, %arg1: tensor<1x16x1
 
 // CHECK-LABEL: @NotPropagateMultiply
 // CHECK-SAME:  ([[INPUT_0:%.+]]: tensor<1x16x1x128xf16>, [[INPUT_1:%.+]]: tensor<1x16x1x128xf16>, [[INPUT_2:%.+]]: tensor<128xf16>)
-func.func @NotPropagateMultiply(%arg0: tensor<1x16x1x128xf16>, %arg1: tensor<1x16x1x128xf16>, %arg2: tensor<128xf16>) 
+func.func @NotPropagateMultiply(%arg0: tensor<1x16x1x128xf16>, %arg1: tensor<1x16x1x128xf16>, %arg2: tensor<128xf16>)
 -> (tensor<2x16x1x128xf16>, tensor<1x32x1x64xf16>) {
     %gamma1 = const.Declare tensor<128xf16> = dense<1.000000e+00> : tensor<128xf16>
     %cst_mul = const.Declare tensor<f16> = dense<2.000000e+00> : tensor<f16>
@@ -579,7 +579,7 @@ func.func @PropagateThroughMultiplySoftMax(%arg0: tensor<1024x128xf32>, %arg1: t
     %0 = IE.MatMul(%arg0, %arg1) {transpose_b} : tensor<1024x128xf32>, tensor<1024x128xf32> -> tensor<1024x1024xf32>
     %1 = IE.MatMul(%arg0, %arg1) {transpose_b} : tensor<1024x128xf32>, tensor<1024x128xf32> -> tensor<1024x1024xf32>
 
-    
+
     %2 = IE.AffineReshape(%0) {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 1024, 1024]} : tensor<1024x1024xf32> -> tensor<1x1x1024x1024xf32>
     %3 = IE.AffineReshape(%1) {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 1024, 1024]} : tensor<1024x1024xf32> -> tensor<1x1x1024x1024xf32>
 
@@ -593,8 +593,8 @@ func.func @PropagateThroughMultiplySoftMax(%arg0: tensor<1024x128xf32>, %arg1: t
     // CHECK-DAG:   [[CST:%.+]] = const.Declare tensor<1x1x1x1xf32>
     // CHECK:       [[MATMUL0:%.+]] = IE.MatMul([[INPUT_0]], [[INPUT_1]]) {transpose_b} : tensor<1024x128xf32>, tensor<1024x128xf32> -> tensor<1024x1024xf32>
     // CHECK:       [[MATMUL1:%.+]] = IE.MatMul([[INPUT_0]], [[INPUT_1]]) {transpose_b} : tensor<1024x128xf32>, tensor<1024x128xf32> -> tensor<1024x1024xf32>
-    // CHECK:       [[RESHAPE0:%.+]] = IE.AffineReshape([[MATMUL0]]) 
-    // CHECK:       [[RESHAPE1:%.+]] = IE.AffineReshape([[MATMUL1]]) 
+    // CHECK:       [[RESHAPE0:%.+]] = IE.AffineReshape([[MATMUL0]])
+    // CHECK:       [[RESHAPE1:%.+]] = IE.AffineReshape([[MATMUL1]])
     // CHECK:       [[MUL0:%.+]] = IE.Multiply([[RESHAPE0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x1024xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x1024x1024xf32>
     // CHECK:       [[MUL1:%.+]] = IE.Multiply([[RESHAPE1]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x1024xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x1024x1024xf32>
     // CHECK:       [[ADD0:%.+]] = IE.Add([[MUL0]], [[INPUT_2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1024x1024xf32>, tensor<1x1x1024x1024xf32> -> tensor<1x1x1024x1024xf32>

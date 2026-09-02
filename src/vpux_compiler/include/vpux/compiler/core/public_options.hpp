@@ -168,6 +168,8 @@ struct PublicOptions : mlir::PassPipelineOptions<PublicOptions> {
         enableDMAProfiling.setValue(getDefaultEnableDMAProfiling(arch));
     }
 
+    virtual ~PublicOptions() = default;
+
     static std::unique_ptr<PublicOptions> createFromString(StringRef options, config::ArchKind arch) {
         auto result = std::make_unique<PublicOptions>(arch);
         if (mlir::failed(result->parseFromString(options))) {

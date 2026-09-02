@@ -55,4 +55,10 @@ TEST(MLIR_PipelineOptionsTest, BehaviourTests) {
     auto optionHasEmptyValue = DevicePipelineOptions::createFromString(nonDefaultEmptySettings);
     ASSERT_TRUE(optionHasEmptyValue->strOption.hasValue());
     ASSERT_TRUE(optionHasEmptyValue->strOption.getValue() == "");
+
+    // Unknown option
+    std::string unknownOptionSettings = "unknown-option=value";
+
+    auto optionHasUnknownOption = DevicePipelineOptions::createFromString(unknownOptionSettings);
+    ASSERT_TRUE(optionHasUnknownOption == nullptr);
 }

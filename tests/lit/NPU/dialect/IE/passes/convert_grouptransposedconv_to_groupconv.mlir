@@ -78,6 +78,28 @@ func.func @ConvertGroupTransposedConvToGroupConvWithMultiplyAsFilter(%INPUT: ten
 
 // -----
 
+// CHECK-LABEL: @ConvertDilatedGroupTransposedConvToGroupConv
+// CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x64x3x3xf16>)
+func.func @ConvertDilatedGroupTransposedConvToGroupConv(%arg0: tensor<1x64x3x3xf16>) -> tensor<1x64x5x5xf16> {
+    %FILTERS = const.Declare tensor<64x1x1x2x2xf16> = dense<1.000000e+00> : tensor<64x1x1x2x2xf16>
+
+    %RESULT = IE.GroupTransposedConvolution(%arg0, %FILTERS) {dilations = [2, 2], spatial_output_padding = [0, 0], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x3x3xf16>, tensor<64x1x1x2x2xf16> -> tensor<1x64x5x5xf16>
+    return %RESULT : tensor<1x64x5x5xf16>
+
+    // Stride-1 dilated depthwise: emit ExpandDilated + direct GroupConv(dilations=[1,1]) with
+    // equivalent padding. LegalizeDilatedConvolution runs before this pass, so dilation must be
+    // expanded here explicitly. E#222712
+    // CHECK:       [[CST_4D:%.+]] = const.Declare tensor<64x1x2x2xf16>
+    // CHECK:       [[EXPAND:%.+]] = IE.ExpandDilated([[CST_4D]]) {dilations = [2, 2]}
+    // CHECK-SAME:      tensor<64x1x2x2xf16> -> tensor<64x1x3x3xf16>
+    // CHECK:       [[GROUPCONV:%.+]] = IE.GroupConvolution([[ARG_0]], [[EXPAND]])
+    // CHECK-SAME:      dilations = [1, 1]
+    // CHECK-SAME:      pads_begin = [2, 2], pads_end = [2, 2]
+    // CHECK:       return [[GROUPCONV]]
+}
+
+// -----
+
 // CHECK-LABEL: @ConvertGroupTransposedConvToGroupConvLargeKernelSize
 module @ConvertGroupTransposedConvToGroupConvLargeKernelSize {
 

@@ -10,6 +10,8 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 
+#include <mlir/IR/PatternMatch.h>
+
 namespace vpux {
 namespace VPU {
 
@@ -36,11 +38,15 @@ struct WeightsTableParams {
     VPU::NCESparsity::BiasConverterCb biasConverter;
     mlir::FloatAttr constScale;
     mlir::Value zeroPoints;
+    // Non-null when the bias is a runtime tensor (e.g. converted+reshaped from a non-constant IE bias)
+    // rather than a compile-time constant. When set, NewWeightsTableTensors wires it directly into
+    // biasTensor instead of materializing a Const-backed bias table from `bias`.
+    mlir::Value runtimeBias;
 
     WeightsTableParams(mlir::Operation* op, mlir::Value opInput, mlir::Type opOutputElemType, mlir::Value weights,
                        const Const::ContentAttr& bias, int64_t OC, VPU::NCESparsity::PPEConverterCb ppeConverter,
                        VPU::NCESparsity::BiasConverterCb biasConverter, mlir::FloatAttr constScale,
-                       mlir::Value zeroPoints)
+                       mlir::Value zeroPoints, mlir::Value runtimeBias = nullptr)
             : op(op),
               opInput(opInput),
               opOutputElemType(opOutputElemType),
@@ -50,13 +56,14 @@ struct WeightsTableParams {
               ppeConverter(ppeConverter),
               biasConverter(biasConverter),
               constScale(constScale),
-              zeroPoints(zeroPoints) {
+              zeroPoints(zeroPoints),
+              runtimeBias(runtimeBias) {
     }
 
     WeightsTableParams(mlir::Operation* op, mlir::Value opInput, mlir::Value opOutput, mlir::Value weights,
                        const Const::ContentAttr& bias, int64_t OC, VPU::NCESparsity::PPEConverterCb ppeConverter,
                        VPU::NCESparsity::BiasConverterCb biasConverter, mlir::FloatAttr constScale,
-                       mlir::Value zeroPoints)
+                       mlir::Value zeroPoints, mlir::Value runtimeBias = nullptr)
             : op(op),
               opInput(opInput),
               opOutputElemType(mlir::cast<vpux::NDTypeInterface>(opOutput.getType()).getElementType()),
@@ -66,7 +73,8 @@ struct WeightsTableParams {
               ppeConverter(ppeConverter),
               biasConverter(biasConverter),
               constScale(constScale),
-              zeroPoints(zeroPoints) {
+              zeroPoints(zeroPoints),
+              runtimeBias(runtimeBias) {
     }
 };
 
@@ -167,6 +175,8 @@ private:
                                                            mlir::Value zeroPoints);
     mlir::Value initializeScaleBiasTensor(mlir::OpBuilder& builder, mlir::Location loc, ArrayRef<float> tableData,
                                           ShapeRef weightTableShape);
+    mlir::Value initializeBiasTensor(mlir::OpBuilder& builder, mlir::Location loc, ArrayRef<float> tableData,
+                                     ShapeRef weightTableShape, mlir::Value runtimeBias);
     mlir::Value initializeZeroPointsTensorWithDummyValues(mlir::OpBuilder& builder, mlir::Location loc,
                                                           ArrayRef<int8_t> tableData, ShapeRef weightTableShape,
                                                           mlir::Value zeroPoints);
@@ -175,6 +185,12 @@ private:
 mlir::Value alignDepthWiseWeightsTensor(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value origFilter);
 mlir::Value alignConvWeightsTensor(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value origFilter);
 bool isNullOrConstWithSingleValue(mlir::Value value);
+
+// Converts a non-constant IE bias tensor into the [OC,1,1,1] f32 form required by the
+// weight_table_bias operand of NCE.DepthConvolution. Applies a DPU identity MaxPool
+// (via createConvertPoolingForScaleTable) to cast to f32, then reshapes to [OC,1,1,1].
+mlir::Value createRuntimeBiasForWeightTable(mlir::PatternRewriter& rewriter, mlir::Location loc, mlir::Value bias,
+                                            int64_t OC);
 
 /**
  * @brief calculate memory requirement for given buffer sizes and architecture-dependent allocation requirements

@@ -9,6 +9,8 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_merge_configuration.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
+#include <llvm/ADT/STLFunctionalExtras.h>
+
 #include <deque>
 
 namespace vpux::VPU::VF::v2 {
@@ -72,5 +74,13 @@ StrategyCost extractBaselineCost(mlir::Operation* operation, ShapeRef tilingDims
 
 VPUNNCostParameters fillInCostParam(mlir::Operation* operation, const OutputTiling& tiling,
                                     ArrayRef<TileInfo> inputTiles, const bool enablePrefetching);
+
+// Find a compatible MC strategy for a producer op in VF by iterating potential strategies
+// (HKSwitch, SOH, SOK). The isCompatible callback receives the candidate strategy and the
+// distributed output type of the producer under that strategy. Returns the first strategy
+// for which all internal checks pass and isCompatible returns true.
+std::optional<VPU::MultiClusterStrategy> findCompatibleMCStrategyForVF(
+        VPU::ClusteredOpInterface producerOp,
+        llvm::function_ref<bool(VPU::MultiClusterStrategy, VPU::DistributedTensorType)> isCompatible);
 
 }  // namespace vpux::VPU::VF::v2

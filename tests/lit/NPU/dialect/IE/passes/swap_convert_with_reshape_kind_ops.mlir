@@ -285,11 +285,10 @@ func.func @PropagateConvertForwardToFuse(%arg0: tensor<1x1152xsi64>) -> tensor<1
     // CHECK:   [[AFFINE_RESHAPE_0:%.+]] = IE.AffineReshape([[INPUT]])
     // CHECK:   [[CONVERT:%.+]] = IE.Convert([[AFFINE_RESHAPE_0]]) {dstElemType = i8} : tensor<1x1x1x1152xsi64> -> tensor<1x1x1x1152xi8>
     // CHECK:   [[AFFINE_RESHAPE_1:%.+]] = IE.AffineReshape([[CONVERT]])
-    // CHECK:   [[AFFINE_RESHAPE_2:%.+]] = IE.AffineReshape([[AFFINE_RESHAPE_1]])
-    // CHECK:   [[GATHER:%.+]] = IE.Gather([[AFFINE_RESHAPE_2]], [[CST]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 4 : i64} : tensor<1152x1xi8>, tensor<1x1x1x1152xsi32> -> tensor<1x1x1x1152x1xi8>
-    // CHECK:   [[AFFINE_RESHAPE_3:%.+]] = IE.AffineReshape([[GATHER]])
+    // CHECK:   [[GATHER:%.+]] = IE.Gather([[AFFINE_RESHAPE_1]], [[CST]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 4 : i64} : tensor<1152x1xi8>, tensor<1x1x1x1152xsi32> -> tensor<1x1x1x1152x1xi8>
+    // CHECK:   [[AFFINE_RESHAPE_2:%.+]] = IE.AffineReshape([[GATHER]])
 
-    // CHECK:   return [[AFFINE_RESHAPE_3]] : tensor<1x1x1x1152xi8>
+    // CHECK:   return [[AFFINE_RESHAPE_2]] : tensor<1x1x1x1152xi8>
 }
 
 // -----
@@ -310,11 +309,9 @@ func.func @PropagateConvertBackwardToFuse(%arg0: tensor<1x1152xi8>) -> tensor<1x
 
     // CHECK:   [[CST:%.+]] = const.Declare tensor<1x1x1x1152xsi32> = dense<1> : tensor<1x1x1x1152xsi32>
     // CHECK:   [[AFFINE_RESHAPE_0:%.+]] = IE.AffineReshape([[INPUT]])
-    // CHECK:   [[AFFINE_RESHAPE_1:%.+]] = IE.AffineReshape([[AFFINE_RESHAPE_0]])
-    // CHECK:   [[AFFINE_RESHAPE_2:%.+]] = IE.AffineReshape([[AFFINE_RESHAPE_1]])
-    // CHECK:   [[GATHER:%.+]] = IE.Gather([[AFFINE_RESHAPE_2]], [[CST]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 4 : i64} : tensor<1152x1xi8>, tensor<1x1x1x1152xsi32> -> tensor<1x1x1x1152x1xi8>
-    // CHECK:   [[AFFINE_RESHAPE_3:%.+]] = IE.AffineReshape([[GATHER]])
-    // CHECK:   [[CONVERT:%.+]] = IE.Convert([[AFFINE_RESHAPE_3]]) {dstElemType = si64} : tensor<1x1x1x1152xi8> -> tensor<1x1x1x1152xsi64>
+    // CHECK:   [[GATHER:%.+]] = IE.Gather([[AFFINE_RESHAPE_0]], [[CST]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 4 : i64} : tensor<1152x1xi8>, tensor<1x1x1x1152xsi32> -> tensor<1x1x1x1152x1xi8>
+    // CHECK:   [[AFFINE_RESHAPE_1:%.+]] = IE.AffineReshape([[GATHER]])
+    // CHECK:   [[CONVERT:%.+]] = IE.Convert([[AFFINE_RESHAPE_1]]) {dstElemType = si64} : tensor<1x1x1x1152xi8> -> tensor<1x1x1x1152xsi64>
     // CHECK:   return [[CONVERT]] : tensor<1x1x1x1152xsi64>
 }
 
@@ -338,10 +335,9 @@ func.func @NoPropagateConvertToFuse(%arg0: tensor<1x1152xsi64>) -> tensor<1x1x1x
     // CHECK:   [[AFFINE_RESHAPE_0:%.+]] = IE.AffineReshape([[INPUT]])
     // CHECK:   [[CONVERT_0:%.+]] = IE.Convert([[AFFINE_RESHAPE_0]]) {dstElemType = f16} : tensor<1x1x1x1152xsi64> -> tensor<1x1x1x1152xf16>
     // CHECK:   [[AFFINE_RESHAPE_1:%.+]] = IE.AffineReshape([[CONVERT_0]])
-    // CHECK:   [[AFFINE_RESHAPE_2:%.+]] = IE.AffineReshape([[AFFINE_RESHAPE_1]])
-    // CHECK:   [[GATHER:%.+]] = IE.Gather([[AFFINE_RESHAPE_2]], [[CST]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 4 : i64} : tensor<1152x1xf16>, tensor<1x1x1x1152xsi32> -> tensor<1x1x1x1152x1xf16>
-    // CHECK:   [[AFFINE_RESHAPE_3:%.+]] = IE.AffineReshape([[GATHER]])
-    // CHECK:   [[CONVERT_1:%.+]] = IE.Convert([[AFFINE_RESHAPE_3]]) {dstElemType = si32} : tensor<1x1x1x1152xf16> -> tensor<1x1x1x1152xsi32>
+    // CHECK:   [[GATHER:%.+]] = IE.Gather([[AFFINE_RESHAPE_1]], [[CST]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 4 : i64} : tensor<1152x1xf16>, tensor<1x1x1x1152xsi32> -> tensor<1x1x1x1152x1xf16>
+    // CHECK:   [[AFFINE_RESHAPE_2:%.+]] = IE.AffineReshape([[GATHER]])
+    // CHECK:   [[CONVERT_1:%.+]] = IE.Convert([[AFFINE_RESHAPE_2]]) {dstElemType = si32} : tensor<1x1x1x1152xf16> -> tensor<1x1x1x1152xsi32>
 
     // CHECK:   return [[CONVERT_1]] : tensor<1x1x1x1152xsi32>
 }

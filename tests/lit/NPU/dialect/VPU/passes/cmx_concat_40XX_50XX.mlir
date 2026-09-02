@@ -1391,7 +1391,7 @@ func.func @ComplexConcatWithExplicitDistribution(
             axes_attr = [2, 3],
             initial_input_dims_attr = [1, 16, 10, 16],
             initial_output_dims_attr = [1, 16, 20, 32],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [20, 32],
             tile_offset_attr = [0.000000e+00, 0.000000e+00, 0.000000e+00, 0.000000e+00]}

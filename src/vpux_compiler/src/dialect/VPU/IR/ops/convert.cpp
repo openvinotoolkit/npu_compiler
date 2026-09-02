@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 
@@ -77,29 +78,62 @@ bool vpux::VPU::ConvertOp::checkStrategyCompatibility(vpux::VPU::MultiClusterStr
     return isStrategyCompatible;
 }
 
+bool vpux::VPU::ConvertOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& outputTile) {
+    const auto numTiles = config::getNumOfTiles(getOperation());
+
+    auto inputType = mlir::cast<NDTypeInterface>(getInput().getType());
+    auto outputType = mlir::cast<NDTypeInterface>(getOutput().getType());
+
+    if (!outputTile.shape.empty()) {
+        outputType = outputType.extractDenseTile(outputTile.offsets, outputTile.shape);
+        // Convert op has 1:1 mapping between input and output, so we can use the output tile to extract the input tile
+        inputType = inputType.extractDenseTile(outputTile.offsets, outputTile.shape);
+    }
+
+    if (getBoundedShape(outputType)[Dims4D::Act::H] < numTiles) {
+        return false;
+    }
+
+    const auto numDivisors = Shape{1, 1, numTiles, 1};
+    const auto alignment = VPU::getSWOpAlignment(getOperation(), numDivisors, /*inputType=*/inputType,
+                                                 /*outputType=*/outputType);
+    const auto alignmentOnClusteringDim = alignment.has_value() ? alignment.value()[Dims4D::Act::H.ind()] : 1;
+    return VPU::isEltwiseSWOpSplitOverHeightCompatible(getOperation(), outputTile.shape, alignmentOnClusteringDim);
+}
+
+bool vpux::VPU::ConvertOp::isOperationSplitOverKernelCompatible(ShapeRef outputShape, ShapeRef offsets,
+                                                                ShapeRef /*axis*/) {
+    const auto numTiles = config::getNumOfTiles(getOperation());
+
+    auto inputType = mlir::cast<NDTypeInterface>(getInput().getType());
+    auto outputType = mlir::cast<NDTypeInterface>(getOutput().getType());
+    if (!outputShape.empty()) {
+        const auto zeroOffsets = Shape(outputShape.size(), 0);
+        const auto& validOffsets = offsets.empty() ? zeroOffsets : offsets;
+        outputType = outputType.extractDenseTile(validOffsets, outputShape);
+        // Convert op has 1:1 mapping between input and output, so we can use the output tile to extract the input tile
+        inputType = inputType.extractDenseTile(validOffsets, outputShape);
+    }
+
+    if (getBoundedShape(outputType)[Dims4D::Act::C] < numTiles) {
+        return false;
+    }
+
+    const auto numDivisors = Shape{1, numTiles, 1, 1};
+    const auto alignment = VPU::getSWOpAlignment(getOperation(), numDivisors, /*inputType=*/inputType,
+                                                 /*outputType=*/outputType);
+    const auto alignmentOnClusteringDim = alignment.has_value() ? alignment.value()[Dims4D::Act::C.ind()] : 1;
+    return VPU::isEltwiseSWOpSplitOverKernelCompatible(getOperation(), outputShape, alignmentOnClusteringDim);
+}
+
 vpux::VPU::DistributionInfo vpux::VPU::ConvertOp::getExplicitDistributionInfoAttr(
         vpux::ShapeRef shape, vpux::VPU::DistributionMode distributionMode, ArrayRef<int64_t> numTiles,
         const int64_t numClusters, ArrayRef<int64_t> alignment, const bool uniformDistributedSegments,
         const vpux::VPU::OverlapDistributionParams& overlapParams,
         const std::optional<ArrayRef<int64_t>> /* memoryNumTiles */) {
-    // For Convert op, select the elementType with smaller bit width for alignment calculation
-    // This is necessary for sub-byte type conversions (e.g., i4 <-> u4, i2 <-> u2)
-    auto selectElementTypeForAlignment = [](mlir::Type inputElemType, mlir::Type outputElemType) -> mlir::Type {
-        auto inputBitWidth = vpux::getElemTypeSize(inputElemType).count();
-        auto outputBitWidth = vpux::getElemTypeSize(outputElemType).count();
-
-        if (inputBitWidth < 8 || outputBitWidth < 8) {
-            return inputBitWidth <= outputBitWidth ? inputElemType : outputElemType;
-        }
-        return outputElemType;
-    };
-    auto inputType = mlir::dyn_cast<vpux::NDTypeInterface>(getInput().getType());
-    auto outputType = mlir::dyn_cast<vpux::NDTypeInterface>(getOutput().getType());
-    auto elementType = selectElementTypeForAlignment(inputType.getElementType(), outputType.getElementType());
-
     return VPU::getSWExplicitDistributionInfo(mlir::cast<VPU::SWOpInterface>(getOperation()), shape, distributionMode,
                                               numTiles, numClusters, alignment, uniformDistributedSegments,
-                                              overlapParams, elementType);
+                                              overlapParams);
 }
 
 mlir::LogicalResult vpux::VPU::ConvertOp::reifyResultShapes(mlir::OpBuilder& builder,

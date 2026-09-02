@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/walk_utils.hpp"
 
 namespace vpux {
 //
@@ -130,7 +131,7 @@ private:
 template <class ConcreteOp>
 class EltwiseToNCE final : public mlir::OpRewritePattern<ConcreteOp> {
 public:
-    EltwiseToNCE<ConcreteOp>(mlir::MLIRContext* ctx, VPU::EltwiseType opType, config::ArchKind arch, Logger log)
+    EltwiseToNCE(mlir::MLIRContext* ctx, VPU::EltwiseType opType, config::ArchKind arch, Logger log)
             : mlir::OpRewritePattern<ConcreteOp>(ctx), _opType(opType), _arch(arch), _log(log) {
     }
 
@@ -147,14 +148,6 @@ mlir::LogicalResult EltwiseToNCE<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
                                                               mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), origOp->getName(), origOp->getLoc());
 
-    // Scales-as-input for NCE eltwise is not yet implemented. The `scales` operand
-    // is a reserved placeholder in the IR. Remove this check and implement the
-    // scale tensor input path before enabling it.
-    if (origOp.getScales() != nullptr) {
-        VPUX_THROW("NCE eltwise op does not support scales-as-input; "
-                   "implement scale tensor input support before enabling this path");
-    }
-
     const auto ppeAttr = VPU::getPpeConfig(origOp->getContext()).retrievePPEAttribute(origOp);
 
     const auto inputElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput1().getType()).getElementType();
@@ -165,10 +158,9 @@ mlir::LogicalResult EltwiseToNCE<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
     // Generate scale and bias tables for per-axis quantization.
     // For per-tensor or non-quantized cases, PPE handles quantization directly without requiring scale tables.
     const auto getScaleAndBias = [&]() -> std::pair<mlir::Value, mlir::Value> {
-        if (!isInputQuantizedPerAxis && !isOutputQuantizedPerAxis) {
+        if (!isInputQuantizedPerAxis && !isOutputQuantizedPerAxis && origOp.getScale() == nullptr) {
             return {nullptr, nullptr};
         }
-
         const auto output = origOp.getOutput();
         const auto outputShape = getShape(output);
         const auto OC = outputShape[Dims4D::Act::C];
@@ -179,28 +171,50 @@ mlir::LogicalResult EltwiseToNCE<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
         const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(_arch, isNewWeightTableFormat);
         const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(_arch, isNewWeightTableFormat);
 
+        const auto staticScale = origOp->template getAttrOfType<mlir::FloatAttr>("static_scale");
+
         const auto newWtShape = VPU::NCESparsity::inferWeightsTableShape(OC, /*newFormat=*/true);
         const auto newWeightsTableTensors = VPU::NewWeightsTableTensors(
                 isNewWeightTableFormat,
                 VPU::WeightsTableParams(origOp, origOp.getInput1(), output, /*weights=*/nullptr, bias, OC, ppeConverter,
-                                        biasConverter, /*constScale=*/nullptr, /*zeroPoints=*/nullptr),
+                                        biasConverter, staticScale, /*zeroPoints=*/nullptr),
                 rewriter, origOp->getLoc(), newWtShape);
 
-        return {newWeightsTableTensors.scaleTensor, newWeightsTableTensors.biasTensor};
+        auto scaleTensor = origOp.getScale() != nullptr ? origOp.getScale() : newWeightsTableTensors.scaleTensor;
+
+        if (newWeightsTableTensors.scaleTensor != nullptr && origOp.getScale() != nullptr) {
+            if (auto constOp = mlir::dyn_cast<Const::DeclareOp>(newWeightsTableTensors.scaleTensor.getDefiningOp())) {
+                auto scaleTableContent = constOp.getContent();
+                auto staticScaleEqualToOne =
+                        scaleTableContent.isSplat() && isFloatEqual(scaleTableContent.getSplatValue<float>(), 1.0f);
+                if (!staticScaleEqualToOne) {
+                    scaleTensor = rewriter.create<IE::MultiplyOp>(
+                            origOp.getLoc(), scaleTensor, newWeightsTableTensors.scaleTensor,
+                            IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
+                }
+            }
+        }
+
+        return {scaleTensor, newWeightsTableTensors.biasTensor};
     };
 
     const auto [scaleTensor, biasTensor] = getScaleAndBias();
 
-    VPU::MPEEngineAttr mpeEngineModeAttr = nullptr;
+    VPU::MPEEngineAttr mpeEngineAttr = nullptr;
     if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(origOp.getOperation())) {
-        mpeEngineModeAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineMode());
+        const auto input1 = getPerTensorZeroPointAttr(origOp.getInput2());
+        const auto input2 = getPerTensorZeroPointAttr(origOp.getInput1());
+
+        mpeEngineAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineWithZP(input1, input2));
     }
 
     auto nceOp = rewriter.create<VPU::NCEEltwiseOp>(
-            origOp->getLoc(), origOp.getType(), origOp.getInput1(), origOp.getInput2(), scaleTensor, biasTensor,
-            VPU::EltwiseTypeAttr::get(this->getContext(), _opType), ppeAttr, mpeEngineModeAttr,
+            origOp->getLoc(), origOp.getType(), /*reduce_xy_max=*/nullptr,
+            /*reduce_xy_min=*/nullptr, /*reduce_tensor_min_max=*/nullptr, origOp.getInput1(), origOp.getInput2(),
+            scaleTensor, biasTensor, VPU::EltwiseTypeAttr::get(this->getContext(), _opType), ppeAttr, mpeEngineAttr,
             /*multi_cluster_strategyAttr=*/nullptr,
-            /*is_inplace=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+            /*is_inplace=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr(),
+            /*axes_value=*/nullptr);
 
     rewriter.replaceOp(origOp, nceOp.getOutput());
     return mlir::success();

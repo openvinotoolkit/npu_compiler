@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -1448,6 +1449,10 @@ mlir::Value MergeFullyConnectedForDQPatternWithDynDequantize::buildNewMatMulWeig
     auto dequantizeOp = rewriter.create<IE::DynamicDequantizeOp>(appendLoc(slice.getLoc(), "dequantize"), slice,
                                                                  scaleSlice, zpSlice, dstElemType)
                                 .getOutput();
+    if (existingDynDequant->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
+        dequantizeOp.getDefiningOp()->setAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR,
+                                              existingDynDequant->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR));
+    }
 
     auto outShape = getShape(dequantizeOp);
     SmallVector<int64_t> newWeightsShape{outShape[Dim(0)] * outShape[Dim(1)], outShape[Dim(2)]};

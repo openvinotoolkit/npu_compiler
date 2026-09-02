@@ -10,6 +10,7 @@
 #include "vpux/compiler/utils/quantization.hpp"
 
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
+#include "vpux/compiler/utils/types.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 
@@ -265,11 +266,71 @@ mlir::Type VPU::DistributedTensorType::parse(mlir::AsmParser& parser) {
 //
 
 mlir::LogicalResult VPU::DistributedTensorType::verify(FuncRef<mlir::InFlightDiagnostic()> emitError,
-                                                       ::llvm::ArrayRef<int64_t> shape, mlir::Type /*elementType*/,
-                                                       mlir::AffineMapAttr /*order*/, IndexedSymbolAttr /*memSpace*/,
+                                                       ::llvm::ArrayRef<int64_t> shape, mlir::Type elementType,
+                                                       mlir::AffineMapAttr order, IndexedSymbolAttr /*memSpace*/,
                                                        DistributionInfoAttr distribution,
                                                        Const::OpaqueI64ElementsAttr /*dynamicDimsMask*/) {
-    return VPU::verify(emitError, distribution, shape);
+    if (mlir::failed(VPU::verify(emitError, distribution, shape))) {
+        return mlir::failure();
+    }
+
+    // duplicated mode has the same offset in full tensor for all clusters; allocation should ensure it's byte aligned.
+    // non-subbyte types always have byte-aligned element offsets (element_size >= 8 bits); only subbyte types require
+    // the per-cluster offset byte-alignment check below.
+    // 1-bit element type is used in sparsity maps, which do not need the same restrictions; skipping check
+    const auto elemTypeSize = vpux::getElemTypeSize(elementType).count();
+    const auto subbyteNotI1 = elemTypeSize < CHAR_BIT && elemTypeSize > 1;
+    if (!subbyteNotI1 || distribution.getMode().getValue() == VPU::DistributionMode::DUPLICATED) {
+        return mlir::success();
+    }
+
+    const auto candidateShape = Shape(shape);
+    const auto dimsOrder = DimsOrder::fromAffineMap(order.getAffineMap());
+    const auto memStrides = [&]() {
+        // Tensors are always compact
+        const auto elemSize = vpux::getElemTypeSize(elementType);
+        const auto memShape = dimsOrder.toMemoryOrder(candidateShape);
+        return StrideReqs::compact(dimsOrder.numDims()).calcStrides(elemSize, memShape);
+    }();
+
+    auto checkPerClusterByteAlignment = [&](ArrayRef<Shape> offsets) {
+        for (const auto& clusterOff : offsets) {
+            auto offset = Bit(0);
+            for (auto pos = static_cast<int64_t>(clusterOff.size() - 1); pos >= 0; pos--) {
+                auto logicalDim = dimsOrder.dimAt(pos);
+                offset += clusterOff[logicalDim] * memStrides[MemDim(pos)];
+            }
+
+            if (offset.count() % CHAR_BIT != 0) {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    const auto memoryOffsets = distribution.getMemoryOffsets() != nullptr
+                                       ? VPU::arrayAttrToVecOfShapes(distribution.getMemoryOffsets())
+                                       : VPU::getPerClusterMemoryShapeOffsets(candidateShape, distribution);
+    if (!checkPerClusterByteAlignment(memoryOffsets)) {
+        return printTo(emitError(),
+                       "Memory offsets are not byte-aligned, distribution = {0}, elemType = {1}, shape = {2}.",
+                       distribution, elementType, shape);
+    }
+
+    const auto computeOffsets = distribution.getComputeOffsets() != nullptr
+                                        ? VPU::arrayAttrToVecOfShapes(distribution.getComputeOffsets())
+                                        : VPU::getPerClusterComputeShapeOffsets(candidateShape, distribution);
+    if (computeOffsets != memoryOffsets) {
+        return checkPerClusterByteAlignment(computeOffsets)
+                       ? mlir::success()
+                       : printTo(emitError(),
+                                 "Compute offsets are not byte-aligned, distribution = {0}, elemType = {1}, shape = "
+                                 "{2}.",
+                                 distribution, elementType, shape);
+    }
+
+    return mlir::success();
 }
 
 //
@@ -303,7 +364,7 @@ mlir::RankedTensorType VPU::DistributedTensorType::getCompactType() const {
 SmallVector<Shape> VPU::DistributedTensorType::getPerClusterComputeShapes() const {
     auto distribution = getDistribution();
     if (distribution.getComputeShapes() == nullptr) {
-        return VPU::getPerClusterComputeShapes(getShape(), distribution, getElementType());
+        return VPU::getPerClusterComputeShapes(getShape(), distribution);
     }
 
     return VPU::arrayAttrToVecOfShapes(distribution.getComputeShapes());
@@ -316,7 +377,7 @@ SmallVector<Shape> VPU::DistributedTensorType::getPerClusterComputeShapes() cons
 SmallVector<Shape> VPU::DistributedTensorType::getPerClusterComputeShapeOffsets() const {
     auto distribution = getDistribution();
     if (distribution.getComputeOffsets() == nullptr) {
-        return VPU::getPerClusterComputeShapeOffsets(getShape(), distribution, getElementType());
+        return VPU::getPerClusterComputeShapeOffsets(getShape(), distribution);
     }
 
     return VPU::arrayAttrToVecOfShapes(distribution.getComputeOffsets());
@@ -338,8 +399,7 @@ SmallVector<Shape> VPU::DistributedTensorType::getPerClusterComputeShapeOffsets(
 SmallVector<Shape> VPU::DistributedTensorType::getPerClusterMemoryShapes() const {
     auto distribution = getDistribution();
     if (distribution.getMemoryShapes() == nullptr) {
-        auto optionalPerClusterMemoryShapes =
-                VPU::getPerClusterMemoryShapes(getShape(), distribution, getElementType());
+        auto optionalPerClusterMemoryShapes = VPU::getPerClusterMemoryShapes(getShape(), distribution);
         VPUX_THROW_UNLESS(optionalPerClusterMemoryShapes.has_value(),
                           "Cannot get per cluster memory shapes. Shape {0}, Unsupported distribution: {1}", getShape(),
                           distribution);
@@ -356,7 +416,7 @@ SmallVector<Shape> VPU::DistributedTensorType::getPerClusterMemoryShapes() const
 SmallVector<Shape> VPU::DistributedTensorType::getPerClusterMemoryShapeOffsets() const {
     auto distribution = getDistribution();
     if (distribution.getMemoryOffsets() == nullptr) {
-        return VPU::getPerClusterMemoryShapeOffsets(getShape(), distribution, getElementType());
+        return VPU::getPerClusterMemoryShapeOffsets(getShape(), distribution);
     }
 
     return VPU::arrayAttrToVecOfShapes(distribution.getMemoryOffsets());
@@ -460,7 +520,8 @@ NDTypeInterface VPU::DistributedTensorType::changeTypeComponentsForExplicitDistr
         return changeTypeComponents(typeComponents);
     }
 
-    const auto shape = typeComponents.shape.value_or(Shape(getShape().toValues()));
+    const auto currentShape = getShape();
+    const auto shape = typeComponents.shape.has_value() ? ShapeRef(typeComponents.shape.value()) : currentShape;
     const auto dimsOrder = typeComponents.dimsOrder.value_or(getDimsOrder());
     const auto memSpace = typeComponents.memSpace.value_or(getMemSpace());
 
@@ -635,13 +696,14 @@ NDTypeInterface VPU::DistributedTensorType::changeStrides(StridesRef /*strides*/
 }
 
 NDTypeInterface VPU::DistributedTensorType::changeTypeComponents(const vpux::TypeComponents& typeComponents) const {
-    const auto shape = typeComponents.shape.value_or(Shape(getShape().toValues()));
+    const auto currentShape = getShape();
+    const auto shape = typeComponents.shape.has_value() ? ShapeRef(typeComponents.shape.value()) : currentShape;
     const auto dimsOrder = typeComponents.dimsOrder.value_or(getDimsOrder());
     const auto memSpace = typeComponents.memSpace.value_or(getMemSpace());
     auto distribution = getDistribution();
 
     // If there is a shape change requested
-    if (shape != Shape(getShape().toValues())) {
+    if (shape != currentShape) {
         VPUX_THROW_WHEN(isDistributedAttrWithExplicitShapesAndOffsets(distribution),
                         "Cannot change shape when having explicit per cluster shapes/offsets");
     }

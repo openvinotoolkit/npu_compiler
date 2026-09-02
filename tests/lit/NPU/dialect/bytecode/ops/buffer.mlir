@@ -17,7 +17,7 @@ bytecode.func_section @function_section {
         %s1 = bytecode.virtual_general_register
         %st0 = bytecode.virtual_general_register
         %st1 = bytecode.virtual_general_register
-        bytecode.buffer.create %dst, @i64_type shape(%s0, %s1) strides(%st0, %st1)
+        bytecode.buffer.create %dst, @type_section::@i64_type shape(%s0, %s1) strides(%st0, %st1)
         bytecode.ret
     }
     bytecode.ext.func @subview (i64) -> () {
@@ -41,6 +41,14 @@ bytecode.func_section @function_section {
         bytecode.buffer.store %buf, %val indices(%i0, %i1)
         bytecode.ret
     }
+    bytecode.ext.func @load (i64) -> () {
+        %dst = bytecode.virtual_general_register
+        %src = bytecode.virtual_parameter_register 0
+        %i0 = bytecode.virtual_general_register
+        %i1 = bytecode.virtual_general_register
+        bytecode.buffer.load %dst, %src indices(%i0, %i1)
+        bytecode.ret
+    }
 }
 
 // CHECK-LABEL: bytecode.ext.func @create
@@ -49,7 +57,7 @@ bytecode.func_section @function_section {
 // CHECK:         [[S1:%.+]] = bytecode.virtual_general_register
 // CHECK:         [[ST0:%.+]] = bytecode.virtual_general_register
 // CHECK:         [[ST1:%.+]] = bytecode.virtual_general_register
-// CHECK:         bytecode.buffer.create [[DST]], @i64_type shape([[S0]], [[S1]]) strides([[ST0]], [[ST1]])
+// CHECK:         bytecode.buffer.create [[DST]], @type_section::@i64_type shape([[S0]], [[S1]]) strides([[ST0]], [[ST1]])
 // CHECK:         bytecode.ret
 
 // CHECK-LABEL: bytecode.ext.func @subview
@@ -71,4 +79,12 @@ bytecode.func_section @function_section {
 // CHECK:         [[I0:%.+]] = bytecode.virtual_general_register
 // CHECK:         [[I1:%.+]] = bytecode.virtual_general_register
 // CHECK:         bytecode.buffer.store [[BUF]], [[VAL]] indices([[I0]], [[I1]])
+// CHECK:         bytecode.ret
+
+// CHECK-LABEL: bytecode.ext.func @load
+// CHECK:         [[DST:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[SRC:%.+]] = bytecode.virtual_parameter_register 0
+// CHECK:         [[I0:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[I1:%.+]] = bytecode.virtual_general_register
+// CHECK:         bytecode.buffer.load [[DST]], [[SRC]] indices([[I0]], [[I1]])
 // CHECK:         bytecode.ret

@@ -3,15 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/reshape_utils.hpp"
-#include "vpux/compiler/dialect/VPUIP/utils/strides_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 using namespace vpux;
 
@@ -67,103 +66,213 @@ mlir::Value VPUIP::ShapeCastOp::getViewSource() {
     return getSource();
 }
 
-mlir::LogicalResult vpux::VPUIP::ShapeCastOp::verify() {
-    const auto op = getOperation();
-    const auto inType = mlir::cast<vpux::NDTypeInterface>(getSource().getType());
-    const auto outType = mlir::cast<vpux::NDTypeInterface>(getResult().getType());
+namespace {
 
-    if (inType.getDimsOrder() != outType.getDimsOrder()) {
-        return errorAt(op, "Input dims order '{0}' doesn't match output dims order '{1}'", inType.getDimsOrder(),
-                       outType.getDimsOrder());
+bool isSupportedShapeCastType(VPUIP::ShapeCastOp op, mlir::Type inputType, mlir::Type outputType,
+                              LogCb logCb = emptyLogCb) {
+    auto inputNDType = mlir::dyn_cast<vpux::NDTypeInterface>(inputType);
+    auto outputNDType = mlir::dyn_cast<vpux::NDTypeInterface>(outputType);
+    if (inputNDType == nullptr || outputNDType == nullptr) {
+        logCb(formatv("ShapeCast input and output must be ND types: in type = {0}, out type = {1}", inputType,
+                      outputType));
+        return false;
     }
-    if (inType.getRank() != outType.getRank()) {
-        return errorAt(op, "Input rank '{0}' doesn't match output rank '{1}'", inType.getRank(), outType.getRank());
+
+    if (inputNDType.getDimsOrder() != outputNDType.getDimsOrder()) {
+        logCb(formatv("Input dims order '{0}' doesn't match output dims order '{1}'", inputNDType.getDimsOrder(),
+                      outputNDType.getDimsOrder()));
+        return false;
     }
-    if (inType.getElementType() != outType.getElementType()) {
-        return errorAt(op, "Input element type '{0}' doesn't match output element type '{1}'", inType.getElementType(),
-                       outType.getElementType());
+    if (inputNDType.getRank() != outputNDType.getRank()) {
+        logCb(formatv("Input rank '{0}' doesn't match output rank '{1}'", inputNDType.getRank(),
+                      outputNDType.getRank()));
+        return false;
     }
-    if (inType.getMemSpace() != outType.getMemSpace()) {
-        return errorAt(op, "Input mem space '{0}' doesn't match output mem space '{1}'", inType.getMemSpace(),
-                       outType.getMemSpace());
+    if (inputNDType.getElementType() != outputNDType.getElementType()) {
+        logCb(formatv("Input element type '{0}' doesn't match output element type '{1}'", inputNDType.getElementType(),
+                      outputNDType.getElementType()));
+        return false;
     }
-    if (getExplicitOutputShapes().has_value() != getExplicitOutputOffsets().has_value()) {
-        return errorAt(op, "Only explicit output shape or offset is assigned");
+    if (inputNDType.getMemSpace() != outputNDType.getMemSpace()) {
+        logCb(formatv("Input mem space '{0}' doesn't match output mem space '{1}'", inputNDType.getMemSpace(),
+                      outputNDType.getMemSpace()));
+        return false;
     }
-    if (getExplicitOutputAlignment().has_value()) {
-        const auto explicitOutputAlignment = parseIntArrayAttr<int64_t>(getExplicitOutputAlignment().value());
-        if (checked_cast<int64_t>(explicitOutputAlignment.size()) != outType.getRank()) {
-            return errorAt(op, "Explicit output alignment rank '{0}' doesn't match output rank '{1}'",
-                           explicitOutputAlignment.size(), outType.getRank());
+    if (op.getExplicitOutputShapes().has_value() != op.getExplicitOutputOffsets().has_value()) {
+        logCb(formatv("Only explicit output shape or offset is assigned"));
+        return false;
+    }
+    if (op.getExplicitOutputAlignment().has_value()) {
+        const auto explicitOutputAlignment = parseIntArrayAttr<int64_t>(op.getExplicitOutputAlignment().value());
+        if (checked_cast<int64_t>(explicitOutputAlignment.size()) != outputNDType.getRank()) {
+            logCb(formatv("Explicit output alignment rank '{0}' doesn't match output rank '{1}'",
+                          explicitOutputAlignment.size(), outputNDType.getRank()));
+            return false;
+        }
+    }
+    return true;
+}
+
+bool isShapeCastSupportedForBackInfer(VPUIP::ShapeCastOp op) {
+    auto origInputNDType = mlir::dyn_cast<vpux::NDTypeInterface>(op.getSource().getType());
+    auto origOutputNDType = mlir::dyn_cast<vpux::NDTypeInterface>(op.getResult().getType());
+    if (origInputNDType == nullptr || origOutputNDType == nullptr) {
+        return false;
+    }
+
+    // CompressConv uses ShapeCast to expose a padded DPU view, for example
+    // 1x4xHxW -> 1x16xHxW, while the real memory still stores the compressed shape.
+    // That is not a regular reshape and should not be crossed by generic back-inference.
+    return origInputNDType.getNumElements() == origOutputNDType.getNumElements();
+}
+
+std::optional<vpux::NDTypeInterface> inferShapeCastOutputNDType(mlir::MLIRContext* ctx,
+                                                                vpux::NDTypeInterface inputNDType, ShapeRef outShape,
+                                                                config::ArchKind arch,
+                                                                mlir::ArrayAttr explicitOutputShapes,
+                                                                mlir::ArrayAttr explicitOutputOffsets,
+                                                                mlir::ArrayAttr explicitOutputAlignment) {
+    const auto hasExplicitOutputShapes = explicitOutputShapes != nullptr;
+    const auto hasExplicitOutputOffsets = explicitOutputOffsets != nullptr;
+    if (hasExplicitOutputShapes != hasExplicitOutputOffsets) {
+        return std::nullopt;
+    }
+
+    auto outElemType = inputNDType.getElementType();
+    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outElemType) &&
+        inputNDType.getDimsOrder() == DimsOrder::NHWC) {
+        // NHWC per-axis quantization stores the quantized dimension in the
+        // logical type. Recompute it after the shape cast so channel scales
+        // still line up with the new logical shape.
+        auto inferredElemType = vpux::inferPerAxisQuantizedTypeAfterShapeCastOrNull(inputNDType, outShape.raw());
+        if (!inferredElemType.has_value()) {
+            return std::nullopt;
+        }
+        outElemType = inferredElemType.value();
+        if (!vpux::isSupportedElemTypeQuantization(outElemType, outShape)) {
+            return std::nullopt;
         }
     }
 
-    return mlir::success();
+    vpux::NDTypeInterface outNDType;
+    const auto distributedIn = mlir::dyn_cast<VPU::DistributedTypeInterface>(inputNDType);
+    if (distributedIn != nullptr && distributedIn.containsDistributedTypes()) {
+        // Distributed ShapeCast must rebuild the distribution for the requested
+        // output shape. Example: input 1x16x64x1 SEGMENTED over H can become
+        // output 1x16x8x8 with the tiling moved to a shape-compatible axis.
+        // When explicit output shapes/offsets are present, they are already the
+        // intended per-cluster view and are copied into compute and memory view.
+        const auto distBufType = mlir::cast<VPUIP::DistributedBufferType>(distributedIn.getDistributedTypes().front());
+        const auto origDistribution = distBufType.getDistribution();
+
+        VPU::DistributionInfoAttr newDistAttr;
+        if (hasExplicitOutputShapes) {
+            const auto mode = origDistribution.getMode().getValue();
+            if (mode != VPU::DistributionMode::SEGMENTED) {
+                return std::nullopt;
+            }
+            newDistAttr = VPU::DistributionInfoAttr::get(
+                    ctx, origDistribution.getMode(), origDistribution.getNumTiles(), origDistribution.getKernel(),
+                    origDistribution.getPads(), origDistribution.getStrides(), origDistribution.getNumClusters(),
+                    origDistribution.getAlignment(), origDistribution.getUniformDistributedSegments(),
+                    explicitOutputShapes, explicitOutputOffsets, explicitOutputShapes, explicitOutputOffsets,
+                    origDistribution.getEqualMemoryAndComputeView(), origDistribution.getMemoryNumTiles());
+        } else {
+            auto distributedOutShape = Shape(outShape);
+            if (auto sparseBufferType = mlir::dyn_cast<VPUIP::SparseBufferType>(distributedIn)) {
+                if (auto seAttr = sparseBufferType.getSeAttr()) {
+                    distributedOutShape = seAttr.backInferInputShape(outShape);
+                }
+            }
+            if (!VPUIP::isDistributedCompatibleAfterShapeChangeForViewOps<VPUIP::DistributedBufferType>(
+                        distBufType, ShapeRef(distributedOutShape), inputNDType.getDimsOrder(), arch)) {
+                return std::nullopt;
+            }
+            newDistAttr = VPUIP::getDistributedAttrAfterShapeCast<VPUIP::DistributedBufferType>(
+                    distributedIn, outShape.raw(), arch, explicitOutputAlignment);
+        }
+        if (newDistAttr == nullptr) {
+            return std::nullopt;
+        }
+
+        outNDType =
+                outElemType == inputNDType.getElementType()
+                        ? distributedIn.changeShapeForExplicitDistribution(outShape, newDistAttr)
+                        : distributedIn.changeShapeElemTypeForExplicitDistribution(outShape, outElemType, newDistAttr);
+    } else {
+        outNDType = outElemType == inputNDType.getElementType()
+                            ? inputNDType.changeShape(outShape)
+                            : inputNDType.changeShapeElemType(outShape, outElemType);
+    }
+
+    auto strideUpdatedOutType = VPUIP::updateStridesForReshape(inputNDType, outNDType);
+    if (mlir::failed(strideUpdatedOutType)) {
+        return std::nullopt;
+    }
+    return strideUpdatedOutType.value();
 }
 
-// If the ShapeCast input type has strides attribution, the output should infer a strides
-// to ensure it has the same buffer distribution. Otherwise it will has accuracy issue.
-// There is no guarantee that it will always get a legal output strides.
-// If return 'std::nullopt' that mean this ShapeCast Op is illegal.
-// Generally, the legal ShapeCast op has the following characteristics:
-// 1. The input stride only exist on one axis;
-// 2. The 'inStridesDim' should be on one axis or split into continuous axes on the output.
-//    It means Stride Dim can not mixed with std::nullopt Stride Dims.
-// 3. Split by 'stridesDim', input and output memory shape can be divided into three parts:
-//    [inputLeftDimTotalSize,  inputStridesDimSize,  inputRightDimTotalSize] should equal with
-//    [outputLeftDimTotalSize, outputStridesDimSize, outputRightDimTotalSize]
-std::optional<Strides> inferShapeCastOutputStrides(vpux::NDTypeInterface inType, vpux::NDTypeInterface outType) {
-    VPUX_THROW_UNLESS(inType.getRank() == outType.getRank(),
-                      "Input type '{0}' and Output type '{1}' has different tensor rank", inType, outType);
+}  // namespace
 
-    if (inType.getShape().totalSize() != outType.getShape().totalSize()) {
-        return outType.getStrides();
+//
+// BackInferViewTypeOpInterface
+//
+
+std::optional<mlir::Type> VPUIP::ShapeCastOp::inferOutputTypeFromInput(mlir::Type newInputType) {
+    auto newInputNDType = mlir::dyn_cast<vpux::NDTypeInterface>(newInputType);
+    if (newInputNDType == nullptr) {
+        return std::nullopt;
     }
-
-    const auto inStridesMemDims = VPUIP::getStridesMemDims(inType);
-    // Limitation 1: Stride only exist in one axis
-    // - Legal case:   memShape: 1x32x512x16, memStrides: [524288, 16384, 32, 1]
-    //   The stridesMemDim is Dims4D::Act::H
-    // - Illegal case: memShape: 1x32x512x16, memStrides: [1048576, 32768, 32, 1]
-    //   The stridesMemDim are Dims4D::Act::C and Dims4D::Act::H
-    if (inStridesMemDims.size() > 1) {
+    if (!isShapeCastSupportedForBackInfer(*this)) {
         return std::nullopt;
     }
 
-    if (inStridesMemDims.empty()) {
-        return outType.getStrides();
-    }
-
-    // Limitation 2&3: The 'inStridesDim' should be on one axis or split into continuous axes on the output
-    // - Legal case 1: inMemShape: 1x32x512x16, inMemStrides: [524288, 16384, 32, 1], outMemShape: 2x16x512x16
-    //   The outStridesDims is Dims4D::Act::H and [1x32, 512, 16] == [2x16, 512, 16]
-    // - Legal case 2: inMemShape: 1x1x256x512, inMemStrides: [262144, 262144, 1024, 1], outMemShape: 1x16x16x512
-    //   The outStridesDims is [Dims4D::Act::C, Dims4D::Act::H] and [1x1, 256, 512] = [1, 16x16, 512]
-    // - Illegal case: inMemShape: 1x32x512x16, inMemStrides: [524288, 16384, 32, 1], outMemShape: 4x16x512x8
-    //   The stridesMemDim is Dims4D::Act::H, but [1x32, 512, 16] != [4x16, 512, 8]
-    const auto inMemShape = inType.getMemShape();
-    const auto outMemShape = outType.getMemShape();
-    const auto inStridesMemDim = inStridesMemDims.front();
-    const auto legalOutputStridesDims = VPUIP::deduceLegalOutputMemDims(inMemShape, outMemShape, inStridesMemDim);
-    if (!legalOutputStridesDims.has_value()) {
+    const auto outShape = parseIntArrayAttr<int64_t>(getShape());
+    if (newInputNDType.getNumElements() != ShapeRef(outShape).totalSize()) {
         return std::nullopt;
     }
-    const auto outStridesDims = legalOutputStridesDims.value();
 
-    const auto outOrder = outType.getDimsOrder();
-    const auto outElemSize = outType.getElemTypeSize();
-    auto outMemStrides = StrideReqs::compact(outOrder.numDims()).calcStrides(outElemSize, outMemShape);
-
-    const auto inMemStrides = inType.getMemStrides();
-    const auto outStridesDimLeftBoundary = outStridesDims.back();
-    outMemStrides[outStridesDimLeftBoundary] = inMemStrides[inStridesMemDim];
-    for (auto ind = outStridesDimLeftBoundary.ind() - 1; ind >= 0; ind--) {
-        const auto currentMemDim = MemDim(ind);
-        const auto prevMemDim = MemDim(ind + 1);
-        outMemStrides[currentMemDim] = outMemStrides[prevMemDim] * outMemShape[prevMemDim];
+    const auto arch = config::getArch(getOperation());
+    const auto explicitOutputShapes = getExplicitOutputShapes().value_or(nullptr);
+    const auto explicitOutputOffsets = getExplicitOutputOffsets().value_or(nullptr);
+    const auto explicitOutputAlignment = getExplicitOutputAlignment().value_or(nullptr);
+    const auto outputNDType =
+            inferShapeCastOutputNDType(getContext(), newInputNDType, ShapeRef(outShape), arch, explicitOutputShapes,
+                                       explicitOutputOffsets, explicitOutputAlignment);
+    if (!outputNDType.has_value()) {
+        return std::nullopt;
     }
+    const auto outputType = mlir::cast<mlir::Type>(outputNDType.value());
+    if (!isSupportedShapeCastType(*this, newInputType, outputType)) {
+        return std::nullopt;
+    }
+    return outputType;
+}
 
-    return outOrder.toLogicalOrder(outMemStrides);
+std::optional<mlir::Type> VPUIP::ShapeCastOp::inferInputTypeFromOutput(mlir::Type desiredOutputType) {
+    auto desiredOutputNDType = mlir::dyn_cast<vpux::NDTypeInterface>(desiredOutputType);
+    if (desiredOutputNDType == nullptr) {
+        return std::nullopt;
+    }
+    if (!isShapeCastSupportedForBackInfer(*this)) {
+        return std::nullopt;
+    }
+    auto origInputNDType = mlir::cast<vpux::NDTypeInterface>(getSource().getType());
+    auto origOutputNDType = mlir::cast<vpux::NDTypeInterface>(getResult().getType());
+    const auto inputType =
+            VPUIP::inferReshapeInputType(getOperation(), desiredOutputNDType, origInputNDType, origOutputNDType);
+    if (!inputType.has_value() || !isSupportedShapeCastType(*this, inputType.value(), desiredOutputType)) {
+        return std::nullopt;
+    }
+    return inputType;
+}
+
+mlir::LogicalResult vpux::VPUIP::ShapeCastOp::verify() {
+    const auto op = getOperation();
+    const auto logCb = [op](const formatv_object_base& msg) {
+        std::ignore = errorAt(op, "{0}", msg.str());
+    };
+    return mlir::success(isSupportedShapeCastType(*this, getSource().getType(), getResult().getType(), logCb));
 }
 
 //
@@ -186,62 +295,15 @@ mlir::LogicalResult VPUIP::ShapeCastOp::inferReturnTypes(mlir::MLIRContext* ctx,
     const auto inType = mlir::cast<vpux::NDTypeInterface>(shapeCast.getSource().getType());
     const auto outShape = parseIntArrayAttr<int64_t>(shapeCast.getShape());
 
-    const auto hasExplicitOutputShapesAndOffsets =
-            shapeCast.getExplicitOutputShapes().has_value() && shapeCast.getExplicitOutputOffsets().has_value();
-
-    auto inferExplicitDistributedAttr = [&](VPU::DistributionInfoAttr origDistribution) -> VPU::DistributionInfoAttr {
-        auto mode = origDistribution.getMode().getValue();
-        VPUX_THROW_UNLESS(hasExplicitOutputShapesAndOffsets, "ExplicitOutputShapes or ExplicitOutputOffsets not set");
-        // Track #E125638
-        // Other modes should be supported
-        VPUX_THROW_UNLESS(mode == VPU::DistributionMode::SEGMENTED, "Can not set explicit shapes with mode {0}",
-                          VPU::stringifyDistributionMode(mode));
-
-        return VPU::DistributionInfoAttr::get(
-                ctx, origDistribution.getMode(), origDistribution.getNumTiles(), origDistribution.getKernel(),
-                origDistribution.getPads(), origDistribution.getStrides(), origDistribution.getNumClusters(),
-                origDistribution.getAlignment(), origDistribution.getUniformDistributedSegments(),
-                shapeCast.getExplicitOutputShapes().value(), shapeCast.getExplicitOutputOffsets().value(),
-                shapeCast.getExplicitOutputShapes().value(), shapeCast.getExplicitOutputOffsets().value(),
-                origDistribution.getEqualMemoryAndComputeView(), origDistribution.getMemoryNumTiles());
-    };
-
-    auto getDistType = [&](VPU::DistributedTypeInterface inDistInterface) {
-        const auto inDistBufferType =
-                mlir::cast<vpux::VPUIP::DistributedBufferType>(inDistInterface.getDistributedTypes().front());
-        const auto explicitOutputAlignment = shapeCast.getExplicitOutputAlignment().has_value()
-                                                     ? shapeCast.getExplicitOutputAlignment().value()
-                                                     : nullptr;
-        const auto distAttr = hasExplicitOutputShapesAndOffsets
-                                      ? inferExplicitDistributedAttr(inDistBufferType.getDistribution())
-                                      : VPUIP::getDistributedAttrAfterShapeCast<VPUIP::DistributedBufferType>(
-                                                inDistBufferType, outShape, arch, explicitOutputAlignment);
-        return inDistInterface.changeShapeForExplicitDistribution(ShapeRef(outShape), distAttr);
-    };
-
-    const auto updateStrides = [&](const vpux::NDTypeInterface& inType,
-                                   const vpux::NDTypeInterface& outType) -> mlir::FailureOr<vpux::NDTypeInterface> {
-        const auto outputStrides = inferShapeCastOutputStrides(inType, outType);
-        if (!outputStrides.has_value()) {
-            return mlir::failure();
-        }
-        const auto outputStridesVal = outputStrides.value();
-        return outType.getStrides() != outputStridesVal ? outType.changeStrides(outputStridesVal) : outType;
-    };
-
-    vpux::NDTypeInterface outType;
-    const auto distributedIn = mlir::dyn_cast<VPU::DistributedTypeInterface>(inType);
-    if (distributedIn != nullptr && distributedIn.containsDistributedTypes()) {
-        outType = getDistType(distributedIn);
-    } else {
-        outType = inType.changeShape(ShapeRef(outShape));
-    }
-
-    const auto strideUpdatedOutType = updateStrides(inType, outType);
-    if (mlir::failed(strideUpdatedOutType)) {
+    const auto explicitOutputShapes = shapeCast.getExplicitOutputShapes().value_or(nullptr);
+    const auto explicitOutputOffsets = shapeCast.getExplicitOutputOffsets().value_or(nullptr);
+    const auto explicitOutputAlignment = shapeCast.getExplicitOutputAlignment().value_or(nullptr);
+    const auto outType = inferShapeCastOutputNDType(ctx, inType, ShapeRef(outShape), arch, explicitOutputShapes,
+                                                    explicitOutputOffsets, explicitOutputAlignment);
+    if (!outType.has_value()) {
         return mlir::failure();
     }
-    inferredReturnTypes.push_back(strideUpdatedOutType.value());
+    inferredReturnTypes.push_back(outType.value());
 
     return mlir::success();
 }

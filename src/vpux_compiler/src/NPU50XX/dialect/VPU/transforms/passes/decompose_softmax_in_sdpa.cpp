@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sprlut_generator.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/sdpa_heuristics.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <llvm/ADT/STLExtras.h>
@@ -95,27 +96,33 @@ bool DecomposeSoftmax::isBeneficialAndFeasible(VPU::SoftMaxOp origOp) const {
     const auto ctx = this->getContext();
     const auto output = origOp.getOutput();
     if (!output.hasOneUse()) {
-        _log.info("decompose failed '{0}' at '{1}', more than one use", origOp->getName(), origOp->getLoc());
+        _log.debug("decompose failed '{0}' at '{1}', more than one use", origOp->getName(), origOp->getLoc());
         return false;
     }
 
     const auto axis = origOp.getAxisIndAttr().getInt();
     if (axis != 1) {
-        _log.info("decompose failed '{0}' at '{1}', axis of softmax != 1", origOp->getName(), origOp->getLoc());
+        _log.debug("decompose failed '{0}' at '{1}', axis of softmax != 1", origOp->getName(), origOp->getLoc());
+        return false;
+    }
+
+    if (mlir::isa_and_present<VPU::NCEEltwiseOp>(origOp.getInput().getDefiningOp())) {
+        _log.debug("decompose failed '{0}' at '{1}', the SDPA involves an attention mask", origOp->getName(),
+                   origOp->getLoc());
         return false;
     }
 
     auto shape = getShape(output);
     auto axisLength = shape[Dim(axis)];
     if (axisLength > VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
-        _log.info("decompose failed '{0}' at '{1}', channel dimension of softmax > 8k", origOp->getName(),
-                  origOp->getLoc());
+        _log.debug("decompose failed '{0}' at '{1}', channel dimension of softmax > 8k", origOp->getName(),
+                   origOp->getLoc());
         return false;
     }
 
     const auto firstUserOp = *output.getUsers().begin();
     if (!mlir::isa<VPU::NCEConvolutionOp>(firstUserOp)) {
-        _log.info("decompose failed '{0}' at '{1}', not NCEOpInterface", origOp->getName(), origOp->getLoc());
+        _log.debug("decompose failed '{0}' at '{1}', not NCEOpInterface", origOp->getName(), origOp->getLoc());
         return false;
     }
 
@@ -124,9 +131,17 @@ bool DecomposeSoftmax::isBeneficialAndFeasible(VPU::SoftMaxOp origOp) const {
     const auto userOutputType = mlir::cast<vpux::NDTypeInterface>(userOpOutput.getType());
 
     if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(userOutputType.getElementType())) {
-        _log.info("decompose failed '{0}' at '{1}', per-channel output quantization", origOp->getName(),
-                  origOp->getLoc());
+        _log.debug("decompose failed '{0}' at '{1}', per-channel output quantization", origOp->getName(),
+                   origOp->getLoc());
         return false;
+    }
+
+    if (auto quantType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(userOutputType.getElementType())) {
+        if (quantType.getZeroPoint() != 0) {
+            _log.debug("decompose failed '{0}' at '{1}', non-zero zero point in output quantization", origOp->getName(),
+                       origOp->getLoc());
+            return false;
+        }
     }
     const auto& ppeConfig = VPU::getPpeConfig(ctx);
     const auto scaleAdapter = ppeConfig.getFactoryAs<VPU::IPpeAdapterScaleBias*>();
@@ -137,28 +152,40 @@ bool DecomposeSoftmax::isBeneficialAndFeasible(VPU::SoftMaxOp origOp) const {
     const auto mode = modeAdapter->getMode(ppeAttr);
 
     if (mode != vpux::VPU::PPEMode::NOOP) {
-        _log.info("decompose failed '{0}' at '{1}', non NOOP mode in ppe", origOp->getName(), origOp->getLoc());
+        _log.debug("decompose failed '{0}' at '{1}', non NOOP mode in ppe", origOp->getName(), origOp->getLoc());
         return false;
     }
 
     // neutral bias allows delaying multiplication to after convolution
     if (oldBias.value_or(1.0f) != 0.0f) {
-        _log.info("decompose failed '{0}' at '{1}', non neutral per-tensor bias in ppe", origOp->getName(),
-                  origOp->getLoc());
+        _log.debug("decompose failed '{0}' at '{1}', non neutral per-tensor bias in ppe", origOp->getName(),
+                   origOp->getLoc());
         return false;
     }
 
     const auto userOpInputShape = getShape(userOp->getOperand(0));
     const auto userOpInputSize =
-            std::accumulate(userOpInputShape.begin(), userOpInputShape.end(), 1, std::multiplies<int64_t>());
+            std::accumulate(userOpInputShape.begin(), userOpInputShape.end(), int64_t{1}, std::multiplies<int64_t>());
     const auto userOpOutputShape = getShape(userOp->getResult(0));
-    const auto userOpOutputSize =
-            std::accumulate(userOpOutputShape.begin(), userOpOutputShape.end(), 1, std::multiplies<int64_t>());
-    const auto outputInputSizeMultiplier = 64;
-    if (userOpInputSize <= userOpOutputSize * outputInputSizeMultiplier) {
+
+    // The softmax output (= userOp input) must be large enough in absolute terms for decomposition to be
+    // worthwhile. For small tensors the softmax SHAVE runtime is negligible and the overhead of the extra
+    // ops (ReduceSum, Conv broadcast, Eltwise multiply) introduced by decomposition outweighs any savings.
+    if (!isSdpaSoftmaxSizeLargeEnough(userOpInputShape)) {
+        _log.debug("decompose failed '{0}' at '{1}', softmax size {2} too small (min {3})", origOp->getName(),
+                   origOp->getLoc(), userOpInputSize, vpux::SDPA_MIN_SOFTMAX_SIZE);
+        return false;
+    }
+
+    // The ratio inputSize/outputSize equals seq_len/head_dim (since N,H,W cancel out for the 1x1 conv).
+    // This serves as a proxy for the relative cost of softmax (SHAVE, O(seq_len) per spatial position)
+    // versus the score*value matmul (DPU, O(seq_len * head_dim) MACs but heavily parallelized).
+    // Decomposition is beneficial only when softmax dominates, i.e. seq_len >> head_dim.
+    if (!isSdpaSoftmaxBottleneckByShape(userOpInputShape, userOpOutputShape)) {
         // this criterion is for identifying SDPA patterns that runtime of SoftMaxOp significantly exceeds both
         // MatMulOps
-        _log.info("decompose failed '{0}' at '{1}', softmax isn't the bottleneck", origOp->getName(), origOp->getLoc());
+        _log.debug("decompose failed '{0}' at '{1}', softmax isn't the bottleneck", origOp->getName(),
+                   origOp->getLoc());
         return false;
     }
     return true;
@@ -280,7 +307,7 @@ VPU::NCEConvolutionOp DecomposeSoftmax::constructRightBranch(VPU::SoftMaxOp orig
                                                    getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, 0, 0}),
                                                    getIntArrayAttr(ctx, SmallVector<int64_t>{0, paddingLength, 0, 0}));
 
-    // convolutionOp with dummy weights for broadcasting inverseOp's output
+    // convolutionOp with dummy weights for broadcasting reduceSumOp's output
     const auto dummyWeightsShape = Shape({1, 1, 1, 1});
     const auto dummyWeightsType = mlir::RankedTensorType::get(dummyWeightsShape.raw(), f16Type);
     const auto dummyWeightsAttr = Const::createConstContent(dummyWeightsType, ArrayRef({1.0f}));
@@ -340,8 +367,7 @@ VPU::NCEConvolutionOp DecomposeSoftmax::constructRightBranch(VPU::SoftMaxOp orig
             appendLoc(origOp->getLoc(), "_conv_tileOp"), broadcastedInverseOutputType,
             /*reduceXyMax*/ nullptr, /*reduceXyMin*/ nullptr,
             /*reduceGlobalMinMax*/ nullptr, expandOp.getOutput(), dummyWeights, legacyWeightsTable,
-            /*weight_table_data_ptr=*/nullptr,
-            /*weight_table_sp_ptr=*/nullptr, /*weight_table_scale=*/wtScale,
+            /*weight_table_scale=*/wtScale,
             /*weight_table_bias=*/wtBias,
             /*weight_zero_points=*/nullptr, stridesAttr, padAttr, origPpeAttr,
             /*mpeEngineAttr=*/nullptr, /*rawFilterShape=*/mlir::ValueRange{},
@@ -364,21 +390,23 @@ vpux::VPU::NCEEltwiseOp DecomposeSoftmax::constructDownStream(VPU::SoftMaxOp ori
     newMultiplyOpPpeAttr = clampAdapter->updateClamps(newMultiplyOpPpeAttr, userOpPpeAttr);
 
     return rewriter.create<VPU::NCEEltwiseOp>(
-            appendLoc(origOp->getLoc(), "_eltwiseOp"), userOutputType, leftBrnach, rightBrnach,
+            appendLoc(origOp->getLoc(), "_eltwiseOp"), userOutputType, /*reduce_xy_max=*/nullptr,
+            /*reduce_xy_min=*/nullptr, /*reduce_tensor_min_max=*/nullptr, leftBrnach, rightBrnach,
             /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
             VPU::EltwiseTypeAttr::get(ctx, VPU::EltwiseType::MULTIPLY), newMultiplyOpPpeAttr, nullptr,
             /*multi_cluster_strategyAttr=*/nullptr,
             /*is_inplace=*/
             rewriter.getBoolAttr(userOutputType.getDimsOrder() == DimsOrder::NHWC &&
                                  userOutputType.getElementType().isF16()),
-            nullptr, nullptr);
+            nullptr, nullptr,
+            /*axes_value=*/nullptr);
 }
 
 mlir::LogicalResult DecomposeSoftmax::matchAndRewrite(VPU::SoftMaxOp origOp, mlir::PatternRewriter& rewriter) const {
     if (!isBeneficialAndFeasible(origOp)) {
         return mlir::failure();
     }
-    _log.info("target identified '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
+    _log.debug("target identified '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
     const auto ctx = this->getContext();
     const auto output = origOp.getOutput();
@@ -407,7 +435,7 @@ mlir::LogicalResult DecomposeSoftmax::matchAndRewrite(VPU::SoftMaxOp origOp, mli
 
     newUserOp.getOperation()->getResult(0).replaceAllUsesExcept(newMultiplyOp.getOutput(),
                                                                 llvm::SmallPtrSet<mlir::Operation*, 1>{newMultiplyOp});
-    _log.info("DecomposeSoftmax succeeded at '{0}'", origOp->getLoc());
+    _log.debug("DecomposeSoftmax succeeded at '{0}'", origOp->getLoc());
     rewriter.eraseOp(origOp);
     return mlir::success();
 }

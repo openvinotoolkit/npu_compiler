@@ -123,7 +123,7 @@ mlir::Value createMaxPool(mlir::Value input, mlir::Location loc, mlir::PatternRe
     auto ctx = rewriter.getContext();
 
     return rewriter
-            .create<IE::MaxPoolOp>(loc, input, getIntArrayAttr(rewriter, maxPoolKernels),
+            .create<IE::MaxPoolOp>(loc, input, /*scale=*/nullptr, getIntArrayAttr(rewriter, maxPoolKernels),
                                    getIntArrayAttr(rewriter, maxPoolStrides), padsAttr, padsAttr,
                                    vpux::IE::RoundingTypeAttr::get(ctx, vpux::IE::RoundingType::FLOOR), nullptr,
                                    nullptr, nullptr, nullptr, nullptr)
@@ -832,8 +832,9 @@ ConvertBilinearToStridedConcatAndConvPass::SmallChannelPytorchHalfPixelBilinearI
             rewriter.create<IE::ReorderOp>(takeOpLoc(origOp, "reorder_out_to_NCHW"), memPermute2.getOutput(),
                                            DimsOrder::NCHW.toAffineMap(getContext()));
 
+    const auto origOpName = origOp->getName().getStringRef().str();
     rewriter.replaceOp(origOp, outputReorder.getOutput());
-    _log.trace("Split {0} successful", origOp->getName());
+    _log.trace("Split {0} successful", origOpName);
     return mlir::success();
 }
 

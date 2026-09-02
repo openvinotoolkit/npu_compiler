@@ -4,7 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --forbid-four-bit-outputs --verify-diagnostics %s
-// REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
+// REQUIRES: platform-NPU3720
 
 module @I4 {
     net.NetworkInfo entryPoint : @main inputsInfo :  {

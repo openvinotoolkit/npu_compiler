@@ -131,27 +131,6 @@ func.func @FuseWithAffineReshape(%arg0: tensor<1x512x64x64xf16>) -> tensor<1x1x5
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
-#map = affine_map<(d0, d1, d2) -> (d0, d2, d1)>
-
-// CHECK-LABEL: @NotFuseWithAffineReshapeWithNonNCHW
-// CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x512x64x64xf16, {order = #NHWC}>)
-func.func @NotFuseWithAffineReshapeWithNonNCHW(%arg0: tensor<1x512x64x64xf16, {order = #NHWC}>) -> tensor<1x1x512x4096xf16, {order = #NCWH}> {
-    %0 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [1], [2], [2]], shape_value = [1, 512, 4096]} : tensor<1x512x64x64xf16, {order = #NHWC}> -> tensor<1x512x4096xf16, {order = #map}>
-    %1 = IE.AffineReshape(%0) {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 1, 512, 4096]} : tensor<1x512x4096xf16, {order = #map}> -> tensor<1x1x512x4096xf16, {order = #NCWH}>
-
-    return %1 : tensor<1x1x512x4096xf16, {order = #NCWH}>
-    // CHECK: [[VAL0:%.+]] = IE.AffineReshape([[ARG_0]])
-    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [2], [2]], shape_value = [1, 512, 4096]} : tensor<1x512x64x64xf16, {order = #NHWC}> -> tensor<1x512x4096xf16, {order = #map}>
-    // CHECK: [[VAL1:%.+]] = IE.AffineReshape([[VAL0]])
-    // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 1, 512, 4096]} : tensor<1x512x4096xf16, {order = #map}> -> tensor<1x1x512x4096xf16, {order = #NCWH}>
-    // CHECK: return [[VAL1]] : tensor<1x1x512x4096xf16, {order = #NCWH}>
-
-}
-
-// -----
-
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
 
 // CHECK-LABEL: @FuseAffineReshape
 // CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x512x64x64xf16, {order = #NHWC}>)
@@ -325,4 +304,39 @@ func.func @DoNotSwapAffineReshapeAndSubView() -> tensor<2x2xf32> {
     // CHECK:     [[CST:%.+]] = const.Declare tensor<2x2xf32> = dense<1.000000e+00> : tensor<2x2x3xf32>
     // CHECK-SAME{LITERAL}:     [#const.AffineReshape<[[0], [0], [1]], [4, 3]>, #const.SubView<[1, 0], [2, 2]>]
     // CHECK:     return [[CST]]
+}
+
+// -----
+
+// CHECK-LABEL: @FuseAffineReshapes2DOutput
+// CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<768x16x128xf16>)
+func.func @FuseAffineReshapes2DOutput(%arg0: tensor<768x16x128xf16>) -> tensor<768x2048xf16> {
+    %0 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1, 2], [3], [3]], shape_value = [1, 1, 768, 2048]} : tensor<768x16x128xf16> -> tensor<1x1x768x2048xf16>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [0], [0], [1]], shape_value = [768, 2048]} : tensor<1x1x768x2048xf16> -> tensor<768x2048xf16>
+    return %1 : tensor<768x2048xf16>
+
+    // CHECK: [[VAL0:%.+]] = IE.AffineReshape([[ARG_0]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [1]], shape_value = [768, 2048]} : tensor<768x16x128xf16> -> tensor<768x2048xf16>
+    // CHECK: return [[VAL0]] : tensor<768x2048xf16>
+}
+
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#map = affine_map<(d0, d1, d2) -> (d0, d2, d1)>
+
+
+// CHECK-LABEL: @NotFuseWithAffineReshapeWithNonNCHW
+// CHECK-SAME:    ([[ARG_0:%[^:]+]]: tensor<1x6x7x4xf16, {order = #NHWC}>)
+func.func @NotFuseWithAffineReshapeWithNonNCHW(%arg0: tensor<1x6x7x4xf16, {order = #NHWC}>) -> tensor<1x6x4x7xf16, {order = #NHWC}> {
+    %0 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [1], [2], [2]], shape_value = [1, 6, 28]} : tensor<1x6x7x4xf16, {order = #NHWC}> -> tensor<1x6x28xf16, {order = #map}>
+    %1 = IE.AffineReshape(%0) {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 6, 4, 7]} : tensor<1x6x28xf16, {order = #map}> -> tensor<1x6x4x7xf16, {order = #NHWC}>
+    return %1 : tensor<1x6x4x7xf16, {order = #NHWC}>
+
+    // CHECK: [[VAL0:%.+]] = IE.AffineReshape([[ARG_0]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [2], [2]], shape_value = [1, 6, 28]} : tensor<1x6x7x4xf16, {order = #NHWC}> -> tensor<1x6x28xf16, {order = #map}>
+    // CHECK: [[VAL1:%.+]] = IE.AffineReshape([[VAL0]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 6, 4, 7]} : tensor<1x6x28xf16, {order = #map}> -> tensor<1x6x4x7xf16, {order = #NHWC}>
+    // CHECK: return [[VAL1]] : tensor<1x6x4x7xf16, {order = #NHWC}>
 }

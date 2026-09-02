@@ -65,17 +65,19 @@ mlir::LogicalResult DynamicQuantToVPUNCE::matchAndRewrite(IE::ConvolutionOp orig
 
     const auto padAttr = VPU::getPaddingAttr(getContext(), PadInfo(origOp.getPadsBegin(), origOp.getPadsEnd()));
     const auto ppeAttr = VPU::getPpeConfig(origOp->getContext()).retrievePPEAttribute(origOp);
-    VPU::MPEEngineAttr mpeEngineModeAttr = nullptr;
+    VPU::MPEEngineAttr mpeEngineAttr = nullptr;
     if (auto mpeEngineInterface = mlir::dyn_cast<IE::MPEEngineInfoOpInterface>(origOp.getOperation())) {
-        mpeEngineModeAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineMode());
+        const auto weightZp = getPerTensorZeroPointAttr(origOp.getFilter());
+        const auto activationZp = getPerTensorZeroPointAttr(origOp.getInput());
+
+        mpeEngineAttr = mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineWithZP(weightZp, activationZp));
     }
 
     rewriter.replaceOpWithNewOp<VPU::NCEConvolutionOp>(
             origOp, origOp.getType(), /*reduceXyMax*/ nullptr, /*reduceXyMin*/ nullptr,
             /*reduceGlobalMinMax*/ nullptr, origOp.getInput(), alignedFilter, weightsTable->getResult(0),
-            /*weight_table_data_ptr=*/nullptr,
-            /*weight_table_sp_ptr=*/nullptr, /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
-            /*weight_zero_points=*/nullptr, origOp.getStridesAttr(), padAttr, ppeAttr, mpeEngineModeAttr,
+            /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
+            /*weight_zero_points=*/nullptr, origOp.getStridesAttr(), padAttr, ppeAttr, mpeEngineAttr,
             /*rawFilterShape=*/mlir::ValueRange{}, staticRawFilterShape,
             /*multi_cluster_strategyAttr=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr(),
             /*axes_value=*/nullptr);

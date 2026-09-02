@@ -280,7 +280,7 @@ func.func @LayoutCast(%input: tensor<1x3x32x32xf16, {order = #NWCH}>) -> tensor<
     %output = VPU.LayoutCast(%input) {dst_order = #NHWC} : tensor<1x3x32x32xf16, {order = #NWCH}> -> tensor<1x3x32x32xf16, {order = #NHWC}>
     return %output : tensor<1x3x32x32xf16, {order = #NHWC}>
 
-    // CHECK: [[OUTPUT:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs([[ARG]] : memref<1x3x32x32xf16, {order = #NWCH}>) -> memref<1x3x32x32xf16, {order = #NHWC}>
+    // CHECK: [[OUTPUT:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, is_layout_cast, mem_perm = #NHWC} inputs([[ARG]] : memref<1x3x32x32xf16, {order = #NWCH}>) -> memref<1x3x32x32xf16, {order = #NHWC}>
     // CHECK: return [[OUTPUT]] : memref<1x3x32x32xf16, {order = #NHWC}>
 }
 
@@ -1289,7 +1289,7 @@ func.func @LayoutCastSparseTensor(%arg0: tensor<1x16x32x32xf16, {order = #NCHW, 
     %res = VPU.LayoutCast(%st) {dst_order = #NHWC} : !InputSparseTensor -> !OutputSparseTensor
     return %res : !OutputSparseTensor
 
-    // CHECK:      [[RES:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NHWC} inputs({{%[0-9a-zA-Z]+}}
+    // CHECK:      [[RES:%.+]] = VPUIP.PermuteCast {dst_order = #NHWC, is_layout_cast, mem_perm = #NHWC} inputs({{%[0-9a-zA-Z]+}}
     // CHECK-SAME:   : !VPUIP.SparseBuffer<data=memref<1x16x32x32xf16, @CMX_NN>, sparsity_map=memref<1x16x32x32xi1, @CMX_NN>>)
     // CHECK-SAME:   -> !VPUIP.SparseBuffer<data=memref<1x16x32x32xf16, {order = #NHWC}, @CMX_NN>, sparsity_map=memref<1x16x32x32xi1, {order = #NHWC}, @CMX_NN>>
     // CHECK:      return [[RES]]
@@ -1554,17 +1554,16 @@ func.func @ReinterpretCast(%input: tensor<4x8xf16>) -> tensor<32xf16> {
 
 // CHECK-LABEL: func.func @ReinterpretCastToBoundedBuffer
 // CHECK-SAME:      ([[ARG:%.+]]: memref<?x1x16xf16>)
+// CHECK-SAME:      -> memref<?x1x16xf16, {bounds = #const.OpaqueI64Elements<[8, 1, 16]> : tensor<3xsi64>, order = #CHW}>
 func.func @ReinterpretCastToBoundedBuffer(%input: tensor<?x1x16xf16>)
-        -> tensor<8x1x16xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 0, 0]> : tensor<3xsi64>, order = #CHW}> {
+        -> tensor<?x1x16xf16, {bounds = #const.OpaqueI64Elements<[8, 1, 16]> : tensor<3xsi64>, order = #CHW}> {
     %output = Core.ReinterpretCast(%input) : tensor<?x1x16xf16>
-        -> tensor<8x1x16xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 0, 0]> : tensor<3xsi64>, order = #CHW}>
-    return %output : tensor<8x1x16xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 0, 0]> : tensor<3xsi64>, order = #CHW}>
+        -> tensor<?x1x16xf16, {bounds = #const.OpaqueI64Elements<[8, 1, 16]> : tensor<3xsi64>, order = #CHW}>
+    return %output : tensor<?x1x16xf16, {bounds = #const.OpaqueI64Elements<[8, 1, 16]> : tensor<3xsi64>, order = #CHW}>
 
-    // CHECK: [[DATA:%.+]] = Core.ReinterpretCast([[ARG]]) : memref<?x1x16xf16> -> memref<8x1x16xf16>
-    // CHECK: [[SHAPE:%.+]] = memref.alloc() : memref<3xsi32>
-    // CHECK: [[BB:%.+]] = VPUIP.GroupBoundedBuffer([[DATA]], [[SHAPE]])
-    // CHECK-SAME:     : memref<8x1x16xf16>, memref<3xsi32> -> !VPUIP.BoundedBuffer<data=memref<8x1x16xf16>, dynamic_shape=memref<3xsi32>>
-    // CHECK: return [[BB]]
+    // CHECK: [[OUTPUT:%.+]] = Core.ReinterpretCast([[ARG]])
+    // CHECK-SAME:  -> memref<?x1x16xf16, {bounds = #const.OpaqueI64Elements<[8, 1, 16]> : tensor<3xsi64>, order = #CHW}>
+    // CHECK: return [[OUTPUT]]
 }
 
 // -----
@@ -1573,17 +1572,16 @@ func.func @ReinterpretCastToBoundedBuffer(%input: tensor<?x1x16xf16>)
 
 // CHECK-LABEL: func.func @ReinterpretCastToBoundedBufferNHWC
 // CHECK-SAME:      ([[ARG:%.+]]: memref<1x3x?x?xf16>)
+// CHECK-SAME:     -> memref<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 16, 24]> : tensor<4xsi64>, order = #NHWC}>
 func.func @ReinterpretCastToBoundedBufferNHWC(%input: tensor<1x3x?x?xf16>)
-        -> tensor<1x3x16x24xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, order = #NHWC}> {
+        -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 16, 24]> : tensor<4xsi64>, order = #NHWC}> {
     %output = Core.ReinterpretCast(%input) : tensor<1x3x?x?xf16>
-        -> tensor<1x3x16x24xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, order = #NHWC}>
-    return %output : tensor<1x3x16x24xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, order = #NHWC}>
+        -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 16, 24]> : tensor<4xsi64>, order = #NHWC}>
+    return %output : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 16, 24]> : tensor<4xsi64>, order = #NHWC}>
 
-    // CHECK: [[DATA:%.+]] = Core.ReinterpretCast([[ARG]]) : memref<1x3x?x?xf16> -> memref<1x3x16x24xf16, {order = #NHWC}>
-    // CHECK: [[SHAPE:%.+]] = memref.alloc() : memref<4xsi32>
-    // CHECK: [[BB:%.+]] = VPUIP.GroupBoundedBuffer([[DATA]], [[SHAPE]])
-    // CHECK-SAME:     : memref<1x3x16x24xf16, {order = #NHWC}>, memref<4xsi32> -> !VPUIP.BoundedBuffer<data=memref<1x3x16x24xf16, {order = #NHWC}>, dynamic_shape=memref<4xsi32>>
-    // CHECK: return [[BB]]
+    // CHECK: [[OUTPUT:%.+]] = Core.ReinterpretCast([[ARG]])
+    // CHECK-SAME:  -> memref<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 16, 24]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK: return [[OUTPUT]]
 }
 
 // -----
@@ -1591,17 +1589,17 @@ func.func @ReinterpretCastToBoundedBufferNHWC(%input: tensor<1x3x?x?xf16>)
 #CHW = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 
 // CHECK-LABEL: func.func @ReinterpretCastFromBoundedBuffer
-// CHECK-SAME:      ([[ARG:%.+]]: !VPUIP.BoundedBuffer<data=memref<8x1x16xf16>, dynamic_shape=memref<3xsi32>>)
+// CHECK-SAME:      ([[ARG:%.+]]: memref<?x1x16xf16, {bounds = #const.OpaqueI64Elements<[8, 1, 16]> : tensor<3xsi64>, order = #CHW}>)
+// CHECK-SAME:      -> memref<?x1x16xf16>
 func.func @ReinterpretCastFromBoundedBuffer(
-        %input: tensor<8x1x16xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 0, 0]> : tensor<3xsi64>, order = #CHW}>)
+        %input: tensor<?x1x16xf16, {bounds = #const.OpaqueI64Elements<[8, 1, 16]> : tensor<3xsi64>, order = #CHW}>)
         -> tensor<?x1x16xf16> {
     %output = Core.ReinterpretCast(%input)
-        : tensor<8x1x16xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[1, 0, 0]> : tensor<3xsi64>, order = #CHW}>
+        : tensor<?x1x16xf16, {bounds = #const.OpaqueI64Elements<[8, 1, 16]> : tensor<3xsi64>, order = #CHW}>
         -> tensor<?x1x16xf16>
     return %output : tensor<?x1x16xf16>
 
-    // CHECK: [[DATA:%.+]], {{%.+}} = VPUIP.UngroupBoundedBuffer([[ARG]])
-    // CHECK-SAME:     : !VPUIP.BoundedBuffer<data=memref<8x1x16xf16>, dynamic_shape=memref<3xsi32>> -> memref<8x1x16xf16>, memref<3xsi32>
-    // CHECK: [[OUTPUT:%.+]] = Core.ReinterpretCast([[DATA]]) : memref<8x1x16xf16> -> memref<?x1x16xf16>
-    // CHECK: return [[OUTPUT]] : memref<?x1x16xf16>
+    // CHECK: [[OUTPUT:%.+]] = Core.ReinterpretCast([[ARG]])
+    // CHECK-SAME:  -> memref<?x1x16xf16>
+    // CHECK: return [[OUTPUT]]
 }

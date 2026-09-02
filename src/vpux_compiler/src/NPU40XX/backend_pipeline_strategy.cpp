@@ -14,38 +14,36 @@
 #include "vpux/compiler/pipelines/options_setup.hpp"
 #include "vpux/utils/ov/config.hpp"
 
-#include "intel_npu/config/options.hpp"
-
 using namespace vpux;
 
 //
 // BackendPipelineStrategy40XX::buildELFPipeline
 //
 
-void BackendPipelineStrategy40XX::buildELFPipeline(mlir::OpPassManager& pm, const intel_npu::Config& config,
+void BackendPipelineStrategy40XX::buildELFPipeline(mlir::OpPassManager& pm, const vpux::OV::Config& config,
                                                    mlir::TimingScope& rootTiming, Logger log) {
     auto buildTiming = rootTiming.nest("Build compilation pipeline");
 
     auto dpuDryRunMode = VPU::DPUDryRunMode::NONE;
     const auto compilationMode = getCompilationMode(config);
     auto backendCompilationOptions =
-            BackendCompilationOptions40XX::createFromString(config.get<intel_npu::BACKEND_COMPILATION_PARAMS>());
+            BackendCompilationOptions40XX::createFromString(config.get<vpux::OV::BACKEND_COMPILATION_PARAMS>());
 
     VPUX_THROW_UNLESS(backendCompilationOptions != nullptr,
                       "build ELF pipeline failed to parse BACKEND_COMPILATION_PARAMS: {0}",
-                      config.get<intel_npu::BACKEND_COMPILATION_PARAMS>());
+                      config.get<vpux::OV::BACKEND_COMPILATION_PARAMS>());
 
     if (compilationMode == config::CompilationMode::DefaultHW || config::isHostCompileMode(compilationMode)) {
-        auto options = parseCompilationModeParams<DefaultHWOptions40XX>(
-                config.get<intel_npu::COMPILATION_MODE_PARAMS>(), getArchKind(config));
+        auto options = parseCompilationModeParams<DefaultHWOptions40XX>(config.get<vpux::OV::COMPILATION_MODE_PARAMS>(),
+                                                                        getArchKind(config));
         VPUX_THROW_UNLESS(options != nullptr, "build ELF pipeline failed to parse COMPILATION_MODE_PARAMS: {0}",
-                          config.get<intel_npu::COMPILATION_MODE_PARAMS>());
-        options->enableProfiling = config.get<intel_npu::PERF_COUNT>();
-        if (config.get<intel_npu::TURBO>()) {
+                          config.get<vpux::OV::COMPILATION_MODE_PARAMS>());
+        options->enableProfiling = config.get<vpux::OV::PERF_COUNT>();
+        if (config.get<vpux::OV::TURBO>()) {
             overwriteIfUnset(options->optimizationLevel, 3);
         }
         setupParamsAccordingToOptimizationLevel(options->optimizationLevel, *options);
-        setupPWLMParams(*options, getLogLevel(config));
+        setupPWLMParams(*options, config.get<vpux::OV::LOG_LEVEL>());
         dpuDryRunMode = VPU::getDPUDryRunMode(options->dpuDryRun);
         backendCompilationOptions->enableDMAProfiling =
                 options->enableProfiling ? options->enableDMAProfiling.getValue() : "false";

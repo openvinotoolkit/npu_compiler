@@ -57,7 +57,6 @@ add_npu_library(npu_compiler_npu37xx
         npu_compiler_locverif
         npu_elf
         npu_costmodel
-        openvino::npu_al
     DEPENDS
         cost_model_data_2_7
         cost_model_data_2_7_fast

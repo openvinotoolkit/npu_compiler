@@ -430,3 +430,72 @@ func.func @ExpandChannelsWithAvgPoolOp(%arg0: tensor<1x1079x?x12xf16, {bounds = 
   // CHECK-SAME:      -> tensor<1x3x2158x?x!qElemType, {bounds = #const.OpaqueI64Elements<[1, 3, 2158, 638]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:       return [[D2S]] : tensor<1x3x2158x?x!qElemType, {bounds = #const.OpaqueI64Elements<[1, 3, 2158, 638]> : tensor<4xsi64>, order = #NHWC}>
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @ExpandEltwiseAddChannels
+// CHECK-SAME:  [[ARG_0:%[^:]+]]: tensor<1x5x16x16xf16, {order = #NHWC}>
+// CHECK-SAME:  [[ARG_1:%[^:]+]]: tensor<1x5x16x16xf16, {order = #NHWC}>
+func.func @ExpandEltwiseAddChannels(%arg0: tensor<1x5x16x16xf16, {order = #NHWC}>,
+                                    %arg1: tensor<1x5x16x16xf16, {order = #NHWC}>)
+        -> tensor<1x5x16x16xf16, {order = #NHWC}> {
+    %0 = IE.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x5x16x16xf16, {order = #NHWC}>, tensor<1x5x16x16xf16, {order = #NHWC}>
+        -> tensor<1x5x16x16xf16, {order = #NHWC}>
+    return %0 : tensor<1x5x16x16xf16, {order = #NHWC}>
+
+  // IE.Add is performed at the aligned shape, then sliced back to 5 channels.
+  // CHECK:   [[EXP_0:%.+]] = IE.Expand([[ARG_0]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, {{[0-9]+}}, 0, 0]}
+  // CHECK:   [[EXP_1:%.+]] = IE.Expand([[ARG_1]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, {{[0-9]+}}, 0, 0]}
+  // CHECK:   [[ADD:%.+]] = IE.Add([[EXP_0]], [[EXP_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
+  // CHECK-SAME:   input_padding = [0, {{[0-9]+}}, 0, 0], output_padding = [0, {{[0-9]+}}, 0, 0]
+  // CHECK:   [[SLICE:%.+]] = IE.Slice [[ADD]] [0, 0, 0, 0] [1, 5, 16, 16]
+  // CHECK:   return [[SLICE]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType = !quant.uniform<!QuantileType.quantile<ui4:si8, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16:0, {4.343750e+00,3.625000e+00,-5.031250e+00,-1.375000e+00,-3.484375,4.156250e+00,-2.687500e+00,3.656250e+00,2.765625,-3.062500e+00,-1.640625,-6.281250e+00,-9.625000e+00,-1.7265625,7.937500e+00,5.906250e+00}>
+
+// CHECK: [[QTYPE:!.+]] = !quant.uniform<!QuantileType.quantile<ui4:si8,
+// CHECK: @ExpandConvolutionChannelsWithQuantileTypeFilter
+// CHECK-SAME: ([[INPUT:%.+]]: tensor<1x4x1x1xf16, {order = #NHWC}>
+// CHECK-SAME:  [[WEIGHTS:%.+]]: tensor<16x4x1x1x[[QTYPE]]>)
+func.func @ExpandConvolutionChannelsWithQuantileTypeFilter(
+        %arg0: tensor<1x4x1x1xf16, {order = #NHWC}>,
+        %arg1: tensor<16x4x1x1x!qElemType>
+) -> tensor<1x16x1x1xf16, {order = #NHWC}> {
+    %0 = IE.PermuteCast(%arg1) {dst_order = #NHWC, mem_perm = #NHWC}
+        : tensor<16x4x1x1x!qElemType>
+        -> tensor<16x4x1x1x!qElemType, {order = #NHWC}>
+    %1 = IE.Convolution(%arg0, %0) {
+        dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
+    } : tensor<1x4x1x1xf16, {order = #NHWC}>,
+        tensor<16x4x1x1x!qElemType, {order = #NHWC}>
+        -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    return %1 : tensor<1x16x1x1xf16, {order = #NHWC}>
+
+    // Activation is expanded from 4 to 16 channels.
+
+    // A zero constant pads the filter from 4 to 16 input channels.
+    // CHECK:       [[ZERO_CST:%.+]] = const.Declare tensor<16x12x1x1x[[QTYPE]], {order = #NHWC}> = dense<0> : tensor<16x12x1x1xui8, {order = #NHWC}>
+    // CHECK:       [[FILTER_NHWC:%.+]] = IE.PermuteCast([[WEIGHTS]])
+    // CHECK-SAME:      -> tensor<16x4x1x1x[[QTYPE]], {order = #NHWC}>
+
+    // CHECK:       [[EXPAND:%.+]] = IE.Expand([[INPUT]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 12, 0, 0]}
+    // CHECK-SAME:      -> tensor<1x16x1x1xf16, {order = #NHWC}>
+
+    // CHECK:       [[EXPANDED_FILTER:%.+]] = IE.Concat([[FILTER_NHWC]], [[ZERO_CST]])
+    // CHECK-SAME{{LITERAL}}:      static_offsets = [[0, 0, 0, 0], [0, 4, 0, 0]]
+    // CHECK-SAME:      -> tensor<16x16x1x1x[[QTYPE]], {order = #NHWC}>
+
+    // Convolution uses auto-padding attributes instead of inserting Slice on output.
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[EXPAND]], [[EXPANDED_FILTER]])
+    // CHECK-SAME:      input_padding = [0, 12, 0, 0]
+    // CHECK-SAME:      output_padding = [0, 0, 0, 0]
+    // CHECK-SAME:      -> tensor<1x16x1x1xf16, {order = #NHWC}>
+    // CHECK:       return [[CONV]]
+}

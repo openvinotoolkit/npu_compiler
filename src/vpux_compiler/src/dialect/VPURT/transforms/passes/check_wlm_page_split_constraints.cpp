@@ -47,6 +47,7 @@ void CheckWlmPageSplitConstraintsPass::safeRunOnFunc() {
 
     auto& barrierInfo = getAnalysis<BarrierInfo>();
     barrierInfo.buildTaskQueueTypeMap();
+    barrierInfo.buildWlmTasksDependencies(true);
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
 
     VPURT::BarrierPagesSplitHandler barrierPagesSplitHandler(func, barrierInfo, numBarriers, _log);

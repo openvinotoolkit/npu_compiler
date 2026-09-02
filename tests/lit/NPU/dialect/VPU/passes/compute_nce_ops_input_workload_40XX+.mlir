@@ -28,7 +28,7 @@ module @ConvInputWorkloadsHeight  {
     %0 =  VPU.NCE.Convolution(%arg0, %arg1) rawFilterShape [48, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-            
+
             strides = [2, 2]
         } : !Input_CMX, !Weights_CMX -> !Output_CMX {
             VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 16, 31] pad [1, 1, 1, 0] #VPU.mpe_mode<CUBOID_4x16>
@@ -81,7 +81,7 @@ module @ConvInputWorkloadsOC  {
     %0 = VPU.NCE.Convolution(%arg0, %arg1) rawFilterShape [48, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-            
+
             strides = [2, 2]
         } : !Input_CMX, !Weights_CMX -> !Output_CMX {
             VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 24, 31, 31] pad [1, 1, 1, 1] #VPU.mpe_mode<CUBOID_4x16>
@@ -129,10 +129,10 @@ module @DWConvInputWorkloadsHeight  {
   }
 
   func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX) -> !Output_CMX {
-    %0 = VPU.NCE.DepthConvolution(%arg0, %arg1) rawFilterShape [32, 1, 3, 3] {
+    %0 = VPU.NCE.DepthConvolution(%arg0, %arg1) rawFilterShape [32, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-            
+
             strides = [2, 2]
         } -> !Output_CMX {
             VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 16, 31]  pad [1, 1, 1, 0] #VPU.mpe_mode<CUBOID_16x16>
@@ -181,10 +181,10 @@ module @DWConvInputWorkloadsOC  {
   }
 
   func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX) -> !Output_CMX {
-    %0 = VPU.NCE.DepthConvolution(%arg0, %arg1) rawFilterShape [48, 1, 3, 3] {
+    %0 = VPU.NCE.DepthConvolution(%arg0, %arg1) rawFilterShape [48, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-            
+
             strides = [2, 2]
         } -> !Output_CMX {
             VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 31, 31] pad [1, 1, 1, 1] #VPU.mpe_mode<CUBOID_16x16>
@@ -263,7 +263,7 @@ module @ConvInputWorkloadsSOHExtraLines  {
     %output_cmx = VPU.NCE.Convolution(%input_cmx, %arg1) rawFilterShape [48, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-              
+
               strides = [1, 1]
           } : !Input_CMX, !Weights_CMX -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 11,  62] pad [1, 1, 1, 0] #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
@@ -401,7 +401,7 @@ module @SparseConvInputWorkloadsSOHExtraLines  {
     %output_cmx = VPU.NCE.Convolution(%input_sparse, %arg1) rawFilterShape [48, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-              
+
               strides = [1, 1]
           } : !Input_CMX, !Weights_CMX -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 11,  62] pad [1, 1, 1, 0] #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
@@ -511,7 +511,7 @@ module @ConvInputWorkloadsSOK  {
     %output_cmx =  VPU.NCE.Convolution(%input_cmx, %arg1) rawFilterShape [64, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-              
+
               strides = [1, 1]
           } : !Input_CMX, !Weights_CMX -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 62, 62] pad [1, 1, 1, 1] #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
@@ -609,7 +609,7 @@ module @ConvInputWorkloadsSOHNoExtraLines  {
     %output_cmx =  VPU.NCE.Convolution(%input_cmx, %arg1) rawFilterShape [48, 16, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-              
+
               strides = [1, 1]
           } : !Input_CMX, !Weights_CMX -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 16, 62] pad [1, 1, 1, 0] #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
@@ -699,10 +699,10 @@ module @DWInputWorkloadsSOKSEGSEG  {
   func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX) -> !Output_CMX {
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1) rawFilterShape [80, 1, 3, 3] {
+    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1) rawFilterShape [80, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-              
+
               strides = [1, 1]
           } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 62, 62] pad [1, 1, 1, 1] #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
@@ -792,10 +792,10 @@ module @DWInputWorkloadsSOKSEGDUP  {
   func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX) -> !Output_CMX {
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1) rawFilterShape [80, 1, 3, 3] {
+    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1) rawFilterShape [80, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-              
+
               strides = [1, 1]
           } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 62, 62] pad [1, 1, 1, 1] #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
@@ -885,10 +885,10 @@ module @DWInputWorkloadsSOKDUPSEG  {
   func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX) -> !Output_CMX {
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1) rawFilterShape [80, 1, 3, 3] {
+    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1) rawFilterShape [80, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-              
+
               strides = [1, 1]
           } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 62, 62] pad [1, 1, 1, 1] #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
@@ -1357,7 +1357,7 @@ module @SparseNearestNCEInterpolateInputWorkloadsSOHExtraLines  {
               minimumHardwareExecutionCost = 2886 : i64,
               mode = #VPU.nce_interpolate_mode<NEAREST>,
               ppe = #VPU.PPEStub<>,
-              
+
               strides = [1, 1]
           } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 32, 64] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 0 : i64}
@@ -1481,7 +1481,7 @@ module @SparseNearestNCEInterpolateInputWorkloadsSOHExtraLinesWithExplicitOffset
               minimumHardwareExecutionCost = 2886 : i64,
               mode = #VPU.nce_interpolate_mode<NEAREST>,
               ppe = #VPU.PPEStub<>,
-              
+
               strides = [1, 1]
           } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 32, 64] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 0 : i64}
@@ -1601,7 +1601,7 @@ module @SparseBilinearNCEInterpolateInputWorkloadsSOHExtraLines  {
               minimumHardwareExecutionCost = 14721 : i64,
               mode = #VPU.nce_interpolate_mode<BILINEAR>,
               ppe = #VPU.PPEStub<>,
-              
+
               strides = [2, 2]
           } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 32, 64] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 0 : i64}
@@ -1725,7 +1725,7 @@ module @SparseBilinearNCEInterpolateInputWorkloadsSOHExtraLines  {
               minimumHardwareExecutionCost = 14721 : i64,
               mode = #VPU.nce_interpolate_mode<BILINEAR>,
               ppe = #VPU.PPEStub<>,
-              
+
               strides = [2, 2]
           } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 32, 64] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 0 : i64}

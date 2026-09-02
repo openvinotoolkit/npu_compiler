@@ -94,7 +94,7 @@ void flattenShapes(mlir::func::FuncOp func) {
                     return mlir::isa<VPUIP::SparsityCompressionAttr>(field);
                 });
                 layout = vpux::MemRefAttr::get(memrefAttr.order(), memrefAttr.strides(), memrefAttr.allocSize(),
-                                               hwFieldsWithoutCompression, ctx);
+                                               memrefAttr.bounds(), hwFieldsWithoutCompression, ctx);
             }
             return mlir::MemRefType::get(memrefType.getShape(), memrefType.getElementType(), layout,
                                          memrefType.getMemorySpace());

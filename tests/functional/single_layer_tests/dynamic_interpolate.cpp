@@ -198,10 +198,10 @@ TEST_P(InterpolateSAPStaticInputLayerTest, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
-// [Tracking number E#196823]
-TEST_P(InterpolateSAPStaticInputLayerTest, DISABLED_TMP_NPU4000_HC) {
+TEST_P(InterpolateSAPStaticInputLayerTest, NPU4000_HC) {
     abs_threshold = 0.0f;
-    setHostCompileMode();
+    enableTurbo();
+    setHostCompileMode("HostCompile_Interpreter");
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
@@ -212,10 +212,9 @@ TEST_P(InterpolateSAPStaticInputLayerTest, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
-// [Tracking number E#196823]
-TEST_P(InterpolateSAPStaticInputLayerTest, DISABLED_TMP_NPU5010_HC) {
+TEST_P(InterpolateSAPStaticInputLayerTest, NPU5010_HC) {
     abs_threshold = 0.0f;
-    setHostCompileMode();
+    setHostCompileMode("HostCompile_Interpreter");
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
@@ -446,10 +445,10 @@ TEST_P(InterpolateSAPDynInputLayerTest, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
-// [Tracking number E#196823]
-TEST_P(InterpolateSAPDynInputLayerTest, DISABLED_TMP_NPU4000_HC) {
+TEST_P(InterpolateSAPDynInputLayerTest, NPU4000_HC) {
     abs_threshold = 0.0f;
-    setHostCompileMode();
+    enableTurbo();
+    setHostCompileMode("HostCompile_Interpreter");
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
@@ -460,10 +459,9 @@ TEST_P(InterpolateSAPDynInputLayerTest, NPU5010_HW) {
     run(Platform::NPU5010);
 }
 
-// [Tracking number E#196823]
-TEST_P(InterpolateSAPDynInputLayerTest, DISABLED_TMP_NPU5010_HC) {
+TEST_P(InterpolateSAPDynInputLayerTest, NPU5010_HC) {
     abs_threshold = 0.0f;
-    setHostCompileMode();
+    setHostCompileMode("HostCompile_Interpreter");
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
@@ -517,23 +515,24 @@ const std::vector<RealisticCase> realisticCases = {
 
 std::vector<InterpolateSAPParamSet> buildRealisticSAPParams() {
     std::vector<InterpolateSAPParamSet> out;
-    out.reserve(realisticCases.size());
+    out.reserve(realisticCases.size() * 2);
     for (const auto& c : realisticCases) {
-        out.emplace_back(ov::Shape{1, 3, c.h, c.w},             // dataShape
-                         ov::element::f16,                      // inputType
-                         std::vector<float>{c.scale, c.scale},  // scalesValues
-                         std::vector<int32_t>{},                // sizesValues (unused)
-                         std::vector<int64_t>{2, 3},            // axes
-                         ov::op::util::InterpolateBase::ShapeCalcMode::SCALES,
-                         op::v11::Interpolate::InterpolateMode::LINEAR,
-                         op::v11::Interpolate::CoordinateTransformMode::HALF_PIXEL,
-                         op::v11::Interpolate::NearestMode::FLOOR, std::vector<size_t>{0, 0, 0, 0},  // padsBegin
-                         std::vector<size_t>{0, 0, 0, 0},                                            // padsEnd
-                         false,                                                                      // antialias
-                         ov::Layout("NCHW"),                                                         // layout
-                         -0.75f,                                                                     // cubeCoef
-                         // certain scales only supported in fp16 Tracking number E#217769
-                         ov::element::f16);  // scalesType
+        for (const auto scalesType : {ov::element::f16, ov::element::f32}) {
+            out.emplace_back(ov::Shape{1, 3, c.h, c.w},             // dataShape
+                             ov::element::f16,                      // inputType
+                             std::vector<float>{c.scale, c.scale},  // scalesValues
+                             std::vector<int32_t>{},                // sizesValues (unused)
+                             std::vector<int64_t>{2, 3},            // axes
+                             ov::op::util::InterpolateBase::ShapeCalcMode::SCALES,
+                             op::v11::Interpolate::InterpolateMode::LINEAR,
+                             op::v11::Interpolate::CoordinateTransformMode::HALF_PIXEL,
+                             op::v11::Interpolate::NearestMode::FLOOR, std::vector<size_t>{0, 0, 0, 0},  // padsBegin
+                             std::vector<size_t>{0, 0, 0, 0},                                            // padsEnd
+                             false,                                                                      // antialias
+                             ov::Layout("NCHW"),                                                         // layout
+                             -0.75f,                                                                     // cubeCoef
+                             scalesType);
+        }
     }
     return out;
 }

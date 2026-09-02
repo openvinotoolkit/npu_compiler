@@ -94,6 +94,28 @@ SmallVector<vpux::VPU::ODUDimScale> vpux::VPU::getODUS2DD2SScaling(const ODUS2DD
     return scales;
 }
 
+bool vpux::VPU::isS2DD2SDimSplitSupported(S2DD2SConfigAttr s2dd2sCfg, Dim outputDim) {
+    if (s2dd2sCfg == nullptr) {
+        return true;
+    }
+    const auto mode = s2dd2sCfg.getEnable().getValue();
+    if (mode == vpux::VPU::S2DD2SEnable::DISABLED) {
+        return true;
+    }
+    if (outputDim != Dims4D::Act::C) {
+        return true;
+    }
+    // BLOCK_FIRST requires interleaved channel access on the input side to produce a
+    // contiguous output — C-dim splits are therefore not supported.
+    return s2dd2sCfg.getVariant().getValue() != vpux::VPU::S2DD2SVariant::BLOCK_FIRST;
+}
+
+bool vpux::VPU::isODUScalingNeutral(ArrayRef<ODUDimScale> scales) {
+    return llvm::all_of(scales, [](const ODUDimScale& s) {
+        return s.multiplier == s.divisor;
+    });
+}
+
 // Returns the primary dimension count for any supported ODU value type.
 template <typename T>
 static size_t oduRank(const T& val) {

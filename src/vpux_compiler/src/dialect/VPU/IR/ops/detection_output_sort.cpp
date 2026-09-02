@@ -17,6 +17,7 @@
 
 using namespace vpux;
 
+namespace {
 SmallVector<mlir::Type> getAuxiliaryBufferTypes(mlir::ModuleOp moduleOp, mlir::Value confidence,
                                                 std::vector<int32_t>& indicesBufferData) {
     const auto confidenceShape = getShape(confidence);
@@ -49,6 +50,7 @@ mlir::Value createIndicesBufferConstant(mlir::OpBuilder& builder, mlir::Location
     return Const::createConst(builder, appendLoc(loc, "sort_IndicesBuffer"),
                               mlir::cast<mlir::RankedTensorType>(indicesBufferType), indicesBufferData);
 }
+}  // namespace
 
 void vpux::VPU::DetectionOutputSortOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
                                              mlir::Value confidence, mlir::FloatAttr confidenceThreshold,
@@ -125,6 +127,36 @@ mlir::FailureOr<OutputTiling> vpux::VPU::DetectionOutputSortOp::getTilingStrateg
 OutputTiling vpux::VPU::DetectionOutputSortOp::getOutputTiling(const vpux::TileInfo& firstOutputTile,
                                                                vpux::Logger /*log*/) {
     return DetectionOutputSortOpOutputTiling(firstOutputTile);
+}
+
+vpux::TileInfo vpux::VPU::DetectionOutputSortOp::getMainOutputTile(mlir::OpResult secondaryOutput,
+                                                                   const vpux::TileInfo& secondaryOutputTile,
+                                                                   vpux::Logger /*log*/) {
+    // Output 0 top_k_confidence    [ 1, 1, numClasses, numBoxes ]
+    // Output 1 indices             [ 1, 1, numClasses, numPriors ]
+    // Output 2 sizes               [ 1, 1, 1, numClasses ]
+    // Tiling can be done only on H of main output (numClasses dim), therefore we can infer the output 0 tile from any
+    // of the other outputs
+    if (secondaryOutput == getOutConfidence()) {
+        return secondaryOutputTile;
+    }
+
+    if (secondaryOutput == getOutIndices()) {
+        auto mainTile = secondaryOutputTile;
+        mainTile.shape[Dims4D::Act::W] = getBoundedShape(getOutConfidence())[Dims4D::Act::W];
+        mainTile.offsets[Dims4D::Act::W] = 0;
+        return mainTile;
+    }
+
+    if (secondaryOutput == getOutSizes()) {
+        auto mainTile = TileInfo(getBoundedShape(getOutConfidence()));
+        mainTile.shape[Dims4D::Act::H] = secondaryOutputTile.shape[Dims4D::Act::W];
+        mainTile.offsets[Dims4D::Act::H] = secondaryOutputTile.offsets[Dims4D::Act::W];
+        mainTile.axis[Dims4D::Act::H] = secondaryOutputTile.axis[Dims4D::Act::W];
+        return mainTile;
+    }
+
+    return vpux::TileInfo(ShapeRef());
 }
 
 //

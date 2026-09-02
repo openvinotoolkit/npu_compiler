@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/batch.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -779,7 +780,7 @@ public:
             StringRef options, llvm::function_ref<mlir::LogicalResult(const llvm::Twine&)> errorHandler) final;
 
 private:
-    void safeRunOnFunc() final;
+    void safeRunOnModule() final;
 };
 
 mlir::LogicalResult DebatcherPass::initializeOptions(
@@ -796,10 +797,11 @@ mlir::LogicalResult DebatcherPass::initializeOptions(
 // safeRunOnModule
 //
 
-void DebatcherPass::safeRunOnFunc() {
+void DebatcherPass::safeRunOnModule() {
     _log.trace("{0}::safeRunOnModule", getName());
 
-    auto main = getOperation();
+    auto module = getOperation();
+    auto main = net::getMainFunc(module);
     if (config::isPureHostCompileFunc(main)) {
         _log.debug("Skip the function: \"{0}\" as it isn't suitable for debatching", main.getName());
         return;
@@ -917,7 +919,6 @@ void DebatcherPass::safeRunOnFunc() {
                                                                  opResultsToDebatch[arg]};
     });
 
-    mlir::ModuleOp module = main->getParentOfType<mlir::ModuleOp>();
     if (!needDebatch) {
         _log.debug("Debatching is not required for the module: {0}", module.getName());
         // The pass may be invoked recursively due to the way the HostCompile pipeline operates.

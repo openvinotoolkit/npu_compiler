@@ -9,28 +9,14 @@
 #include "vpux/compiler/dialect/bytecode/IR/ops/register.hpp"
 #include "vpux/compiler/dialect/bytecode/IR/ops/section.hpp"
 #include "vpux/utils/core/error.hpp"
-#include "vpux/utils/core/string_ref.hpp"
 
 #include <llvm/ADT/STLExtras.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Value.h>
 
 #include <cstdint>
-#include <iterator>
 
 using namespace vpux;
-
-namespace {
-
-vpux::bytecode::TypeSectionOp getSingleTypeSection(mlir::ModuleOp moduleOp) {
-    auto typeSectionOps = moduleOp.getOps<vpux::bytecode::TypeSectionOp>();
-    const auto numTypeSections = std::distance(typeSectionOps.begin(), typeSectionOps.end());
-    VPUX_THROW_UNLESS(numTypeSections == 1, "Expected exactly one TypeSectionOp in the module, but found {0}",
-                      numTypeSections);
-    return *typeSectionOps.begin();
-}
-
-}  // namespace
 
 int16_t bytecode::getRegisterNumber(mlir::Value operand) {
     // This should be extended to cover more complex cases (e.g. general register is not a direct parent)
@@ -51,44 +37,22 @@ llvm::StringMap<uint64_t> bytecode::buildTypeIndexMap(bytecode::TypeSectionOp ty
     return map;
 }
 
-uint64_t bytecode::getStringIndex(StringRef symName, mlir::ModuleOp moduleOp) {
-    auto stringSectionOps = moduleOp.getOps<bytecode::StringSectionOp>();
-    auto numStringSections = std::distance(stringSectionOps.begin(), stringSectionOps.end());
-    VPUX_THROW_UNLESS(numStringSections == 1, "Expected exactly one StringSectionOp in the module, but found {0}",
-                      numStringSections);
-
-    auto stringSection = *stringSectionOps.begin();
-    auto stringOps = stringSection.getContent().getOps<bytecode::StringOp>();
-    auto stringOpIt = llvm::find_if(stringOps, [&](bytecode::StringOp stringOp) {
-        return stringOp.getSymName() == symName;
-    });
-    VPUX_THROW_UNLESS(stringOpIt != stringOps.end(), "Could not find string with symbol name {0} in the string section",
-                      symName);
-    return static_cast<uint64_t>(std::distance(stringOps.begin(), stringOpIt));
+mlir::Operation* bytecode::lookupNearestSymbolFrom(mlir::Operation* from, mlir::SymbolRefAttr symbol) {
+    auto module = mlir::isa<mlir::ModuleOp>(from) ? mlir::cast<mlir::ModuleOp>(from)
+                                                  : from->getParentOfType<mlir::ModuleOp>();
+    if (!module) {
+        return nullptr;
+    }
+    return mlir::SymbolTable::lookupNearestSymbolFrom(module, symbol);
 }
 
-uint64_t bytecode::getConstantIndex(StringRef symName, mlir::ModuleOp moduleOp) {
-    auto constantSectionOps = moduleOp.getOps<bytecode::ConstantSectionOp>();
-    const auto numConstantSections = std::distance(constantSectionOps.begin(), constantSectionOps.end());
-    VPUX_THROW_UNLESS(numConstantSections == 1, "Expected exactly one ConstantSectionOp in the module, but found {0}",
-                      numConstantSections);
-
-    auto constantSection = *constantSectionOps.begin();
-    auto constantOps = constantSection.getContent().getOps<bytecode::ConstantOp>();
-    auto constantOpIt = llvm::find_if(constantOps, [&](bytecode::ConstantOp constantOp) {
-        return constantOp.getSymName() == symName;
-    });
-    VPUX_THROW_UNLESS(constantOpIt != constantOps.end(),
-                      "Could not find constant with symbol name {0} in the constant section", symName);
-    return static_cast<uint64_t>(std::distance(constantOps.begin(), constantOpIt));
-}
-
-uint64_t bytecode::getTypeIndex(StringRef symName, mlir::ModuleOp moduleOp) {
-    auto typeIndexMap = bytecode::buildTypeIndexMap(getSingleTypeSection(moduleOp));
-    auto it = typeIndexMap.find(symName);
-    VPUX_THROW_UNLESS(it != typeIndexMap.end(), "Could not find type with symbol name {0} in the type section",
-                      symName);
-    return it->second;
+mlir::Operation* bytecode::lookupNearestSymbolFrom(mlir::Operation* from, mlir::StringAttr symbol) {
+    auto module = mlir::isa<mlir::ModuleOp>(from) ? mlir::cast<mlir::ModuleOp>(from)
+                                                  : from->getParentOfType<mlir::ModuleOp>();
+    if (!module) {
+        return nullptr;
+    }
+    return mlir::SymbolTable::lookupNearestSymbolFrom(module, symbol);
 }
 
 bytecode::FloatFormat bytecode::getFloatFormat(mlir::FloatType floatType) {

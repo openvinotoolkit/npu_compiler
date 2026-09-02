@@ -22,7 +22,7 @@ func.func @InterpolateNearestNeedSplitWithLargeSize(%arg0: tensor<1x16x160x160xf
             axes_attr = [2, 3],
             scales_attr = [4.000000e+00, 4.000000e+00],
             sizes_attr = [640, 640],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x160x160xf16, {order = #NHWC}> -> tensor<1x16x640x640xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x640x640xf16, {order = #NHWC}>
@@ -31,14 +31,14 @@ func.func @InterpolateNearestNeedSplitWithLargeSize(%arg0: tensor<1x16x160x160xf
     // CHECK-SAME:          {attr = #IE.Interpolate<mode = <NEAREST>,
     // CHECK-SAME:           shape_calc_mode = <SCALES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>,
     // CHECK-SAME:           antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
-    // CHECK-SAME:           axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+    // CHECK-SAME:           axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
     // CHECK-SAME:           scales_attr = [1.000000e+00, 4.000000e+00], sizes_attr = [640, 640]}
     // CHECK:           : tensor<1x16x160x160xf16, {order = #NHWC}> -> tensor<1x16x160x640xf16, {order = #NHWC}>
     // CHECK:       [[INTERPOLATE_H:%.+]] = VPU.Interpolate([[INTERPOLATE_W]])
     // CHECK-SAME:          {attr = #IE.Interpolate<mode = <NEAREST>,
     // CHECK-SAME:           shape_calc_mode = <SCALES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>,
     // CHECK-SAME:           antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
-    // CHECK-SAME:           axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+    // CHECK-SAME:           axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
     // CHECK-SAME:           scales_attr = [4.000000e+00, 1.000000e+00], sizes_attr = [640, 640]}
     // CHECK:           : tensor<1x16x160x640xf16, {order = #NHWC}> -> tensor<1x16x640x640xf16, {order = #NHWC}>
 
@@ -63,7 +63,7 @@ func.func @InterpolateSplitWithODUPermute(%arg0: tensor<1x16x160x160xf16, {order
             axes_attr = [2, 3],
             scales_attr = [4.000000e+00, 4.000000e+00],
             sizes_attr = [640, 640],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x160x160xf16, {order = #NHWC}> -> tensor<1x16x640x640xf16>
 
     return %0 : tensor<1x16x640x640xf16>
@@ -72,14 +72,14 @@ func.func @InterpolateSplitWithODUPermute(%arg0: tensor<1x16x160x160xf16, {order
     // CHECK-SAME:          {attr = #IE.Interpolate<mode = <NEAREST>,
     // CHECK-SAME:           shape_calc_mode = <SCALES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>,
     // CHECK-SAME:           antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
-    // CHECK-SAME:           axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+    // CHECK-SAME:           axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
     // CHECK-SAME:           scales_attr = [1.000000e+00, 4.000000e+00], sizes_attr = [640, 640]}
     // CHECK:           : tensor<1x16x160x160xf16, {order = #NHWC}> -> tensor<1x16x160x640xf16, {order = #NHWC}>
     // CHECK:       [[INTERPOLATE_H:%.+]] = VPU.Interpolate([[INTERPOLATE_W]])
     // CHECK-SAME:          {attr = #IE.Interpolate<mode = <NEAREST>,
     // CHECK-SAME:           shape_calc_mode = <SCALES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>,
     // CHECK-SAME:           antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
-    // CHECK-SAME:           axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+    // CHECK-SAME:           axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
     // CHECK-SAME:           scales_attr = [4.000000e+00, 1.000000e+00], sizes_attr = [640, 640]}
     // CHECK:           : tensor<1x16x160x640xf16, {order = #NHWC}> -> tensor<1x16x640x640xf16>
 
@@ -104,7 +104,7 @@ func.func @InterpolateNearestSizeModeNeedSplitWithLargeSize(%arg0: tensor<1x16x1
             axes_attr = [0, 1, 2, 3],
             scales_attr = [1.000000e+00,1.000000e+00,4.000000e+00, 4.000000e+00],
             sizes_attr = [1, 16, 640, 640],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x160x160xf16, {order = #NHWC}> -> tensor<1x16x640x640xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x640x640xf16, {order = #NHWC}>
@@ -113,14 +113,14 @@ func.func @InterpolateNearestSizeModeNeedSplitWithLargeSize(%arg0: tensor<1x16x1
     // CHECK-SAME:          {attr = #IE.Interpolate<mode = <NEAREST>,
     // CHECK-SAME:           shape_calc_mode = <SIZES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>,
     // CHECK-SAME:           antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
-    // CHECK-SAME:           axes_attr = [0, 1, 2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+    // CHECK-SAME:           axes_attr = [0, 1, 2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
     // CHECK-SAME:           scales_attr = [1.000000e+00, 1.000000e+00, 4.000000e+00, 4.000000e+00], sizes_attr = [1, 16, 160, 640]}
     // CHECK:           : tensor<1x16x160x160xf16, {order = #NHWC}> -> tensor<1x16x160x640xf16, {order = #NHWC}>
     // CHECK:       [[INTERPOLATE_H:%.+]] = VPU.Interpolate([[INTERPOLATE_W]])
     // CHECK-SAME:          {attr = #IE.Interpolate<mode = <NEAREST>,
     // CHECK-SAME:           shape_calc_mode = <SIZES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>,
     // CHECK-SAME:           antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
-    // CHECK-SAME:           axes_attr = [0, 1, 2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+    // CHECK-SAME:           axes_attr = [0, 1, 2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
     // CHECK-SAME:           scales_attr = [1.000000e+00, 1.000000e+00, 4.000000e+00, 4.000000e+00], sizes_attr = [1, 16, 640, 640]}
     // CHECK:           : tensor<1x16x160x640xf16, {order = #NHWC}> -> tensor<1x16x640x640xf16, {order = #NHWC}>
 
@@ -145,7 +145,7 @@ func.func @InterpolateBilinearNeedSplitWithLargeSize(%arg0: tensor<1x16x160x160x
             axes_attr = [0, 1, 2, 3],
             scales_attr = [1.000000e+00, 1.000000e+00, 2.000000e+00, 2.000000e+00],
             sizes_attr = [1, 16, 320, 320],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x160x160xf16, {order = #NHWC}> -> tensor<1x16x320x320xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x320x320xf16, {order = #NHWC}>
@@ -154,14 +154,14 @@ func.func @InterpolateBilinearNeedSplitWithLargeSize(%arg0: tensor<1x16x160x160x
     // CHECK-SAME:          {attr = #IE.Interpolate<mode = <LINEAR>,
     // CHECK-SAME:           shape_calc_mode = <SCALES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>,
     // CHECK-SAME:           antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
-    // CHECK-SAME:           axes_attr = [0, 1, 2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+    // CHECK-SAME:           axes_attr = [0, 1, 2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
     // CHECK-SAME:           scales_attr = [1.000000e+00, 1.000000e+00, 1.000000e+00, 2.000000e+00], sizes_attr = [1, 16, 320, 320]}
     // CHECK:           : tensor<1x16x160x160xf16, {order = #NHWC}> -> tensor<1x16x160x320xf16, {order = #NHWC}>
     // CHECK:       [[INTERPOLATE_H:%.+]] = VPU.Interpolate([[INTERPOLATE_W]])
     // CHECK-SAME:          {attr = #IE.Interpolate<mode = <LINEAR>,
     // CHECK-SAME:           shape_calc_mode = <SCALES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>,
     // CHECK-SAME:           antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
-    // CHECK-SAME:           axes_attr = [0, 1, 2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+    // CHECK-SAME:           axes_attr = [0, 1, 2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
     // CHECK-SAME:           scales_attr = [1.000000e+00, 1.000000e+00, 2.000000e+00, 1.000000e+00], sizes_attr = [1, 16, 320, 320]}
     // CHECK:           : tensor<1x16x160x320xf16, {order = #NHWC}> -> tensor<1x16x320x320xf16, {order = #NHWC}>
 
@@ -186,7 +186,7 @@ func.func @InterpolateBilinearNotSplitWithSmallSize(%arg0: tensor<1x16x16x16xf16
             axes_attr = [2, 3],
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [32, 32],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x16x16xf16, {order = #NHWC}> -> tensor<1x16x32x32xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x32x32xf16, {order = #NHWC}>
@@ -195,14 +195,14 @@ func.func @InterpolateBilinearNotSplitWithSmallSize(%arg0: tensor<1x16x16x16xf16
     // CHECK-SAME:          {attr = #IE.Interpolate<mode = <LINEAR>,
     // CHECK-SAME:           shape_calc_mode = <SCALES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>,
     // CHECK-SAME:           antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
-    // CHECK-SAME:           axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+    // CHECK-SAME:           axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
     // CHECK-SAME:           scales_attr = [1.000000e+00, 2.000000e+00], sizes_attr = [32, 32]}
     // CHECK:           : tensor<1x16x16x16xf16, {order = #NHWC}> -> tensor<1x16x16x32xf16, {order = #NHWC}>
     // CHECK:       [[INTERPOLATE_H:%.+]] = VPU.Interpolate([[INTERPOLATE_W]])
     // CHECK-SAME:          {attr = #IE.Interpolate<mode = <LINEAR>,
     // CHECK-SAME:           shape_calc_mode = <SCALES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>,
     // CHECK-SAME:           antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = -7.500000e-01 : f64>,
-    // CHECK-SAME:           axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+    // CHECK-SAME:           axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
     // CHECK-SAME:           scales_attr = [2.000000e+00, 1.000000e+00], sizes_attr = [32, 32]}
     // CHECK:           : tensor<1x16x16x32xf16, {order = #NHWC}> -> tensor<1x16x32x32xf16, {order = #NHWC}>
 

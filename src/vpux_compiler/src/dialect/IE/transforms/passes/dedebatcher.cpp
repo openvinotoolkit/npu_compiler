@@ -6,6 +6,7 @@
 #include <mlir/IR/Builders.h>
 #include <mlir/Transforms/Inliner.h>
 #include <mlir/Transforms/InliningUtils.h>
+#include <mutex>
 #include "vpux/compiler/dialect/HostExec/IR/attributes.hpp"
 #include "vpux/compiler/dialect/HostExec/transforms/wrap_func_attr.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
@@ -514,7 +515,7 @@ mlir::SmallVector<mlir::Operation*> sliceCallsOp(mlir::OpBuilder& builder, mlir:
     return newCallOps;
 }
 
-void concatenateCallOps(mlir::OpBuilder& builder, mlir::func::CallOp callOp, SmallVector<mlir::Operation*> newCallOps) {
+void concatenateCallOps(mlir::OpBuilder& builder, mlir::func::CallOp callOp, ArrayRef<mlir::Operation*> newCallOps) {
     const auto callLoc = callOp.getLoc();
     const auto funcResNum = callOp.getResults().size();
     for (size_t i = 0; i < funcResNum; i++) {
@@ -550,7 +551,7 @@ public:
             StringRef options, llvm::function_ref<mlir::LogicalResult(const llvm::Twine&)> errorHandler) final;
 
 private:
-    void safeRunOnFunc() final;
+    void safeRunOnModule() final;
     mlir::LogicalResult parseFromOptions();
 };
 
@@ -569,14 +570,11 @@ mlir::LogicalResult DeDebatcherPass::initializeOptions(
 // safeRunOnModule
 //
 
-void DeDebatcherPass::safeRunOnFunc() {
-    auto funcOp = getOperation();
-    auto mainFuncOp = net::getMainFunc(funcOp);
-    if (funcOp != mainFuncOp) {
-        return;
-    }
+void DeDebatcherPass::safeRunOnModule() {
+    auto moduleOp = getOperation();
+    auto mainFuncOp = net::getMainFunc(moduleOp);
 
-    mlir::OpBuilder builder(funcOp);
+    mlir::OpBuilder builder(mainFuncOp);
     auto parsedDebatcherMethod = this->debatcherMethod.getValue();
     bool injectDebatchingReorderingMethodAttr = (parsedDebatcherMethod == "reordering");
     // TODO E#186494 Mutually exclusive passes: Dedebatcher & (createSCFVerticalFusionPass + createApplyTilingPass)
@@ -587,8 +585,8 @@ void DeDebatcherPass::safeRunOnFunc() {
                     parsedDebatcherMethod);
     _log.debug("{0} applying method: {1}", getName(), parsedDebatcherMethod);
 
-    // Check all function calls in funcOp function
-    auto callOps = funcOp.getFunctionBody().getOps<mlir::func::CallOp>();
+    // Check all function calls in main function
+    auto callOps = mainFuncOp.getFunctionBody().getOps<mlir::func::CallOp>();
     for (auto callOp : callOps) {
         //  Acquire and validate de-debatch number
         auto [dedebatchNum, castOpCnt, debatchCoefficients] =
@@ -599,9 +597,9 @@ void DeDebatcherPass::safeRunOnFunc() {
         }
 
         if (generateHostPipeline) {
-            injectHostPipelineStage(funcOp, callOp, dedebatchNum, debatchCoefficients, builder, _log);
-            vpux::runLocalDCE(funcOp);
-            config::setPureHostCompileFuncAttribute(funcOp);
+            injectHostPipelineStage(mainFuncOp, callOp, dedebatchNum, debatchCoefficients, builder, _log);
+            vpux::runLocalDCE(mainFuncOp);
+            config::setPureHostCompileFuncAttribute(mainFuncOp);
             return;
         }
         // Get multi-batch sliced function calls

@@ -482,7 +482,7 @@ public:
             return emitLinalgRegion<SrcOp>(mlir::cast<SrcOp>(op), args, types, rewriter);
         };
         bool keepDims = op.getKeepDims();
-        SmallVector<int64_t> axes = parseIntArrayAttr<int64_t>(op.getAxesValue().value());
+        SmallVector<int64_t> axes = parseIntArrayAttr<int64_t>(op.getAxesValue());
         mlir::Value convertedInput = adaptor.getOperands()[0];
         return emitLinalgReduceHelper(op, convertedInput, emitBody, getNormalizationCallback<SrcOp>(),
                                       /*accumNeedsF32Precision=*/reduceRequiresF32Accumulator<SrcOp>(), keepDims, axes,

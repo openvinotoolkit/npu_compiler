@@ -14,6 +14,10 @@
 
 using namespace vpux;
 
+mlir::LogicalResult vpux::IE::PermuteQuantizeOp::verifyShapeInfo() {
+    return vpux::IE::verifyInputIs4D(getInput());
+}
+
 //
 // inferReturnTypeComponents
 //

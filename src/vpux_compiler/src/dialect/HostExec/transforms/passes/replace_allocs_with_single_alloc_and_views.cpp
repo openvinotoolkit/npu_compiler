@@ -7,11 +7,13 @@
 
 #include "vpux/compiler/dialect/HostExec/IR/dialect.hpp"
 #include "vpux/compiler/utils/hw_settings.hpp"
-#include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/utils/core/dense_map.hpp"
 
 #include <llvm/ADT/STLExtras.h>
+#include <mlir/Analysis/SliceAnalysis.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include <mlir/IR/IRMapping.h>
 #include <mlir/IR/PatternMatch.h>
 
 namespace vpux::HostExec {
@@ -76,20 +78,61 @@ void ReplaceAllocsWithSingleAllocAndViewsPass::safeRunOnFunc() {
     // If we are in highest scope, we can insert the scratch alloc before the first alloc
     // Otherwise, we need to insert the scratch alloc at the beginning of the parent op
     auto parentOfFirstAllocToReplace = allocsToReplace.front()->getParentOp();
+    mlir::Operation* insertionAnchor = allocsToReplace.front();
     if (mlir::isa<mlir::func::FuncOp>(parentOfFirstAllocToReplace)) {
         rewriter.setInsertionPoint(allocsToReplace.front());
     } else {
+        insertionAnchor = parentOfFirstAllocToReplace;
         rewriter.setInsertionPoint(parentOfFirstAllocToReplace);
     }
-    for (const auto& dynDim : allocDynamicSizes) {
-        for (auto dim : dynDim) {
-            // Do not move the dim operation if it is already in the correct place: before parentOfFirstAllocToReplace
+
+    // An op already before insertionAnchor already dominates the merged alloc. Ops in a different
+    // block can't be compared positionally, so treat them as not yet positioned.
+    auto isAlreadyPositioned = [&](mlir::Operation* op) {
+        return insertionAnchor->getBlock() == op->getBlock() && op->isBeforeInBlock(insertionAnchor);
+    };
+
+    // A dynamic size may be shared by several allocs; cache clones so a shared chain is cloned once.
+    DenseMap<mlir::Value, mlir::Value> clonedDynamicSizes;
+
+    for (auto& dynDim : allocDynamicSizes) {
+        for (auto& dim : dynDim) {
             mlir::Operation* dimOp = dim.getDefiningOp();
-            if ((parentOfFirstAllocToReplace->getBlock() == dimOp->getBlock()) &&
-                dimOp->isBeforeInBlock(parentOfFirstAllocToReplace)) {
+            if (dimOp == nullptr) {
+                // Block arguments already dominate everywhere in their block.
                 continue;
             }
-            rewriter.moveOpBefore(dim.getDefiningOp(), &*rewriter.getInsertionPoint());
+            if (isAlreadyPositioned(dimOp)) {
+                continue;
+            }
+            if (auto it = clonedDynamicSizes.find(dim); it != clonedDynamicSizes.end()) {
+                dim = it->second;
+                continue;
+            }
+
+            // dimOp may depend on a chain of ops also used elsewhere; moving them in place (rather
+            // than cloning) would break dominance for those other uses. Clone the backward slice
+            // before the insertion point instead, leaving the originals untouched.
+            mlir::BackwardSliceOptions sliceOptions;
+            sliceOptions.omitBlockArguments = true;
+            sliceOptions.filter = [&](mlir::Operation* candidate) {
+                if (candidate->getBlock() != dimOp->getBlock()) {
+                    return false;
+                }
+                return !isAlreadyPositioned(candidate);
+            };
+            llvm::SetVector<mlir::Operation*> backwardSlice;
+            auto sliceResult = mlir::getBackwardSlice(dimOp, &backwardSlice, sliceOptions);
+            VPUX_THROW_UNLESS(mlir::succeeded(sliceResult), "Failed to compute backward slice for '{0}'", dimOp);
+
+            mlir::IRMapping mapper;
+            for (auto* depOp : backwardSlice) {
+                rewriter.clone(*depOp, mapper);
+            }
+            auto* clonedDimOp = rewriter.clone(*dimOp, mapper);
+            mlir::Value originalDim = dim;
+            dim = clonedDimOp->getResult(mlir::cast<mlir::OpResult>(dim).getResultNumber());
+            clonedDynamicSizes[originalDim] = dim;
         }
     }
     auto loc = func.getLoc();
@@ -118,13 +161,13 @@ void ReplaceAllocsWithSingleAllocAndViewsPass::safeRunOnFunc() {
         auto elemSizeValue = rewriter.create<mlir::arith::ConstantIndexOp>(loc, elemSize);
         auto allocSize = rewriter.create<mlir::arith::MulIOp>(loc, size, elemSizeValue);
 
-        sizes.push_back(allocSize);
         if (i == 0) {
             offsets.push_back(rewriter.create<mlir::arith::ConstantIndexOp>(loc, 0));
         } else {
             auto offset = rewriter.create<mlir::arith::AddIOp>(loc, offsets.back(), sizes.back());
             offsets.push_back(offset);
         }
+        sizes.push_back(allocSize);
     }
 
     if (offsets.empty() || sizes.empty()) {

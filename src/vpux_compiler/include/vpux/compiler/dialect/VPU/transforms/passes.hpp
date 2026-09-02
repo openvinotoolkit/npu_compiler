@@ -216,6 +216,17 @@ struct ScfComputeOpsOutliningOptions : mlir::PassPipelineOptions<ScfComputeOpsOu
                              clEnumValN(AutoUnrollingMode::BIGGEST, "biggest",
                                         "Unroll only the loop with the largest auto-assigned factor"))};
 
+    BoolOption enableBacktrackingBeyondResidualKernel{
+            *this, "backtracking-beyond-residual-kernel",
+            llvm::cl::desc("Enable tail-overlap backtracking for cascaded loop unrolling (runtime-selected stage)"),
+            llvm::cl::init(false)};
+
+    Int64Option tailOverlapBacktrackMarginPercent{
+            *this, "tail-overlap-backtrack-margin-percent",
+            llvm::cl::desc(
+                    "Allowed deficit for tail-overlap backtracking as a percentage (0..100) of one overlap tile step"),
+            llvm::cl::init(15)};
+
     BoolOption enableWeightsExtraction{*this, "weights-extraction",
                                        llvm::cl::desc("Extract repeated weights from outlined kernels and concat "
                                                       "host constants"),
@@ -299,7 +310,9 @@ struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
                                        llvm::cl::init(true)};
 
     BoolOption enableQDQOptimizationAggressive{*this, "enable-qdq-optimization-aggressive",
-                                               llvm::cl::desc("Enable aggressive QDQ optimizations"),
+                                               llvm::cl::desc("This option is deprecated and is kept for backwards "
+                                                              "compatibility. The option may be removed in the future. "
+                                                              "Enable aggressive QDQ optimizations"),
                                                llvm::cl::init(false)};
 
     BoolOption enableExtraStaticShapeOps{
@@ -322,6 +335,13 @@ struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
     // SetupEnableVPUNNPreSplit pass option
     BoolOption enableVPUNNPreSplit{*this, "enable-vpunn-pre-split", llvm::cl::desc("Enable VPUNN pre-split API"),
                                    llvm::cl::init(false)};
+
+    // SetTargetIndependentPassOptions pass option.
+    // Default value 4 matches VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT (kept as a literal to avoid pulling
+    // nce_invariant.hpp into this header). Platform setup may override it for better DPU efficiency.
+    Int64Option preferredSpatialAlignment{*this, "preferred-spatial-alignment",
+                                          llvm::cl::desc("Preferred spatial (H W) alignment used by tiling"),
+                                          llvm::cl::init(4)};
 
     // SetupEnableODULocalRegion pass option
     BoolOption enableODULocalRegion{*this, "enable-odu-local-region", llvm::cl::desc("Enable ODU local region"),
@@ -358,13 +378,20 @@ struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
 
     BoolOption enableProfiling{*this, "enable-profiling", llvm::cl::desc("Enable profiling"), llvm::cl::init(false)};
 
+    StrOption customKernelConfigPath{*this, "custom-kernel-config-path",
+                                     llvm::cl::desc("[Optional] Path to custom kernel config XML"), llvm::cl::init("")};
+
     StrOption disabledPasses{*this, "disabled-passes",
                              llvm::cl::desc("Regex for disabling specific passes in the compiler pipeline"),
                              llvm::cl::init("")};
 
-    StrOption outdatedPassDetectionFile{*this, "outdated-pass-detection-file",
-                                        llvm::cl::desc("File to dump information about detecting outdated passes"),
-                                        llvm::cl::init("")};
+    BoolOption enableOutdatedPassDetection{*this, "enable-outdated-pass-detection",
+                                           llvm::cl::desc("Enable detection of outdated passes"),
+                                           llvm::cl::init(false)};
+
+    BoolOption constantTracing{*this, "constant-tracing",
+                               llvm::cl::desc("Flag for enabling constant tracing in the compiler pipeline"),
+                               llvm::cl::init(false)};
 
     mlir::detail::PassOptions::Option<WorkloadManagementMode> workloadManagementMode{
             *this, "workload-management-mode",
@@ -433,7 +460,7 @@ std::unique_ptr<mlir::Pass> createMoveConvertAroundViewLikeOpsPass(Logger log = 
 std::unique_ptr<mlir::Pass> createComputeNCEInputWorkloadsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createApplyTilingMVN1SumPass(bool enablePrefetchTiling = true,
                                                          Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createDecomposeMVNPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createDecomposeMVNPass(Logger log = Logger::global(), bool forceDecompose = false);
 std::unique_ptr<mlir::Pass> createSplitRealDFTOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAdjustForOptimizedLayersPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createInitResourcesPass();
@@ -449,10 +476,13 @@ std::unique_ptr<mlir::Pass> createSWKernelInstructionPrefetchReserveMemForDummyK
         Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSWKernelDataPrefetchReserveMemPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createCMXStackFramesReserveMemPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createCMXAdditionalStackFramesReserveMemPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createCMXMetadataReserveMemPass(Logger log = Logger::global());
 
 std::unique_ptr<mlir::Pass> createOptimizeSharedInputCopyForConcatPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createCMXConcatPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitNCEOpsOntoWorkloadsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createWorkloadsForNCEOpsSCFPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createCorrectNCEWorkloadsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createCreateNewWeightTablesDataPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createResolveEltwiseWithZTiledWorkloadsPass(Logger log = Logger::global());
@@ -492,6 +522,7 @@ std::unique_ptr<mlir::Pass> createManualStrategyUtilsPass(
 std::unique_ptr<mlir::Pass> createDetectionOutputDecompositionPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitGRUSequencePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createTileLSTMSequencePass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createSplitGatedDeltaNetPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAdjustLSTMCellInputsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createComputeInterpolateCoordinatesPass(bool enableExplicitDistributionInfoAttr = false,
                                                                     Logger log = Logger::global());
@@ -609,7 +640,7 @@ std::unique_ptr<mlir::Pass> createStrategyManagerImplPass(bool enablePrefetchTil
 std::unique_ptr<mlir::Pass> createEfficientIROrderPass(bool enableReorderConcatBranches = false,
                                                        Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createRemoveOutputSparseToAvoidSuboptimalDPUWorkloadsPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createFlashSDPATilingPass(bool enablePipelining = true, Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createFlashSDPATilingPass(Logger log = Logger::global());
 
 void buildActivationSparsityPipeline(mlir::OpPassManager& pm, const VPU::ActivationSparsityOptions& options,
                                      Logger log = Logger::global());
@@ -624,6 +655,8 @@ void buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOptions& opti
 
 void buildScfComputeOpsOutliningPipeline(mlir::OpPassManager& pm, const vpux::StrOption& loopUnrollFactor,
                                          bool enableProfiling, const vpux::BoolOption& enableCascadedUnrolling,
+                                         const vpux::BoolOption& enableBacktrackingBeyondResidualKernel,
+                                         const vpux::Int64Option& tailOverlapBacktrackMarginPercent,
                                          const mlir::detail::PassOptions::Option<AutoUnrollingMode>& autoUnrollingMode,
                                          const vpux::BoolOption& enableWeightsExtraction,
                                          Logger log = Logger::global());
@@ -750,6 +783,8 @@ std::unique_ptr<mlir::Pass> createRestorePadAttrAfterSCFTilingPass(Logger log = 
 std::unique_ptr<mlir::Pass> createAdjustBlockSizeForScfTilingPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollSCFLoopPass(StringRef loopUnrollFactor = "",
                                                     bool enableCascadedUnrolling = true,
+                                                    bool enableBacktrackingBeyondResidualKernel = false,
+                                                    int64_t tailOverlapBacktrackMarginPercent = 15,
                                                     AutoUnrollingMode autoUnrollingMode = AutoUnrollingMode::DISABLED,
                                                     Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFullUnrollSCFLoopPass(Logger log = Logger::global());

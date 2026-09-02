@@ -46,7 +46,7 @@ module @SplitNCEConvWithUnpaddedInputChannels {
         %0 = VPU.NCE.Convolution(%input, %weights) rawFilterShape [16, 3, 4, 8] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
             pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
-            
+
             strides = [1, 1]
         } : tensor<1x3x40x80xf16, {order = #NHWC}>, tensor<16x1x1x512xf16, {order = #NHWC}> -> tensor<1x16x37x73xf16, {order = #NHWC}>
 
@@ -70,7 +70,7 @@ module @SplitNCEConvWithUnpaddedOutputChannels {
         %0 = VPU.NCE.Convolution(%input, %weights) rawFilterShape [3, 16, 4, 8] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
             pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
-            
+
             strides = [1, 1]
         } : tensor<1x16x40x80xf16, {order = #NHWC}>, tensor<3x16x4x8xf16, {order = #NHWC}> -> tensor<1x3x37x73xf16, {order = #NHWC}>
 
@@ -95,7 +95,7 @@ module @SplitNCEConvWithUnpaddedInputOutputChannels {
         %0 = VPU.NCE.Convolution(%input, %weights) rawFilterShape [3, 3, 4, 8] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
             pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
-            
+
             strides = [1, 1]
         } : tensor<1x3x40x80xf16, {order = #NHWC}>, tensor<3x1x1x512xf16, {order = #NHWC}> -> tensor<1x3x37x73xf16, {order = #NHWC}>
 
@@ -116,10 +116,10 @@ module @SplitNCEDepthConvWithUnpaddedOutputChannels {
     func.func @main(%input: tensor<1x16x40x80xf16, {order = #NHWC}>,
                     %weights: tensor<3x1x4x8xf16, {order = #NHWC}>)
             -> tensor<1x3x37x73xf16, {order = #NHWC}> {
-        %0 = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [3, 1, 4, 8] {
+        %0 = VPU.NCE.DepthConvolution(%input, %weights) rawFilterShape [3, 1, 4, 8] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
             pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
-            
+
             strides = [1, 1]
         } -> tensor<1x3x37x73xf16, {order = #NHWC}>
 
@@ -184,7 +184,7 @@ module @SplitNCEEltwiseWithUnpaddedOutputChannels {
         config.Option @config.AutoPaddingODU : true
     }
     func.func @main(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>) -> tensor<1x3x16x16xf16, {order = #NHWC}> {
-        %0 = VPU.NCE.Eltwise(%arg0, %arg0) {
+        %0 = VPU.NCE.Eltwise(%arg0, %arg0) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             input_padding = [0, 13, 0, 0],
             op_type = #VPU.eltwise_type<SUBTRACT>,
             ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>

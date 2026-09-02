@@ -70,7 +70,7 @@ std::optional<Dim> getVFTilingDim(ArrayRef<int64_t> tilingStrategy);
 mlir::FailureOr<Dim> getVFTilingDim(ArrayRef<int64_t> tilingStrategy, ArrayRef<mlir::Operation*> operations);
 
 // get allowed dims for tiling
-DimArr getAllowedDims(ArrayRef<mlir::Operation*> operations, Logger log);
+DimArr getAllowedDims(ArrayRef<mlir::Operation*> operations, Logger log, bool backInferNCEWeights = false);
 
 // check if previous operation will be early scheduled
 bool isPrevOperationEarlyScheduled(mlir::Operation* prevOp, mlir::Operation* nextOp);
@@ -138,6 +138,7 @@ VPU::DistributedTensorType inferDistributedTypeThroughViewOps(VPU::DistributedTe
                                                               ArrayRef<mlir::Operation*> viewOps);
 
 // Get the linked argument between two VF ops
-mlir::BlockArgument getLinkedArgumentBetweenVFOps(VPU::VerticalFusionOp currentOp, VPU::VerticalFusionOp prevOp);
+SmallVector<mlir::BlockArgument> getLinkedArgumentsBetweenVFOps(VPU::VerticalFusionOp currentOp,
+                                                                VPU::VerticalFusionOp prevOp);
 }  // namespace VPU
 }  // namespace vpux

@@ -64,6 +64,7 @@ void vpux::VPU::arch50xx::registerUnrollBatchOpInterfaces(mlir::DialectRegistry&
         IE::FullyConnectedOp::attachInterface<UnrollBatchOpModel<IE::FullyConnectedOp>>(*ctx);
         IE::GroupConvolutionOp::attachInterface<UnrollBatchOpModel<IE::GroupConvolutionOp>>(*ctx);
         IE::ExpOp::attachInterface<UnrollBatchOpModel<IE::ExpOp>>(*ctx);
+        IE::ErfInvOp::attachInterface<UnrollBatchOpModel<IE::ErfInvOp>>(*ctx);
         IE::SigmoidOp::attachInterface<UnrollBatchOpModel<IE::SigmoidOp>>(*ctx);
         IE::InterpolateOp::attachInterface<UnrollBatchOpModel<IE::InterpolateOp>>(*ctx);
         IE::ConvolutionOp::attachInterface<UnrollBatchOpModel<IE::ConvolutionOp>>(*ctx);

@@ -8,6 +8,7 @@
 #include "common/npu_test_env_cfg.hpp"
 #include "vpu_test_tool.hpp"
 #include "vpux/utils/logger/logger.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 #include <intel_npu/npu_private_properties.hpp>
 #include <shared_test_classes/base/ov_subgraph.hpp>
@@ -22,7 +23,8 @@ namespace ov::test::utils {
 
 using SkipMessage = std::optional<std::string>;
 using SkipCallback = std::function<void(std::stringstream&)>;
-namespace Platform = ov::intel_npu::Platform;
+
+namespace Platform = vpux::OV::Platform;
 
 enum class VpuCompilationMode {
     ReferenceSW,

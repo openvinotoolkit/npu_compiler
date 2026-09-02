@@ -704,20 +704,17 @@ func.func @ShvWithDpuGraph() -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN,
 
 // -----
 
-// Test: start barrier (bar0) is consumed ONLY by a DPU task (not on P0 DDR queue).
-// getBarrierEarliestConsumer(bar0) returns the DPU task index which is NOT on the P0 DDR
-// queue used for enqueue DMA insertion. The fix looks for the earliest P0 DDR producer of
-// bar0 and uses (producerIdx + 1) as the enqueue DMA insertion point, placing it correctly
-// BEFORE the DPU consumer of bar0
+// Test: start barrier (bar0) has multiple producers.
+// Current behavior places the earliest enqueue DMA after the latest producer of start barrier.
 //
 //  DMA/DPU<HwFifo>[index]  bar<index>(PID)
 //
-// _______    DMA0[0]                    <- P0 DDR, produces bar0 (start barrier)
+// ______ DMA0[0] DMA1[1]                   <- first producer of bar0 (start barrier)
 //              |
-//            bar0(0) (start barrier)
+//            bar0(0)
 //              |
-//  Page0     DPU0[0]                    <- DPU is the ONLY (earliest) consumer of bar0,
-//              |                           NOT on P0 DDR queue
+//  Page0     DPU0[0]
+//              |
 //            bar1(1)
 //              |
 // _______   DMA0[1]
@@ -728,26 +725,63 @@ func.func @ShvWithDpuGraph() -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN,
 //              |
 //            bar3(3)
 //              |
-// _______   DMA0[2]
-//              |
-//            bar4(0)
-//              |
-//  Page2     DMA1[1]
-//              |
-//            bar5(1)
-//           /      \
-// _______  DMA0[3]  DPU0[1]
-//            \      /
-//             bar6(2)
-//              |
-//  Page3     DPU0[2]
-//              |
-//            bar7(3)
-// _______
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+func.func @StartBarrierLatestProducerPlacement() -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+  %bar0 = VPURT.ConfigureBarrier<0> <{isStartBarrier, wlmPage = 0 : i64}> -> !VPURT.Barrier
+  %bar1 = VPURT.ConfigureBarrier<1> <{isFinalBarrier, wlmPage = 0 : i64}> -> !VPURT.Barrier
+
+  %cst0 = const.Declare memref<16x16x1x1xf16, {order = #NHWC}> =
+    dense<1.0> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
+  %buf0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  %buf1 = VPURT.DeclareBuffer <CMX_NN> [0] <32768> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  %buf2 = VPURT.DeclareBuffer <CMX_NN> [0] <33280> -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+  %buf3 = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
+
+  // First producer of start barrier bar0.
+  VPURT.Task updates(%bar0: !VPURT.Barrier) wlmPage(0) {
+    VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  }
+
+  // Latest producer of start barrier bar0.
+  VPURT.Task updates(%bar0: !VPURT.Barrier) wlmPage(0) {
+    VPUIP.NNDMA <{port = 1 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+  }
+
+  // First consumer of bar0.
+  VPURT.Task waits(%bar0: !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) wlmPage(0) {
+    VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>
+      }>
+      input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%buf2: memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
+      variants : {DPUTask {outStart = [0, 0, 0], outEnd = [31, 7, 15], pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, mpe_mode = #VPU.mpe_mode<VECTOR_FP16>}
+            DPUTask {outStart = [0, 0, 0], outEnd = [31, 7, 15], pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, mpe_mode = #VPU.mpe_mode<VECTOR_FP16>}} PPE : {}
+  }
+
+  return %buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
+
+  // CHECK:   [[BAR0:%.+]] = VPURT.ConfigureBarrier<0> <{isStartBarrier, wlmPage = 0 : i64}> -> !VPURT.Barrier
+  // CHECK:   [[BAR1:%.+]] = VPURT.ConfigureBarrier<1> <{isFinalBarrier, wlmPage = 0 : i64}> -> !VPURT.Barrier
+
+  // Start barrier has two producers. Earliest enqueue DMA is inserted after the latest producer of bar0.
+  // CHECK:   VPURT.Task updates([[BAR0]] : !VPURT.Barrier) wlmPage(0) {
+  // CHECK-NEXT: VPUIP.NNDMA <{port = 0 : i64}>
+  // CHECK:   VPURT.Task updates([[BAR0]] : !VPURT.Barrier) wlmPage(0) {
+  // CHECK-NEXT: VPUIP.NNDMA <{port = 1 : i64}>
+  // CHECK:   VPURT.Task waits([[BAR0]] : !VPURT.Barrier) wlmPage(0) {
+  // CHECK-NEXT: VPUIP.EnqueueDMA <{port = 0 : i64}>
+}
+
+// -----
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-func.func @StartBarrierEarliestConsumerNotOnP0DDR() -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
+module @VPU.SW {
+    func.func nested @builtin_AttentionDMA(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64, i64) attributes {VPU.kernel_code = "lstm_dpu.cpp", VPU.kernel_entry = "lstm_dpu", VPU.task_type = @COMPUTE}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+}
+
+func.func @ShvWithDpuandDmaGraph() -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %bar0 = VPURT.ConfigureBarrier<0> <{isStartBarrier, wlmPage = 0 : i64}> -> !VPURT.Barrier
     %bar1 = VPURT.ConfigureBarrier<1> <{wlmPage = 0 : i64}> -> !VPURT.Barrier
     %bar2 = VPURT.ConfigureBarrier<2> <{wlmPage = 1 : i64}> -> !VPURT.Barrier
@@ -757,6 +791,7 @@ func.func @StartBarrierEarliestConsumerNotOnP0DDR() -> memref<1x16x8x32xf16, {or
     %bar6 = VPURT.ConfigureBarrier<2> <{wlmPage = 3 : i64}> -> !VPURT.Barrier
     %bar7 = VPURT.ConfigureBarrier<3> <{isFinalBarrier, wlmPage = 3 : i64}> -> !VPURT.Barrier
 
+    // dummy buffer
     %cst0 = const.Declare memref<16x16x1x1xf16, {order = #NHWC}> =
         dense<1.0> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
     %buf0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
@@ -764,59 +799,130 @@ func.func @StartBarrierEarliestConsumerNotOnP0DDR() -> memref<1x16x8x32xf16, {or
     %buf2 = VPURT.DeclareBuffer <CMX_NN> [0] <33280> -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
     %buf3 = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
 
-    // DMA0[0]: P0 DDR produces start barrier bar0
-    VPURT.Task updates(%bar0: !VPURT.Barrier) wlmPage(0) {
+    %buf4 = VPURT.DeclareBuffer <CMX_NN> [0] <32768> -> memref<1x1x2x256xf16, [@CMX_NN, 0]>
+    %buf5 = VPURT.DeclareBuffer <CMX_NN> [0] <48448> -> memref<1x1x1x64xf16, [@CMX_NN, 0]>
+    %buf6 = VPURT.DeclareBuffer <CMX_NN> [0] <48576> -> memref<1x1x1x64xf16, [@CMX_NN, 0]>
+    %buf7 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x4x64x64xf16, [@CMX_NN, 0]>
+    %buf8 = VPURT.DeclareBuffer <CMX_NN> [0] <48704> -> memref<1x1x1x2xsi32, [@CMX_NN, 0]>
+    %buf9 = VPURT.DeclareBuffer <CMX_NN> [0] <40960> -> memref<1x1x1x1544xsi32, [@CMX_NN, 0]>
+    %buf10 = VPURT.DeclareBuffer <CMX_NN> [0] <47168> -> memref<1x1x2x64xf16, [@CMX_NN, 0]>
+    %buf11 = VPURT.DeclareBuffer <CMX_NN> [0] <47424> -> memref<1x1x1x64xf16, [@CMX_NN, 0]>
+    %buf12 = VPURT.DeclareBuffer <CMX_NN> [0] <47552> -> memref<1x1x1x64xf16, [@CMX_NN, 0]>
+    %syncBuf = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
+    %syncBufCmx = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<0x0x0x0xi32, [@CMX_NN, 0]>
+
+    // Simple subgraph with dummy ops:
+    //  DMA/DPU<HwFifo>[index]
+    //  bar<index>(PID)
+    //
+    // _______      DMA0[0]
+    //               |
+    //              bar0(0)
+    //               |
+    //  Page0       DMA1[0]
+    //               |
+    //              bar1(1)
+    //               |
+    // _______      DMA0[1]
+    //               |
+    //              bar2(2)
+    //               |
+    //  Page1       DMA1[1]
+    //               |
+    //              bar3(3)
+    //    ---------/      \
+    //SyncDRR   DMA0[2]     SHVwithDPU  <- DPU enqueue to be placed right after SHVwithDPU
+    //              \     |             New EnqueueDMA will wait on bar4 (by FIFO) and be after Sync DMA
+    //       DMA0[3] |    |
+    //  _______      |   /
+    //              bar4(0)
+    //               |
+    //  Page2       DMA1[2]
+    //               |
+    //              bar5(1)
+    //             /      \
+    // _______  DMA0[4]   DPU0[0]
+    //             \      /
+    //              bar6(2)
+
+
+    VPURT.Task updates(%bar0: !VPURT.Barrier) wlmPage(0)
+    {
         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
-    // DPU0[0]: DPU consumes bar0 - this is the earliest consumer, NOT on P0 DDR queue
-    VPURT.Task waits(%bar0: !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) wlmPage(0) {
-        VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
-                kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>
-            }>
-            input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%buf2: memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
-            variants : {DPUTask {outStart = [0, 0, 0], outEnd = [31, 7, 15], pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, mpe_mode = #VPU.mpe_mode<VECTOR_FP16>}
-                        DPUTask {outStart = [0, 0, 0], outEnd = [31, 7, 15], pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, mpe_mode = #VPU.mpe_mode<VECTOR_FP16>}} PPE : {}
-    }
-
-    VPURT.Task waits(%bar1: !VPURT.Barrier) updates(%bar2: !VPURT.Barrier) wlmPage(0) {
-        VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
-    }
-
-    VPURT.Task waits(%bar2: !VPURT.Barrier) updates(%bar3: !VPURT.Barrier) wlmPage(1) {
+    VPURT.Task waits(%bar0: !VPURT.Barrier) updates(%bar1: !VPURT.Barrier) wlmPage(0)
+    {
         VPUIP.NNDMA <{port = 1 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
-    VPURT.Task waits(%bar3: !VPURT.Barrier) updates(%bar4: !VPURT.Barrier) wlmPage(1) {
+    VPURT.Task waits(%bar1: !VPURT.Barrier) updates(%bar2: !VPURT.Barrier) wlmPage(0)
+    {
         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
-    VPURT.Task waits(%bar4: !VPURT.Barrier) updates(%bar5: !VPURT.Barrier) wlmPage(2) {
+    VPURT.Task waits(%bar2: !VPURT.Barrier) updates(%bar3: !VPURT.Barrier) wlmPage(1)
+    {
         VPUIP.NNDMA <{port = 1 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
-    VPURT.Task waits(%bar5: !VPURT.Barrier) updates(%bar6: !VPURT.Barrier) wlmPage(2) {
+    VPURT.Task waits(%bar3: !VPURT.Barrier) updates(%bar4: !VPURT.Barrier) wlmPage(1)
+    {
         VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     }
 
-    // DPU0[1]
-    VPURT.Task waits(%bar5: !VPURT.Barrier) updates(%bar6: !VPURT.Barrier) wlmPage(2) {
-        VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
-                kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>
-            }>
-            input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%buf2: memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
-            variants : {DPUTask {outStart = [0, 0, 0], outEnd = [31, 7, 15], pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, mpe_mode = #VPU.mpe_mode<VECTOR_FP16>}
-                        DPUTask {outStart = [0, 0, 0], outEnd = [31, 7, 15], pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, mpe_mode = #VPU.mpe_mode<VECTOR_FP16>}} PPE : {}
+    VPURT.Task waits(%bar3: !VPURT.Barrier) wlmPage(1)
+    {
+      VPUIP.SyncDMA {logical_task = 0 : i64} <{port = 0 : i64}> inputs(%syncBuf : memref<0x0x0x0xi32, @DDR>) outputs(%syncBuf : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
     }
 
-    // DPU0[2]
-    VPURT.Task waits(%bar6: !VPURT.Barrier) updates(%bar7: !VPURT.Barrier) wlmPage(3) {
+    VPURT.Task waits(%bar3: !VPURT.Barrier) updates(%bar4: !VPURT.Barrier) wlmPage(1)
+    {
+        VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 3, 0, 0>, logical_task = 0 : i64} @VPU.SW::@builtin_AttentionDMA inputs(%buf4 as %arg6: memref<1x1x2x256xf16, [@CMX_NN, 0]>, %buf5 as %arg7: memref<1x1x1x64xf16, [@CMX_NN, 0]>, %buf6 as %arg8: memref<1x1x1x64xf16, [@CMX_NN, 0]>, %buf7 as %arg9: memref<1x4x64x64xf16, [@CMX_NN, 0]>, %buf8 as %arg10: memref<1x1x1x2xsi32, [@CMX_NN, 0]>, %buf9 as %arg11: memref<1x1x1x1544xsi32, [@CMX_NN, 0]>) outputs(%buf10 as %arg12: memref<1x1x2x64xf16, [@CMX_NN, 0]>, %buf11 as %arg13: memref<1x1x1x64xf16, [@CMX_NN, 0]>, %buf12 as %arg14: memref<1x1x1x64xf16, [@CMX_NN, 0]>) on tile 0 -> (memref<1x1x2x64xf16, [@CMX_NN, 0]>, memref<1x1x1x64xf16, [@CMX_NN, 0]>, memref<1x1x1x64xf16, [@CMX_NN, 0]>){
+            VPUIP.SW.Kernel.run {attrs = [1, 52]}(%arg6, %arg7, %arg8, %arg9, %arg10, %arg11, %arg12, %arg13, %arg14) : memref<1x1x2x256xf16, [@CMX_NN, 0]>, memref<1x1x1x64xf16, [@CMX_NN, 0]>, memref<1x1x1x64xf16, [@CMX_NN, 0]>, memref<1x4x64x64xf16, [@CMX_NN, 0]>, memref<1x1x1x2xsi32, [@CMX_NN, 0]>, memref<1x1x1x1544xsi32, [@CMX_NN, 0]>, memref<1x1x2x64xf16, [@CMX_NN, 0]>, memref<1x1x1x64xf16, [@CMX_NN, 0]>, memref<1x1x1x64xf16, [@CMX_NN, 0]>
+        }
+    }
+
+    VPURT.Task waits(%bar4: !VPURT.Barrier) updates(%bar5: !VPURT.Barrier) wlmPage(1)
+    {
+      VPUIP.SyncDMA <{port = 0 : i64}> inputs(%syncBuf : memref<0x0x0x0xi32, @DDR>) outputs(%syncBuf : memref<0x0x0x0xi32, @DDR>) -> memref<0x0x0x0xi32, @DDR>
+    }
+
+    VPURT.Task waits(%bar3: !VPURT.Barrier) updates(%bar5: !VPURT.Barrier) wlmPage(1)
+    {
+        VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+
+    VPURT.Task waits(%bar3: !VPURT.Barrier) updates(%bar5: !VPURT.Barrier) wlmPage(2)
+    {
+        VPUIP.NNDMA <{port = 1 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+
+    VPURT.Task waits(%bar5: !VPURT.Barrier) updates(%bar6: !VPURT.Barrier) wlmPage(2)
+    {
+        VPUIP.NNDMA <{port = 0 : i64}> inputs(%cst0: memref<16x16x1x1xf16, {order = #NHWC}>) outputs(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    }
+
+    VPURT.Task waits(%bar5: !VPURT.Barrier) updates(%bar6: !VPURT.Barrier) wlmPage(2)
+    {
         VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
                 kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>
             }>
             input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%buf2: memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
             variants : {DPUTask {outStart = [0, 0, 0], outEnd = [31, 7, 15], pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, mpe_mode = #VPU.mpe_mode<VECTOR_FP16>}
                         DPUTask {outStart = [0, 0, 0], outEnd = [31, 7, 15], pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, mpe_mode = #VPU.mpe_mode<VECTOR_FP16>}} PPE : {}
+
+    }
+
+    VPURT.Task waits(%bar6: !VPURT.Barrier) updates(%bar7: !VPURT.Barrier) wlmPage(3)
+    {
+        VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+                kernel_padding = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>
+            }>
+            input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%buf1: memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%buf2: memref<16x1x1x4xsi32, [@CMX_NN, 0]>) parent_input(%buf0: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
+            variants : {DPUTask {outStart = [0, 0, 0], outEnd = [31, 7, 15], pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, mpe_mode = #VPU.mpe_mode<VECTOR_FP16>}
+                        DPUTask {outStart = [0, 0, 0], outEnd = [31, 7, 15], pad = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>, mpe_mode = #VPU.mpe_mode<VECTOR_FP16>}} PPE : {}
+
     }
 
     return %buf3: memref<1x16x8x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
@@ -830,17 +936,35 @@ func.func @StartBarrierEarliestConsumerNotOnP0DDR() -> memref<1x16x8x32xf16, {or
     // CHECK:   [[BAR6:%.+]] = VPURT.ConfigureBarrier<2> <{wlmPage = 3 : i64}> -> !VPURT.Barrier
     // CHECK:   [[BAR7:%.+]] = VPURT.ConfigureBarrier<3> <{isFinalBarrier, wlmPage = 3 : i64}> -> !VPURT.Barrier
 
-    // DMA0[0] produces start barrier. EnqueueDMA for all DPU tasks is inserted right after it
-    // (at P0 DDR producer + 1), before DPU0[0] which is bar0's earliest consumer.
     // CHECK:   VPURT.Task updates([[BAR0]] : !VPURT.Barrier) wlmPage(0) {
     // CHECK-NEXT: VPUIP.NNDMA <{port = 0 : i64}>
     // CHECK:   VPURT.Task waits([[BAR0]] : !VPURT.Barrier) wlmPage(0) {
     // CHECK-NEXT: VPUIP.EnqueueDMA <{port = 0 : i64}>
-    // CHECK-SAME: enqueue_dma_attr(<<DPU>, tile = 0 : i64, list = 0 : i64, startTask = 0 : i64, endTask = 1 : i64>)
+    // CHECK-SAME: enqueue_dma_attr(<<SHAVE_ACT>, tile = 0 : i64, list = 0 : i64, startTask = 0 : i64, endTask = 0 : i64>)
     // CHECK:   VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier) wlmPage(0) {
-    // CHECK-NEXT: VPUIP.NCEClusterTask
+    // CHECK-NEXT: VPUIP.NNDMA <{port = 1 : i64}>
     // CHECK:   VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]] : !VPURT.Barrier) wlmPage(0) {
     // CHECK-NEXT: VPUIP.NNDMA <{port = 0 : i64}>
     // CHECK:   VPURT.Task waits([[BAR2]] : !VPURT.Barrier) updates([[BAR3]] : !VPURT.Barrier) wlmPage(1) {
     // CHECK-NEXT: VPUIP.NNDMA <{port = 1 : i64}>
+    // CHECK:   VPURT.Task waits([[BAR3]] : !VPURT.Barrier) updates([[BAR4]] : !VPURT.Barrier) wlmPage(1) {
+    // CHECK-NEXT: VPUIP.NNDMA <{port = 0 : i64}>
+    // CHECK:   VPURT.Task waits([[BAR3]] : !VPURT.Barrier) updates([[BAR5]] : !VPURT.Barrier) wlmPage(2) {
+    // CHECK-NEXT: VPUIP.NNDMA <{port = 1 : i64}>
+
+    // CHECK:   VPURT.Task waits([[BAR3]] : !VPURT.Barrier) updates([[BAR4]] : !VPURT.Barrier) wlmPage(1) {
+    // CHECK-NEXT: VPUIP.SW.Kernel
+
+    // ShvSyncDma
+    // CHECK:   VPURT.Task waits([[BAR3]] : !VPURT.Barrier) wlmPage(1) {
+    // CHECK-NEXT: VPUIP.SyncDMA {logical_task = 0 : i64} <{port = 0 : i64}>
+
+    // Release
+    // CHECK:   VPURT.Task waits([[BAR4]] : !VPURT.Barrier) updates([[BAR5]] : !VPURT.Barrier) wlmPage(1) {
+    // CHECK-NEXT: VPUIP.SyncDMA <{port = 0 : i64}>
+
+    // Enqueue DMA is placed after SyncDMA on same channel
+    // CHECK:   VPURT.Task wlmPage(2) {
+    // CHECK-NEXT: VPUIP.EnqueueDMA <{port = 0 : i64}>
+    // CHECK-SAME: enqueue_dma_attr(<<DPU>, tile = 0 : i64, list = 0 : i64, startTask = 0 : i64, endTask = 3 : i64>)
 }

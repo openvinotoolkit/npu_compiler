@@ -5,127 +5,10 @@
 
 #include "vpux/compiler/dialect/VPUMI37XX/kernel_params_utils.hpp"
 #include "vpux/compiler/core/bounded_buffer.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
-#include "vpux/compiler/utils/quantization.hpp"
+#include "vpux/compiler/utils/kernel_data_type.hpp"
 
 namespace vpux {
 namespace VPUMI37XX {
-
-sw_params::DataType KernelParamsSerializer::getDataTypeFromMlirType(mlir::Type type) {
-    if (auto floatType = mlir::dyn_cast<mlir::FloatType>(type)) {
-        auto typeWidth = floatType.getWidth();
-        switch (typeWidth) {
-        case 64:
-            return sw_params::DataType::NN_FP64;
-        case 32:
-            return sw_params::DataType::NN_FP32;
-        case 16:
-            if (type.isBF16()) {
-                return sw_params::DataType::NN_BF16;
-            }
-            return sw_params::DataType::NN_FP16;
-        case 8:
-            if (mlir::isa<mlir::Float8E4M3FNType>(floatType)) {
-                return sw_params::DataType::NN_HF8;
-            } else if (mlir::isa<mlir::Float8E5M2Type>(floatType)) {
-                return sw_params::DataType::NN_BF8;
-            }
-            break;
-        }
-    } else if (auto integerType = mlir::dyn_cast<mlir::IntegerType>(type)) {
-        if (integerType.isSigned()) {
-            auto typeWidth = integerType.getWidth();
-            switch (typeWidth) {
-            case 64:
-                return sw_params::DataType::NN_I64;
-            case 32:
-                return sw_params::DataType::NN_I32;
-            case 16:
-                return sw_params::DataType::NN_I16;
-            case 8:
-                return sw_params::DataType::NN_I8;
-            case 4:
-                return sw_params::DataType::NN_I4;
-            case 2:
-                return sw_params::DataType::NN_I2;
-            case 1:
-                return sw_params::DataType::NN_BIN;
-            }
-        } else if (integerType.isUnsigned()) {
-            auto typeWidth = integerType.getWidth();
-            switch (typeWidth) {
-            case 64:
-                return sw_params::DataType::NN_U64;
-            case 32:
-                return sw_params::DataType::NN_U32;
-            case 16:
-                return sw_params::DataType::NN_U16;
-            case 8:
-                return sw_params::DataType::NN_U8;
-            case 4:
-                return sw_params::DataType::NN_U4;
-            case 2:
-                return sw_params::DataType::NN_U2;
-            case 1:
-                return sw_params::DataType::NN_BIN;
-            }
-        } else if (integerType.isSignless()) {
-            auto typeWidth = integerType.getWidth();
-            switch (typeWidth) {
-            case 64:
-                return sw_params::DataType::NN_I64;
-            case 32:
-                return sw_params::DataType::NN_I32;
-            case 16:
-                return sw_params::DataType::NN_I16;
-            case 8:
-                return sw_params::DataType::NN_I8;
-            case 4:
-                return sw_params::DataType::NN_I4;
-            case 2:
-                return sw_params::DataType::NN_I2;
-            case 1:
-                return sw_params::DataType::NN_BIN;
-            }
-        }
-    } else if (auto quantizeType = mlir::dyn_cast<mlir::quant::QuantizedType>(type)) {
-        const auto isSigned = quantizeType.isSigned();
-        auto bitWidth = quantizeType.getStorageTypeIntegralWidth();
-        auto isQuantileType = [type]() {
-            if (mlir::isa<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType>(type)) {
-                auto quantized = mlir::cast<mlir::quant::QuantizedType>(type);
-                return mlir::isa<vpux::type::QuantileType>(quantized.getStorageType());
-            }
-            return false;
-        }();
-        auto isFloatStorage = mlir::isa<mlir::FloatType>(quantizeType.getStorageType());
-        switch (bitWidth) {
-        case 16:
-            if (!isQuantileType && !isFloatStorage) {
-                return isSigned ? sw_params::DataType::NN_I16 : sw_params::DataType::NN_U16;
-            }
-            break;
-        case 8:
-            if (!isQuantileType && !isFloatStorage) {
-                return isSigned ? sw_params::DataType::NN_I8 : sw_params::DataType::NN_U8;
-            }
-            break;
-        case 4:
-            if (!isQuantileType && !isFloatStorage) {
-                return isSigned ? sw_params::DataType::NN_I4 : sw_params::DataType::NN_U4;
-            }
-            if (isNF4SpecQuantized(quantizeType)) {
-                return sw_params::DataType::NN_NF4;
-            }
-            break;
-        case 2:
-            // 2bit data can also be wrapped as quantile type, so far we're treating them as integer storage only
-            return isSigned ? sw_params::DataType::NN_I2 : sw_params::DataType::NN_U2;
-        }
-    }
-    VPUX_THROW("Conversion to sw_params::DataType failed for {0}", type);
-    return sw_params::DataType::NN_UNDEFINED;
-}
 
 sw_params::Location KernelParamsSerializer::getSwParamsLocationFromMemKind(VPU::MemoryKind memKind) {
     static const EnumMap<VPU::MemoryKind, sw_params::Location> memKindMapping = {
@@ -143,7 +26,7 @@ void KernelParamsSerializer::addBasicAttrToVector(SmallVector<uint8_t>& vec, mli
     } else if (auto val = mlir::dyn_cast_or_null<mlir::FloatAttr>(attr)) {
         appendValueToVector(vec, static_cast<float>(val.getValue().convertToDouble()));
     } else if (auto val = mlir::dyn_cast_or_null<mlir::TypeAttr>(attr)) {
-        appendValueToVector(vec, getDataTypeFromMlirType(val.getValue()));
+        appendValueToVector(vec, vpux::getDataTypeFromMlirType(val.getValue()));
     } else {
         VPUX_THROW("Act Shave Invocation: cannot store attribute {0}", attr);
     }
@@ -231,7 +114,7 @@ void KernelParamsSerializer::addTensorArgToVector(SmallVector<uint8_t>& vec, mli
     auto type = value.getType();
     auto ndType = mlir::cast<vpux::NDTypeInterface>(type);
 
-    memrefData.dataType = getDataTypeFromMlirType(ndType.getElementType());
+    memrefData.dataType = vpux::getDataTypeFromMlirType(ndType.getElementType());
     memrefData.location = getSwParamsLocationFromMemKind(ndType.getMemoryKind());
     memrefData.isStatic = !isDynamic;
 

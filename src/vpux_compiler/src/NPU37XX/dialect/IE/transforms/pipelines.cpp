@@ -21,14 +21,15 @@ void vpux::IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(
     pm.addPass(IE::createConvertScalarToTensorPass(log));
     pm.addPass(IE::createQDQOptimizationAggressivePass(options.fuseFQAndMulWithNonConstInput, log));
     pm.addPass(IE::createConsolidateNF4WeightsPatternPass(log));
-    pm.addPass(IE::createInitialLowPrecisionTransformationsPipelineRewriterExecutorPass(
-            options.enableDynamicQuantizationForStaticCase, log));
+    pm.addPass(IE::createInitialLowPrecisionTransformationsPipelineRewriterExecutorPass(log));
     pm.addPass(IE::createFuseInputScaleShiftPass(log));
     pm.addPass(IE::createConvertMinMaxToClampPass(log));
     pm.addPass(IE::createFoldActivationBeforeFQPass(log));
 
     pm.addPass(IE::createAdjustFakeQdqParamsPass(log));
     pm.addPass(IE::createFuseQuantizationMultiplyPass(options.fuseFQAndMulWithNonConstInput, log));
+
+    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
     pm.addPass(IE::createHandleU16FakeQuantizePass(log));
 }
 
@@ -61,7 +62,7 @@ void vpux::IE::arch37xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
         pm.addPass(IE::createSwapTransposeWithFQPass(log));
     }
     pm.addPass(IE::createPropagateDequantThroughConcatPass(log));
-    pm.addPass(IE::createConvertWeightsToU8Pass(log));
+    pm.addPass(IE::createConvertWeightsToUnsignedPass(log));
     pm.addPass(IE::createFuseQuantizedOpsPass(log));
 
     // Enable sequence FuseQuantizedOps->FuseActivationOps->FuseOutstandingDequant->ConvertToMixedPrecision->
@@ -77,14 +78,14 @@ void vpux::IE::arch37xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
         pm.addPass(IE::createRemoveQuantDequantSeqPass(log));
     }
     if (options.enableConvertWeightsToU8I4) {
-        pm.addPass(IE::createConvertWeightsToU8Pass(log));
+        pm.addPass(IE::createConvertWeightsToUnsignedPass(log));
         pm.addPass(IE::createConvertWeightsToI4Pass(log));
     }
-    // After the execution of ConvertWeightsToU8 could appear new cases when FuseQuantizedOps and
-    // ConvertToMixedPrecision can be applied. The execution ConvertWeightsToU8 can align the data type of the operands
-    // of NCE operations to U8, condition that is necessary in rewriters like: FuseWithEltwiseConverter,
+    // After the execution of ConvertWeightsToUnsigned could appear new cases when FuseQuantizedOps and
+    // ConvertToMixedPrecision can be applied. The execution ConvertWeightsToUnsigned can align the data type of the
+    // operands of NCE operations to U8, condition that is necessary in rewriters like: FuseWithEltwiseConverter,
     // FloatOutAddRewriter where it required that the operands to have the same data type and this happens only after
-    // execution of ConvertWeightsToU8.
+    // execution of ConvertWeightsToUnsigned.
     pm.addPass(IE::createFuseQuantizedOpsPass(log));
     if (options.enableFuseOutstandingDequant) {
         if (!options.functionOutlining.hasValue()) {
@@ -165,7 +166,10 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     IE::buildDynamicShapeTransformationsPipeline(pm, IE::DynamicShapeTransformOptions(options), log);
     IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(pm, IE::LowPrecisionTransformOptions(options), log);
     IE::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
-    IE::buildAdjustPrecisionPipeline(pm, IE::AdjustPrecisionOptions(options), log);
+
+    if (options.enableAdjustPrecisionPipeline) {
+        IE::buildAdjustPrecisionPipeline(pm, IE::AdjustPrecisionOptions(options), log);
+    }
 
     // Couldn't move the pass before convert_precision_to_fp16 because of regressions, extra conversions are added
     pm.addPass(IE::createConvertAssignReadValueToReturnsAndInputs(log));
@@ -184,8 +188,10 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     pm.addPass(mlir::createCanonicalizerPass(grc));
     IE::buildScaleShiftProcessingPipeline(pm, log);
 
+    pm.addPass(IE::createConvertConstantDynamicDequantizeToDequantizePass(log));
     IE::arch37xx::buildLowPrecisionPipeline(pm, IE::LowPrecisionOptions(options), log);
-    pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D), log));
+    pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D),
+                                              /*enableShapeVerification=*/true, log));
     pm.addPass(IE::createSwapViewOpAndClampPass(log));
 
     IE::buildOptimizeActivationsPipeline(pm, IE::OptimizeActivationsOptions(options), log);

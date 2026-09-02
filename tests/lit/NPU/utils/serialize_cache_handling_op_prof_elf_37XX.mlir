@@ -9,7 +9,7 @@
 
 // CHECK: {
 //CHECK-NEXT:   "majorVersion": 2,
-//CHECK-NEXT:   "minorVersion": 3,
+//CHECK-NEXT:   "minorVersion": 4,
 //CHECK-NEXT:   "platform": {
 //CHECK-NEXT:     "device": 2
 //CHECK-NEXT:   },

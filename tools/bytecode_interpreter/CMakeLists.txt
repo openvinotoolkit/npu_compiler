@@ -13,5 +13,5 @@ add_tool_target(
     LINK_LIBRARIES
         openvino::runtime::dev
         openvino::gflags_nothreads_static
-        npu_interpreter_runtime
+        openvino_intel_npu_vm_runtime
 )

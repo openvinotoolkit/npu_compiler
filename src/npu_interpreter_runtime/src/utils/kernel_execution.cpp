@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -37,17 +38,78 @@ result_t failure(result_t errorCode, const std::string& format, Args... args) {
     return errorCode;
 }
 
+ze_command_list_handle_t getCmdList(const npu_vm_runtime_execute_params_t& params, uint64_t cmdListIndex) {
+    if (cmdListIndex < params.numCommandLists && params.commandLists != nullptr) {
+        return *std::next(params.commandLists, static_cast<std::ptrdiff_t>(cmdListIndex));
+    }
+    return nullptr;
+}
+
+int32_t setArguments(uint64_t index, const BufferMapperItem& desc, ze_graph_handle_t graphHandle,
+                     ze_graph_dditable_ext_t* ddiTableHandle, bool supportsDynamicStrides) {
+    ze_result_t result = ZE_RESULT_SUCCESS;
+
+    auto buffer = desc.first;
+    auto bufferMetadata = desc.second;
+
+    // where to get buffer offset
+    uint64_t offsetInElements = 0;
+    const auto byteOffset = static_cast<std::ptrdiff_t>(bufferMetadata->elemByteSize * offsetInElements);
+    auto address = std::next(buffer->getData(), byteOffset);
+
+    if (ZE_GRAPH_EXT_VERSION_CURRENT >= ZE_GRAPH_EXT_VERSION_1_15) {
+        // Below is an example implementation.
+        // When a new graph ext is available in master, this will be finalized.
+
+        ze_graph_argument_value_tensor_t tensorValue{ZE_STRUCTURE_TYPE_GRAPH_ARGUMENT_TENSOR, nullptr, address};
+
+        // Only attach strides when the driver reported this graph argument expects dynamic strides;
+        // otherwise the argument is bound without stride metadata.
+        // tensorStrides must be declared here, outside the `if` below, so it stays alive until
+        // pfnSetArgumentValue2 is called
+        ze_graph_argument_value_strides_t tensorStrides = {};
+        if (supportsDynamicStrides) {
+            tensorStrides.stype = ZE_STRUCTURE_TYPE_GRAPH_ARGUMENT_STRIDES;
+            tensorStrides.pNext = nullptr;
+            auto& strides = bufferMetadata->strides;
+            if (strides.size() > ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE) {
+                return failure(ZE_RESULT_ERROR_INVALID_SIZE,
+                               "Buffer rank {} for argument {} exceeds ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE ({})",
+                               strides.size(), index, ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE);
+            }
+            const size_t dimCount = strides.size();
+            for (size_t dim = 0; dim < dimCount; dim++) {
+                // store strides in reverse order
+                // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index) - index values are guaranteed above
+                tensorStrides.userStrides[dim] =
+                        static_cast<uint32_t>(bufferMetadata->strides.at((dimCount - 1) - dim));
+            }
+            tensorValue.pNext = static_cast<void*>(&tensorStrides);
+        }
+        result = ddiTableHandle->pfnSetArgumentValue2(graphHandle, index, &tensorValue);
+    } else {
+        result = ddiTableHandle->pfnSetArgumentValue(graphHandle, index, address);
+    }
+
+    NPU_VM_LOG_TRACE("setArguments index={}, address={}, buffer={}, metadata={}, elemByteSize={}, "
+                     "supportsDynamicStrides={}",
+                     index, address, static_cast<void*>(buffer), static_cast<void*>(bufferMetadata),
+                     bufferMetadata->elemByteSize, supportsDynamicStrides);
+    return result;
+}
+
 }  // namespace
 
 namespace intel_npu::vm {
 
 ze_command_list_handle_t ExecutionContext::createCommandList(const npu_vm_runtime_execute_params_t& params) {
     if (_nextCmdListIndex < params.numCommandLists) {
-        if (params.commandLists[_nextCmdListIndex] != nullptr) {
-            return params.commandLists[_nextCmdListIndex++];
+        auto cmdListHandle = getCmdList(params, _nextCmdListIndex);
+        if (cmdListHandle != nullptr) {
+            _nextCmdListIndex++;
+            return cmdListHandle;
         }
     }
-
     return nullptr;
 }
 
@@ -58,7 +120,7 @@ ze_event_handle_t ExecutionContext::getSignalEvent() {
 
     if (_curEventIndex < _events.size()) {
         _signalEventCount++;
-        return _events[_curEventIndex];
+        return _events.at(_curEventIndex);
     }
 
     return nullptr;
@@ -73,7 +135,7 @@ ze_event_handle_t ExecutionContext::getWaitEvent() {
 
     _signalEventCount = 0;
     if (_curEventIndex < _events.size()) {
-        return _events[_curEventIndex++];
+        return _events.at(_curEventIndex++);
     }
     return nullptr;
 }
@@ -82,10 +144,6 @@ ExecutionContext::ExecutionContext(size_t numCmdLists, size_t /*numNetworkArgs*/
         : _numCmdLists(numCmdLists), _inferenceCmdIds(numCmdLists) {
     // In a more complete implementation, the constructor would use the numSubGraphs and numNetworkArgs parameters
     // to set up the execution context appropriately. For this initial implementation, we will simply ignore them.
-    _eventPool = nullptr;
-    _isInitialized = false;
-    _curEventIndex = 0;
-    _signalEventCount = 0;
 }
 
 ExecutionContext::ExecutionContext(ExecutionContext&& other) noexcept
@@ -168,17 +226,17 @@ result_t ExecutionContext::initialize(ze_graph_dditable_ext_t* ddiTable, ze_devi
 result_t ExecutionContext::createEventPool(ze_device_handle_t deviceHandle, ze_context_handle_t context) {
     if (_numCmdLists > 1) {
         auto eventCount = (_numCmdLists - 1);
-        ze_event_pool_desc_t event_pool_desc = {ZE_STRUCTURE_TYPE_EVENT_POOL_DESC, nullptr,
-                                                ZE_EVENT_POOL_FLAG_HOST_VISIBLE, static_cast<uint32_t>(eventCount)};
-        auto result = zeEventPoolCreate(context, &event_pool_desc, /*numDevices*/ 1, &deviceHandle, &_eventPool);
+        ze_event_pool_desc_t eventPoolDesc = {ZE_STRUCTURE_TYPE_EVENT_POOL_DESC, nullptr,
+                                              ZE_EVENT_POOL_FLAG_HOST_VISIBLE, static_cast<uint32_t>(eventCount)};
+        auto result = zeEventPoolCreate(context, &eventPoolDesc, /*numDevices*/ 1, &deviceHandle, &_eventPool);
         if (result != ZE_RESULT_SUCCESS) {
             return failure(result, "Failed to create event pool for execution context");
         }
 
         _events.resize(eventCount);
         for (size_t i = 0; i < eventCount; i++) {
-            ze_event_desc_t event_desc = {ZE_STRUCTURE_TYPE_EVENT_DESC, nullptr, static_cast<uint32_t>(i), 0, 0};
-            result = zeEventCreate(_eventPool, &event_desc, &_events[i]);
+            ze_event_desc_t eventDesc = {ZE_STRUCTURE_TYPE_EVENT_DESC, nullptr, static_cast<uint32_t>(i), 0, 0};
+            result = zeEventCreate(_eventPool, &eventDesc, &_events.at(i));
             if (result != ZE_RESULT_SUCCESS) {
                 return failure(result, "Failed to create event");
             }
@@ -209,7 +267,7 @@ result_t createCmdList(ExecutionContext& executionContext, npu_vm_runtime_execut
     return ZE_RESULT_SUCCESS;
 }
 
-result_t createKernel(npu_vm_runtime_execute_params_t* params, void* kernelBlob, size_t kernelBlobSize,
+result_t createKernel(npu_vm_runtime_execute_params_t* params, uint8_t* kernelBlob, size_t kernelBlobSize,
                       const std::string& kernelName, ze_graph_handle_t& graphHandle, KernelInfo& graphInfo) {
     NPU_VM_LOG_TRACE("Creating graph for kernel {} at address {} of size {}", kernelName, kernelBlob, kernelBlobSize);
 
@@ -222,7 +280,7 @@ result_t createKernel(npu_vm_runtime_execute_params_t* params, void* kernelBlob,
                               nullptr,
                               ZE_GRAPH_FORMAT_NATIVE,
                               static_cast<size_t>(kernelBlobSize),
-                              reinterpret_cast<uint8_t*>(kernelBlob),
+                              kernelBlob,
                               nullptr /* build flag */,
                               flag};
 
@@ -243,6 +301,7 @@ result_t createKernel(npu_vm_runtime_execute_params_t* params, void* kernelBlob,
         return failure(result, "Failed to get graph properties");
     }
     auto numInputArguments = 0;
+    std::vector<bool> supportsDynamicStrides(props.numGraphArgs, false);
 
     NPU_VM_LOG_TRACE("Get properties of graph arguments: {}, kernel: {}, size: {}", props.numGraphArgs, kernelBlob,
                      kernelBlobSize);
@@ -252,7 +311,7 @@ result_t createKernel(npu_vm_runtime_execute_params_t* params, void* kernelBlob,
         arg3.stype = ZE_STRUCTURE_TYPE_GRAPH_ARGUMENT_PROPERTIES_3;
 
         ze_graph_argument_property_strides_t strides{ZE_STRUCTURE_TYPE_GRAPH_ARGUMENT_PROPERTY_STRIDES, nullptr, false};
-        arg3.pNext = reinterpret_cast<void*>(&strides);
+        arg3.pNext = static_cast<void*>(&strides);
         result = ddiTableHandle->pfnGetArgumentProperties3(graphHandle, index, &arg3);
         if (result != ZE_RESULT_SUCCESS) {
             return failure(result, "Failed to get properties of arg: {}, kern: {}, size: {}", index, kernelBlob,
@@ -262,65 +321,19 @@ result_t createKernel(npu_vm_runtime_execute_params_t* params, void* kernelBlob,
         if (arg3.type == ZE_GRAPH_ARGUMENT_TYPE_INPUT) {
             numInputArguments++;
         }
+
+        supportsDynamicStrides[index] = strides.supportsDynamicStrides;
+        NPU_VM_LOG_DEBUG("Graph arg {} of kernel {} supportsDynamicStrides={}", index, kernelName,
+                         strides.supportsDynamicStrides);
     }
 
-    graphInfo = KernelInfo(graphHandle, props.numGraphArgs, numInputArguments, kernelName);
+    graphInfo = KernelInfo(graphHandle, props.numGraphArgs, numInputArguments, kernelName,
+                           std::move(supportsDynamicStrides));
 
     NPU_VM_LOG_TRACE("Created graph for kernel: {}, size: {}, graph_handle: {}", kernelBlob, kernelBlobSize,
                      graphHandle);
 
     return success();
-}
-
-ze_command_list_handle_t getCmdList(const npu_vm_runtime_execute_params_t& params, uint64_t cmdListIndex) {
-    if (cmdListIndex < params.numCommandLists && params.commandLists != nullptr) {
-        return params.commandLists[cmdListIndex];
-    }
-    return nullptr;
-}
-
-int32_t set_arguments(uint64_t index, const BufferMapperItem& desc, ze_graph_handle_t graphHandle,
-                      ze_graph_dditable_ext_t* ddiTableHandle) {
-    ze_result_t result = ZE_RESULT_SUCCESS;
-
-    auto buffer = desc.first;
-    auto bufferMetadata = desc.second;
-
-    // where to get buffer offset
-    uint64_t offsetInElements = 0;
-    auto address = buffer->getData() + bufferMetadata->elemByteSize * offsetInElements;
-
-    if (ZE_GRAPH_EXT_VERSION_CURRENT >= ZE_GRAPH_EXT_VERSION_1_15) {
-        // Below is an example implementation.
-        // When a new graph ext is available in master, this will be finalized.
-
-        ze_graph_argument_value_tensor_t tensor_value{ZE_STRUCTURE_TYPE_GRAPH_ARGUMENT_TENSOR, nullptr, address};
-
-        // Strides information
-        ze_graph_argument_value_strides_t tensor_strides = {};
-        tensor_strides.stype = ZE_STRUCTURE_TYPE_GRAPH_ARGUMENT_STRIDES;
-        tensor_strides.pNext = nullptr;
-        auto& strides = bufferMetadata->strides;
-        // `userStrides` has a maximum of ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE elements
-        if (strides.size() > ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE) {
-            return failure(ZE_RESULT_ERROR_INVALID_SIZE,
-                           "Buffer rank {} for argument {} exceeds ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE ({})",
-                           strides.size(), index, ZE_MAX_GRAPH_ARGUMENT_DIMENSIONS_SIZE);
-        }
-        const size_t dimCount = strides.size();
-        for (size_t dim = 0; dim < dimCount; dim++) {
-            // store strides in reverse order
-            tensor_strides.userStrides[dim] = static_cast<uint32_t>(bufferMetadata->strides[(dimCount - 1) - dim]);
-        }
-        tensor_value.pNext = reinterpret_cast<void*>(&tensor_strides);
-        result = ddiTableHandle->pfnSetArgumentValue2(graphHandle, index, &tensor_value);
-    } else {
-        result = ddiTableHandle->pfnSetArgumentValue(graphHandle, index, address);
-    }
-
-    NPU_VM_LOG_TRACE("set_arguments index={}, address={}, buffer={}, metadata={}, elemByteSize={}", index, address,
-                     static_cast<void*>(buffer), static_cast<void*>(bufferMetadata), bufferMetadata->elemByteSize);
-    return result;
 }
 
 result_t setBindings(ExecutionContext& executionContext, npu_vm_runtime_execute_params_t* params,
@@ -332,7 +345,7 @@ result_t setBindings(ExecutionContext& executionContext, npu_vm_runtime_execute_
 
     auto ddiTableHandle = params->graphDdiTableExt;
 
-    if (executionContext.isInitialized() == false) {
+    if (!executionContext.isInitialized()) {
         NPU_VM_LOG_TRACE("Creating event pool for execution context");
 
         auto deviceHandle = params->device;
@@ -343,7 +356,7 @@ result_t setBindings(ExecutionContext& executionContext, npu_vm_runtime_execute_
         }
     }
 
-    if (inputs.size() <= 0 || outputs.size() <= 0) {
+    if (inputs.empty() || outputs.empty()) {
         return failure(ZE_RESULT_ERROR_INVALID_SIZE, "Invalid size, inputs: {}, outputs: {}", inputs.size(),
                        outputs.size());
     }
@@ -362,14 +375,15 @@ result_t setBindings(ExecutionContext& executionContext, npu_vm_runtime_execute_
     for (uint32_t index = 0; index < graphInfo.getNumArgs(); ++index) {
         // Process inputs
         if (index < graphInfo.getNumInputArgs()) {
-            auto result = set_arguments(index, inputs[index], graphHandle, ddiTableHandle);
+            auto result = setArguments(index, inputs.at(index), graphHandle, ddiTableHandle,
+                                       graphInfo.supportsDynamicStrides(index));
             if (result != ZE_RESULT_SUCCESS) {
                 return failure(result, "Failed to set input argument [{}/{}] for kern: {}", index,
                                graphInfo.getNumArgs(), graphHandle);
             }
         } else {
-            auto result =
-                    set_arguments(index, outputs[index - graphInfo.getNumInputArgs()], graphHandle, ddiTableHandle);
+            auto result = setArguments(index, outputs.at(index - graphInfo.getNumInputArgs()), graphHandle,
+                                       ddiTableHandle, graphInfo.supportsDynamicStrides(index));
             if (result != ZE_RESULT_SUCCESS) {
                 return failure(result, "Failed to set output argument [{}/{}] for kern: {}", index,
                                graphInfo.getNumArgs(), graphHandle);
@@ -381,8 +395,8 @@ result_t setBindings(ExecutionContext& executionContext, npu_vm_runtime_execute_
 }
 
 result_t executeGraph(ExecutionContext& executionContext, npu_vm_runtime_execute_params_t* params,
-                      ze_command_list_handle_t cmdListHandle, ze_graph_handle_t graphHandle, void* kernelName) {
-    if (cmdListHandle == nullptr) {
+                      ze_command_list_handle_t commandListHandle, ze_graph_handle_t graphHandle, void* kernelName) {
+    if (commandListHandle == nullptr) {
         return failure(ZE_RESULT_ERROR_INVALID_NULL_HANDLE, "Invalid commandListHandle");
     }
     if (graphHandle == nullptr) {
@@ -392,21 +406,20 @@ result_t executeGraph(ExecutionContext& executionContext, npu_vm_runtime_execute
     if (params == nullptr) {
         return failure(ZE_RESULT_ERROR_INVALID_NULL_HANDLE, "Invalid execution parameters");
     }
-    auto commandListHandle = reinterpret_cast<ze_command_list_handle_t>(cmdListHandle);
     auto ddiTableHandle = params->graphDdiTableExt;
     auto cmdListIndex = executionContext.getCurrentCmdListIndex();
 
-    if (cmdListHandle != getCmdList(*params, cmdListIndex)) {
+    if (commandListHandle != getCmdList(*params, cmdListIndex)) {
         return failure(ZE_RESULT_ERROR_INVALID_NULL_HANDLE,
-                       "Invalid commandListHandle for current execution context, got: {}, expected: {}", cmdListHandle,
-                       getCmdList(*params, cmdListIndex));
+                       "Invalid commandListHandle for current execution context, got: {}, expected: {}",
+                       commandListHandle, getCmdList(*params, cmdListIndex));
     }
 
     if (kernelName == nullptr) {
         NPU_VM_LOG_TRACE("Executing graph for unnamed kernel at handle {}", graphHandle);
     } else {
         NPU_VM_LOG_TRACE("Executing graph for kernel {} at handle {} in cmdList {} and execContext {}",
-                         static_cast<const char*>(kernelName), graphHandle, cmdListHandle, &executionContext);
+                         static_cast<const char*>(kernelName), graphHandle, commandListHandle, &executionContext);
     }
 
     ze_pfnAppendGraphExecute_ext_t pfnAppendGraphExecute = ddiTableHandle->pfnAppendGraphExecute;
@@ -415,7 +428,7 @@ result_t executeGraph(ExecutionContext& executionContext, npu_vm_runtime_execute
     auto& inferenceCmdIds = executionContext.getInferenceCmdIds();
     const auto inferenceCmdCount = inferenceCmdIds.size();
     if (static_cast<size_t>(cmdListIndex) < inferenceCmdCount) {
-        auto id = inferenceCmdIds[cmdListIndex];
+        auto id = inferenceCmdIds.at(cmdListIndex);
         if (id == DEFAULT_INFERENCE_ID) {
             waitEvent = executionContext.getWaitEvent();
             if (waitEvent != nullptr) {
@@ -461,14 +474,14 @@ result_t executeGraph(ExecutionContext& executionContext, npu_vm_runtime_execute
     if (result == ZE_RESULT_ERROR_UNINITIALIZED) {
         result = zeCommandListReset(commandListHandle);
         if (result != ZE_RESULT_SUCCESS) {
-            return failure(result, "Failed to reset command list: {}, kern: {}", cmdListHandle, graphHandle);
+            return failure(result, "Failed to reset command list: {}, kern: {}", commandListHandle, graphHandle);
         }
         result = pfnAppendGraphExecute(commandListHandle, graphHandle, nullptr, nullptr, 0, nullptr);
     }
 
     if (result != ZE_RESULT_SUCCESS) {
         return failure(result, "Failed to append graph execute in command list: {}, kern: {}, numWaits: {}",
-                       cmdListHandle, graphHandle, numWaitEvents);
+                       commandListHandle, graphHandle, numWaitEvents);
     }
 
     executionContext.increaseInferenceCmdId(cmdListIndex);
@@ -479,7 +492,7 @@ result_t executeGraph(ExecutionContext& executionContext, npu_vm_runtime_execute
 }
 
 result_t submitCmdList(ExecutionContext& executionContext, npu_vm_runtime_execute_params_t* params,
-                       ze_command_list_handle_t cmdList, bool needHostSync) {
+                       ze_command_list_handle_t commandListHandle, bool needHostSync) {
     auto commandQueueHandle = static_cast<ze_command_queue_handle_t>(params->commandQueue);
     ze_fence_handle_t fence = nullptr;
     ze_event_handle_t event = nullptr;
@@ -495,9 +508,8 @@ result_t submitCmdList(ExecutionContext& executionContext, npu_vm_runtime_execut
         }
     }
 
-    NPU_VM_LOG_TRACE("Submitting command list: {}, fence: {}, event: {}", cmdList, fence, event);
+    NPU_VM_LOG_TRACE("Submitting command list: {}, fence: {}, event: {}", commandListHandle, fence, event);
 
-    auto commandListHandle = reinterpret_cast<ze_command_list_handle_t>(cmdList);
     auto commandQueue = params->commandQueue;
 
     auto result = ZE_RESULT_SUCCESS;
@@ -546,11 +558,11 @@ result_t submitCmdList(ExecutionContext& executionContext, npu_vm_runtime_execut
                     result,
                     "Failed to zeCommandQueueExecuteCommandList with event: {}, fence: {}, command queue: {}, command "
                     "list: {}",
-                    event, fence, commandQueue, cmdList);
+                    event, fence, commandQueue, commandListHandle);
         }
     }
 
-    NPU_VM_LOG_TRACE("Submitted command list: {}", cmdList);
+    NPU_VM_LOG_TRACE("Submitted command list: {}", commandListHandle);
 
     return success();
 }

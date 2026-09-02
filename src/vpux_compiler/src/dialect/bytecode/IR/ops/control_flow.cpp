@@ -59,20 +59,18 @@ mlir::LogicalResult verifyTrueDestNotZeroOffset(mlir::Operation* op, mlir::Block
 
 void bytecode::RetOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
-    writer.appendInstruction(opcode, addrMode, /*operands=*/SmallVector<int16_t>{});
+    writer.appendInstruction(opcode, /*operands=*/SmallVector<int16_t>{});
 }
 
 void bytecode::RetVOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto regs = getRegs();
     SmallVector<int16_t> regOperands = {static_cast<int16_t>(regs.size())};
     regOperands.reserve(regOperands.size() + regs.size());
     for (auto reg : regs) {
         regOperands.push_back(getRegisterNumber(reg));
     }
-    writer.appendInstruction(opcode, addrMode, regOperands);
+    writer.appendInstruction(opcode, regOperands);
 }
 
 size_t bytecode::RetVOp::getBinarySize() {
@@ -82,12 +80,11 @@ size_t bytecode::RetVOp::getBinarySize() {
 
 void bytecode::CallOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto resultCount = checked_cast<int16_t>(getResultsDst().size());
     const auto argCount = checked_cast<int16_t>(getArgs().size());
 
     SmallVector<int16_t> operands;
-    operands.push_back(getRegisterNumber(getFuncIdx()));  // rs
+    operands.push_back(getRegisterNumber(getFuncIdx()));
 
     // N: number of destination (result) registers
     operands.push_back(resultCount);
@@ -101,7 +98,7 @@ void bytecode::CallOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
         operands.push_back(getRegisterNumber(reg));
     }
 
-    writer.appendInstruction(opcode, addrMode, operands);
+    writer.appendInstruction(opcode, operands);
 }
 
 size_t bytecode::CallOp::getBinarySize() {
@@ -112,11 +109,13 @@ size_t bytecode::CallOp::getBinarySize() {
 
 void bytecode::AssertOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto opcode = static_cast<uint16_t>(getOpcode());
-    const auto addrMode = getAddressingMode();
     const auto conditionReg = getRegisterNumber(getCondition());
-    const auto msgSym =
-            checked_cast<int16_t>(getStringIndex(getMsgSym(), getOperation()->getParentOfType<mlir::ModuleOp>()));
-    writer.appendInstruction(opcode, addrMode, SmallVector<int16_t>{conditionReg, msgSym});
+
+    const auto msgIdxOpt =
+            bytecode::getIndex<bytecode::StringSectionOp, bytecode::StringOp>(getOperation(), getMsgSym());
+    VPUX_THROW_UNLESS(msgIdxOpt.has_value(), "Failed to resolve message symbol '{0}' in string section", getMsgSym());
+    const auto msgIdx = checked_cast<int16_t>(msgIdxOpt.value());
+    writer.appendInstruction(opcode, SmallVector<int16_t>{conditionReg, msgIdx});
 }
 
 mlir::LogicalResult bytecode::JmpOp::verify() {
@@ -129,7 +128,7 @@ void bytecode::JmpOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     SmallVector<uint8_t> operandBytes;
     operandBytes.insert(operandBytes.end(), reinterpret_cast<const uint8_t*>(&offset),
                         reinterpret_cast<const uint8_t*>(&offset) + sizeof(offset));
-    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), getAddressingMode(), operandBytes);
+    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), operandBytes);
 }
 
 mlir::LogicalResult bytecode::JEOp::verify() {
@@ -151,7 +150,7 @@ void bytecode::JEOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
                         reinterpret_cast<const uint8_t*>(&lhs) + sizeof(lhs));
     operandBytes.insert(operandBytes.end(), reinterpret_cast<const uint8_t*>(&rhs),
                         reinterpret_cast<const uint8_t*>(&rhs) + sizeof(rhs));
-    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), getAddressingMode(), operandBytes);
+    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), operandBytes);
 }
 
 mlir::LogicalResult bytecode::JNEOp::verify() {
@@ -173,5 +172,5 @@ void bytecode::JNEOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
                         reinterpret_cast<const uint8_t*>(&lhs) + sizeof(lhs));
     operandBytes.insert(operandBytes.end(), reinterpret_cast<const uint8_t*>(&rhs),
                         reinterpret_cast<const uint8_t*>(&rhs) + sizeof(rhs));
-    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), getAddressingMode(), operandBytes);
+    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), operandBytes);
 }

@@ -309,7 +309,8 @@ mlir::LogicalResult VPUIP::ITIBufferType::verify(FuncRef<mlir::InFlightDiagnosti
             return result;
         }
 
-        for (const auto& inHalo : outHalo.getInwardHaloRegions().getValue()) {
+        const auto inwardHaloRegions = outHalo.getInwardHaloRegions().getValue();
+        for (const auto& inHalo : inwardHaloRegions) {
             const auto inHaloAttr = mlir::cast<vpux::VPUIP::HaloRegionAttr>(inHalo);
             const auto inHaloShape = parseIntArrayAttr<int64_t>(inHaloAttr.getShape());
 

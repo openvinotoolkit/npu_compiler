@@ -250,7 +250,7 @@ def Net_PrecisionInfoOp :
 
     let description = [{
         This operation is bound to `net.PrecisionRequirement` operation and holds information about the PrecisionInfo object.
-        Any operation in the model that has the DisableFP16Compression RT attribute set to 'precise' will be added here.
+        Any operation in the model that has conversion to f16 disabled via the DisablePrecisionConversion RT attribute will be added here.
 
           * operation name
           * operation type

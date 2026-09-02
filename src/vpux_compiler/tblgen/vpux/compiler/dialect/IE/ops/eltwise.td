@@ -31,11 +31,12 @@ def IE_AddOp :
         RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input1,
         RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input2,
         // Placeholder for future scales-as-input support
-        Optional<AnyRankedTensor>:$scales,
+        Optional<AnyRankedTensor>:$scale,
 
         IE_AutoBroadcastTypeAttr:$auto_broadcast,
         OptionalAttr<IE_PostOpAttrInterface>:$post_op,
         OptionalAttr<DictionaryAttr>:$clamp,
+        OptionalAttr<F32Attr>:$static_scale,
         OptionalAttr<I64ArrayAttr>:$output_padding,
         OptionalAttr<I64ArrayAttr>:$input_padding
     );
@@ -44,7 +45,7 @@ def IE_AddOp :
         RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$output
     );
 
-    // Backward-compatible builders: omit the reserved `scales` operand (passed as null).
+    // Backward-compatible builders: omit the reserved `scale` operand (passed as null).
     // Use the full generated builder to supply a scales tensor when support is added.
     let builders = [
         OpBuilder<(ins
@@ -56,8 +57,8 @@ def IE_AddOp :
             CArg<"mlir::ArrayAttr", "{}">:$output_padding,
             CArg<"mlir::ArrayAttr", "{}">:$input_padding
         ), [{
-            build($_builder, $_state, input1, input2, /*scales=*/::mlir::Value{},
-                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+            build($_builder, $_state, input1, input2, /*scale=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, /*static_scale=*/::mlir::FloatAttr{}, output_padding, input_padding);
         }]>,
         OpBuilder<(ins
             "::mlir::Type":$result_type,
@@ -69,8 +70,8 @@ def IE_AddOp :
             CArg<"mlir::ArrayAttr", "{}">:$output_padding,
             CArg<"mlir::ArrayAttr", "{}">:$input_padding
         ), [{
-            build($_builder, $_state, result_type, input1, input2, /*scales=*/::mlir::Value{},
-                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+            build($_builder, $_state, result_type, input1, input2, /*scale=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, /*static_scale=*/::mlir::FloatAttr{}, output_padding, input_padding);
         }]>,
         OpBuilder<(ins
             "::mlir::Value":$input1,
@@ -81,8 +82,8 @@ def IE_AddOp :
             CArg<"mlir::ArrayAttr", "{}">:$output_padding,
             CArg<"mlir::ArrayAttr", "{}">:$input_padding
         ), [{
-            build($_builder, $_state, input1, input2, /*scales=*/::mlir::Value{},
-                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+            build($_builder, $_state, input1, input2, /*scale=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, /*static_scale=*/::mlir::FloatAttr{}, output_padding, input_padding);
         }]>,
         OpBuilder<(ins
             "::mlir::Type":$result_type,
@@ -94,8 +95,8 @@ def IE_AddOp :
             CArg<"mlir::ArrayAttr", "{}">:$output_padding,
             CArg<"mlir::ArrayAttr", "{}">:$input_padding
         ), [{
-            build($_builder, $_state, result_type, input1, input2, /*scales=*/::mlir::Value{},
-                  auto_broadcast, post_op, clamp, output_padding, input_padding);
+            build($_builder, $_state, result_type, input1, input2, /*scale=*/::mlir::Value{},
+                  auto_broadcast, post_op, clamp, /*static_scale=*/::mlir::FloatAttr{}, output_padding, input_padding);
         }]>
     ];
 
@@ -223,6 +224,7 @@ def IE_MultiplyOp :
             "Multiply",
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
+                DeclareOpInterfaceMethods<IE_ShapeInfoOpInterface, ["verifyShapeInfo"]>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 DeclareOpInterfaceMethods<StaticShapeOpInterface, ["requiresStaticShape"]>,
                 Commutative,
@@ -232,10 +234,10 @@ def IE_MultiplyOp :
     let summary = "InferenceEngine Multiply layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input1,
-        RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input2,
-        // Placeholder for future scales-as-input support
-        Optional<AnyRankedTensor>:$scales,
+        RankedTensorOf<[F16, F32, F64, SI8, SI16, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input1,
+        RankedTensorOf<[F16, F32, F64, SI8, SI16, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input2,
+        // Placeholder for future scale-as-input support
+        Optional<AnyRankedTensor>:$scale,
 
         IE_AutoBroadcastTypeAttr:$auto_broadcast,
         OptionalAttr<IE_PostOpAttrInterface>:$post_op,
@@ -245,11 +247,11 @@ def IE_MultiplyOp :
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32, F64, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$output
+        RankedTensorOf<[F16, F32, F64, SI8, SI16, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$output
     );
 
-    // Backward-compatible builders: omit the reserved `scales` operand (passed as null).
-    // Use the full generated builder to supply a scales tensor when support is added.
+    // Backward-compatible builders: omit the reserved `scale` operand (passed as null).
+    // Use the full generated builder to supply a scale tensor when support is added.
     let builders = [
         OpBuilder<(ins
             "::mlir::Value":$input1,
@@ -260,7 +262,7 @@ def IE_MultiplyOp :
             CArg<"mlir::ArrayAttr", "{}">:$output_padding,
             CArg<"mlir::ArrayAttr", "{}">:$input_padding
         ), [{
-            build($_builder, $_state, input1, input2, /*scales=*/::mlir::Value{},
+            build($_builder, $_state, input1, input2, /*scale=*/::mlir::Value{},
                   auto_broadcast, post_op, clamp, output_padding, input_padding);
         }]>,
         OpBuilder<(ins
@@ -273,7 +275,7 @@ def IE_MultiplyOp :
             CArg<"mlir::ArrayAttr", "{}">:$output_padding,
             CArg<"mlir::ArrayAttr", "{}">:$input_padding
         ), [{
-            build($_builder, $_state, result_type, input1, input2, /*scales=*/::mlir::Value{},
+            build($_builder, $_state, result_type, input1, input2, /*scale=*/::mlir::Value{},
                   auto_broadcast, post_op, clamp, output_padding, input_padding);
         }]>,
         OpBuilder<(ins
@@ -285,7 +287,7 @@ def IE_MultiplyOp :
             CArg<"mlir::ArrayAttr", "{}">:$output_padding,
             CArg<"mlir::ArrayAttr", "{}">:$input_padding
         ), [{
-            build($_builder, $_state, input1, input2, /*scales=*/::mlir::Value{},
+            build($_builder, $_state, input1, input2, /*scale=*/::mlir::Value{},
                   auto_broadcast, post_op, clamp, output_padding, input_padding);
         }]>,
         OpBuilder<(ins
@@ -298,7 +300,7 @@ def IE_MultiplyOp :
             CArg<"mlir::ArrayAttr", "{}">:$output_padding,
             CArg<"mlir::ArrayAttr", "{}">:$input_padding
         ), [{
-            build($_builder, $_state, result_type, input1, input2, /*scales=*/::mlir::Value{},
+            build($_builder, $_state, result_type, input1, input2, /*scale=*/::mlir::Value{},
                   auto_broadcast, post_op, clamp, output_padding, input_padding);
         }]>
     ];
@@ -384,6 +386,7 @@ def IE_SubtractOp :
             "Subtract",
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
+                DeclareOpInterfaceMethods<IE_ShapeInfoOpInterface, ["verifyShapeInfo"]>,
                 IE_EltwiseOp,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
@@ -393,8 +396,8 @@ def IE_SubtractOp :
     let arguments = (ins
         RankedTensorOf<[F16, F32, F64, SI8, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input1,
         RankedTensorOf<[F16, F32, F64, SI8, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$input2,
-        // Placeholder for future scales-as-input support
-        Optional<AnyRankedTensor>:$scales,
+        // Placeholder for future scale-as-input support
+        Optional<AnyRankedTensor>:$scale,
 
         IE_AutoBroadcastTypeAttr:$auto_broadcast,
         OptionalAttr<IE_PostOpAttrInterface>:$post_op,
@@ -407,8 +410,8 @@ def IE_SubtractOp :
         RankedTensorOf<[F16, F32, F64, SI8, SI32, SI64, UI8, UI16, UI32, UI64, quant_QuantizedType]>:$output
     );
 
-    // Backward-compatible builders: omit the reserved `scales` operand (passed as null).
-    // Use the full generated builder to supply a scales tensor when support is added.
+    // Backward-compatible builders: omit the reserved `scale` operand (passed as null).
+    // Use the full generated builder to supply a scale tensor when support is added.
     let builders = [
         OpBuilder<(ins
             "::mlir::Value":$input1,
@@ -419,7 +422,7 @@ def IE_SubtractOp :
             CArg<"mlir::ArrayAttr", "{}">:$output_padding,
             CArg<"mlir::ArrayAttr", "{}">:$input_padding
         ), [{
-            build($_builder, $_state, input1, input2, /*scales=*/::mlir::Value{},
+            build($_builder, $_state, input1, input2, /*scale=*/::mlir::Value{},
                   auto_broadcast, post_op, clamp, output_padding, input_padding);
         }]>,
         OpBuilder<(ins
@@ -432,7 +435,7 @@ def IE_SubtractOp :
             CArg<"mlir::ArrayAttr", "{}">:$output_padding,
             CArg<"mlir::ArrayAttr", "{}">:$input_padding
         ), [{
-            build($_builder, $_state, result_type, input1, input2, /*scales=*/::mlir::Value{},
+            build($_builder, $_state, result_type, input1, input2, /*scale=*/::mlir::Value{},
                   auto_broadcast, post_op, clamp, output_padding, input_padding);
         }]>,
         OpBuilder<(ins
@@ -444,7 +447,7 @@ def IE_SubtractOp :
             CArg<"mlir::ArrayAttr", "{}">:$output_padding,
             CArg<"mlir::ArrayAttr", "{}">:$input_padding
         ), [{
-            build($_builder, $_state, input1, input2, /*scales=*/::mlir::Value{},
+            build($_builder, $_state, input1, input2, /*scale=*/::mlir::Value{},
                   auto_broadcast, post_op, clamp, output_padding, input_padding);
         }]>,
         OpBuilder<(ins
@@ -457,7 +460,7 @@ def IE_SubtractOp :
             CArg<"mlir::ArrayAttr", "{}">:$output_padding,
             CArg<"mlir::ArrayAttr", "{}">:$input_padding
         ), [{
-            build($_builder, $_state, result_type, input1, input2, /*scales=*/::mlir::Value{},
+            build($_builder, $_state, result_type, input1, input2, /*scale=*/::mlir::Value{},
                   auto_broadcast, post_op, clamp, output_padding, input_padding);
         }]>
     ];

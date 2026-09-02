@@ -142,7 +142,8 @@ template <typename ConcreteOp>
 mlir::LogicalResult QuantizeWithTwoInputsNCEEltwiseOpGeneric<ConcreteOp>::matchAndRewrite(
         ConcreteOp origOp, mlir::PatternRewriter& rewriter) const {
     static_assert(ConcreteOp::template hasTrait<IE::EltwiseOp>(), "Expected operation to be EltwiseOp");
-    VPUX_THROW_UNLESS(origOp.getNumOperands() == 2, "Expected operation to take two operands");
+    VPUX_THROW_UNLESS(origOp.getNumOperands() == 2 || origOp.getNumOperands() == 3,
+                      "Expected operation to take two or three operands");
 
     auto isQuantizedInput = [](mlir::TypedValue<mlir::RankedTensorType> value) {
         return mlir::isa<mlir::quant::QuantizedType>(value.getType().getElementType());

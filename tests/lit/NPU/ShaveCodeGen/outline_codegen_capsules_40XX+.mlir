@@ -41,9 +41,9 @@ module @SingleCosLayer {
   // CHECK: return [[COMPUTATION_RESULT]] : tensor<1x1x1x1000xf16>
 
   // CHECK: func.func @main
-  // CHECK: [[GENERIC_SW_LAYER_RES:%.+]] = VPU.GenericSwLayer
-  // CHECK-SAME: callee = @VPU.SW::@generated_0
-  // CHECK-SAME: tensor<1x1x1x1000xf16> -> tensor<1x1x1x1000xf16>
+  // CHECK: [[GENERIC_SW_LAYER_RES:%.+]] = VPU.GenericSwLayer({{%.+}} : tensor<1x1x1x1000xf16>)
+  // CHECK-SAME: @VPU.SW::@generated_0
+  // CHECK-SAME: -> tensor<1x1x1x1000xf16>
   // CHECK: return [[GENERIC_SW_LAYER_RES]] : tensor<1x1x1x1000xf16>
 
 // -----
@@ -84,7 +84,7 @@ module @TestIsolateFromAbove {
 
   // CHECK: func.func @main
   // CHECK-NOT: arith.constant
-  // CHECK: [[GENERIC_SW_LAYER_RES:%.+]] = VPU.GenericSwLayer
-  // CHECK-SAME: callee = @VPU.SW::@generated_0
-  // CHECK-SAME: tensor<1x1x256x56xsi32> -> tensor<1x1x256x56xsi32>
+  // CHECK: [[GENERIC_SW_LAYER_RES:%.+]] = VPU.GenericSwLayer({{%.+}} : tensor<1x1x256x56xsi32>)
+  // CHECK-SAME: @VPU.SW::@generated_0
+  // CHECK-SAME: -> tensor<1x1x256x56xsi32>
   // CHECK: return [[GENERIC_SW_LAYER_RES]] : tensor<1x1x256x56xsi32>

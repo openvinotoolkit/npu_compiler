@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --merge-vertical-fusion-subgraphs="enable-vertical-fusion-pipelining=true" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% compilation-mode=DefaultHW" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --merge-vertical-fusion-subgraphs="enable-vertical-fusion-pipelining=true" %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -127,7 +127,7 @@ func.func @MergeVFWithConsideringEarlyScheduledParent(
           pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
           ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
           lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-          
+
           strides = [1, 1]
       } : tensor<1x128x256x4xf16, {order = #NHWC}>, tensor<1024x128x1x1xf16, {order = #NHWC}>, tensor<1024x1x1x4xsi32> -> tensor<1x1024x256x4xf16, {order = #NHWC}>
       VPU.Yield %inner
@@ -145,7 +145,7 @@ func.func @MergeVFWithConsideringEarlyScheduledParent(
     %3 = VPU.VerticalFusion (
           %cmx_op_0 as %arg20: tensor<1x1024x256x4xf16, {order = #NHWC}>,
           %2 as %arg21: tensor<1x1024x256x4xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x1024x256x4xf16, {order = #NHWC}> {
-      %inner = VPU.NCE.Eltwise(%arg20, %arg21) {
+      %inner = VPU.NCE.Eltwise(%arg20, %arg21) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
           is_inplace = true,
           multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
           op_type = #VPU.eltwise_type<ADD>,
@@ -169,7 +169,7 @@ func.func @MergeVFWithConsideringEarlyScheduledParent(
           pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
           ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
           lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-          
+
           strides = [1, 1]
       } : tensor<1x1024x256x4xf16, {order = #NHWC}>, tensor<128x1024x1x1xf16, {order = #NHWC}>, tensor<128x1x1x4xsi32> -> tensor<1x128x256x4xf16, {order = #NHWC}>
       VPU.Yield %inner_1
@@ -267,7 +267,7 @@ func.func @MergeConvWithDepthToSpaceEltwise(%arg0: tensor<1x256x56x56xf16, {orde
     }
 
     %2 = VPU.VerticalFusion (%1 as %arg2: tensor<1x256x56x56xf16, {order = #NHWC}>, %0 as %arg3: tensor<1x256x56x56xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x256x56x56xf16, {order = #NHWC}> {
-      %3 = VPU.NCE.Eltwise(%arg2, %arg3) {
+      %3 = VPU.NCE.Eltwise(%arg2, %arg3) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
           is_inplace = true,
           multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
           op_type = #VPU.eltwise_type<ADD>,

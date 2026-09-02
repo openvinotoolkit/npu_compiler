@@ -107,6 +107,13 @@ OutputTiling vpux::VPU::DynamicQuantizeOp::getOutputTiling(const vpux::TileInfo&
     return VPU::DynamicQuantizeOutputTiling(firstOutputTile, scaleType.getShape(), zpType.getShape());
 }
 
+vpux::TileInfo vpux::VPU::DynamicQuantizeOp::getMainOutputTile(mlir::OpResult /*secondaryOutput*/,
+                                                               const vpux::TileInfo& /*secondaryOutputTile*/,
+                                                               vpux::Logger /*log*/) {
+    // Cannot infer first output tiling from the scale and zp outputs
+    return vpux::TileInfo(ShapeRef());
+}
+
 mlir::LogicalResult vpux::VPU::DynamicQuantizeOp::verify() {
     const auto inputShape = mlir::cast<vpux::NDTypeInterface>(getInput().getType()).getShape();
 

@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
@@ -414,7 +415,7 @@ class OpParamScaler<IE::FakeQuantizeOp> : public OpParamScalerBase {
     mlir::Operation* _updatedOp;
 
 public:
-    OpParamScaler<IE::FakeQuantizeOp>(): OpParamScalerBase(), _updatedOp(nullptr) {
+    OpParamScaler(): OpParamScalerBase(), _updatedOp(nullptr) {
     }
     virtual inline std::pair<mlir::LogicalResult, bool> operator()(mlir::Operation* op, mlir::PatternRewriter& rewriter,
                                                                    mlir::MLIRContext* ctx, TraversalDir traversalDir,
@@ -422,7 +423,7 @@ public:
     virtual mlir::Operation* updatedOp() override {
         return _updatedOp;
     }
-    virtual ~OpParamScaler<IE::FakeQuantizeOp>() {
+    virtual ~OpParamScaler() {
     }
 };
 
@@ -881,6 +882,12 @@ void handleMultFamilyUp(size_t mopIndex, llvm::SmallVector<MulPropData>& mulProp
     }
 }
 
+// Propagate the weights to the input of the dynamic dequantize op.
+void handleDynamicDequantizeOpUp(size_t mopIndex, SmallVector<MulPropData>& mulProps, std::queue<size_t>& mulQ) {
+    const size_t scaleOperandIndex = 1;
+    moveMulToInputIndex(mopIndex, mulProps, mulQ, mulProps[mopIndex].scale, scaleOperandIndex);
+}
+
 void handleMemoryOpDown(size_t mopIndex, llvm::SmallVector<MulPropData>& mulProps, std::queue<size_t>& mulQ) {
     moveMulToOutput(mopIndex, mulProps, mulQ, mulProps[mopIndex].scale);
 }
@@ -1028,6 +1035,9 @@ mlir::LogicalResult traverseSubgraph(llvm::SmallVector<mlir::Operation*>& subgra
                     })
                     .Case<IE::MatMulOp>([&](IE::MatMulOp) {
                         handleMultFamilyUp(itop, mulProps, mulQ);
+                    })
+                    .Case<IE::DynamicDequantizeOp>([&](IE::DynamicDequantizeOp) {
+                        handleDynamicDequantizeOpUp(itop, mulProps, mulQ);
                     })
                     // .Case<Const::DeclareOp>([&](Const::DeclareOp constOp) {
                     // Const::DeclareOps are handled in CreateMultiplyOp

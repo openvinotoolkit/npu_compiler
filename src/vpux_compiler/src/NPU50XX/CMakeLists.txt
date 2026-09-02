@@ -93,7 +93,6 @@ add_npu_library(npu_compiler_npu50xx
         cost_model_cache_data_5_1
         cost_model_data_5_2
         cost_model_cache_data_5_2
-        openvino::npu_al
 )
 
 target_compile_definitions(npu_compiler_npu50xx PRIVATE VPUX_BUILTIN_PRECOMPUTED_STRATEGY_TABLE_5_1)

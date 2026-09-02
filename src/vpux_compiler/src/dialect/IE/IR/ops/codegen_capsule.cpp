@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2025 Intel Corporation
+// Copyright (C) 2025-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -56,33 +56,53 @@ mlir::LogicalResult IE::CodeGenCapsuleOp::verify() {
     auto blockTerminator = getBody()->getTerminator();
     auto yieldOp = mlir::dyn_cast<IE::CGCYieldOp>(blockTerminator);
     if (!yieldOp) {
-        return mlir::failure();
+        return emitOpError("expected body to be terminated by a CGCYield op");
     }
     auto operandTypes = getOperandTypes();
     auto argTypes = getBody()->getArgumentTypes();
 
+    if (operandTypes.size() != argTypes.size()) {
+        return emitOpError("number of operands (")
+               << operandTypes.size() << ") does not match number of block arguments (" << argTypes.size() << ")";
+    }
+
     for (auto [operandType, argType] : llvm::zip(operandTypes, argTypes)) {
         auto ndOperandType = mlir::dyn_cast<vpux::NDTypeInterface>(operandType);
         auto ndArgType = mlir::dyn_cast<vpux::NDTypeInterface>(argType);
-        if (!ndArgType || !ndOperandType) {
-            return mlir::failure();
+        if (!ndOperandType || !ndArgType) {
+            if (operandType != argType) {
+                return emitOpError("input operand type ")
+                       << operandType << " does not match block argument type " << argType;
+            }
+            continue;
         }
         if (ndOperandType.getMemShape() != ndArgType.getMemShape()) {
-            return mlir::failure();
+            return emitOpError("input operand memory shape ")
+                   << ndOperandType.getMemShape() << " does not match block argument memory shape "
+                   << ndArgType.getMemShape();
         }
     }
 
     auto resTypes = getResultTypes();
     auto yieldOperandTypes = yieldOp->getOperandTypes();
 
+    if (yieldOperandTypes.size() != resTypes.size()) {
+        return emitOpError("number of yielded values (")
+               << yieldOperandTypes.size() << ") does not match number of results (" << resTypes.size() << ")";
+    }
+
     for (auto [operandType, resType] : llvm::zip(yieldOperandTypes, resTypes)) {
         auto ndOperandType = mlir::dyn_cast<vpux::NDTypeInterface>(operandType);
         auto ndResType = mlir::dyn_cast<vpux::NDTypeInterface>(resType);
-        if (!ndResType || !ndOperandType) {
-            return mlir::failure();
+        if (!ndOperandType || !ndResType) {
+            if (operandType != resType) {
+                return emitOpError("yield operand type ") << operandType << " does not match result type " << resType;
+            }
+            continue;
         }
         if (ndOperandType.getMemShape() != ndResType.getMemShape()) {
-            return mlir::failure();
+            return emitOpError("yield operand memory shape ")
+                   << ndOperandType.getMemShape() << " does not match result memory shape " << ndResType.getMemShape();
         }
     }
 

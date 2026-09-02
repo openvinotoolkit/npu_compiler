@@ -61,6 +61,7 @@ public:
               _log(log),
               _codec(vpux::makeCodec(algo, arch)),
               _huffmanEnable(huffmanEnable) {
+        (void)_huffmanEnable;
     }
 
 public:
@@ -176,7 +177,7 @@ mlir::LogicalResult NNDMAOpConverter::matchAndRewrite(VPUIP::NNDMAOp origOp, mli
 
         const Shape compressedDataShape{checked_cast<int64_t>(compressedData.size()), 1, 1, 1};
         newSrcType = getMemRefType(compressedDataShape, u8Type, DimsOrder::NCHW, inputType.getMemSpace(),
-                                   /*strides=*/StridesRef(), VPUIP::getSwizzlingSchemeAttr(inputType));
+                                   /*strides=*/StridesRef(), BoundsRef(), VPUIP::getSwizzlingSchemeAttr(inputType));
         newSrcType = mlir::cast<mlir::MemRefType>(
                 VPUIP::setCompressionState(newSrcType, VPUIP::CompressionState::CompiletimeCompressed));
         const auto newSrcStorageType = mlir::RankedTensorType::get(compressedDataShape.raw(), u8Type);
@@ -190,7 +191,7 @@ mlir::LogicalResult NNDMAOpConverter::matchAndRewrite(VPUIP::NNDMAOp origOp, mli
 
         const Shape compressedDataShape{checked_cast<int64_t>(compressedData.size() / f16TypeSizeBytes), 1, 1, 1};
         newSrcType = getMemRefType(compressedDataShape, f16Type, DimsOrder::NCHW, inputType.getMemSpace(),
-                                   /*strides=*/StridesRef(), VPUIP::getSwizzlingSchemeAttr(inputType));
+                                   /*strides=*/StridesRef(), BoundsRef(), VPUIP::getSwizzlingSchemeAttr(inputType));
         newSrcType = mlir::cast<mlir::MemRefType>(
                 VPUIP::setCompressionState(newSrcType, VPUIP::CompressionState::CompiletimeCompressed));
         const auto newSrcStorageType = mlir::RankedTensorType::get(compressedDataShape.raw(), f16Type);

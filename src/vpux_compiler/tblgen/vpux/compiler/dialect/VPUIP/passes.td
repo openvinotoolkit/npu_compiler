@@ -182,8 +182,6 @@ def OptimizeConcatViewCopies : PassBase<"optimize-concat-view-copies", "vpux::Fu
     let summary = "Optimize ConcatView Op to remove unnecessary copies or reduce copies data size";
 
     let description = [{
-        AI-generated summary
-
         - Propagate SubView Op before ConcatView Op to reduce data size of copies
         Target Pattern: NCE Task 16 channels output -> Copy 16 channels -> Concat -> Subview -> 3 channels
         Optimization:   NCE Task 16 channels output -> Copy 3 channels -> Concat -> Subview -> 3 channels
@@ -195,6 +193,21 @@ def OptimizeConcatViewCopies : PassBase<"optimize-concat-view-copies", "vpux::Fu
            For example, first ConcatView has M inputs, second ConcatView has N inputs, out of which P of them are the output of the first ConcatView
            After fusing, the number of input copies is: M * P + (N - P)
            Can't ensure we get benefit when P is of a large size. Limit optimization to P=1.
+
+        - FuseGatherDMAWithSubViewCopy: Transforms a costly GatherDMAOp (with INDEXED mode) into Subview + CopyOps, reducing the amount of data copied.
+          Turns subgraph:
+        NCE_i  (CMX, DUPLICATED|SEGMENTED or SEGMENTED (on K only))
+            |
+        Copy  (CMX → SubView of alloc_concat, DDR)       ← one per NCE
+              \   /
+          ConcatViewOp  (DDR, shape 1xCxHxW, NHWC) -> GenericReshape  (1xCx(H*W)x1) -> PermuteCast  (mem_perm=[d1,d3,d0,d2], (H*W)xCx1x1) ->
+                -> GenericReshape  (flat: numFlatRows x gatherRowSize) -> GatherDMAOp  (gathers K rows → K x gatherRowSize, CMX) ->
+                -> GenericReshape  (K x gatherRowSize → 1 x K x gatherRowSize) -> Copy  (CMX -> DDR)
+          into:
+        For each row index r = indices[j]:
+            NCE_inputIdx  (CMX, DUPLICATED/SEGMENTED on K) -> [ExtractFlatSliceOp for SEGMENTED on K] ->
+                    -> SubView [0, channelOffset, h, w][1, gatherRowSize, 1, 1] -> [GenericReshape + PermuteCast to match DDR dest dims] ->
+                    -> Copy  (CMX → row-j slot of downstream alloc, DDR)
     }];
 
     let constructor = "vpux::VPUIP::createOptimizeConcatViewCopiesPass()";
@@ -258,6 +271,16 @@ def OptimizeParallelCopies : PassBase<"optimize-parallel-copies", "vpux::Functio
           enableOptimizeConstCopy flag)
         - Interpolate mode and coordinate mode compatibility for NCE operations
         - SubView and DistributedBuffer compatibility
+
+        ParallelToDDRCopiesRewriter
+          Fuses CMX->DDR CopyOps with the same input value and result type into a single copy,
+          provided neither the root nor the sibling writes to a SubView or function-argument buffer.
+
+        SplatConstRewriter
+          Targets NCE tasks tiled over K that each receive a separate splat const.Declare and
+          CopyOp for weight_table_scale / weight_table_bias.  Sibling NCE tasks are identified
+          by tracing weights through SubView offsets back to a shared DDR buffer; copies whose
+          splat values are equivalent are merged into a single copy.
     }];
 
     let constructor = "vpux::VPUIP::createOptimizeParallelCopiesPass()";
@@ -980,6 +1003,26 @@ def OptimizeAsyncDeps : PassBase<"optimize-async-deps", "vpux::FunctionPass"> {
 }
 
 //
+// AddAsyncSchedulingDependencies
+//
+
+def AddAsyncSchedulingDependencies : PassBase<"add-async-scheduling-dependencies", "vpux::FunctionPass"> {
+    let summary = "Add dependencies required by asynchronous scheduling constraints";
+
+    let description = [{
+        Provides a short-term solution for scheduler prioritization of input-only producers by
+        adding artificial dependencies between consecutive DynamicDequantize and convolution
+        groups. This keeps each DynamicDequantize producer close to its convolution consumer
+        instead of scheduling producers from later groups too early.
+
+        TODO(E227196): Remove this pass after the scheduler handles input-only producers
+        just in time without artificial dependencies.
+    }];
+
+    let constructor = "vpux::VPUIP::createAddAsyncSchedulingDependenciesPass()";
+}
+
+//
 // FeasibleAllocation
 //
 
@@ -1050,10 +1093,11 @@ def FeasibleAllocation : PassBase<"feasible-allocation", "vpux::FunctionPass"> {
             "bool", "false",
             "Enables compiler to schedule with different heuristic logics and compare costs"
         >,
+        // E#216928 remove when feature fully enabled
         Option<
             "enableVfUndefinedScheduler", "enable-vf-undefined-scheduler",
             "bool", "false",
-            "Route VF regions through UndefinedVF (currently empty schedule -> legacy fallback). TODO: E#216928 - remove when feature fully enabled"
+            "Route VF regions through UndefinedVF (currently empty schedule -> legacy fallback)"
         >
     ];
 
@@ -1452,11 +1496,11 @@ def UnrollUpsamplingDMA : PassBase<"unroll-upsampling-dma", "vpux::FunctionPass"
 }
 
 //
-// AssignLogicalTaskIndex
+// AssignShvLogicalTaskIndex
 //
 
-def AssignLogicalTaskIndex : PassBase<"assign-logical-task-index", "vpux::ModulePass"> {
-    let summary = "Assign a globally unique logical_task index to IO-DMA SW kernels";
+def AssignShvLogicalTaskIndex : PassBase<"assign-shv-logical-task-index", "vpux::ModulePass"> {
+    let summary = "Assign a globally unique logical_task index to IO-DMA SHV kernels";
 
     let description = [{
         Tags every IO-DMA submitting SW kernel (a SwKernelOp whose entry is in SW_KERNELS_IO_DMA) with
@@ -1468,7 +1512,7 @@ def AssignLogicalTaskIndex : PassBase<"assign-logical-task-index", "vpux::Module
         per-function pass would otherwise need.
     }];
 
-    let constructor = "vpux::VPUIP::createAssignLogicalTaskIndexPass()";
+    let constructor = "vpux::VPUIP::createAssignShvLogicalTaskIndexPass()";
 }
 
 //
@@ -2256,6 +2300,22 @@ def UngroupBoundedBuffers : PassBase<"ungroup-bounded-buffers", "vpux::FunctionP
     ];
 }
 
+def ConvertDynamicMemrefsToBoundedBuffers : PassBase<"convert-dynamic-memrefs-to-bounded-buffers", "vpux::ModulePass"> {
+    let summary = "Convert dynamic memrefs to bounded buffers";
+
+    let description = [{
+        This pass converts dynamic memrefs to bounded buffers, which is, at the
+        beginning of VPUIP, a more convenient buffer representation for the
+        compiler. This pass is a compatibility layer to transition from
+        MLIR-style dynamic memrefs to NPU-style type system.
+    }];
+
+    let constructor = "vpux::VPUIP::createConvertDynamicMemrefsToBoundedBuffersPass()";
+    let dependentDialects = [
+        "vpux::VPUIP::VPUIPDialect"
+    ];
+}
+
 //
 // UngroupFuncArgs
 //
@@ -2680,7 +2740,8 @@ def OptimizeConvertDMAOp : PassBase<"optimize-convert-dma-op", "vpux::FunctionPa
           patterns where the ConvertDMA has multiple SubView users. Moves view-like ops
           before ConvertDMA and replaces each SubView -> Copy pair with SubView -> ConvertDMA,
           eliminating the intermediate copies. Only applies to non-distributed, compact-stride
-          inputs and excludes ReinterpretCast view ops.
+          inputs and excludes ReinterpretCast view ops. If there is no view-like operation, we
+          don't need to check input has stride or not.
     }];
 
     let constructor = "vpux::VPUIP::createOptimizeConvertDMAOpPass()";
@@ -2830,6 +2891,53 @@ def SplitDMAToBalanceLoad : PassBase<"split-dma-to-balance-load", "vpux::Functio
     }];
 
     let constructor = "vpux::VPUIP::createSplitDMAToBalanceLoadPass()";
+}
+
+//
+// LegalizeNNDMADimSizes
+//
+
+def LegalizeNNDMADimSizes : PassBase<"legalize-nndma-dim-sizes", "vpux::FunctionPass"> {
+    let summary = "Split NNDMA transfers to bound per-task transfer time for firmware preemption";
+
+    let description = [{
+        Splits NNDMA operations whose transfer time estimated by `MAX_TASK_BYTE_BUDGET`
+        exceeds the target preemption window. Firmware preemption cannot interrupt a DMA
+        task mid-transfer, so the preemption latency is bounded by the runtime of the
+        longest in-flight task. When a single NNDMA takes too long to execute (for example
+        a multi-MiB contiguous transfer, or a strided transfer with many bursts),
+        preemption is delayed until it completes and the runtime misses its preemption KPI.
+
+        Byte count and stride pattern are used here as a cheap proxy for transfer
+        time. `MAX_TASK_BYTE_BUDGET` approximates the number of bytes a DMA engine
+        can move within the target preemption window on the expected memory path.
+        For strided transfers the budget is additionally scaled by
+        `contigBytes / BURST_BUFFER_SIZE` on DDR-touching transfers,
+        because short contiguous chunks lower effective bandwidth and would
+        otherwise let a "small" transfer still exceed the time budget.
+
+        Two paths are used depending on the transfer layout:
+
+        1. Contiguous transfers: if the compact payload exceeds the budget, the pass
+            picks the outermost logical dimension whose size is at least `numTiles =
+            ceil(payload / budget)` and splits along it.
+
+        2. Strided transfers: the pass reduces the DMA pattern to isolate the innermost
+            contiguous chunk (see `DMAContigChunk`) and splits along the outer plane
+            dimension that repeats it. The per-tile byte target for strided transfers is
+            scaled by `contigBytes / BURST_BUFFER_SIZE` when the transfer touches DDR, to
+            keep effective bandwidth predictable when contiguous chunks are small.
+
+        The split is skipped when the payload already fits the budget, when the input
+        and output shapes differ, when the DMA has dynamic strides, or when no logical
+        dimension is large enough to produce the required number of tiles.
+
+        Emitted parts execute sequentially on the original DMA port. Only the first
+        part keeps the original wait barriers and only the last part keeps the original
+        update barriers; intermediate parts run without extra synchronization.
+    }];
+
+    let constructor = "vpux::VPUIP::createLegalizeNNDMADimSizesPass()";
 }
 
 //
@@ -3074,7 +3182,7 @@ def UnrollShaveCacheOps : PassBase<"unroll-shave-cache-ops", "vpux::FunctionPass
 
 def PrepareShaveSubmitDMAs :
     PassBase<"prepare-shave-submit-dmas", "vpux::FunctionPass"> {
-    let summary = "Insert FetchDMAs and SHV SyncDMAs for SHV submitted DMA flows";
+    let summary = "Insert FetchDMAs, SHV SyncDMAs, and Release SyncDMAs for SHV submitted DMA flows";
 
     let description = [{
         Split stage 1 for SHV submit DMA legalization.
@@ -3085,14 +3193,18 @@ def PrepareShaveSubmitDMAs :
 
         For each logical SHAVE task group the pass plans and inserts:
             • Fetch DMAs that retrieve the submitted descriptors on the corresponding DMA queue.
-            • A shared barrier that orders descriptor fetch completion before descriptor execution.
+            • A shared fetch barrier that orders descriptor fetch completion before sync execution.
             • One SHV SyncDMA per impacted DMA queue. Each SHV sync consumes the fetch barrier,
-                waits for descriptor preparation to complete, and carries the logical task marker
+                then updates an intermediate sync-to-SHV barrier and carries the logical task marker
                 used by the second split pass.
+            • One Release SyncDMA per impacted DMA queue, inserted after the SHV sync anchor.
+            • A shared barrier updated by SHV tasks and consumed by Release SyncDMAs.
 
-        Fetch DMAs produce the group barrier, while SHV SyncDMAs and the SHAVE task consume it.
-        This preserves the original ordering guarantee that descriptor preparation completes before
-        the hardware starts executing the submitted DMA list.
+        Fetch DMAs produce the fetch barrier, SHV SyncDMAs consume that barrier and produce
+        the sync-to-SHV barrier, SHAVE tasks consume the sync-to-SHV barrier, then SHAVE tasks
+        produce the SHV-to-release barrier and Release SyncDMAs consume it.
+        This preserves the original ordering guarantees that descriptor preparation completes before
+        submitted list execution, and that ReleaseDMAs run only after corresponding SHV work.
 
         The pass also legalizes control-block boundary dependencies. If an SHV sync becomes the
         last task on its DMA queue, the pass inserts an additional guard SyncDMA immediately after it.
@@ -3103,14 +3215,14 @@ def PrepareShaveSubmitDMAs :
         A graph after split stage 1 looks like:
 
         -> Fetch(Skip_list0_DDR) -|
-        -> Fetch(Skip_list1_DDR) -|-> BAR -> |-> SyncDMA(shv_sync, DDR) [Skip Position] -> [optional release SyncDMA]
-        -> Fetch(Skip_list0_CMX) -|          |-> SyncDMA(shv_sync, CMX) [Skip Position] -> [optional release SyncDMA]
-        -> Fetch(Skip_list1_CMX) -|          |
-                                             |-----------------------> SHV[list0](withDMA)
-                                             |-----------------------> SHV[list1](withDMA)
+        -> Fetch(Skip_list1_DDR) -|       -> SyncDMA(shv_sync, DDR) -|                      |-> SyncDMA(shv_release, DDR)
+                                  |-> BAR->|                          |-> BAR -> SHV -> BAR->|
+        -> Fetch(Skip_list0_CMX) -|       -> SyncDMA(shv_sync, CMX) -|                      |-> SyncDMA(shv_release, CMX)
+        -> Fetch(Skip_list1_CMX) -|
+
 
         Stage 1 intentionally stops before inserting SkipDMAs. Its output is a legal execution graph
-        with SHV sync insertion points and ordering metadata that can be consumed independently by split stage 2.
+        with SHV/Release sync insertion points and ordering metadata that can be consumed independently by split stage 2.
     }];
 
     let constructor = "vpux::VPUIP::createPrepareShaveSubmitDMAsPass()";
@@ -3129,28 +3241,30 @@ def PrepareShaveSubmitDMAs :
 //
 
 def InsertShaveSubmitSkipDMAs : PassBase<"insert-shave-submit-skip-dmas", "vpux::FunctionPass"> {
-    let summary = "Insert barrier less SkipDMAs after the SHV syncs created by split stage 1";
+    let summary = "Insert barrier less SkipDMAs before release SyncDMAs created by split stage 1";
 
     let description = [{
         Split stage 2 for SHV submit DMA legalization.
         This pass performs the second half of SHV submit DMA legalization. It locates the per-queue
-        SHV sync tasks created by prepare-shave-submit-dmas and materializes
-        the SkipDMA operations for the corresponding logical SHAVE task immediately after those syncs.
+        release SyncDMA tasks created by prepare-shave-submit-dmas and materializes
+        the SkipDMA operations for the corresponding logical SHAVE task immediately before those syncs.
 
         SkipDMAs are inserted using operation order only. They do not receive barrier dependencies,
         matching the original implementation where skip descriptors remained barrier-less and relied on
         queue ordering after the synchronization point. The pass preserves the planned per-queue skip
-        ordering and copies the WLM page from the SHV sync to every newly inserted SkipDMA.
+        ordering and copies the WLM page from the release SyncDMA anchor to every newly inserted SkipDMA.
 
-        If split stage 1 inserted a guard SyncDMA after the SHV sync, SkipDMAs are inserted between
-        the SHV sync and that guard sync. This keeps the control-block legalization from stage 1
-        intact while restoring the final descriptor layout expected by hardware.
+        Before choosing the final insertion anchor, the pass scans the same DMA queue backwards
+        from the release SyncDMA until it reaches the first preceding SyncDMA on that queue
+        (the sync boundary for the SHV submit flow).
+        If one or more EnqueueDMA ops are present in this interval, the earliest EnqueueDMA
+        (closest to SHV SyncDMA) becomes the insertion anchor instead of the release SyncDMA.
 
         A graph after split stage 2 looks like:
 
         -> Fetch(Skip_list0_DDR) -|
-        -> Fetch(Skip_list1_DDR) -|-> BAR -> |-> SyncDMA(shv_sync, DDR) -> SkipDMA(list0_DDR), SkipDMA(list1_DDR) -> [release SyncDMA/Existing release DMA in schedule]
-        -> Fetch(Skip_list0_CMX) -|          |-> SyncDMA(shv_sync, CMX) -> SkipDMA(list0_CMX), SkipDMA(list1_CMX) -> [release SyncDMA/Existing release DMA in schedule]
+        -> Fetch(Skip_list1_DDR) -|-> BAR -> |-> SyncDMA(shv_sync, DDR) -> SkipDMA(list0_DDR), SkipDMA(list1_DDR) -> Release SyncDMA
+        -> Fetch(Skip_list0_CMX) -|          |-> SyncDMA(shv_sync, CMX) -> SkipDMA(list0_CMX), SkipDMA(list1_CMX) -> Release SyncDMA
         -> Fetch(Skip_list1_CMX) -|          |
                                              |-----------------------> SHV[list0](withDMA)
                                              |-----------------------> SHV[list1](withDMA)

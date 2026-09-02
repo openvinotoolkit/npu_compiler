@@ -16,12 +16,12 @@
 
 module {
 bytecode.func_section @function_section {
-    bytecode.func @jmp_forward @fn_jmp_forward @fn_void_type {
+    bytecode.func @jmp_forward @string_section::@fn_jmp_forward @type_section::@fn_void_type {
         bytecode.jmp ^bb1
     ^bb1:
         bytecode.ret
     }
-    bytecode.func @jmp_backward @fn_jmp_backward @fn_void_type {
+    bytecode.func @jmp_backward @string_section::@fn_jmp_backward @type_section::@fn_void_type {
         %r1 = bytecode.general_register 1
         %r2 = bytecode.general_register 2
         bytecode.jmp ^loop
@@ -29,7 +29,7 @@ bytecode.func_section @function_section {
         bytecode.add.i64 %r1, %r1, %r2
         bytecode.jmp ^loop
     }
-    bytecode.func @je_forward @fn_je_forward @fn_void_type {
+    bytecode.func @je_forward @string_section::@fn_je_forward @type_section::@fn_void_type {
         %r1 = bytecode.general_register 1
         %r2 = bytecode.general_register 2
         bytecode.je %r1, %r2, ^taken, ^fallthrough
@@ -38,7 +38,7 @@ bytecode.func_section @function_section {
     ^taken:
         bytecode.ret
     }
-    bytecode.func @jne_backward @fn_jne_backward @fn_void_type {
+    bytecode.func @jne_backward @string_section::@fn_jne_backward @type_section::@fn_void_type {
         %r1 = bytecode.general_register 1
         %r2 = bytecode.general_register 2
         bytecode.jmp ^loop_body

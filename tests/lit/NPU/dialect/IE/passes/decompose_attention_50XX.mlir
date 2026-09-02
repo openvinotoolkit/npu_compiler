@@ -37,6 +37,21 @@ func.func @DecomposeAttentionWithMask(%arg0: tensor<1x8x64x32xf16>, %arg1: tenso
 
 // -----
 
+// CHECK-LABEL: @DecomposeAttentionWithPadSizeS
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x8x64x32xf16>, [[ARG1:%.+]]: tensor<1x8x68x32xf16>, [[ARG2:%.+]]: tensor<1x8x32x68xf16>, [[ARG3:%.+]]: tensor<1x1x1x1xf32>)
+func.func @DecomposeAttentionWithPadSizeS(%arg0: tensor<1x8x64x32xf16>, %arg1: tensor<1x8x68x32xf16>, %arg2: tensor<1x8x32x68xf16>, %arg3: tensor<1x1x1x1xf32>) -> tensor<1x8x64x32xf16> {
+  %0 = IE.Attention(%arg0, %arg1, %arg2, %arg3) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 0>, padSizeS = 4 : i64} : tensor<1x8x64x32xf16>, tensor<1x8x68x32xf16>, tensor<1x8x32x68xf16>, tensor<1x1x1x1xf32> -> tensor<1x8x64x32xf16>
+  return %0 : tensor<1x8x64x32xf16>
+
+  // CHECK: [[SCALED_Q:%.+]] = IE.Multiply([[ARG0]], [[ARG3]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+  // CHECK: [[QK:%.+]] = IE.MatMul([[SCALED_Q]], [[ARG1]]) {transpose_b}
+  // CHECK: [[SOFTMAX:%.+]] = IE.SoftMax([[QK]]) {axisInd = 3 : i64, padSize = 4 : i64}
+  // CHECK: [[OUT:%.+]] = IE.MatMul([[SOFTMAX]], [[ARG2]]) {transpose_b}
+  // CHECK: return [[OUT]]
+}
+
+// -----
+
 // CHECK-LABEL: @DecomposeAttentionWithCustomScale
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x8x64x32xf16>, [[ARG1:%.+]]: tensor<1x8x64x32xf16>, [[ARG2:%.+]]: tensor<1x8x32x64xf16>, [[ARG3:%.+]]: tensor<1xf32>)
 func.func @DecomposeAttentionWithCustomScale(%arg0: tensor<1x8x64x32xf16>, %arg1: tensor<1x8x64x32xf16>, %arg2: tensor<1x8x32x64xf16>, %arg3: tensor<1xf32>) -> tensor<1x8x64x32xf16> {
@@ -122,6 +137,33 @@ func.func @DecomposeAttentionWithMaskAndScale(%arg0: tensor<1x8x64x32xf16>, %arg
   // CHECK: [[SOFTMAX:%.+]] = IE.SoftMax([[MASKED]]) {axisInd = 3 : i64}
   // CHECK: [[OUT:%.+]] = IE.MatMul([[SOFTMAX]], [[ARG2]]) {transpose_b}
   // CHECK: return [[OUT]]
+}
+
+// -----
+
+// CHECK-LABEL: @KeepLegalAttentionWithPerQuerySink
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x64x1024x64xf16>, [[ARG1:%.+]]: tensor<1x64x1024x64xf16>, [[ARG2:%.+]]: tensor<1x64x64x1024xf16>, [[ARG3:%.+]]: tensor<1x1x1x1xf32>, [[ARG4:%.+]]: tensor<1x64x1024x1xf16>)
+func.func @KeepLegalAttentionWithPerQuerySink(%arg0: tensor<1x64x1024x64xf16>, %arg1: tensor<1x64x1024x64xf16>, %arg2: tensor<1x64x64x1024xf16>, %arg3: tensor<1x1x1x1xf32>, %arg4: tensor<1x64x1024x1xf16>) -> tensor<1x64x1024x64xf16> {
+  %0 = IE.Attention(%arg0, %arg1, %arg2, %arg3, %arg4) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 0>} : tensor<1x64x1024x64xf16>, tensor<1x64x1024x64xf16>, tensor<1x64x64x1024xf16>, tensor<1x1x1x1xf32>, tensor<1x64x1024x1xf16> -> tensor<1x64x1024x64xf16>
+  return %0 : tensor<1x64x1024x64xf16>
+
+  // A per-query 2D sink (query dimension equal to target sequence length) stays on the fused
+  // VPU.Attention path; the kernel is2DSink branch consumes one sink logit per query row.
+  // CHECK: [[ATTENTION:%.+]] = IE.Attention([[ARG0]], [[ARG1]], [[ARG2]], [[ARG3]], [[ARG4]])
+  // CHECK: return [[ATTENTION]]
+}
+
+// -----
+
+// CHECK-LABEL: @KeepLegalAttentionWithPerHeadSink
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x64x1024x64xf16>, [[ARG1:%.+]]: tensor<1x64x1024x64xf16>, [[ARG2:%.+]]: tensor<1x64x64x1024xf16>, [[ARG3:%.+]]: tensor<1x1x1x1xf32>, [[ARG4:%.+]]: tensor<1x64x1x1xf16>)
+func.func @KeepLegalAttentionWithPerHeadSink(%arg0: tensor<1x64x1024x64xf16>, %arg1: tensor<1x64x1024x64xf16>, %arg2: tensor<1x64x64x1024xf16>, %arg3: tensor<1x1x1x1xf32>, %arg4: tensor<1x64x1x1xf16>) -> tensor<1x64x1024x64xf16> {
+  %0 = IE.Attention(%arg0, %arg1, %arg2, %arg3, %arg4) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 1, 0>} : tensor<1x64x1024x64xf16>, tensor<1x64x1024x64xf16>, tensor<1x64x64x1024xf16>, tensor<1x1x1x1xf32>, tensor<1x64x1x1xf16> -> tensor<1x64x1024x64xf16>
+  return %0 : tensor<1x64x1024x64xf16>
+
+  // A per-head sink (query dimension equal to 1) stays on the fused VPU.Attention path.
+  // CHECK: [[ATTENTION:%.+]] = IE.Attention([[ARG0]], [[ARG1]], [[ARG2]], [[ARG3]], [[ARG4]])
+  // CHECK: return [[ATTENTION]]
 }
 
 // -----
@@ -323,6 +365,34 @@ func.func @KeepLegalAttentionMqaFoldedShape(%arg0: tensor<1x1x80x256xf16>, %arg1
 
 // -----
 
+// CHECK-LABEL: @KeepLegalAttentionArditSelf
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x32x1200x16xf16>, [[ARG1:%.+]]: tensor<1x32x1200x16xf16>, [[ARG2:%.+]]: tensor<1x32x16x1200xf16>, [[ARG3:%.+]]: tensor<1x1x1x1xf32>)
+func.func @KeepLegalAttentionArditSelf(%arg0: tensor<1x32x1200x16xf16>, %arg1: tensor<1x32x1200x16xf16>, %arg2: tensor<1x32x16x1200xf16>, %arg3: tensor<1x1x1x1xf32>) -> tensor<1x32x1200x16xf16> {
+  %0 = IE.Attention(%arg0, %arg1, %arg2, %arg3) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 0>} : tensor<1x32x1200x16xf16>, tensor<1x32x1200x16xf16>, tensor<1x32x16x1200xf16>, tensor<1x1x1x1xf32> -> tensor<1x32x1200x16xf16>
+  return %0 : tensor<1x32x1200x16xf16>
+
+  // CHECK: [[ATTENTION:%.+]] = IE.Attention([[ARG0]], [[ARG1]], [[ARG2]], [[ARG3]])
+  // CHECK-NOT: IE.MatMul
+  // CHECK-NOT: IE.SoftMax
+  // CHECK: return [[ATTENTION]]
+}
+
+// -----
+
+// CHECK-LABEL: @KeepLegalAttentionArditCross
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x32x1200x16xf16>, [[ARG1:%.+]]: tensor<1x32x160x16xf16>, [[ARG2:%.+]]: tensor<1x32x16x160xf16>, [[ARG3:%.+]]: tensor<1x1x1x1xf32>)
+func.func @KeepLegalAttentionArditCross(%arg0: tensor<1x32x1200x16xf16>, %arg1: tensor<1x32x160x16xf16>, %arg2: tensor<1x32x16x160xf16>, %arg3: tensor<1x1x1x1xf32>) -> tensor<1x32x1200x16xf16> {
+  %0 = IE.Attention(%arg0, %arg1, %arg2, %arg3) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0, 0>} : tensor<1x32x1200x16xf16>, tensor<1x32x160x16xf16>, tensor<1x32x16x160xf16>, tensor<1x1x1x1xf32> -> tensor<1x32x1200x16xf16>
+  return %0 : tensor<1x32x1200x16xf16>
+
+  // CHECK: [[ATTENTION:%.+]] = IE.Attention([[ARG0]], [[ARG1]], [[ARG2]], [[ARG3]])
+  // CHECK-NOT: IE.MatMul
+  // CHECK-NOT: IE.SoftMax
+  // CHECK: return [[ATTENTION]]
+}
+
+// -----
+
 // CHECK-LABEL: @DecomposeGQABatch1
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x8x64x32xf16>, [[ARG1:%.+]]: tensor<1x4x64x32xf16>, [[ARG2:%.+]]: tensor<1x4x32x64xf16>)
 func.func @DecomposeGQABatch1(%arg0: tensor<1x8x64x32xf16>, %arg1: tensor<1x4x64x32xf16>, %arg2: tensor<1x4x32x64xf16>) -> tensor<1x8x64x32xf16> {
@@ -407,5 +477,38 @@ func.func @KeepGQAAttentionWithSink(
   // CHECK:     [[OUT:%.+]] = IE.Attention([[ARG0]], [[ARG1]], [[ARG2]], [[ARG3]], [[ARG4]], [[ARG5]])
   // CHECK-NOT: IE.MatMul
   // CHECK-NOT: IE.SoftMax
+  // CHECK:     return [[OUT]]
+}
+
+// -----
+
+// qHeads=8 > kHeads=vHeads=1 (MQA) with qBatch=8 concentrates Q's batch into channels
+// ([1, 64, ...] domain). Sink still carries the un-folded [qBatch, qHeads, 1, 1] layout and
+// must be reshaped into that same domain before use, otherwise the sink concat/broadcast sees
+// mismatched shapes. The final MatMul output must also be reshaped back out of the folded
+// domain to match the original [8, 8, 1, 64] result type.
+
+// CHECK-LABEL: @DecomposeAttentionWithSinkAndBatchFold
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<8x8x1x64xf32>, [[ARG1:%.+]]: tensor<8x1x1152x64xf32>, [[ARG2:%.+]]: tensor<8x1x64x1152xf32>, [[ARG3:%.+]]: tensor<1x1x1x1152xf32>, [[ARG4:%.+]]: tensor<1x1x1x1xf32>, [[ARG5:%.+]]: tensor<8x8x1x1xf32>)
+func.func @DecomposeAttentionWithSinkAndBatchFold(%arg0: tensor<8x8x1x64xf32>, %arg1: tensor<8x1x1152x64xf32>, %arg2: tensor<8x1x64x1152xf32>, %arg3: tensor<1x1x1x1152xf32>, %arg4: tensor<1x1x1x1xf32>, %arg5: tensor<8x8x1x1xf32>) -> tensor<8x8x1x64xf32> {
+  %0 = IE.Attention(%arg0, %arg1, %arg2, %arg3, %arg4, %arg5) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1, 0>} : tensor<8x8x1x64xf32>, tensor<8x1x1152x64xf32>, tensor<8x1x64x1152xf32>, tensor<1x1x1x1152xf32>, tensor<1x1x1x1xf32>, tensor<8x8x1x1xf32> -> tensor<8x8x1x64xf32>
+  return %0 : tensor<8x8x1x64xf32>
+
+  // CHECK-NOT: IE.Attention
+
+  // CHECK:     [[SCORES:%.+]] = IE.Add(%{{.+}}, [[ARG3]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x64x1x1152xf32>, tensor<1x1x1x1152xf32> -> tensor<1x64x1x1152xf32>
+
+  // Sink is folded into the batch-concentrated domain before use.
+  // CHECK:     [[SINK_RESHAPED:%.+]] = IE.Reshape([[ARG5]]) {shape_value = [1, 64, 1, 1]} : tensor<8x8x1x1xf32> -> tensor<1x64x1x1xf32>
+
+  // Shapes now match, so sink is concatenated directly with no extra IE.Broadcast.
+  // CHECK:     [[CONCAT:%.+]] = IE.Concat([[SCORES]], [[SINK_RESHAPED]]) {{.*}}axis = 3{{.*}} -> tensor<1x64x1x1153xf32>
+  // CHECK:     [[SOFTMAX:%.+]] = IE.SoftMax([[CONCAT]]) {axisInd = 3 : i64} : tensor<1x64x1x1153xf32> -> tensor<1x64x1x1153xf32>
+  // CHECK:     [[SLICE:%.+]] = IE.Slice [[SOFTMAX]] [0, 0, 0, 0] [1, 64, 1, 1152] : tensor<1x64x1x1153xf32> to tensor<1x64x1x1152xf32>
+
+  // Final MatMul is still in the folded [1, 64, ...] domain and must be reshaped back to the
+  // original [8, 8, 1, 64] batch/head layout before it can replace the AttentionOp result.
+  // CHECK:     [[OUT_MATMUL:%.+]] = IE.MatMul([[SLICE]], %{{.+}}) {transpose_b} : tensor<1x64x1x1152xf32>, tensor<1x64x64x1152xf32> -> tensor<1x64x1x64xf32>
+  // CHECK:     [[OUT:%.+]] = IE.Reshape([[OUT_MATMUL]]) {shape_value = [8, 8, 1, 64]} : tensor<1x64x1x64xf32> -> tensor<8x8x1x64xf32>
   // CHECK:     return [[OUT]]
 }

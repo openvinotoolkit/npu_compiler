@@ -49,6 +49,7 @@ mlir::LogicalResult VPU::DetectionOutputNmsCaffeOp::inferReturnTypes(
 
 using DimType = Shape::ValueType;
 
+namespace {
 TileInfo tileOnHeight(mlir::Value indices, DimType numClasses, DimType classesOffset, DimType classesAxis) {
     const auto indicesShape = getShape(indices);
 
@@ -84,6 +85,7 @@ TileInfo tileSizes(mlir::Value sizes, DimType numClasses, DimType classesOffset,
 
     return tile;
 }
+}  // namespace
 
 InputTiling vpux::VPU::DetectionOutputNmsCaffeOp::backInferTileInfo(const vpux::TileInfo& outputTile,
                                                                     vpux::Logger /*log*/) {
@@ -142,4 +144,31 @@ OutputTiling vpux::VPU::DetectionOutputNmsCaffeOp::getOutputTiling(const vpux::T
     sizesTile.axis = Shape{1, 1, 1, axisClasses};
 
     return OutputTiling{firstOutputTile, std::move(boxesTile), std::move(sizesTile)};
+}
+
+vpux::TileInfo vpux::VPU::DetectionOutputNmsCaffeOp::getMainOutputTile(mlir::OpResult secondaryOutput,
+                                                                       const vpux::TileInfo& secondaryOutputTile,
+                                                                       vpux::Logger /*log*/) {
+    // Tiling can be done only on H of main output (numClasses dim), therefore we can infer the output 0 tile from any
+    // of the other outputs
+    if (secondaryOutput == getOutConfidence()) {
+        return secondaryOutputTile;
+    }
+
+    auto mainTile = TileInfo(getBoundedShape(getOutConfidence()));
+    if (secondaryOutput == getOutBoxes()) {
+        mainTile.shape[Dims4D::Act::H] = secondaryOutputTile.shape[Dims4D::Act::C];
+        mainTile.offsets[Dims4D::Act::H] = secondaryOutputTile.offsets[Dims4D::Act::C];
+        mainTile.axis[Dims4D::Act::H] = secondaryOutputTile.axis[Dims4D::Act::C];
+        return mainTile;
+    }
+
+    if (secondaryOutput == getOutSizes()) {
+        mainTile.shape[Dims4D::Act::H] = secondaryOutputTile.shape[Dims4D::Act::W];
+        mainTile.offsets[Dims4D::Act::H] = secondaryOutputTile.offsets[Dims4D::Act::W];
+        mainTile.axis[Dims4D::Act::H] = secondaryOutputTile.axis[Dims4D::Act::W];
+        return mainTile;
+    }
+
+    return vpux::TileInfo(ShapeRef());
 }

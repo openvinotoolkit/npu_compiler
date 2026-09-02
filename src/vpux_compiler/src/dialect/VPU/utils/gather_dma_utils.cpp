@@ -9,9 +9,9 @@
 
 namespace vpux::VPU {
 
-bool isLegalConvertToGatherDMA(VPU::GatherOp op, bool isElementTile, bool isIndicesTile, vpux::Logger log) {
+bool isLegalConvertToGatherDMA(VPU::GatherOp op, bool isElementTile, bool isIndicesTile, vpux::Logger log,
+                               bool checkDimsBeforeAxis) {
     log.trace("Got Gather Op at {0}.", op->getLoc());
-
     const auto outShape = getShape(op.getOutput());
     if (outShape.isDynamic()) {
         return false;
@@ -22,18 +22,17 @@ bool isLegalConvertToGatherDMA(VPU::GatherOp op, bool isElementTile, bool isIndi
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
     auto arch = config::getArch(op);
 
-    if (!op.getAxisValue().has_value()) {
-        return false;
-    }
-
     // For GatherDMA all dimensions before axis dimension must be 1
-    size_t axis = op.getAxisValue().value();
+    const auto axis = static_cast<size_t>(op.getAxisValue());
     const auto inputShape = inputType.getShape();
 
+    int64_t dimsBeforeAxis = 1;
     for (size_t idx = 0; idx < axis; ++idx) {
-        if (inputShape[vpux::Dim(idx)] != 1) {
-            return false;
-        }
+        dimsBeforeAxis *= inputShape[vpux::Dim(idx)];
+    }
+
+    if (checkDimsBeforeAxis && dimsBeforeAxis != 1) {
+        return false;
     }
 
     const size_t numberOfIndices = indicesType.getNumElements();
@@ -46,7 +45,7 @@ bool isLegalConvertToGatherDMA(VPU::GatherOp op, bool isElementTile, bool isIndi
 
     const Bit elemOutSize = vpux::getElemTypeSize(outputType);
     const size_t dma_element_size_in_bit =
-            (outputType.getNumElements() / indicesType.getNumElements()) * elemOutSize.count();
+            (outputType.getNumElements() / (indicesType.getNumElements() * dimsBeforeAxis)) * elemOutSize.count();
 
     const size_t GATHER_DMA_MAX_ELEMENT_SIZE_ARCH_BASED = VPU::getGatherDMAMaxElementSize(arch);
 

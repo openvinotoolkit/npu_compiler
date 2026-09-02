@@ -12,6 +12,7 @@
 #include <limits>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 std::optional<uint64_t> intel_npu::vm::computeMaxLinearOffset(const intel_npu::vm::BufferMetadata& meta) {
     if (meta.shape.size() != meta.strides.size()) {
@@ -19,11 +20,11 @@ std::optional<uint64_t> intel_npu::vm::computeMaxLinearOffset(const intel_npu::v
     }
     uint64_t offset = 0;
     for (size_t i = 0; i < meta.shape.size(); ++i) {
-        if (meta.shape[i] <= 0 || meta.strides[i] < 0) {
+        if (meta.shape.at(i) <= 0 || meta.strides.at(i) < 0) {
             return std::nullopt;
         }
-        const auto extent = static_cast<uint64_t>(meta.shape[i] - 1);
-        const auto stride = static_cast<uint64_t>(meta.strides[i]);
+        const auto extent = static_cast<uint64_t>(meta.shape.at(i) - 1);
+        const auto stride = static_cast<uint64_t>(meta.strides.at(i));
         if (!checkedAddProduct(extent, stride, offset)) {
             return std::nullopt;
         }
@@ -67,32 +68,32 @@ std::optional<uint64_t> intel_npu::vm::computeSubviewStartElement(const intel_np
 
     uint64_t startElem = 0;
     for (size_t dimIdx = 0; dimIdx < rank; ++dimIdx) {
-        if (offsets[dimIdx] < 0 || sizes[dimIdx] <= 0 || strides[dimIdx] < 0 || srcMeta.strides[dimIdx] < 0 ||
-            offsets[dimIdx] >= srcMeta.shape[dimIdx]) {
+        if (offsets.at(dimIdx) < 0 || sizes.at(dimIdx) <= 0 || strides.at(dimIdx) < 0 ||
+            srcMeta.strides.at(dimIdx) < 0 || offsets.at(dimIdx) >= srcMeta.shape.at(dimIdx)) {
             NPU_VM_LOG_ERROR("buffer.subview invalid offsets/sizes/strides at dim {}: offset={}, size={}, stride={}, "
                              "source shape={}, source stride={}",
-                             dimIdx, offsets[dimIdx], sizes[dimIdx], strides[dimIdx], srcMeta.shape[dimIdx],
-                             srcMeta.strides[dimIdx]);
+                             dimIdx, offsets.at(dimIdx), sizes.at(dimIdx), strides.at(dimIdx), srcMeta.shape.at(dimIdx),
+                             srcMeta.strides.at(dimIdx));
             return std::nullopt;
         }
         uint64_t stridedExtent = 0;
-        if (!checkedMultiply(static_cast<uint64_t>(sizes[dimIdx] - 1), static_cast<uint64_t>(strides[dimIdx]),
+        if (!checkedMultiply(static_cast<uint64_t>(sizes.at(dimIdx) - 1), static_cast<uint64_t>(strides.at(dimIdx)),
                              stridedExtent) ||
-            static_cast<uint64_t>(offsets[dimIdx]) > std::numeric_limits<uint64_t>::max() - stridedExtent) {
+            static_cast<uint64_t>(offsets.at(dimIdx)) > std::numeric_limits<uint64_t>::max() - stridedExtent) {
             NPU_VM_LOG_ERROR("buffer.subview index overflows at dim {}: offset={}, size={}, stride={}", dimIdx,
-                             offsets[dimIdx], sizes[dimIdx], strides[dimIdx]);
+                             offsets.at(dimIdx), sizes.at(dimIdx), strides.at(dimIdx));
             return std::nullopt;
         }
-        const auto lastIndex = static_cast<uint64_t>(offsets[dimIdx]) + stridedExtent;
-        if (lastIndex >= static_cast<uint64_t>(srcMeta.shape[dimIdx])) {
+        const auto lastIndex = static_cast<uint64_t>(offsets.at(dimIdx)) + stridedExtent;
+        if (lastIndex >= static_cast<uint64_t>(srcMeta.shape.at(dimIdx))) {
             NPU_VM_LOG_ERROR("buffer.subview exceeds source shape at dim {}: last index={}, source shape={}", dimIdx,
-                             lastIndex, srcMeta.shape[dimIdx]);
+                             lastIndex, srcMeta.shape.at(dimIdx));
             return std::nullopt;
         }
-        const auto srcStride = static_cast<uint64_t>(srcMeta.strides[dimIdx]);
-        if (!checkedAddProduct(static_cast<uint64_t>(offsets[dimIdx]), srcStride, startElem)) {
+        const auto srcStride = static_cast<uint64_t>(srcMeta.strides.at(dimIdx));
+        if (!checkedAddProduct(static_cast<uint64_t>(offsets.at(dimIdx)), srcStride, startElem)) {
             NPU_VM_LOG_ERROR("buffer.subview byte offset overflows at dim {}: offset={}, source stride={}", dimIdx,
-                             offsets[dimIdx], srcStride);
+                             offsets.at(dimIdx), srcStride);
             return std::nullopt;
         }
     }
@@ -112,9 +113,9 @@ bool intel_npu::vm::validateShapeAndStrides(std::string_view opName, const intel
     const auto rank = static_cast<int64_t>(meta.shape.size());
     for (int64_t dim = 0; dim < rank; ++dim) {
         const auto dimIdx = static_cast<size_t>(dim);
-        if (meta.shape[dimIdx] <= 0 || meta.strides[dimIdx] < 0) {
+        if (meta.shape.at(dimIdx) <= 0 || meta.strides.at(dimIdx) < 0) {
             NPU_VM_LOG_ERROR("{} requires positive shape and non-negative strides, got dim {}: shape={}, stride={}",
-                             opName, dim, meta.shape[dimIdx], meta.strides[dimIdx]);
+                             opName, dim, meta.shape.at(dimIdx), meta.strides.at(dimIdx));
             return false;
         }
     }

@@ -224,3 +224,85 @@ func.func @DoNotConvertConvWithLeakyReluConsumer(%arg0: tensor<1x16x3x3xf16>) ->
 
     // CHECK: return [[LEAKY]]
 }
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16, 0.28679281496534159>
+
+// CHECK-LABEL: @FuseQuantizeIntoMultiply
+// CHECK-SAME:     [[ARG_0:%[^:]+]]: tensor<1x16x4x4xf16>
+// CHECK-SAME:     [[ARG_1:%[^:]+]]: tensor<1x16x4x4xf16>
+func.func @FuseQuantizeIntoMultiply(%arg0: tensor<1x16x4x4xf16>, %arg1: tensor<1x16x4x4xf16>) -> tensor<1x16x4x4x!qElemType> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>}
+        : tensor<1x16x4x4xf16>, tensor<1x16x4x4xf16> -> tensor<1x16x4x4xf16>
+    %1 = IE.Quantize(%0) {dstElemType = !qElemType} : tensor<1x16x4x4xf16> -> tensor<1x16x4x4x!qElemType>
+    return %1 : tensor<1x16x4x4x!qElemType>
+
+    // CHECK-NOT: IE.Quantize
+    // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[ARG_0]], [[ARG_1]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>}
+    // CHECK-SAME:     : tensor<1x16x4x4xf16>, tensor<1x16x4x4xf16> -> tensor<1x16x4x4x!qElemType>
+    // CHECK: return [[MULTIPLY]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16:1, {0.10000000000000001,0.20000000000000001,0.30000000000000004}>
+
+// CHECK-LABEL: @DoNotFuseQuantizeIntoMultiplyPerAxis
+// CHECK-SAME:     [[ARG_0:%[^:]+]]: tensor<1x3x4x4xf16>
+// CHECK-SAME:     [[ARG_1:%[^:]+]]: tensor<1x3x4x4xf16>
+func.func @DoNotFuseQuantizeIntoMultiplyPerAxis(%arg0: tensor<1x3x4x4xf16>, %arg1: tensor<1x3x4x4xf16>) -> tensor<1x3x4x4x!qElemType> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>}
+        : tensor<1x3x4x4xf16>, tensor<1x3x4x4xf16> -> tensor<1x3x4x4xf16>
+    %1 = IE.Quantize(%0) {dstElemType = !qElemType} : tensor<1x3x4x4xf16> -> tensor<1x3x4x4x!qElemType>
+    return %1 : tensor<1x3x4x4x!qElemType>
+
+    // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[ARG_0]], [[ARG_1]])
+    // CHECK-SAME:     : tensor<1x3x4x4xf16>, tensor<1x3x4x4xf16> -> tensor<1x3x4x4xf16>
+    // CHECK: [[QUANTIZE:%.+]] = IE.Quantize([[MULTIPLY]]) {dstElemType = !qElemType}
+    // CHECK: return [[QUANTIZE]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16, 0.28679281496534159>
+!qElemType1 = !quant.uniform<u8:f16, 0.081176862529679844:128>
+
+// CHECK-LABEL: @DoNotFuseQuantizeIntoMultiplyMultipleConsumers
+// CHECK-SAME:     [[ARG_0:%[^:]+]]: tensor<1x16x4x4xf16>
+// CHECK-SAME:     [[ARG_1:%[^:]+]]: tensor<1x16x4x4xf16>
+func.func @DoNotFuseQuantizeIntoMultiplyMultipleConsumers(%arg0: tensor<1x16x4x4xf16>, %arg1: tensor<1x16x4x4xf16>) -> (tensor<1x16x4x4x!qElemType>, tensor<1x16x4x4x!qElemType1>) {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>}
+        : tensor<1x16x4x4xf16>, tensor<1x16x4x4xf16> -> tensor<1x16x4x4xf16>
+    %1 = IE.Quantize(%0) {dstElemType = !qElemType} : tensor<1x16x4x4xf16> -> tensor<1x16x4x4x!qElemType>
+    %2 = IE.Quantize(%0) {dstElemType = !qElemType1} : tensor<1x16x4x4xf16> -> tensor<1x16x4x4x!qElemType1>
+    return %1, %2 : tensor<1x16x4x4x!qElemType>, tensor<1x16x4x4x!qElemType1>
+
+    // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[ARG_0]], [[ARG_1]])
+    // CHECK-SAME:     : tensor<1x16x4x4xf16>, tensor<1x16x4x4xf16> -> tensor<1x16x4x4xf16>
+    // CHECK: [[Q1:%.+]] = IE.Quantize([[MULTIPLY]]) {dstElemType = !qElemType}
+    // CHECK: [[Q2:%.+]] = IE.Quantize([[MULTIPLY]]) {dstElemType = !qElemType1}
+    // CHECK: return [[Q1]], [[Q2]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.0013184806879828958:128>
+
+// CHECK-LABEL: @DoNotFuseQuantizeIntoMultiplyBroadcastInputs
+// CHECK-SAME:     [[ARG_0:%[^:]+]]: tensor<1x1x4x4xf16>
+// CHECK-SAME:     [[ARG_1:%[^:]+]]: tensor<1x4x4x4xf16>
+func.func @DoNotFuseQuantizeIntoMultiplyBroadcastInputs(%arg0: tensor<1x1x4x4xf16>,
+                                                        %arg1: tensor<1x4x4x4xf16>) -> tensor<1x4x4x4x!qElemType> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+        : tensor<1x1x4x4xf16>, tensor<1x4x4x4xf16> -> tensor<1x4x4x4xf16>
+    %1 = IE.Quantize(%0) {dstElemType = !qElemType} : tensor<1x4x4x4xf16> -> tensor<1x4x4x4x!qElemType>
+    return %1 : tensor<1x4x4x4x!qElemType>
+
+    // CHECK-NOT: IE.Multiply{{.*}}-> tensor<1x4x4x4x!qElemType>
+    // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[ARG_0]], [[ARG_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK-SAME:     : tensor<1x1x4x4xf16>, tensor<1x4x4x4xf16> -> tensor<1x4x4x4xf16>
+    // CHECK: [[QUANTIZE:%.+]] = IE.Quantize([[MULTIPLY]]) {dstElemType = !qElemType}
+    // CHECK-SAME:     : tensor<1x4x4x4xf16> -> tensor<1x4x4x4x!qElemType>
+    // CHECK: return [[QUANTIZE]]
+}

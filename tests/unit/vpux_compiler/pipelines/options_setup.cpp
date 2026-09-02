@@ -8,6 +8,7 @@
 #include "vpux/compiler/core/aliases_info.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/utils/core/string_ref.hpp"
+#include "vpux/utils/ov/config.hpp"
 
 #include "vpux/compiler/pipelines/options_setup.hpp"
 
@@ -26,20 +27,20 @@ using MLIR_OptionsSetup = MLIR_UnitBase;
 class OptionsSetupTest : public MLIR_UnitBase {
 public:
     void SetUp() override {
-        _optionDesc = std::make_shared<intel_npu::OptionsDesc>();
-        _optionDesc->add<intel_npu::PLATFORM>();
+        _optionDesc = std::make_shared<vpux::OV::OptionsDesc>();
+        _optionDesc->add<vpux::OV::PLATFORM>();
 
-        _config = intel_npu::Config(_optionDesc);
+        _config = vpux::OV::Config(_optionDesc);
         // Required, otherwise we get an missing PERFORMANCE_OVERRIDE hint exception down the line.
-        _config->update({{std::string(intel_npu::PLATFORM::key()), "VPU4000"}});
+        _config->update({{std::string(vpux::OV::PLATFORM::key()), "VPU4000"}});
 
         Logger::global().debug("Using config:\n{0}\n", _config.value().toString());
     }
 
     VPU::InitCompilerOptions _initCompilerOptions;
     PublicOptions _publicOptions;
-    std::shared_ptr<intel_npu::OptionsDesc> _optionDesc;
-    std::optional<intel_npu::Config> _config;
+    std::shared_ptr<vpux::OV::OptionsDesc> _optionDesc;
+    std::optional<vpux::OV::Config> _config;
 };
 
 TEST_F(OptionsSetupTest, NoImplementation) {
@@ -75,7 +76,7 @@ TEST_F(OptionsSetupTest, PartialImplementation2) {
         using Base::Base;
         using Base::setupLitTestOptionsImpl;
 
-        static void setupOptionsImpl(PublicOptions&, VPU::InitCompilerOptions&, const intel_npu::Config&) {
+        static void setupOptionsImpl(PublicOptions&, VPU::InitCompilerOptions&, const vpux::OV::Config&) {
         }
     };
 
@@ -94,7 +95,7 @@ protected:
     static void setupLitTestOptionsImpl(PublicOptions&, VPU::InitCompilerOptions&) {
     }
 
-    static void setupOptionsImpl(PublicOptions&, VPU::InitCompilerOptions&, const intel_npu::Config&) {
+    static void setupOptionsImpl(PublicOptions&, VPU::InitCompilerOptions&, const vpux::OV::Config&) {
     }
 };
 
@@ -106,7 +107,7 @@ TEST_F(OptionsSetupTest, IntermediateImplementation) {
         using Base::setupLitTestOptionsImpl;
 
         static void setupOptionsImpl(PublicOptions& options, VPU::InitCompilerOptions& initCompilerOptions,
-                                     const intel_npu::Config& config) {
+                                     const vpux::OV::Config& config) {
             Base::setupOptionsImpl(options, initCompilerOptions, config);
             EXPECT_THROW(Base::Base::setupOptionsImpl(options, initCompilerOptions, config), vpux::Exception);
         }

@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
+#include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/TypeSwitch.h>
 #include "mlir/IR/Iterators.h"
 
@@ -314,14 +315,14 @@ double SubgraphOptimizer::getInputSpillingCostToMultiClusterLayer(VPU::Clustered
 
     auto parent = input.getDefiningOp();
     if (parent == nullptr) {
-        return _layerCostModel.getSpillingReadCost(targetTensorType, targetTensorDistribution);
+        return _layerCostModel.getSpillingDMACost(targetTensorType, targetTensorDistribution);
     }
 
     if (mlir::isa<VPU::ShapeCastOp>(parent)) {
         // propagate ShapeCast
         parent = parent->getOperand(0).getDefiningOp();
         if (parent == nullptr) {
-            return _layerCostModel.getSpillingReadCost(targetTensorType, targetTensorDistribution);
+            return _layerCostModel.getSpillingDMACost(targetTensorType, targetTensorDistribution);
         }
     }
 
@@ -339,7 +340,7 @@ double SubgraphOptimizer::getInputSpillingCostToMultiClusterLayer(VPU::Clustered
                 return currentSpillingCost.writeCost + currentSpillingCost.readCost;
             })
             .Default([&](mlir::Operation*) {
-                return _layerCostModel.getSpillingReadCost(targetTensorType, targetTensorDistribution);
+                return _layerCostModel.getSpillingDMACost(targetTensorType, targetTensorDistribution);
             });
 }
 
@@ -352,7 +353,10 @@ double SubgraphOptimizer::getOutputSpillingCostToMultiClusterLayer(VPU::Clustere
                                                                    const SubgraphOptConfig& config) {
     bool hasCalculatedSpillingWriteCost = false;
     double totalSpillingCost = 0.0;
-    for (auto directUserOp : clusteredOp->getResult(0).getUsers()) {
+    // Iterate users in stable program order: the write cost is accumulated only for the first user
+    // with spilling and the floating-point sum is order-sensitive, so use-list ordering (not stable
+    // across toolchain/LLVM versions) must not influence the computed cost.
+    for (auto* directUserOp : usersInProgramOrder(clusteredOp.getOperation())) {
         auto computeUserOp = directUserOp;
         auto isDistributedCastOpWithoutTilingDimRestriction = [&](mlir::Operation* op) {
             if (auto castOp = mlir::dyn_cast_or_null<VPU::DistributedCastOpInterface>(op)) {
@@ -363,8 +367,8 @@ double SubgraphOptimizer::getOutputSpillingCostToMultiClusterLayer(VPU::Clustere
         while (mlir::isa_and_nonnull<VPU::GroupSparseTensorOp>(computeUserOp) ||
                (isDistributedCastOpWithoutTilingDimRestriction(computeUserOp) &&
                 !VPU::hasMultiBranches(computeUserOp))) {
-            // propagate cast ops
-            computeUserOp = *computeUserOp->getResult(0).getUsers().begin();
+            // propagate cast ops (use stable program order in case the cast has multiple users)
+            computeUserOp = firstUserInProgramOrder(computeUserOp);
         }
 
         if (computeUserOp == nullptr || !_layerCostModel.hasMultiClusterStrategy(computeUserOp)) {
@@ -528,6 +532,28 @@ bool SubgraphOptimizer::hasSpillingRelatedToConcat(VPU::ClusteredOpInterface par
     return false;
 }
 
+// Returns the users of 'op' ordered by block position, so traversals over the
+// use list do not depend on MLIR use-list ordering (which is not stable across toolchain/LLVM
+// versions)
+SmallVector<mlir::Operation*> SubgraphOptimizer::usersInProgramOrder(mlir::Operation* op) const {
+    SmallVector<mlir::Operation*> users(op->getUsers().begin(), op->getUsers().end());
+    llvm::sort(users, [](mlir::Operation* lhs, mlir::Operation* rhs) {
+        return lhs->isBeforeInBlock(rhs);
+    });
+    return users;
+}
+
+// Returns the first user of 'op' in stable program order. This makes propagation through cast ops
+// deterministic even when a cast has multiple users, where '*getUsers().begin()' would otherwise
+// depend on use-list ordering (not stable across toolchain/LLVM versions).
+mlir::Operation* SubgraphOptimizer::firstUserInProgramOrder(mlir::Operation* op) const {
+    SmallVector<mlir::Operation*> users(op->getUsers().begin(), op->getUsers().end());
+    llvm::sort(users, [](mlir::Operation* lhs, mlir::Operation* rhs) {
+        return lhs->isBeforeInBlock(rhs);
+    });
+    return users.empty() ? nullptr : users.front();
+}
+
 /// @brief This one is to find the ResBlock structures in full model and record the startpoint, endpoint and middle ops
 /// in ResBlock for next long-term spilling check in Subgraph optimizer.
 /// @details The method starts from an eltwise or concat op and find its parent op which has multiple users,
@@ -536,6 +562,10 @@ bool SubgraphOptimizer::hasSpillingRelatedToConcat(VPU::ClusteredOpInterface par
 /// @todo Generalize ResBlock structure to allow shortcut branch also has middle ops,
 /// to make long-term spilling check available for more general case. Refer to E#70928.
 SubgraphOptimizer::ShortcutMapTy SubgraphOptimizer::detectShortcuts() {
+    // The shortcut DFS below iterates the use list via usersInProgramOrder() so it does not depend
+    // on use-list ordering. Together with the DFS maxDepth cutoff and first-match early return, an
+    // unstable user order would otherwise make '_shortcutsMap' non-reproducible and cascade into
+    // different multi-cluster rollback strategies and non-deterministic compilation output.
     const auto detectFunc = [this](mlir::Operation* origOp) {
         _log.trace("Detect above shortcut from op: {0}", origOp->getLoc());
 
@@ -611,7 +641,7 @@ SubgraphOptimizer::ShortcutMapTy SubgraphOptimizer::detectShortcuts() {
                     --depthCount;
                     return;
                 }
-                auto users = op->getUsers();
+                auto users = usersInProgramOrder(op);
                 if (users.empty()) {
                     --depthCount;
                     return;
@@ -638,7 +668,7 @@ SubgraphOptimizer::ShortcutMapTy SubgraphOptimizer::detectShortcuts() {
                 --depthCount;
             };
 
-            auto parentUsers = parent->getUsers();
+            auto parentUsers = usersInProgramOrder(parent);
             for (auto user : parentUsers) {
                 if (user != origOp) {
                     dfs(user);
@@ -864,8 +894,8 @@ bool SubgraphOptimizer::hasOutputSpillingToMultiClusterLayer(VPU::ClusteredOpInt
     auto propagateShapeCast = false;
 
     if (mlir::isa<VPU::QuantizeCastOp, VPU::GroupSparseTensorOp>(userOp)) {
-        // propagate cast ops
-        userOp = *userOp->getResult(0).getUsers().begin();
+        // propagate cast ops (use stable program order in case the cast has multiple users)
+        userOp = firstUserInProgramOrder(userOp);
     }
 
     if (mlir::isa<VPU::ShapeCastOp>(userOp) && userOp->hasOneUse()) {
@@ -1076,14 +1106,16 @@ void SubgraphOptimizer::optimizeStrategyAvoidSpillingOnSubgraph(VPU::ClusteredOp
                                currentOp->getLoc(), rollbackStrategy);
         }
 
-        // Check if the child layer needs rollback strategy
-        for (auto directChild : currentOp->getResult(0).getUsers()) {
+        // Check if the child layer needs rollback strategy.
+        // Iterate users in stable program order so the rollback BFS exploration (and the resulting
+        // strategies) does not depend on use-list ordering.
+        for (auto* directChild : usersInProgramOrder(currentOp.getOperation())) {
             auto executeChild = directChild;
             while (mlir::isa_and_nonnull<VPU::GroupSparseTensorOp>(executeChild) ||
                    (mlir::isa_and_nonnull<VPU::ShapeCastOp, VPU::DistributedCastOpInterface>(executeChild) &&
                     !VPU::hasMultiBranches(executeChild))) {
-                // propagate cast ops
-                executeChild = *executeChild->getResult(0).getUsers().begin();
+                // propagate cast ops (use stable program order in case the cast has multiple users)
+                executeChild = firstUserInProgramOrder(executeChild);
             }
 
             if ((executeChild == nullptr) ||

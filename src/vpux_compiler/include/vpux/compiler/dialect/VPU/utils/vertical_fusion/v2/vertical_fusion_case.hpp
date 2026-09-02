@@ -65,9 +65,14 @@ public:
     void setTilingStorage(std::unique_ptr<TilingOperationStorage> vfStorage);
 
     /*
-     Get VF cost
+     Get VF cost calculated based on the cost function and current scheduling
     */
     StrategyCost getCost(const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log);
+
+    /*
+     Get cached VF cost if available
+    */
+    StrategyCost getCost() const;
 
     /*
      Check if VF case has been initialized with scheduling
@@ -78,6 +83,11 @@ public:
      Get VF config
     */
     VFConfigType& getConfig();
+
+    /*
+     Get selected VF scheduling scenario
+    */
+    std::optional<VFScenario> getScenario() const;
 
     /*
      Generate VF tiling

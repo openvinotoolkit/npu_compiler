@@ -206,6 +206,11 @@ def VPU_MPEEngineAttrInterface : AttrInterface<"MPEEngineAttr"> {
         mark other attributes for further casting.
     }];
 
+    let methods = [
+        InterfaceMethod<"", "mlir::Attribute", "getWeightZp">,
+        InterfaceMethod<"", "mlir::Attribute", "getActivationZp">
+    ];
+    
     let cppNamespace = "vpux::VPU";
 }
 

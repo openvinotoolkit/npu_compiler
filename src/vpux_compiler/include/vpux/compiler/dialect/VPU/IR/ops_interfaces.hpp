@@ -68,6 +68,8 @@ mlir::LogicalResult verifyInputQuantization(mlir::Operation* op);
 //
 
 mlir::LogicalResult verifyLayer(mlir::Operation* op);
+mlir::LogicalResult verifyShapeInfo(mlir::Operation* op);
+mlir::LogicalResult verifyInputIs4D(mlir::Value input, bool allowNull = false);
 
 //
 // TilingBuilderOpInterface

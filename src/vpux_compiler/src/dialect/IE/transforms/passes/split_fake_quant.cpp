@@ -3,12 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/analysis.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
@@ -142,7 +141,9 @@ bool shouldConvertFakeQuantizeOpForSplit(IE::FakeQuantizeOp fqOp) {
 
 class UseQuantDequant final : public mlir::OpRewritePattern<IE::FakeQuantizeOp> {
 public:
-    UseQuantDequant(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::FakeQuantizeOp>(ctx), _log(log) {
+    UseQuantDequant(mlir::MLIRContext* ctx, const IE::IConvertWeightsToUnsignedStrategy* strategy = nullptr,
+                    Logger log = Logger::global())
+            : mlir::OpRewritePattern<IE::FakeQuantizeOp>(ctx), _log(log), _strategy(strategy) {
         setDebugName("UseQuantDequant");
     }
 
@@ -151,6 +152,7 @@ public:
 
 private:
     Logger _log;
+    const IE::IConvertWeightsToUnsignedStrategy* _strategy;
 };
 
 mlir::LogicalResult UseQuantDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, mlir::PatternRewriter& rewriter) const {
@@ -212,7 +214,7 @@ mlir::LogicalResult UseQuantDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
         }
     }
 
-    if (IE::keepIntTypeForSIWeightsAsInputOrConst(origOp)) {
+    if (IE::keepIntTypeForSIWeightsAsInputOrConst(origOp, _strategy)) {
         auto scaleAndZeroPoints = IE::getScalesAndZeroPointsFromContentAttr(
                 inLowConst.getContentAttr(), inHighConst.getContentAttr(), origOp.getAutoBroadcast(),
                 origOp.getLevels(), lowFpType, true, innerLog);
@@ -338,8 +340,10 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
             const auto outLowContent = outLowConst.getContent();
             const auto outHighContent = outHighConst.getContent();
 
-            const auto ratioLow = getCommonRatio(inLowContent, outLowContent);
-            const auto ratioHigh = getCommonRatio(inHighContent, outHighContent);
+            // Ratio represents the scale factor applied by FQ: output = input * (outRange / inRange).
+            // getCommonRatio(a, b) returns a/b, so pass (out, in) to get outRange/inRange.
+            const auto ratioLow = getCommonRatio(outLowContent, inLowContent);
+            const auto ratioHigh = getCommonRatio(outHighContent, inHighContent);
 
             if (mlir::failed(ratioLow) || mlir::failed(ratioHigh)) {
                 return matchFailed(innerLog, rewriter, origOp,
@@ -399,13 +403,15 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
         }
     }
 
-    const auto qElemType =
-            getQuantizedType(outLowConst.getContentAttr(), outHighConst.getContentAttr(), origOp.getLevels(),
-                             origOp.getLowFpType(), realElemType, Const::hasNegativeValues(inLowContent),
-                             origOp.getLoc(), origOp.getAutoBroadcast(), multiZeroPoint, innerLog);
+    auto qElemType = getQuantizedType(outLowConst.getContentAttr(), outHighConst.getContentAttr(), origOp.getLevels(),
+                                      origOp.getLowFpType(), realElemType, Const::hasNegativeValues(inLowContent),
+                                      origOp.getLoc(), origOp.getAutoBroadcast(), multiZeroPoint, innerLog);
     if (qElemType == nullptr) {
         return mlir::failure();
     }
+
+    qElemType = IE::keepZeroScaleForConstDequant(qElemType, outLowConst.getContentAttr(), outHighConst.getContentAttr(),
+                                                 origOp.getAutoBroadcast());
 
     innerLog.trace("Use quantized element type '{0}'", qElemType);
 
@@ -455,8 +461,15 @@ private:
 void SplitFakeQuantPass::safeRunOnFunc() {
     auto& ctx = getContext();
 
+    // Retrieve strategy once to amortize allocation cost across all pattern applications.
+    const auto& strategyFactory = IE::getIEStrategyFactory(&ctx);
+    VPUX_THROW_UNLESS(strategyFactory != nullptr,
+                      "IE StrategyFactory is not registered; make sure --init-compiler runs before --split-fake-quant");
+    auto strategy = strategyFactory->getConvertWeightsToUnsignedStrategy();
+    VPUX_THROW_UNLESS(strategy != nullptr, "Failed to retrieve IConvertWeightsToUnsignedStrategy");
+
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<UseQuantDequant>(&ctx, _log);
+    patterns.add<UseQuantDequant>(&ctx, strategy.get(), _log);
     patterns.add<UseConstDequant>(&ctx, _log);
 
     walkAndApplyPatterns(getOperation(), std::move(patterns));

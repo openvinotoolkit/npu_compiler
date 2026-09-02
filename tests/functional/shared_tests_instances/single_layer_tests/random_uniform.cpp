@@ -12,7 +12,6 @@
 using namespace ov::test::utils;
 
 namespace ov {
-
 namespace test {
 
 // Suppression for gtest framework internal test
@@ -97,6 +96,7 @@ TEST_P(RandomLayerTestCommon, NPU5010_SW) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU5010);
 }
+
 TEST_P(RandomLayerTestCommon, NPU5020_SW) {
     VpuOv2LayerTest::setReferenceSoftwareMode();
     VpuOv2LayerTest::run(Platform::NPU5020);

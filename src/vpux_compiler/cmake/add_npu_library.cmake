@@ -45,8 +45,13 @@ function(add_npu_library name)
         STATIC ${SRC_FILES}
         EXCLUDE_FROM_LIBMLIR
         DISABLE_INSTALL
+        # Prevent LLVM's PCH from being reused by VPUx targets. LLVM's PCH is
+        # compiled without /sdl and other MSVC SDL flags that VPUx requires,
+        # causing C2855 on Windows. VPUx uses its own PCH via ENABLE_FASTER_BUILD.
+        DISABLE_PCH_REUSE
         LINK_LIBS ${ARG_LINK_LIBS}
-        DEPENDS mlir-headers MLIRVPUXIncGenList ${ARG_DEPENDS})
+        DEPENDS mlir-headers MLIRVPUXIncGenList ${ARG_DEPENDS}
+    )
 
     target_include_directories(${name} SYSTEM PRIVATE
         $<BUILD_INTERFACE:${MLIR_INCLUDE_DIRS}>

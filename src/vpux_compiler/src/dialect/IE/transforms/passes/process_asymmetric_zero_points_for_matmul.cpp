@@ -369,7 +369,7 @@ IE::ConvertOp createOpsToCalculateFix(IE::ConvolutionOp convOp,
 
     // Reduce
     SmallVector<int64_t> reductionAxes = {1};
-    auto reduce = rewriter.create<IE::ReduceSumOp>(takeOpLoc(convOp, "reduce_in"), reduceInput, nullptr,
+    auto reduce = rewriter.create<IE::ReduceSumOp>(takeOpLoc(convOp, "reduce_in"), reduceInput,
                                                    getIntArrayAttr(rewriter.getContext(), ArrayRef(reductionAxes)),
                                                    /*keep_dims=*/true, nullptr, nullptr);
     // Input -> IE.ReduceSum (axes = [1]) -> IE.Multiply ([128 - zp] * scales * static_scale)

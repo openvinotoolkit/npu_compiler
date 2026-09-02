@@ -19,6 +19,7 @@
 
 namespace vpux::VPU::VF::v1 {
 
+namespace {
 std::optional<int64_t> findOptimalTilingStrategyInRange(const MergeVFRegionRewriter::IVFSchedulingPtr& scheduling,
                                                         const Dim dim, int64_t minNTiles, int64_t& maxNTiles,
                                                         std::unique_ptr<IVFAxisIncrement>& axisIncrement,
@@ -81,6 +82,11 @@ std::optional<int64_t> findOptimalTilingStrategyInRange(const MergeVFRegionRewri
 
     return std::nullopt;
 };
+}  // namespace
+
+VFConfig MergeVFRegionRewriter::createVFConfig(VPU::VerticalFusionOp vfOp) const {
+    return VFConfig(vfOp);
+}
 
 std::optional<int64_t> MergeVFRegionRewriter::getOptimalTilingStrategy(
         const IVFSchedulingPtr& scheduling, const Dim dim, const int64_t minTiles, int64_t& maxTiles,
@@ -348,10 +354,20 @@ bool MergeVFRegionRewriter::isMCStrategyAligned(VPU::VerticalFusionOp currentOp,
     }
 
     // Get input arg of current vf region corresponding to previous vf op
-    auto currInputArg = getLinkedArgumentBetweenVFOps(currentOp, prevOp);
-    VPUX_THROW_UNLESS(currInputArg != nullptr,
-                      "No corresponding input argument found for current VF region {0} with previous VF region {1}",
-                      currentOp, prevOp);
+    const auto currInputArgs = getLinkedArgumentsBetweenVFOps(currentOp, prevOp);
+    VPUX_THROW_WHEN(currInputArgs.empty(),
+                    "No corresponding input argument found for current VF region {0} with previous VF region {1}",
+                    currentOp, prevOp);
+
+    auto currInputArg = currInputArgs.front();
+    const auto oneArgOrAllProducerValuesEqual =
+            currInputArgs.size() == 1 || llvm::all_of(currInputArgs, [&](const mlir::BlockArgument& arg) {
+                auto operand = currentOp.getOperand(arg.getArgNumber());
+                return operand == prevOp->getResult(0);
+            });
+    if (!oneArgOrAllProducerValuesEqual) {
+        return false;
+    }
 
     // Here we need to ensure all input ops have compatible mc strategy distributed tensor types with previous output op
     for (auto currInputOp : currInputArg.getUsers()) {
@@ -563,7 +579,7 @@ std::optional<VFCase> MergeVFRegionRewriter::findVFTiling(VPU::VerticalFusionOp 
         auto curInputAxesResult = backInferVFTilingDim(currentConfig, curAxis.value(), opDimMap);
         VPUX_THROW_UNLESS(mlir::succeeded(curInputAxesResult),
                           "Cannot backinfer tiling dim for current VF {0} with axis {1}", currentOp, curAxis.value());
-        auto curInputAxes = curInputAxesResult.value();
+        const auto& curInputAxes = curInputAxesResult.value();
         if (curInputAxes[linkNumber] == prevAxis.value() && !isRegionRestrictedDim(opDimMap)) {
             auto areAllAligned = llvm::all_of(vfConfig.getOperationsForTiling(), [](auto* operation) {
                 return mlir::isa<IE::AlignedChannelsOpInterface>(operation);
@@ -597,7 +613,7 @@ std::optional<VFCase> MergeVFRegionRewriter::findVFTiling(VPU::VerticalFusionOp 
         auto curInputDimsResult = backInferVFTilingDim(currentConfig, dim, opDimMap);
         VPUX_THROW_UNLESS(mlir::succeeded(curInputDimsResult),
                           "Cannot backinfer tiling dim for current VF {0} with axis {1}", currentOp, dim);
-        auto curInputDims = curInputDimsResult.value();
+        const auto& curInputDims = curInputDimsResult.value();
 
         if (isRegionRestrictedDim(opDimMap)) {
             continue;
@@ -694,6 +710,16 @@ mlir::LogicalResult MergeVFRegionRewriter::matchAndRewrite(VPU::VerticalFusionOp
         }
 
         vfBlock = fuseOpsInBlock(rewriter, vfOp, parentVFOp.getOperation());
+        // `findVFCase` internally compares operations using IR order which is calculated "on the fly" in e.g.
+        // `isBeforeInBlock()`
+        //  - order recalculation modifies the state and, due to multi-threaded environment, results in a data race
+        //  (concurrent writes without synchronization).
+        // Initially, this order was invalidated by `fuseOpsInBlock` because it modified IR (added a new operation).
+        // As `findVFCase` is expected to not modify the IR, what can be done is an eager recalculation
+        // of the operation orders that would ensure later calls to e.g. `isBeforeInBlock()` become concurrent
+        // reads instead of concurrent writes (which is no longer a data race).
+        vfBlock->getBlock()->recomputeOpOrder();
+        vfBlock.getBody()->recomputeOpOrder();
         auto vfCase = findVFCase(parentVFOp, vfOp, vfBlock);
         if (!vfCase.has_value() || !checkVFCostFunction(parentVFOp, vfOp, vfCase.value())) {
             // Drop all references to vfBlock to avoid it being added back to the rewriter

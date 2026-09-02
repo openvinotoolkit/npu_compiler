@@ -33,6 +33,7 @@ TEST_P(GroupConvBackpropLayerTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(GroupConvBackpropLayerTestCommon, NPU5020_HW) {
     abs_threshold = 0.1;
     setDefaultHardwareMode();
@@ -89,6 +90,28 @@ INSTANTIATE_TEST_SUITE_P(smoke_GroupConvBackpropData2D_OutputPadding, GroupConvB
                                             ::testing::ValuesIn(emptyOutputShape),
                                             ::testing::Values(test_utils::TARGET_DEVICE)),
                          GroupConvBackpropLayerTestCommon::getTestCaseName);
+
+/* ============= 2D GroupConvBackpropData Dilated (E#222712) ============= */
+// Kernel=[2,2], dilation=[2,2] → effective kernel 3x3; input 8x8 → output 10x10.
+const std::vector<std::vector<ov::Shape>> dilatedInputShapes2D = {{{1, 64, 8, 8}}};
+const std::vector<std::vector<size_t>> dilatedKernels2D = {{2, 2}};
+const std::vector<std::vector<size_t>> dilatedStrides2D = {{1, 1}};
+const std::vector<std::vector<ptrdiff_t>> dilatedPadBegins2D = {{0, 0}};
+const std::vector<std::vector<ptrdiff_t>> dilatedPadEnds2D = {{0, 0}};
+const std::vector<std::vector<size_t>> dilatedDilations2D = {{2, 2}};
+
+const auto groupConvBackpropData2DParams_Dilated = ::testing::Combine(
+        ::testing::ValuesIn(dilatedKernels2D), ::testing::ValuesIn(dilatedStrides2D),
+        ::testing::ValuesIn(dilatedPadBegins2D), ::testing::ValuesIn(dilatedPadEnds2D),
+        ::testing::ValuesIn(dilatedDilations2D), ::testing::ValuesIn(numOutChannels), ::testing::ValuesIn(numGroups),
+        ::testing::Values(ov::op::PadType::EXPLICIT), ::testing::ValuesIn(emptyOutputPadding));
+
+INSTANTIATE_TEST_SUITE_P(
+        smoke_GroupConvBackpropData2D_Dilated, GroupConvBackpropLayerTestCommon,
+        ::testing::Combine(groupConvBackpropData2DParams_Dilated, ::testing::ValuesIn(modelTypes),
+                           ::testing::ValuesIn(static_shapes_to_test_representation(dilatedInputShapes2D)),
+                           ::testing::ValuesIn(emptyOutputShape), ::testing::Values(test_utils::TARGET_DEVICE)),
+        GroupConvBackpropLayerTestCommon::getTestCaseName);
 
 /* ============= 1D GroupConvBackpropDataOp ============= */
 const std::vector<std::vector<ov::Shape>> inputShapes1D = {{{1, 16, 64}}};

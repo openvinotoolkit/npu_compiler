@@ -26,6 +26,7 @@ typedef DenseMap<mlir::Operation*, elf::writer::Symbol*> SymbolMapType;
 typedef DenseMap<mlir::Operation*, elf::writer::DmaSymbol*> DmaSymbolMapType;
 
 constexpr auto VPUX_SHAVE_ALIGNMENT = static_cast<size_t>(Byte(1_KB).count());
+constexpr auto VPUX_METADATA_ALIGNMENT = static_cast<size_t>((32_Byte).count());
 constexpr auto VPUX_DEFAULT_ALIGNMENT = static_cast<size_t>((64_Byte).count());
 constexpr auto VPUX_NO_ALIGNMENT = static_cast<size_t>((1_Byte).count());
 

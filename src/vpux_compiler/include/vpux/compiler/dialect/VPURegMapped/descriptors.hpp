@@ -30,6 +30,7 @@
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/utils/core/array_ref.hpp"
 #include "vpux/utils/core/developer_build_utils.hpp"
+#include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/mem_size.hpp"
 #include "vpux/utils/core/string_ref.hpp"
 #include "vpux/utils/core/type/bfloat16.hpp"
@@ -248,6 +249,26 @@ struct RegisterTemplate {
     }
 
     template <class Descriptor>
+    static elf::Version getBaselineVersion() {
+        static_assert(Contains<SpecificRegister, typename Descriptor::Registers>::value);
+        // Note: registers with zero fields are rejected upstream in npureg-tblgen
+        // (see emitRegistersDefinitions: "Register X is empty"), so std::tuple_element_t<0, Fields>
+        // is always well-formed here.
+        using FirstFieldType = std::tuple_element_t<0, Fields>;
+        auto registerBaselineVersion = FirstFieldType::DEFAULT_VERSION;
+
+        // Baseline = MIN of every field's DEFAULT_VERSION (the oldest MI version any field
+        // here exists in).
+        (
+                [&] {
+                    registerBaselineVersion = std::min(registerBaselineVersion, FieldsPack::DEFAULT_VERSION);
+                }(),
+                ...);
+
+        return registerBaselineVersion;
+    }
+
+    template <class Descriptor>
     static std::pair<mlir::ParseResult, std::ostringstream> parse(mlir::AsmParser& parser, Descriptor& descriptor) {
         using namespace std::string_literals;
         using ResultType = std::pair<mlir::ParseResult, std::ostringstream>;
@@ -317,10 +338,11 @@ struct RegisterTemplate {
     }
 };
 
-template <class Descriptor, const char* name, class... RegistersPack>
+template <class Descriptor, const char* name, bool canBeEmpty = false, class... RegistersPack>
 class DescriptorTemplate {
 public:
     static constexpr auto NAME = std::string_view{name};
+    static constexpr auto CAN_BE_EMPTY = canBeEmpty;
     using Registers = std::tuple<RegistersPack...>;
 
     DescriptorTemplate() {
@@ -329,6 +351,12 @@ public:
 
     size_t size() const {
         return _storage.size();
+    }
+
+    bool isEmpty() const {
+        return std::all_of(_storage.begin(), _storage.end(), [](uint8_t byte) {
+            return byte == 0;
+        });
     }
 
     template <class Register, class Field, class U>
@@ -512,11 +540,8 @@ public:
             printer.printNewline();
             printer << "}";
 
-            const auto maybeVersion = getDescriptorVersion();
-            if (maybeVersion.has_value()) {
-                printer << " requires " << maybeVersion.value().getMajor() << ":" << maybeVersion.value().getMinor()
-                        << ":" << maybeVersion.value().getPatch();
-            }
+            const auto version = getRequiredMIVersion();
+            printer << " requires " << version.getMajor() << ":" << version.getMinor() << ":" << version.getPatch();
 
             printer.decreaseIndent();
             printer.printNewline();
@@ -595,9 +620,30 @@ public:
         }
     }
 
-    std::optional<elf::Version> getDescriptorVersion() const {
-        std::optional<elf::Version> maybeDescriptorVersion;
+    elf::Version getRequiredMIVersion() const {
+        if (isEmpty()) {
+            if constexpr (CAN_BE_EMPTY) {
+                // Note: descriptors with zero registers are rejected upstream in npureg-tblgen
+                // (see emitDescriptorsDefinitions: "Descriptor X is empty"), so
+                // std::tuple_element_t<0, Registers> is always well-formed here.
+                using FirstRegisterType = std::tuple_element_t<0, Registers>;
+                auto descriptorBaselineVersion = FirstRegisterType::template getBaselineVersion<Descriptor>();
 
+                (
+                        [&] {
+                            descriptorBaselineVersion =
+                                    std::min(descriptorBaselineVersion,
+                                             RegistersPack::template getBaselineVersion<Descriptor>());
+                        }(),
+                        ...);
+
+                return descriptorBaselineVersion;
+            } else {
+                VPUX_THROW("Descriptor '{0}' is empty but CAN_BE_EMPTY is not set", NAME);
+            }
+        }
+
+        std::optional<elf::Version> maybeDescriptorVersion;
         (
                 [&] {
                     const auto maybeRegisterVersion = RegistersPack::getVersion(static_cast<const Descriptor&>(*this));
@@ -608,7 +654,11 @@ public:
                 }(),
                 ...);
 
-        return maybeDescriptorVersion;
+        // Non-empty storage means at least one field carries a value, so at least one
+        // register must contribute a version — otherwise the descriptor is malformed.
+        VPUX_THROW_UNLESS(maybeDescriptorVersion.has_value(),
+                          "Descriptor has non-default storage but no register reports a version");
+        return maybeDescriptorVersion.value();
     }
 
     llvm::hash_code hashValue() const {
@@ -670,8 +720,16 @@ private:
 
             // clear out whatever were in P0 position originally
             // so bitwise OR would result in bits from value only
+            // TODO(E#230350): GCC 14+ false-positive -- see unroll_distributed_ops.cpp for the same class of issue.
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 14
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
             address[0] &= ~(part0Mask << inByteFieldOffset);
             address[0] |= static_cast<uint8_t>(part0Value << inByteFieldOffset);
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ >= 14
+#pragma GCC diagnostic pop
+#endif
         }
 
         constexpr auto part2Size = part1n2Size % 8;

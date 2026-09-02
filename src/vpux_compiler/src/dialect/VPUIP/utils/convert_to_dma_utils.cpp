@@ -261,7 +261,7 @@ std::optional<Shape> vpux::VPUIP::getPermuteDMAInputShape(NDTypeInterface inType
         return std::nullopt;
     }
 
-    auto inputMemShape = inType.getMemShape().raw();
+    auto inputMemShape = getBoundedMemShape(inType).raw();
     auto memPerm = DimsOrder::fromAffineMap(perm);
     SmallVector<int64_t> memPermIdx;
     for (size_t idx = 0; idx < inputMemShape.size(); idx++) {

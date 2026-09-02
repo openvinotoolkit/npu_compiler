@@ -29,7 +29,6 @@ add_npu_library(${TARGET_NAME}
         npu_compiler_dialect_config
         npu_compiler_dialect_const
         npu_core_utils
-        openvino::npu_al
 )
 
 ov_add_version_defines(${VPUX_COMPILER_VERSION_FILE} ${TARGET_NAME})

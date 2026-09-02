@@ -123,6 +123,22 @@ def AddNetworkMetadata : PassBase<"add-network-metadata", "vpux::FunctionPass"> 
     ];
 }
 
+def AddCompatibilityString : PassBase<"add-compatibility-string", "vpux::FunctionPass"> {
+    let summary = "Create ELF compatibility string section payload";
+
+    let description = [{
+        Computes blob compatibility string from platform id, tile count, ELF ABI version
+        and mapped inference version, and inserts ELF.CompatibilityStringOp into a dedicated
+        ELF section with VPU_SHT_COMPAT_STR type.
+    }];
+
+    let constructor = "vpux::ELF::createAddCompatibilityStringPass()";
+
+    let dependentDialects = [
+        "vpux::ELF::ELFDialect"
+    ];
+}
+
 //
 // UpdateELFSectionFlags
 //
@@ -210,40 +226,15 @@ def AddABIVersion : PassBase<"add-abi-version", "vpux::FunctionPass"> {
 // SetCMXSymbolValue
 //
 
-def SetCMXSymbolValue : PassBase<"set-cmx-symbol", "vpux::ModulePass"> {
-    let summary = "Set cmx symbol value pass";
+def SetCMXSymbolValue : PassBase<"set-cmx-symbol-value", "vpux::ModulePass"> {
+    let summary = "Set CMX symbol value pass";
 
     let description = [{
-        Set CMX symbol value that are known at compile time. Note that the values used
-        in this pass are also used in HostParsedInference_4000 (from the elf library). Any change
-        to the values from this pass or values from the elf library should be duplicated in order to
-        ensure the same behavior. The symbols will be later used in another pass to apply relocations for known symbols.
+        Set CMX symbol value that are known at compile time. The symbols will
+        be later used in another pass to apply relocations for known symbols.
     }];
 
     let constructor = "vpux::ELF::createSetCMXSymbolValuePass()";
-
-        let options = [
-        Option<
-            "workspaceAddr", "cmx-workspace-addr",
-            "uint64_t", "0",
-            "CMX workspace start address."
-        >,
-        Option<
-            "workspaceSize", "cmx-workspace-size",
-            "uint64_t", "0",
-            "CMX workspace size."
-        >,
-        Option<
-            "metadataAddr", "cmx-metadata-addr",
-            "uint64_t", "0",
-            "CMX metadata start address."
-        >,
-        Option<
-            "metadataSize", "cmx-metadata-size",
-            "uint64_t", "0",
-            "CMX metadata size."
-        >
-    ];
 }
 
 def FinalizeSkipDmaChains : PassBase<"finalize-skip-dma-chains", "vpux::FunctionPass"> {

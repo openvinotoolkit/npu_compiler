@@ -103,7 +103,8 @@ mlir::MemRefLayoutAttrInterface getMemrefLayout(mlir::AffineMapAttr order, mlir:
     if (optionalStrides == nullptr && optionalAllocSize == nullptr && hwSpecificFieldsEmpty) {
         return order;
     }
-    return vpux::MemRefAttr::get(order, optionalStrides, optionalAllocSize, fields, order.getContext());
+    return vpux::MemRefAttr::get(order, optionalStrides, optionalAllocSize, /*optionalBounds=*/{}, fields,
+                                 order.getContext());
 }
 }  // namespace
 
@@ -354,6 +355,41 @@ mlir::Type VPUIP::DistributedBufferType::parse(mlir::AsmParser& parser) {
                                        distributedAttr, sparsityCompression));
 }
 
+namespace {
+DimsOrder retrieveDimsOrder(mlir::MemRefLayoutAttrInterface layout) {
+    if (const auto mapAttr = mlir::dyn_cast<mlir::AffineMapAttr>(layout)) {
+        return DimsOrder::fromAffineMap(mapAttr.getValue());
+    }
+
+    if (const auto descAttr = mlir::dyn_cast<vpux::MemRefAttr>(layout)) {
+        return DimsOrder::fromAffineMap(descAttr.order().getValue());
+    }
+
+    VPUX_THROW("Missing layout information");
+}
+
+MemStrides retrieveMemStrides(mlir::MemRefLayoutAttrInterface layout, const Bit& elemTypeSize, const DimsOrder& order,
+                              const MemShape& memShape) {
+    if (const auto mapAttr = mlir::dyn_cast_if_present<mlir::AffineMapAttr>(layout)) {
+        VPUX_THROW_UNLESS(mapAttr.getValue().isPermutation(), "Got non permutation layout attribute '{0}'", layout);
+    }
+
+    if (const auto descAttr = mlir::dyn_cast_if_present<vpux::MemRefAttr>(layout)) {
+        if (auto stridesAttr = descAttr.strides()) {
+            const auto elemStrides = parseIntArrayAttr<int64_t>(stridesAttr);
+
+            const auto strides = Strides(to_small_vector(elemStrides | transformed([&](int64_t stride) {
+                                                             return stride * elemTypeSize;
+                                                         })));
+            return order.toMemoryOrder(strides);
+        }
+    }
+
+    // Missing strides specification means compact strides.
+    return StrideReqs::compact(order.numDims()).calcStrides(elemTypeSize, memShape);
+}
+}  // namespace
+
 //
 // verify
 //
@@ -412,6 +448,58 @@ mlir::LogicalResult VPUIP::DistributedBufferType::verify(FuncRef<mlir::InFlightD
         }
     }
 
+    // duplicated mode has the same offset in full tensor for all clusters; allocation should ensure it's byte aligned.
+    // non-subbyte types always have byte-aligned element offsets (element_size >= 8 bits); only subbyte types require
+    // the per-cluster offset byte-alignment check below.
+    // 1-bit element type is used in sparsity maps, which do not need the same restrictions; skipping check
+    const auto elemTypeSize = vpux::getElemTypeSize(elementType).count();
+    auto subbyteNotI1 = elemTypeSize < CHAR_BIT && elemTypeSize > 1;
+    if (!subbyteNotI1 || distribution.getMode().getValue() == VPU::DistributionMode::DUPLICATED) {
+        return mlir::success();
+    }
+
+    const auto candidateShape = Shape(shape);
+    const auto dimsOrder = retrieveDimsOrder(layout);
+    const auto memStrides = retrieveMemStrides(layout, vpux::getElemTypeSize(elementType), dimsOrder,
+                                               dimsOrder.toMemoryOrder(candidateShape));
+
+    auto checkPerClusterByteAlignment = [&](ArrayRef<Shape> offsets) {
+        for (const auto& clusterOff : offsets) {
+            auto offset = Bit(0);
+            for (auto pos = static_cast<int64_t>(clusterOff.size() - 1); pos >= 0; pos--) {
+                auto logicalDim = dimsOrder.dimAt(pos);
+                offset += clusterOff[logicalDim] * memStrides[MemDim(pos)];
+            }
+
+            if (offset.count() % CHAR_BIT != 0) {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    const auto memoryOffsets = distribution.getMemoryOffsets() != nullptr
+                                       ? VPU::arrayAttrToVecOfShapes(distribution.getMemoryOffsets())
+                                       : VPU::getPerClusterMemoryShapeOffsets(candidateShape, distribution);
+    if (!checkPerClusterByteAlignment(memoryOffsets)) {
+        return printTo(emitError(),
+                       "Memory offsets are not byte-aligned, distribution = {0}, elemType = {1}, shape = {2}.",
+                       distribution, elementType, shape);
+    }
+
+    const auto computeOffsets = distribution.getComputeOffsets() != nullptr
+                                        ? VPU::arrayAttrToVecOfShapes(distribution.getComputeOffsets())
+                                        : VPU::getPerClusterComputeShapeOffsets(candidateShape, distribution);
+    if (computeOffsets != memoryOffsets) {
+        return checkPerClusterByteAlignment(computeOffsets)
+                       ? mlir::success()
+                       : printTo(emitError(),
+                                 "Compute offsets are not byte-aligned, distribution = {0}, elemType = {1}, shape = "
+                                 "{2}.",
+                                 distribution, elementType, shape);
+    }
+
     return mlir::success();
 }
 
@@ -442,7 +530,7 @@ mlir::MemRefType VPUIP::DistributedBufferType::getCompactType() const {
         // Here we increase the alignment until the memory meet the real requirements. For this case, the new alignment
         // will increase to 4096.
         size_t expectedAlignedByteSize = 0;
-        for (auto perClusterShape : getPerClusterMemoryShapes()) {
+        for (const auto& perClusterShape : getPerClusterMemoryShapes()) {
             auto perClusterByteSize =
                     alignMemSize(getElemTypeSize() * perClusterShape.totalSize(), Byte(1)).to<Byte>().count();
             expectedAlignedByteSize +=
@@ -462,7 +550,9 @@ mlir::MemRefType VPUIP::DistributedBufferType::getCompactType() const {
     }
 
     const auto strides = getStrides();
-    return vpux::getMemRefType(getShape(), getElementType(), getDimsOrder(), getMemSpace(), strides,
+    // E#224862: in theory, this could be a dynamic-shape memref, but currently
+    // distributed buffers do not support dynamism.
+    return vpux::getMemRefType(getShape(), getElementType(), getDimsOrder(), getMemSpace(), strides, BoundsRef(),
                                swizzlingSchemeAttr, VPUIP::getSparsityCompressionAttr(*this));
 }
 
@@ -541,7 +631,7 @@ mlir::Type getQuantTypeForExplicitDistribution(mlir::quant::UniformQuantizedPerA
 SmallVector<Shape> VPUIP::DistributedBufferType::getPerClusterComputeShapes() const {
     auto distribution = getDistribution();
     if (distribution.getComputeShapes() == nullptr) {
-        return VPU::getPerClusterComputeShapes(getShape(), distribution, getElementType());
+        return VPU::getPerClusterComputeShapes(getShape(), distribution);
     }
 
     return VPU::arrayAttrToVecOfShapes(distribution.getComputeShapes());
@@ -554,7 +644,7 @@ SmallVector<Shape> VPUIP::DistributedBufferType::getPerClusterComputeShapes() co
 SmallVector<Shape> VPUIP::DistributedBufferType::getPerClusterComputeShapeOffsets() const {
     auto distribution = getDistribution();
     if (distribution.getComputeOffsets() == nullptr) {
-        return VPU::getPerClusterComputeShapeOffsets(getShape(), distribution, getElementType());
+        return VPU::getPerClusterComputeShapeOffsets(getShape(), distribution);
     }
 
     return VPU::arrayAttrToVecOfShapes(distribution.getComputeOffsets());
@@ -572,8 +662,7 @@ SmallVector<Shape> VPUIP::DistributedBufferType::getPerClusterComputeShapeOffset
 SmallVector<Shape> VPUIP::DistributedBufferType::getPerClusterMemoryShapes() const {
     auto distribution = getDistribution();
     if (distribution.getMemoryShapes() == nullptr) {
-        auto optionalPerClusterMemoryShapes =
-                VPU::getPerClusterMemoryShapes(getShape(), distribution, getElementType());
+        auto optionalPerClusterMemoryShapes = VPU::getPerClusterMemoryShapes(getShape(), distribution);
         VPUX_THROW_UNLESS(optionalPerClusterMemoryShapes.has_value(),
                           "Cannot get per cluster memory shapes. Unsupported distribution: {0}", distribution);
         return optionalPerClusterMemoryShapes.value();
@@ -589,7 +678,7 @@ SmallVector<Shape> VPUIP::DistributedBufferType::getPerClusterMemoryShapes() con
 SmallVector<Shape> VPUIP::DistributedBufferType::getPerClusterMemoryShapeOffsets() const {
     auto distribution = getDistribution();
     if (distribution.getMemoryOffsets() == nullptr) {
-        return VPU::getPerClusterMemoryShapeOffsets(getShape(), distribution, getElementType());
+        return VPU::getPerClusterMemoryShapeOffsets(getShape(), distribution);
     }
 
     return VPU::arrayAttrToVecOfShapes(distribution.getMemoryOffsets());
@@ -707,10 +796,10 @@ NDTypeInterface VPUIP::DistributedBufferType::changeTypeComponentsForExplicitDis
 
     const auto ctx = getContext();
 
-    const auto shape = typeComponents.shape.value_or(Shape(getShape().toValues()));
+    const auto currentShape = getShape();
+    const auto shape = typeComponents.shape.has_value() ? ShapeRef(typeComponents.shape.value()) : currentShape;
     const auto elementType = typeComponents.elementType.value_or(getElementType());
     const auto dimsOrder = typeComponents.dimsOrder.value_or(getDimsOrder());
-    const auto strides = typeComponents.strides.value_or(getStrides());
     const auto memSpace = typeComponents.memSpace.value_or(getMemSpace());
 
     VPUX_THROW_UNLESS(dimsOrder.numDims() == shape.size(), "Order '{0}' is incompatible with the shape '{1}'",
@@ -718,7 +807,14 @@ NDTypeInterface VPUIP::DistributedBufferType::changeTypeComponentsForExplicitDis
 
     const auto elemSize = vpux::getElemTypeSize(elementType);
     const auto order = mlir::AffineMapAttr::get(dimsOrder.toAffineMap(ctx));
-    const auto newStridesAttr = getStridesAttr(ctx, strides, dimsOrder, elemSize, shape);
+    const auto newStridesAttr = [&]() {
+        if (typeComponents.strides.has_value()) {
+            return getStridesAttr(ctx, StridesRef(typeComponents.strides.value()), dimsOrder, elemSize, shape);
+        }
+
+        const auto currentStrides = getStrides();
+        return getStridesAttr(ctx, currentStrides, dimsOrder, elemSize, shape);
+    }();
     auto hwSpecificFields = getHwSpecificFields(getLayout());
     const auto newDescAttr = getMemrefLayout(order, newStridesAttr, /*allocSize=*/nullptr, hwSpecificFields);
 
@@ -837,16 +933,7 @@ int64_t VPUIP::DistributedBufferType::getNumElements() const {
 }
 
 DimsOrder VPUIP::DistributedBufferType::getDimsOrder() const {
-    const auto layout = getLayout();
-    if (const auto mapAttr = mlir::dyn_cast<mlir::AffineMapAttr>(layout)) {
-        return DimsOrder::fromAffineMap(mapAttr.getValue());
-    }
-
-    if (const auto descAttr = mlir::dyn_cast<vpux::MemRefAttr>(layout)) {
-        return DimsOrder::fromAffineMap(descAttr.order().getValue());
-    }
-
-    VPUX_THROW("Missing layout information");
+    return retrieveDimsOrder(getLayout());
 }
 
 VPU::MemoryKind VPUIP::DistributedBufferType::getMemoryKind() const {
@@ -859,35 +946,12 @@ VPU::MemoryKind VPUIP::DistributedBufferType::getMemoryKind() const {
 }
 
 Strides VPUIP::DistributedBufferType::getStrides() const {
-    const auto layout = getLayout();
-
-    if (const auto mapAttr = mlir::dyn_cast<mlir::AffineMapAttr>(layout)) {
-        VPUX_THROW_UNLESS(mapAttr.getValue().isPermutation(), "Got non permutation layout attribute '{0}'", layout);
-    }
-
-    if (const auto descAttr = mlir::dyn_cast<vpux::MemRefAttr>(layout)) {
-        if (auto stridesAttr = descAttr.strides()) {
-            const auto elemStrides = parseIntArrayAttr<int64_t>(stridesAttr);
-            const Bit elemSize = getElemTypeSize();
-
-            return Strides(to_small_vector(elemStrides | transformed([&](int64_t stride) {
-                                               return stride * elemSize;
-                                           })));
-        }
-    }
-
-    // Missing strides specification means compact strides.
     const auto order = getDimsOrder();
-    const auto memShape = getMemShape();
-    const auto memStrides = StrideReqs::compact(order.numDims()).calcStrides(getElemTypeSize(), memShape);
-
-    return order.toLogicalOrder(memStrides);
+    return order.toLogicalOrder(getMemStrides());
 }
 
 MemStrides VPUIP::DistributedBufferType::getMemStrides() const {
-    const auto order = getDimsOrder();
-    const auto strides = getStrides();
-    return order.toMemoryOrder(strides);
+    return retrieveMemStrides(getLayout(), getElemTypeSize(), getDimsOrder(), getMemShape());
 }
 
 Bit VPUIP::DistributedBufferType::getElemTypeSize() const {
@@ -1117,22 +1181,29 @@ NDTypeInterface VPUIP::DistributedBufferType::changeStrides(StridesRef strides) 
 NDTypeInterface VPUIP::DistributedBufferType::changeTypeComponents(const vpux::TypeComponents& typeComponents) const {
     const auto ctx = getContext();
 
-    const auto shape = typeComponents.shape.value_or(Shape(getShape().toValues()));
+    const auto currentShape = getShape();
+    const auto shape = typeComponents.shape.has_value() ? ShapeRef(typeComponents.shape.value()) : currentShape;
     const auto elementType = typeComponents.elementType.value_or(getElementType());
     const auto dimsOrder = typeComponents.dimsOrder.value_or(getDimsOrder());
-    const auto strides = typeComponents.strides.value_or(getStrides());
     const auto memSpace = typeComponents.memSpace.value_or(getMemSpace());
     auto distribution = getDistribution();
 
     // If there is a shape change requested
-    if (shape != Shape(getShape().toValues())) {
+    if (shape != currentShape) {
         VPUX_THROW_WHEN(isDistributedAttrWithExplicitShapesAndOffsets(distribution),
                         "Cannot change shape when having explicit per cluster shapes/offsets");
     }
 
     const auto elemSize = vpux::getElemTypeSize(elementType);
     const auto order = mlir::AffineMapAttr::get(dimsOrder.toAffineMap(ctx));
-    const auto newStridesAttr = getStridesAttr(ctx, strides, dimsOrder, elemSize, shape);
+    const auto newStridesAttr = [&]() {
+        if (typeComponents.strides.has_value()) {
+            return getStridesAttr(ctx, StridesRef(typeComponents.strides.value()), dimsOrder, elemSize, shape);
+        }
+
+        const auto currentStrides = getStrides();
+        return getStridesAttr(ctx, currentStrides, dimsOrder, elemSize, shape);
+    }();
 
     auto hwSpecificFields = getHwSpecificFields(getLayout());
     const auto newDescAttr = getMemrefLayout(order, newStridesAttr,

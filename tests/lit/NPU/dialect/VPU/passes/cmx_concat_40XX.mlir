@@ -86,7 +86,7 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUser(%arg0: tensor<1x64x36x36xf16, {
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
                 lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-                
+
                 strides = [1, 1]
             } : !Distributed, !Distributed2, !Distributed3 -> !Distributed
 
@@ -94,11 +94,11 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUser(%arg0: tensor<1x64x36x36xf16, {
     // Input 2 of Concat
     %5 = VPU.Copy(%dwConvWeights) {out_mem_space = @CMX_NN} : tensor<64x16x1x1xf16, {order = #NHWC}> -> !Distributed4
 
-    %6 = VPU.NCE.DepthConvolution(%3, %5) rawFilterShape [64, 1, 3, 3] {
+    %6 = VPU.NCE.DepthConvolution(%3, %5) rawFilterShape [64, 1, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                 ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -128 : i64, clamp_high = 127 : i64,
                 lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-                
+
                 strides = [1, 1]
             } -> !Distributed
 
@@ -192,7 +192,7 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUser(%arg0: tensor<1x64x36x36xf16, {
     // CHECK-SAME:                          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
     // CHECK-SAME:                          ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -128 : i64, clamp_high = 127 : i64,
     // CHECK-SAME:                              lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
-    // CHECK-SAME:                          strides = [1, 1]}
+    // CHECK-SAME:                          resultSegmentSizes = array<i32: 1, 0, 0, 0>, strides = [1, 1]}
     // CHECK-SAME:                      -> !VPU.DistributedTensor<
     // CHECK-SAME:                          1x64x36x36xf16, #NHWC, @CMX_NN, {
     // CHECK-SAME:                          mode = "OVERLAPPED", num_tiles = [1, 1, 6, 1], num_clusters = 6 : i64, uniform_distributed_segments,

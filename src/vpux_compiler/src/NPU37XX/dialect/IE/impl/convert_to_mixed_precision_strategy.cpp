@@ -19,6 +19,7 @@ void ConvertToMixedPrecisionStrategy::addPatterns(mlir::RewritePatternSet& patte
     patterns.add<vpux::IE::FloatOutMatMulRewriter>(ctx, log);
     patterns.add<vpux::IE::FloatOutAvgPoolRewriter>(ctx, log);
     patterns.add<vpux::IE::QuantizeWithNCERewriter>(ctx, log);
+    patterns.add<vpux::IE::QuantizeWithMultiplyRewriter>(ctx, log);
 
     // Patterns for mixed precision of float input and quant weights
     if (_enableFloatInQuantWeightsMixedMode) {

@@ -17,6 +17,7 @@
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_reduce_output_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/odu_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
@@ -64,6 +65,14 @@ bool vpux::VPU::NCEMaxPoolOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTy
 
 bool vpux::VPU::NCEMaxPoolOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface output) {
     return fitIntoCMX(input, output, Byte(0));
+}
+
+//
+// ShapeInfoOpInterface
+//
+
+mlir::LogicalResult vpux::VPU::NCEMaxPoolOp::verifyShapeInfo() {
+    return vpux::VPU::verifyInputIs4D(getInput());
 }
 
 //
@@ -286,11 +295,34 @@ vpux::InputTiling vpux::VPU::NCEMaxPoolOp::backInferTileInfo(const vpux::TileInf
         inputTiling.tiles.push_back(
                 VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
     }
+    if (getWeightTableScale() != nullptr) {
+        inputTiling.tiles.push_back(
+                VPU::getScaleTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
+    }
+    if (getWeightTableBias() != nullptr) {
+        inputTiling.tiles.push_back(
+                VPU::getBiasTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
+    }
     return inputTiling;
 }
 
 void vpux::VPU::NCEMaxPoolOp::adjustAttrs(const TilingInfo& inputTiling, const TileInfo& /*outputTile*/) {
     VPU::adjustPaddings(this, inputTiling);
+}
+
+vpux::OutputTiling vpux::VPU::NCEMaxPoolOp::getOutputTiling(const vpux::TileInfo& firstOutputTile,
+                                                            vpux::Logger /*log*/) {
+    OutputTiling outputTiling;
+    outputTiling.push_back(firstOutputTile);
+    const auto reduceOutputTiles = VPU::getReduceOutputTiling(getOperation(), firstOutputTile);
+    outputTiling.append(reduceOutputTiles.begin(), reduceOutputTiles.end());
+    return outputTiling;
+}
+
+vpux::TileInfo vpux::VPU::NCEMaxPoolOp::getMainOutputTile(mlir::OpResult secondaryOutput,
+                                                          const vpux::TileInfo& secondaryOutputTile,
+                                                          vpux::Logger /*log*/) {
+    return VPU::getMainTileFromReduceOutputTiling(getOperation(), {secondaryOutput, secondaryOutputTile});
 }
 
 mlir::FailureOr<OutputTiling> vpux::VPU::NCEMaxPoolOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
@@ -308,6 +340,44 @@ bool vpux::VPU::NCEMaxPoolOp::checkStrategyCompatibility(VPU::MultiClusterStrate
 
     if (batchSize > 1 && batchSize <= enabledTileNum) {
         return strategy == VPU::MultiClusterStrategy::SplitOverBatch;
+    }
+
+    if ((strategy == VPU::MultiClusterStrategy::SplitOverHeight || strategy == VPU::MultiClusterStrategy::HKSwitch) &&
+        !isOperationSplitOverHeightCompatible(vpux::TileInfo(ShapeRef()))) {
+        return false;
+    }
+
+    // HKSwitch produces a SEGMENTED | MULTICASTED output: every cluster computes a slice over height
+    // and broadcasts that slice to all the other clusters through ODU halo regions. The halo
+    // descriptors are built by ComputeHaloRegionForDPUTaskOp, which maps the input dims onto the
+    // output dims by memory position so that an ODU permutation is taken into account. That mapping
+    // stays valid only while the channel dimension keeps the innermost memory position, as in NHWC or
+    // NWHC, where the permutation is a plain height/width swap. Once the ODU moves the channels out of
+    // the innermost position, as for an NCHW output, the height offset of the broadcast is read from
+    // the channel slot of the halo offsets, which is always zero. Every cluster then broadcasts its
+    // slice over the beginning of the destination buffer and the consumer reads data corrupted by a
+    // per-channel shift.
+    if (strategy == VPU::MultiClusterStrategy::HKSwitch && getNumOperands() > 1) {
+        const auto outOrder = outputType.getDimsOrder();
+        if (outOrder.numDims() != 4 || outOrder.dimAt(outOrder.numDims() - 1) != Dims4D::Act::C) {
+            return false;
+        }
+    }
+
+    // BLOCK_FIRST S2DD2S does not support C-dim splits.
+    if (const auto s2dd2sCfg = getS2dd2sConfigAttr()) {
+        if (!VPU::isS2DD2SDimSplitSupported(s2dd2sCfg, Dims4D::Act::C)) {
+            return strategy == VPU::MultiClusterStrategy::Clustering ||
+                   strategy == VPU::MultiClusterStrategy::SplitOverHeight;
+        }
+    }
+
+    // SplitOverKernel uses num_tiles over C. For ops with active reduce outputs the reduce result
+    // has C=1, so per-cluster partials cannot be distributed across clusters.
+    if (VPU::hasReduceOutputs(getOperation())) {
+        return strategy == VPU::MultiClusterStrategy::Clustering ||
+               strategy == VPU::MultiClusterStrategy::SplitOverHeight ||
+               strategy == VPU::MultiClusterStrategy::HKSwitch;
     }
 
     return strategy == VPU::MultiClusterStrategy::Clustering ||
@@ -339,6 +409,13 @@ bool VPU::NCEMaxPoolOp::isOperationSplitOverWidthCompatible(ShapeRef outputShape
 }
 
 bool VPU::NCEMaxPoolOp::isOperationSplitOverKernelCompatible(ShapeRef outputShape, ShapeRef offset, ShapeRef axis) {
+    // SplitOverKernel tiles over C. Reduce outputs have C=1, so SOK is incompatible.
+    if (VPU::hasReduceOutputs(getOperation())) {
+        return false;
+    }
+    if (!VPU::isS2DD2SDimSplitSupported(getS2dd2sConfigAttr(), Dims4D::Act::C)) {
+        return false;
+    }
     return VPU::isOperationSplitOverKernelCompatible(getOperation(), outputShape, offset, axis);
 }
 
@@ -414,6 +491,18 @@ vpux::NDTypeInterface vpux::VPU::NCEMaxPoolOp::getDistributedTypeForOpOperand(ml
     }
     VPUX_THROW("Failed to compute distributed type for op {0}", clusteredOp);
     return nullptr;
+}
+
+DimArr vpux::VPU::NCEMaxPoolOp::restrictedFusionAxes() {
+    if (getReduceXyMax() != nullptr || getReduceXyMin() != nullptr) {
+        return {Dims4D::Act::C};
+    }
+
+    return {};
+}
+
+bool vpux::VPU::NCEMaxPoolOp::isVFSupported() {
+    return getReduceTensorMinMax() == nullptr;
 }
 
 //

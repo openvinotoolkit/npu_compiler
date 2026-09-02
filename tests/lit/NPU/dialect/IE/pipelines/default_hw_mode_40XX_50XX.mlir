@@ -20,8 +20,7 @@ net.NetworkInfo
 
     // CHECK: func.func @main([[ARG0:%.+]]: tensor<1x42840x17xf16>)
     func.func @main(%arg0: tensor<1x42840x17xf16>) -> tensor<1x42840x1xf16> {
-         %cst = const.Declare tensor<1xsi64> = dense<2> : tensor<1xsi64>
-        %0 = IE.ReduceMax(%arg0, %cst) {keep_dims} : tensor<1x42840x17xf16>, tensor<1xsi64> -> tensor<1x42840x1xf16>
+        %0 = IE.ReduceMax(%arg0) {axes_value = [2], keep_dims} : tensor<1x42840x17xf16> -> tensor<1x42840x1xf16>
         return %0 : tensor<1x42840x1xf16>
     }
 
@@ -38,10 +37,8 @@ net.NetworkInfo
         // CHECK-SAME:          dst_order = #NCHW, mem_perm = #NHWC} : tensor<1x16x7140x1xf16, {order = #NWCH}> -> tensor<1x16x7140x1xf16>
         // CHECK:       [[SLICE3:%.+]] = IE.Slice [[PERMUTE_0]] [0, 0, 0, 0] [1, 6, 7140, 1] : tensor<1x16x7140x1xf16> to tensor<1x6x7140x1xf16
         // CHECK:       [[AFFINERESHAPE2:%.+]] = IE.AffineReshape([[SLICE3]])
-        // CHECK-SAME{LITERAL}:        {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 42840, 1, 1]} : tensor<1x6x7140x1xf16> -> tensor<1x42840x1x1xf16>
-        // CHECK:       [[AFFINERESHAPE3:%.+]] = IE.AffineReshape([[AFFINERESHAPE2]])
-        // CHECK-SAME{LITERAL}:        {dim_mapping = [[0], [1], [2], [2]], shape_value = [1, 42840, 1]} : tensor<1x42840x1x1xf16> -> tensor<1x42840x1xf16>
-        // CHECK:       return [[AFFINERESHAPE3]] : tensor<1x42840x1xf16>
+        // CHECK-SAME{LITERAL}:        {dim_mapping = [[0], [1], [1], [2]], shape_value = [1, 42840, 1]} : tensor<1x6x7140x1xf16> -> tensor<1x42840x1xf16>
+        // CHECK:       return [[AFFINERESHAPE2]] : tensor<1x42840x1xf16>
 }
 
 // -----
@@ -99,10 +96,10 @@ module @ConvertReduceMinWithLargeTensorToPooling {
 // -----
 
 // int4 embedding table WD chain (Const -> Multiply(per-row scale) -> Gather) is routed through
-// DynamicDequantize. swap-operation-with-gather hoists Gather before DynamicDequantize so that
+// DynamicDequantize. swap-operations-with-gather-and-slice hoists Gather before DynamicDequantize so that
 // dequantization runs on the gathered rows only, not the full 262144-row table.
 
-// CHECK: !qElemType = !quant.uniform<i4:f32, 1.000000e+00>
+// CHECK: !qElemType = !quant.uniform<i4:f16, 1.000000e+00>
 // CHECK-LABEL: @EmbeddingInt4WithDynamicDequantize
 module @EmbeddingInt4WithDynamicDequantize {
     net.NetworkInfo entryPoint : @main
@@ -161,7 +158,7 @@ module @EmbeddingInt4WithDynamicDequantize {
 // int8 embedding table WD chain: i8 weights cast to f16, per-row f16 scale, Multiply outputs f16,
 // a single-use ConvertOp (f16→f32) sits between Multiply and Gather.
 // ConsolidateWeightsDequantization converts Multiply(i8_as_f16, per-row scale) to
-// DynamicDequantize(i8_quant, f16_scale). SwapOperationWithGather hoists Gather before DynamicDequantize.
+// DynamicDequantize(i8_quant, f16_scale). SwapOperationsWithGatherAndSlice hoists Gather before DynamicDequantize.
 
 // CHECK: !qElemType = !quant.uniform<i8:f16, 1.000000e+00>
 // CHECK-LABEL: @EmbeddingInt8PerRowF16WithConvertToGather
@@ -209,10 +206,10 @@ module @EmbeddingInt8PerRowF16WithConvertToGather {
 // int8 embedding table WD chain: i8 weights, per-tensor f32 scale, Multiply outputs f32,
 // no ConvertOp before Gather.
 // ConsolidateWeightsDequantization converts Multiply(i8_as_f32, per-tensor scale) to
-// DynamicDequantize(i8_quant, f16_scale). SwapOperationWithGather then hoists Gather before
+// DynamicDequantize(i8_quant, f16_scale). SwapOperationsWithGatherAndSlice then hoists Gather before
 // DynamicDequantize because the per-tensor scale [1x1x1x1] is invariant to row selection.
 
-// CHECK: !qElemType = !quant.uniform<i8:f32, 1.000000e+00>
+// CHECK: !qElemType = !quant.uniform<i8:f16, 1.000000e+00>
 // CHECK-LABEL: @EmbeddingInt8PerTensorF32ToGather
 module @EmbeddingInt8PerTensorF32ToGather {
     net.NetworkInfo entryPoint : @main

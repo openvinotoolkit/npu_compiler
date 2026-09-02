@@ -4,10 +4,11 @@
 //
 
 #include <common_test_utils/test_common.hpp>
-#include "intel_npu/config/options.hpp"
 #include "vpux/compiler/compiler.hpp"
 #include "vpux/utils/core/range.hpp"
 #include "vpux/utils/logger/logger.hpp"
+#include "vpux/utils/ov/config.hpp"
+#include "vpux/utils/ov/options.hpp"
 
 #include "llvm/Support/SHA256.h"
 
@@ -30,7 +31,6 @@
 #include <vector>
 
 using namespace vpux;
-using namespace intel_npu;
 
 using CompilationParamsIR = std::tuple<std::vector<std::string>,  // model paths
                                        size_t,                    // number of threads per model
@@ -79,7 +79,7 @@ std::string stringifyChecksum(const Checksum& checksum) {
 class CompilationTestBase : virtual public ov::test::TestsCommon {
 public:
     CompilationTestBase()
-            : _options{std::make_shared<OptionsDesc>()},
+            : _options{std::make_shared<vpux::OV::OptionsDesc>()},
               _config{_options},
               _compiler{nullptr},
               _numThreads{},
@@ -89,7 +89,7 @@ public:
 
 protected:
     void SetPlatform(const std::string& platform) {
-        _config.update({{PLATFORM::key().data(), platform}});
+        _config.update({{vpux::OV::PLATFORM::key().data(), platform}});
     }
 
     void startCompilationThreads(const std::map<std::string, std::vector<std::shared_ptr<ov::Model>>>& threadModels,
@@ -98,7 +98,7 @@ protected:
                                  size_t numIterations, const vpux::Logger& log) const {
         const auto compileNetwork = [](const std::shared_ptr<ICompiler>& compiler,
                                        const std::shared_ptr<const ov::Model>& model,
-                                       const Config& config) -> Checksum {
+                                       const vpux::OV::Config& config) -> Checksum {
             const auto netDesc = compiler->compile(model, config);
             const auto& blob = netDesc.compiledNetwork;
             return llvm::SHA256::hash(blob);
@@ -106,7 +106,8 @@ protected:
 
         const auto threadFunction = [compileNetwork](const std::shared_ptr<ICompiler>& compiler,
                                                      const std::shared_ptr<const ov::Model>& model,
-                                                     const Config& config, const size_t iterationsCount) -> Checksum {
+                                                     const vpux::OV::Config& config,
+                                                     const size_t iterationsCount) -> Checksum {
             const auto previousHash = compileNetwork(compiler, model, config);
             for (auto i : irange(iterationsCount - 1)) {
                 const auto currentHash = compileNetwork(compiler, model, config);
@@ -178,8 +179,8 @@ protected:
     }
 
 protected:
-    std::shared_ptr<OptionsDesc> _options;
-    Config _config;
+    std::shared_ptr<vpux::OV::OptionsDesc> _options;
+    vpux::OV::Config _config;
     std::shared_ptr<ICompiler> _compiler;
     size_t _numThreads;
     size_t _numIterations;
@@ -219,30 +220,28 @@ protected:
         _numThreads = std::get<1>(GetParam());
         _numIterations = std::get<2>(GetParam());
 
-        _options->add<intel_npu::PERFORMANCE_HINT>();
-        _options->add<intel_npu::PERFORMANCE_HINT_NUM_REQUESTS>();
-        _options->add<intel_npu::INFERENCE_PRECISION_HINT>();
-        _options->add<intel_npu::PERF_COUNT>();
-        _options->add<intel_npu::LOG_LEVEL>();
-        _options->add<intel_npu::PLATFORM>();
-        _options->add<intel_npu::DEVICE_ID>();
-        _options->add<intel_npu::CACHE_DIR>();
-        _options->add<intel_npu::LOADED_FROM_CACHE>();
-        _options->add<intel_npu::BATCH_MODE>();
-        _options->add<intel_npu::COMPILER_TYPE>();
-        _options->add<intel_npu::COMPILATION_MODE>();
-        _options->add<intel_npu::COMPILATION_MODE_PARAMS>();
-        _options->add<intel_npu::BACKEND_COMPILATION_PARAMS>();
-        _options->add<intel_npu::COMPILATION_NUM_THREADS>();
-        _options->add<intel_npu::TILES>();
-        _options->add<intel_npu::STEPPING>();
-        _options->add<intel_npu::MAX_TILES>();
-        _options->add<intel_npu::DMA_ENGINES>();
-        _options->add<intel_npu::DYNAMIC_SHAPE_TO_STATIC>();
-        _options->add<intel_npu::EXECUTION_MODE_HINT>();
-        _options->add<intel_npu::COMPILER_DYNAMIC_QUANTIZATION>();
-        _options->add<intel_npu::QDQ_OPTIMIZATION_AGGRESSIVE>();
-        _options->add<intel_npu::QDQ_OPTIMIZATION>();
+        _options->add<vpux::OV::PERFORMANCE_HINT>();
+        _options->add<vpux::OV::PERFORMANCE_HINT_NUM_REQUESTS>();
+        _options->add<vpux::OV::INFERENCE_PRECISION_HINT>();
+        _options->add<vpux::OV::PERF_COUNT>();
+        _options->add<vpux::OV::LOG_LEVEL>();
+        _options->add<vpux::OV::PLATFORM>();
+        _options->add<vpux::OV::DEVICE_ID>();
+        _options->add<vpux::OV::BATCH_MODE>();
+        _options->add<vpux::OV::COMPILER_TYPE>();
+        _options->add<vpux::OV::COMPILATION_MODE>();
+        _options->add<vpux::OV::COMPILATION_MODE_PARAMS>();
+        _options->add<vpux::OV::BACKEND_COMPILATION_PARAMS>();
+        _options->add<vpux::OV::COMPILATION_NUM_THREADS>();
+        _options->add<vpux::OV::TILES>();
+        _options->add<vpux::OV::STEPPING>();
+        _options->add<vpux::OV::MAX_TILES>();
+        _options->add<vpux::OV::DMA_ENGINES>();
+        _options->add<vpux::OV::DYNAMIC_SHAPE_TO_STATIC>();
+        _options->add<vpux::OV::EXECUTION_MODE_HINT>();
+        _options->add<vpux::OV::COMPILER_DYNAMIC_QUANTIZATION>();
+        _options->add<vpux::OV::QDQ_OPTIMIZATION_AGGRESSIVE>();
+        _options->add<vpux::OV::QDQ_OPTIMIZATION>();
 
         _compiler = std::make_shared<CompilerImpl>();
     }
@@ -375,30 +374,28 @@ protected:
 
         validateAndExpandModelPaths(_modelPaths);
 
-        _options->add<intel_npu::PERFORMANCE_HINT>();
-        _options->add<intel_npu::PERFORMANCE_HINT_NUM_REQUESTS>();
-        _options->add<intel_npu::INFERENCE_PRECISION_HINT>();
-        _options->add<intel_npu::PERF_COUNT>();
-        _options->add<intel_npu::LOG_LEVEL>();
-        _options->add<intel_npu::PLATFORM>();
-        _options->add<intel_npu::DEVICE_ID>();
-        _options->add<intel_npu::CACHE_DIR>();
-        _options->add<intel_npu::LOADED_FROM_CACHE>();
-        _options->add<intel_npu::BATCH_MODE>();
-        _options->add<intel_npu::COMPILER_TYPE>();
-        _options->add<intel_npu::COMPILATION_MODE>();
-        _options->add<intel_npu::COMPILATION_MODE_PARAMS>();
-        _options->add<intel_npu::BACKEND_COMPILATION_PARAMS>();
-        _options->add<intel_npu::COMPILATION_NUM_THREADS>();
-        _options->add<intel_npu::TILES>();
-        _options->add<intel_npu::STEPPING>();
-        _options->add<intel_npu::MAX_TILES>();
-        _options->add<intel_npu::DMA_ENGINES>();
-        _options->add<intel_npu::DYNAMIC_SHAPE_TO_STATIC>();
-        _options->add<intel_npu::EXECUTION_MODE_HINT>();
-        _options->add<intel_npu::COMPILER_DYNAMIC_QUANTIZATION>();
-        _options->add<intel_npu::QDQ_OPTIMIZATION_AGGRESSIVE>();
-        _options->add<intel_npu::QDQ_OPTIMIZATION>();
+        _options->add<vpux::OV::PERFORMANCE_HINT>();
+        _options->add<vpux::OV::PERFORMANCE_HINT_NUM_REQUESTS>();
+        _options->add<vpux::OV::INFERENCE_PRECISION_HINT>();
+        _options->add<vpux::OV::PERF_COUNT>();
+        _options->add<vpux::OV::LOG_LEVEL>();
+        _options->add<vpux::OV::PLATFORM>();
+        _options->add<vpux::OV::DEVICE_ID>();
+        _options->add<vpux::OV::BATCH_MODE>();
+        _options->add<vpux::OV::COMPILER_TYPE>();
+        _options->add<vpux::OV::COMPILATION_MODE>();
+        _options->add<vpux::OV::COMPILATION_MODE_PARAMS>();
+        _options->add<vpux::OV::BACKEND_COMPILATION_PARAMS>();
+        _options->add<vpux::OV::COMPILATION_NUM_THREADS>();
+        _options->add<vpux::OV::TILES>();
+        _options->add<vpux::OV::STEPPING>();
+        _options->add<vpux::OV::MAX_TILES>();
+        _options->add<vpux::OV::DMA_ENGINES>();
+        _options->add<vpux::OV::DYNAMIC_SHAPE_TO_STATIC>();
+        _options->add<vpux::OV::EXECUTION_MODE_HINT>();
+        _options->add<vpux::OV::COMPILER_DYNAMIC_QUANTIZATION>();
+        _options->add<vpux::OV::QDQ_OPTIMIZATION_AGGRESSIVE>();
+        _options->add<vpux::OV::QDQ_OPTIMIZATION>();
 
         _compiler = std::make_shared<CompilerImpl>();
     }

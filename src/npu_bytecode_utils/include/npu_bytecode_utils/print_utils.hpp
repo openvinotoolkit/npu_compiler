@@ -31,7 +31,7 @@ std::string formatVector(const std::vector<T>& values) {
         if (i != 0) {
             stream << ", ";
         }
-        stream << values[i];
+        stream << values.at(i);
     }
     stream << "]";
     return stream.str();

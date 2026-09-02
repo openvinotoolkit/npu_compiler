@@ -703,3 +703,54 @@ func.func @ConvertDMAMultiSubViewCopy(%arg0: memref<64x11008x1x1xf32, {order = #
     // CHECK: -> !VPUIP.DistributedBuffer<64x5504x1x1xf16, #NHWC, @CMX_NN
     // CHECK: return [[CONVERT_0]], [[CONVERT_1]]
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @ConvertDMASubViewCopyWithStrides
+// CHECK-SAME: ([[INPUT:%.+]]: memref<1x1x342x1536xf32, {order = #NCHW, strides = [1048576, 1048576, 1536, 1]}, @DDR>)
+func.func @ConvertDMASubViewCopyWithStrides(
+        %arg0: memref<1x1x342x1536xf32, {order = #NCHW, strides = [1048576, 1048576, 1536, 1]}, @DDR>)
+        -> (memref<1x1x100x1536xf16, @DDR>, memref<1x1x100x1536xf16, @DDR>) {
+    %alloc_ddr = memref.alloc() : memref<1x1x342x1536xf16, @DDR>
+    %0 = VPUIP.ConvertDMA
+            inputs(%arg0 : memref<1x1x342x1536xf32, {order = #NCHW, strides = [1048576, 1048576, 1536, 1]}, @DDR>)
+            outputs(%alloc_ddr : memref<1x1x342x1536xf16, @DDR>)
+            -> memref<1x1x342x1536xf16, @DDR>
+    %1 = VPUIP.SubView %0 [0, 0, 0, 0] [1, 1, 100, 1536]
+            : memref<1x1x342x1536xf16, @DDR>
+            to memref<1x1x100x1536xf16, {order = #NCHW, strides = [525312, 525312, 1536, 1]}, @DDR>
+    %alloc_ddr0 = memref.alloc() : memref<1x1x100x1536xf16, @DDR>
+    %2 = VPUIP.Copy
+            inputs(%1 : memref<1x1x100x1536xf16, {order = #NCHW, strides = [525312, 525312, 1536, 1]}, @DDR>)
+            outputs(%alloc_ddr0 : memref<1x1x100x1536xf16, @DDR>)
+            -> memref<1x1x100x1536xf16, @DDR>
+    %3 = VPUIP.SubView %0 [0, 0, 100, 0] [1, 1, 100, 1536]
+            : memref<1x1x342x1536xf16, @DDR>
+            to memref<1x1x100x1536xf16, {order = #NCHW, strides = [525312, 525312, 1536, 1]}, @DDR>
+    %alloc_ddr1 = memref.alloc() : memref<1x1x100x1536xf16, @DDR>
+    %4 = VPUIP.Copy
+            inputs(%3 : memref<1x1x100x1536xf16, {order = #NCHW, strides = [525312, 525312, 1536, 1]}, @DDR>)
+            outputs(%alloc_ddr1 : memref<1x1x100x1536xf16, @DDR>)
+            -> memref<1x1x100x1536xf16, @DDR>
+    return %2, %4 : memref<1x1x100x1536xf16, @DDR>, memref<1x1x100x1536xf16, @DDR>
+
+    // Both SubViews move before ConvertDMA; intermediate f16 DDR allocation is eliminated.
+    // CHECK:     [[DDR_BUF0:%.+]] = memref.alloc() : memref<1x1x100x1536xf16, @DDR>
+    // CHECK:     [[SUBVIEW0:%.+]] = VPUIP.SubView [[INPUT]] [0, 0, 0, 0] [1, 1, 100, 1536]
+    // CHECK-SAME:  memref<1x1x342x1536xf32, {order = #NCHW, strides = [1048576, 1048576, 1536, 1]}, @DDR>
+    // CHECK-SAME:  to memref<1x1x100x1536xf32, {order = #NCHW, strides = [1048576, 1048576, 1536, 1]}, @DDR>
+    // CHECK:     [[CONVERT0:%.+]] = VPUIP.ConvertDMA
+    // CHECK-SAME:  inputs([[SUBVIEW0]] : memref<1x1x100x1536xf32, {order = #NCHW, strides = [1048576, 1048576, 1536, 1]}, @DDR>)
+    // CHECK-SAME:  outputs([[DDR_BUF0]] : memref<1x1x100x1536xf16, @DDR>) -> memref<1x1x100x1536xf16, @DDR>
+    // CHECK:     [[DDR_BUF1:%.+]] = memref.alloc() : memref<1x1x100x1536xf16, @DDR>
+    // CHECK:     [[SUBVIEW1:%.+]] = VPUIP.SubView [[INPUT]] [0, 0, 100, 0] [1, 1, 100, 1536]
+    // CHECK-SAME:  memref<1x1x342x1536xf32, {order = #NCHW, strides = [1048576, 1048576, 1536, 1]}, @DDR>
+    // CHECK-SAME:  to memref<1x1x100x1536xf32, {order = #NCHW, strides = [1048576, 1048576, 1536, 1]}, @DDR>
+    // CHECK:     [[CONVERT1:%.+]] = VPUIP.ConvertDMA
+    // CHECK-SAME:  inputs([[SUBVIEW1]] : memref<1x1x100x1536xf32, {order = #NCHW, strides = [1048576, 1048576, 1536, 1]}, @DDR>)
+    // CHECK-SAME:  outputs([[DDR_BUF1]] : memref<1x1x100x1536xf16, @DDR>) -> memref<1x1x100x1536xf16, @DDR>
+    // CHECK-NOT:   VPUIP.Copy
+    // CHECK:     return [[CONVERT0]], [[CONVERT1]]
+}

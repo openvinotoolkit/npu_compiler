@@ -405,8 +405,8 @@ mlir::LogicalResult vpux::VPU::ConcatOp::inferReturnTypes(mlir::MLIRContext* ctx
                     : nullptr;
 
     if (possibleDistribution != nullptr && VPU::isDistributedAttrWithExplicitShapesAndOffsets(possibleDistribution)) {
-        const auto outputDistribution = VPU::getConcatExplicitDistributedAttrForNewShape(possibleDistribution, outShape,
-                                                                                         outElemType.value(), ctx);
+        const auto outputDistribution =
+                VPU::getConcatExplicitDistributedAttrForNewShape(possibleDistribution, outShape, ctx);
         const auto outputType = distributedIn.changeShapeForExplicitDistribution(outShape, outputDistribution);
         inferredTypes.emplace_back(outputType);
     } else {
@@ -999,9 +999,8 @@ vpux::VPU::DistributionInfo vpux::VPU::ConcatOp::getExplicitDistributionInfoAttr
         const int64_t numClusters, ArrayRef<int64_t> alignment, const bool uniformDistributedSegments,
         const vpux::VPU::OverlapDistributionParams& overlapParams,
         const std::optional<ArrayRef<int64_t>> /* memoryNumTiles */) {
-    auto elementType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType()).getElementType();
     return vpux::VPU::getConcatExplicitDistributedNative(shape, distributionMode, numTiles, numClusters, alignment,
-                                                         uniformDistributedSegments, overlapParams, elementType);
+                                                         uniformDistributedSegments, overlapParams);
 }
 
 bool VPU::ConcatOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& outputTile) {

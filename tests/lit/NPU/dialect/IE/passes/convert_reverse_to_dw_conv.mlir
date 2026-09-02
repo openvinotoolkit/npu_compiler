@@ -207,14 +207,11 @@ func.func @ConvertReverseToGroupConvolutionWithAxisOfNonW(%arg0: tensor<512x512x
 
 // CHECK-LABEL: @NotConvertReverseToGroupConvForUnsupportedDataType
 // CHECK-SAME:    [[INPUT:%.+]]: tensor<1x512x512x3xui8>
-func.func @NotConvertReverseToGroupConvForUnsupportedDataType(%arg0: tensor<1x512x512x3xui8>) -> (tensor<1x512x512x3xui8>) {
-    %0 = IE.Reverse(%arg0) {
+func.func @NotConvertReverseToGroupConvForUnsupportedDataType(%arg0: tensor<1x512x512x3xui8>) -> (tensor<1x512x512x3xui8>) {    %0 = IE.Reverse(%arg0) {
         axis_value = [3],
         mode = #IE.reverse_mode<INDEX>
     } : tensor<1x512x512x3xui8> -> tensor<1x512x512x3xui8>
     return %0 : tensor<1x512x512x3xui8>
-
     // CHECK:        [[REVERSE:%.+]] = IE.Reverse([[INPUT]]) {axis_value = [3], mode = #IE.reverse_mode<INDEX>} : tensor<1x512x512x3xui8> -> tensor<1x512x512x3xui8>
-
     // CHECK:        return [[REVERSE]] : tensor<1x512x512x3xui8>
 }

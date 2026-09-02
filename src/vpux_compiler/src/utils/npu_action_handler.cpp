@@ -87,5 +87,6 @@ void NpuActionHandler::operator()(mlir::function_ref<void()> transform, const ml
 
 NpuActionHandler& vpux::getActionHandler(mlir::MLIRContext& ctx) {
     auto actionHandler = ctx.getActionHandler().target<NpuActionHandler>();
+    assert(actionHandler != nullptr && "NpuActionHandler is not registered in the MLIRContext");
     return *const_cast<NpuActionHandler*>(actionHandler);
 }

@@ -6,17 +6,22 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
-#include "vpux/compiler/utils/thread_safe_hash_map.hpp"
+#include "vpux/compiler/dialect/VPU/utils/strategy_manager/operation_strategies.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_cache.hpp"
+
+#include <llvm/ADT/DenseMap.h>
+
+#include <functional>
 
 namespace vpux::VPU::VF::v2 {
 
 class VFConfig final {
 public:
-    VFConfig(VPU::VerticalFusionOp vfOp, bool enableVFPipelining = true, bool firstVFNeedsTiling = true,
-             bool secondVFNeedsTiling = true);
+    VFConfig(VPU::VerticalFusionOp vfOp, VFCacheAnalysis& cache, bool enableVFPipelining = true,
+             bool firstVFNeedsTiling = true, bool secondVFNeedsTiling = true);
     ~VFConfig() = default;
 
-    VFConfig(const llvm::SetVector<mlir::Operation*>& operations);
+    VFConfig(const llvm::SetVector<mlir::Operation*>& operations, VFCacheAnalysis& cache);
 
     VFConfig(const VFConfig& other);
 
@@ -45,15 +50,21 @@ public:
     const llvm::SetVector<mlir::Operation*>& getVFOperations() const;
 
     // get all operations in the subgraph
-    SmallVector<mlir::Operation*> getOperationsForTiling() const;
+    const SmallVector<mlir::Operation*>& getOperationsForTiling() const;
 
     // check if subgraph might be pipelined
     bool isPipelined() const;
 
     // Get cached types for operation in VF
-    SmallVector<NDTypeInterface> getOperationTypes(mlir::Operation* operation, const TileInfo& outTile,
-                                                   const ArrayRef<TileInfo> inputTiles);
-    SmallVector<NDTypeInterface> getOperationTypes(mlir::Operation* operation);
+    const SmallVector<NDTypeInterface>& getOperationTypes(mlir::Operation* operation, const TileInfo& outTile,
+                                                          const ArrayRef<TileInfo> inputTiles);
+    const SmallVector<NDTypeInterface>& getOperationTypes(mlir::Operation* operation);
+
+    Byte getOperationRequiredCMX(mlir::Operation* operation, const TileInfo& outTile,
+                                 const ArrayRef<TileInfo> inputTiles);
+
+    std::optional<StrategyCost> getCachedStrategyCost(llvm::hash_code hash) const;
+    void cacheStrategyCost(llvm::hash_code hash, StrategyCost cost);
 
     // returns if first VF needs tiling
     bool firstVFNeedTiling() const;
@@ -65,18 +76,21 @@ private:
     bool isVFPipelinePattern() const;
     void validateConfig() const;
     llvm::hash_code computeOpShapeHash(mlir::Operation* operation, ShapeRef outShape) const;
+    llvm::hash_code computeRequiredCMXHash(mlir::Operation* operation, const TileInfo& outTile,
+                                           const ArrayRef<TileInfo> inputTiles) const;
 
     VPU::VerticalFusionOp _subgraph;
     mlir::Operation* _largestOp = nullptr;
     SmallVector<mlir::Operation*> _inputOps;
     SmallVector<mlir::Operation*> _outputOps;
+    SmallVector<mlir::Operation*> _tilingOps;
     llvm::SetVector<mlir::Operation*> _vfOps;
+
+    // the pass-level cache
+    std::reference_wrapper<VFCacheAnalysis> _cache;
     bool _isVFPipelineCandidate = false;
     bool _isPipelineEnabled = false;
     bool _firstVFNeedsTiling = true;
     bool _secondVFNeedsTiling = true;
-
-    // The mapping of `op & output tile shape` to `types after tiling`
-    ThreadSafeHashMap<llvm::hash_code, SmallVector<NDTypeInterface>> _tilesCache;
 };
 }  // namespace vpux::VPU::VF::v2

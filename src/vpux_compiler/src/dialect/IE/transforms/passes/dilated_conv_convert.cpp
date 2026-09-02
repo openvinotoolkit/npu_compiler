@@ -84,12 +84,8 @@ bool isLegalConvAttr(ConvType convOp, Logger log) {
 }
 
 bool isLegalSpaceBatchAttr(IE::SpaceToBatch spaceToBatchOp, IE::BatchToSpace batchToSpaceOp, Logger log) {
-    if (!spaceToBatchOp.getBlockShapeValue().has_value() || !batchToSpaceOp.getBlockShapeValue().has_value()) {
-        log.trace("Cannot get block shape");
-        return false;
-    }
     auto spaceToBatchBlockSize = parseIntArrayAttr<int64_t>(spaceToBatchOp.getBlockShapeValue().value());
-    auto batchTospaceBlockSize = parseIntArrayAttr<int64_t>(batchToSpaceOp.getBlockShapeValue().value());
+    auto batchTospaceBlockSize = parseIntArrayAttr<int64_t>(batchToSpaceOp.getBlockShapeValue());
     if (spaceToBatchBlockSize != batchTospaceBlockSize && spaceToBatchBlockSize[Dims4D::Act::N.ind()] == 1 &&
         spaceToBatchBlockSize[Dims4D::Act::C.ind()] == 1) {
         log.trace("SpaceToBatch block size '{0}' should equal with BatchToSpace block size '{1}' and equal one at N, C",
@@ -102,15 +98,10 @@ bool isLegalSpaceBatchAttr(IE::SpaceToBatch spaceToBatchOp, IE::BatchToSpace bat
         return false;
     }
 
-    if (!batchToSpaceOp.getCropsBeginValue().has_value() || !batchToSpaceOp.getCropsEndValue().has_value()) {
-        log.trace("Cannot get crops value of batchToSpaceOp");
-        return false;
-    }
-
     auto spaceToBatchPadsBegin = parseIntArrayAttr<int64_t>(spaceToBatchOp.getPadsBeginValue().value());
     auto spaceToBatchPadsEnd = parseIntArrayAttr<int64_t>(spaceToBatchOp.getPadsEndValue().value());
-    auto batchToSpaceCropsBegin = parseIntArrayAttr<int64_t>(batchToSpaceOp.getCropsBeginValue().value());
-    auto batchToSpaceCropsEnd = parseIntArrayAttr<int64_t>(batchToSpaceOp.getCropsEndValue().value());
+    auto batchToSpaceCropsBegin = parseIntArrayAttr<int64_t>(batchToSpaceOp.getCropsBeginValue());
+    auto batchToSpaceCropsEnd = parseIntArrayAttr<int64_t>(batchToSpaceOp.getCropsEndValue());
 
     // Pads and Crops should equal 0 at N and C
     // Pad value should larger or equal Crop value at H and W
@@ -195,8 +186,8 @@ mlir::LogicalResult DilatedConvConverter<ConvType>::matchAndRewrite(ConvType con
 
     auto spaceToBatchPadsBegin = parseIntArrayAttr<int64_t>(spaceToBatchOp.getPadsBeginValue().value());
     auto spaceToBatchPadsEnd = parseIntArrayAttr<int64_t>(spaceToBatchOp.getPadsEndValue().value());
-    auto batchTospaceCropsBegin = parseIntArrayAttr<int64_t>(batchToSpaceOp.getCropsBeginValue().value());
-    auto batchTospaceCropsEnd = parseIntArrayAttr<int64_t>(batchToSpaceOp.getCropsEndValue().value());
+    auto batchTospaceCropsBegin = parseIntArrayAttr<int64_t>(batchToSpaceOp.getCropsBeginValue());
+    auto batchTospaceCropsEnd = parseIntArrayAttr<int64_t>(batchToSpaceOp.getCropsEndValue());
     auto getNewPadsValue = [](const SmallVector<int64_t>& pads, const SmallVector<int64_t>& crops) {
         SmallVector<int64_t> newPads;
         std::transform(pads.begin() + 2, pads.end(), crops.begin() + 2, std::back_inserter(newPads),

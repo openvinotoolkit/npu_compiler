@@ -16,8 +16,7 @@ InputTiling DetectionOutputSortOpInputTilingOnShave(VPUIP::SwKernelOp swKernelOp
                                                     int tileId, int tileCount, Logger log);
 
 OutputTiling GRUSequenceOutputTiling(const vpux::TileInfo& firstOutputTile);
-OutputTiling logSoftmaxTopKOutputTiling(const vpux::TileInfo& firstOutputTile);
-OutputTiling logSoftmaxPeakOutputTiling(const vpux::TileInfo& firstOutputTile);
+OutputTiling logSoftmaxTopKOutputTiling(const vpux::TileInfo& firstOutputTile, int64_t axis);
 OutputTiling lstmSequenceOutputTiling(const vpux::TileInfo& firstOutputTile);
 OutputTiling lstmDpuOutputTiling(const vpux::TileInfo& firstOutputTile);
 OutputTiling DynamicQuantizeOutputTiling(const vpux::TileInfo& firstOutputTile, ShapeRef scaleShape, ShapeRef zpShape);

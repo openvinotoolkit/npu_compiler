@@ -13,30 +13,28 @@
 #include "vpux/compiler/pipelines/options_setup.hpp"
 #include "vpux/utils/ov/config.hpp"
 
-#include "intel_npu/config/options.hpp"
-
 using namespace vpux;
 
 //
 // BackendPipelineStrategy50XX::buildELFPipeline
 //
 
-void BackendPipelineStrategy50XX::buildELFPipeline(mlir::OpPassManager& pm, const intel_npu::Config& config,
+void BackendPipelineStrategy50XX::buildELFPipeline(mlir::OpPassManager& pm, const vpux::OV::Config& config,
                                                    mlir::TimingScope& rootTiming, Logger log) {
     auto buildTiming = rootTiming.nest("Build compilation pipeline");
     const auto backendCompilationOptions =
-            BackendCompilationOptions50XX::createFromString(config.get<intel_npu::BACKEND_COMPILATION_PARAMS>());
+            BackendCompilationOptions50XX::createFromString(config.get<vpux::OV::BACKEND_COMPILATION_PARAMS>());
 
     const auto options = parseCompilationModeParams<DefaultHWOptions50XX>(
-            config.get<intel_npu::COMPILATION_MODE_PARAMS>(), getArchKind(config));
+            config.get<vpux::OV::COMPILATION_MODE_PARAMS>(), getArchKind(config));
     VPUX_THROW_UNLESS(options != nullptr, "build ELF pipeline failed to parse COMPILATION_MODE_PARAMS: {0}",
-                      config.get<intel_npu::COMPILATION_MODE_PARAMS>());
+                      config.get<vpux::OV::COMPILATION_MODE_PARAMS>());
 
-    if (config.get<intel_npu::TURBO>()) {
+    if (config.get<vpux::OV::TURBO>()) {
         overwriteIfUnset(options->workloadManagementMode, WorkloadManagementMode::FWLM_V1_PAGES);
     }
 
-    setupPWLMParams50XX(*options, getLogLevel(config));
+    setupPWLMParams50XX(*options, config.get<vpux::OV::LOG_LEVEL>());
     backendCompilationOptions->npu5PPEBackwardsCompatibilityMode = options->npu5PPEBackwardsCompatibilityMode;
     backendCompilationOptions->enableDumpStatisticsOfWlmOps = options->enableDumpTaskStats;
     backendCompilationOptions->workloadManagementMode = options->workloadManagementMode;
@@ -48,7 +46,7 @@ void BackendPipelineStrategy50XX::buildELFPipeline(mlir::OpPassManager& pm, cons
     backendCompilationOptions->allocateDDRStackFrames = options->allocateDDRStackFrames;
 
     if (getCompilationMode(config) != config::CompilationMode::ReferenceSW) {
-        auto enableProfiling = config.get<intel_npu::PERF_COUNT>();
+        auto enableProfiling = config.get<vpux::OV::PERF_COUNT>();
         backendCompilationOptions->enableDMAProfiling =
                 enableProfiling ? options->enableDMAProfiling.getValue() : "false";
         backendCompilationOptions->enableShaveDDRAccessOptimization = options->enableShaveDDRAccessOptimization;

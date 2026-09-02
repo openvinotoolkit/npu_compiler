@@ -317,11 +317,9 @@ func.func @ConvertGPTQWithMergedMatMul(%arg0: tensor<1x1x4096xf16>) -> (tensor<1
     // CHECK:     [[MULTIPLY:%.+]] = IE.Multiply([[AVG]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x1x96xf16>, tensor<1xf16> -> tensor<1x16x1x96xf16>
     // CHECK:     [[TRANSPOE_1:%.+]] = IE.Transpose([[MULTIPLY]]) {order_value = #NHWC} : tensor<1x16x1x96xf16> -> tensor<1x1x96x16xf16>
     // CHECK:     [[RESHAPE_0:%.+]] = IE.AffineReshape([[TRANSPOE_1]])
-    // CHECK-SAME{LITERAL}:                         {dim_mapping = [[0], [1], [2], [2]], shape_value = [1, 1, 1536]} : tensor<1x1x96x16xf16> -> tensor<1x1x1536xf16>
-    // CHECK:     [[RESHAPE_1:%.+]] = IE.AffineReshape([[RESHAPE_0]])
-    // CHECK-SAME{LITERAL}:                         {dim_mapping = [[0], [0], [1]], shape_value = [1, 1536]} : tensor<1x1x1536xf16> -> tensor<1x1536xf16>
-    // CHECK:     [[OUT_SLICE_2:%.+]] = IE.Slice [[RESHAPE_1]] [0, 0] [1, 512] : tensor<1x1536xf16> to tensor<1x512xf16>
-    // CHECK:     [[OUT_SLICE_1:%.+]] = IE.Slice [[RESHAPE_1]] [0, 512] [1, 1024] : tensor<1x1536xf16> to tensor<1x1024xf16>
+    // CHECK-SAME{LITERAL}:                         {dim_mapping = [[0], [0], [1], [1]], shape_value = [1, 1536]} : tensor<1x1x96x16xf16> -> tensor<1x1536xf16>
+    // CHECK:     [[OUT_SLICE_2:%.+]] = IE.Slice [[RESHAPE_0]] [0, 0] [1, 512] : tensor<1x1536xf16> to tensor<1x512xf16>
+    // CHECK:     [[OUT_SLICE_1:%.+]] = IE.Slice [[RESHAPE_0]] [0, 512] [1, 1024] : tensor<1x1536xf16> to tensor<1x1024xf16>
     // CHECK:     [[RESHAPE_2:%.+]] = IE.AffineReshape([[OUT_SLICE_1]])
     // CHECK-SAME{LITERAL}:                         {dim_mapping = [[0, 1], [2]], shape_value = [1, 1, 1024]} : tensor<1x1024xf16> -> tensor<1x1x1024xf16>
     // CHECK:     [[RESHAPE_3:%.+]] = IE.AffineReshape([[OUT_SLICE_2]])
@@ -469,9 +467,7 @@ func.func @ConvertGPTQMatMulWithDynamicDequantize(%arg0: tensor<1x1x1536xf16>, %
     // CHECK:       [[MULT_1:%.+]] = IE.Multiply([[AVGPOOL]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x1x160xf16>, tensor<1xf16> -> tensor<1x16x1x160xf16>
     // CHECK:       [[TRANSPOSE_1:%.+]] = IE.Transpose([[MULT_1]]) {order_value = #NHWC} : tensor<1x16x1x160xf16> -> tensor<1x1x160x16xf16>
     // CHECK:       [[RESHAPE_1:%.+]] = IE.AffineReshape([[TRANSPOSE_1]])
-    // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [1], [2], [2]], shape_value = [1, 1, 2560]} : tensor<1x1x160x16xf16> -> tensor<1x1x2560xf16>
-    // CHECK:       [[RESHAPE_2:%.+]] = IE.AffineReshape([[RESHAPE_1]])
-    // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [0], [1]], shape_value = [1, 2560]} : tensor<1x1x2560xf16> -> tensor<1x2560xf16>
+    // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [0], [1], [1]], shape_value = [1, 2560]} : tensor<1x1x160x16xf16> -> tensor<1x2560xf16>
 
-    // CHECK:      return [[RESHAPE_2]] : tensor<1x2560xf16>
+    // CHECK:      return [[RESHAPE_1]] : tensor<1x2560xf16>
 }

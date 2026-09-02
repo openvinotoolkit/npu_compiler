@@ -15,6 +15,7 @@
 
 #include <vpux_elf/accessor.hpp>
 #include <vpux_elf/reader.hpp>
+#include <vpux_elf/types/vpu_extensions.hpp>
 
 #include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/core/error.hpp"
@@ -82,8 +83,7 @@ const SchemaAndPtrType getProfilingSectionDataElf(const uint8_t* blobData, size_
     elf::Reader<elf::ELF_Bitness::Elf64> reader(&elfAccess);
     for (size_t i = 0; i < reader.getSectionsNum(); ++i) {
         const auto& section = reader.getSection(i);
-        const std::string secName = section.getName();
-        if (secName == ".profiling") {
+        if (section.getHeader()->sh_type == elf::VPU_SHT_PROF) {
             const auto* profMetaSection = section.getData<uint8_t>();
             const size_t sectionSize = section.getEntriesNum<uint8_t>();
             return extractProfilingMetadata(profMetaSection, sectionSize);

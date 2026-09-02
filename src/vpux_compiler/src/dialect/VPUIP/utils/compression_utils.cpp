@@ -78,9 +78,9 @@ mlir::Type setCompressionStateAttribute(mlir::Type type, VPUIP::CompressionState
     const auto memSpace = ndType.getMemSpace();
 
     if (mlir::isa<mlir::MemRefType>(type)) {
-        return vpux::getMemRefType(shape, elemType, order, memSpace, strides, getSwizzlingSchemeAttr(type),
-                                   VPUIP::getSparsityCompressionAttr(type), VPUIP::getAllocSizeAttr(type),
-                                   compressionAttr);
+        return vpux::getMemRefType(shape, elemType, order, memSpace, strides, getBounds(type),
+                                   getSwizzlingSchemeAttr(type), VPUIP::getSparsityCompressionAttr(type),
+                                   VPUIP::getAllocSizeAttr(type), compressionAttr);
     } else if (mlir::isa<vpux::VPUIP::DistributedBufferType>(type) || mlir::isa<vpux::VPUIP::ITIBufferType>(type)) {
         mlir::ArrayAttr stridesAttr;
         const auto orderAttr = mlir::AffineMapAttr::get(order.toAffineMap(ctx));
@@ -97,9 +97,9 @@ mlir::Type setCompressionStateAttribute(mlir::Type type, VPUIP::CompressionState
             stridesAttr = getIntArrayAttr(ctx, elemStrides);
         }
 
-        const auto layoutAttr =
-                vpux::MemRefAttr::get(orderAttr, stridesAttr,
-                                      /*allocSize=*/nullptr, {getSwizzlingSchemeAttr(type), compressionAttr}, ctx);
+        const auto layoutAttr = vpux::MemRefAttr::get(orderAttr, stridesAttr,
+                                                      /*allocSize=*/nullptr, /*optionalBounds=*/{},
+                                                      {getSwizzlingSchemeAttr(type), compressionAttr}, ctx);
 
         if (auto itiBufferType = mlir::dyn_cast<vpux::VPUIP::ITIBufferType>(type)) {
             return VPUIP::ITIBufferType::get(ctx, shape.raw(), elemType, layoutAttr, memSpace,

@@ -35,7 +35,7 @@ class MatMulLayerTest_HW_NPU3720_ppe_fp16_clamp : public MatMulLayerTestCommon {
             const auto totalSize =
                     std::accumulate(inputStaticShape.begin(), inputStaticShape.end(), 1, std::multiplies<size_t>());
             auto inputData = inputTensor.data<ov::element_type_traits<ov::element::f32>::value_type>();
-            for (size_t i = 0; i < totalSize; i++) {
+            for (int64_t i = 0; i < totalSize; i++) {
                 inputData[i] = static_cast<float>(300.0f);
             }
             return inputTensor;
@@ -90,6 +90,7 @@ TEST_P(MatMulLayerTestCommon_HW, NPU5010) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(MatMulLayerTestCommon_SW, NPU5020) {
     rel_threshold = 0.001;
     setReferenceSoftwareMode();
@@ -107,6 +108,7 @@ TEST_P(MatMulLayerTest_HW_NPU3720_ppe_fp16_clamp, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
+
 }  // namespace test
 }  // namespace ov
 

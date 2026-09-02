@@ -296,31 +296,26 @@ mlir::LogicalResult NCEConvolutionSplitOverInputChannel::matchAndRewrite(VPU::NC
                    this->getDebugName(), origOp->getLoc(), origOp);
         return mlir::failure();
     }
-    // Skip if origOp has reduce outputs, which are not supported after the split.
-    if (VPU::hasReduceOutputs(origOp)) {
-        _log.trace("[{0}] Skipping NCEConvolutionSplitOverInputChannel: NCEConvolution with reduce outputs at '{1}'",
-                   this->getDebugName(), origOp->getLoc());
-        return mlir::failure();
-    }
+
     SmallVector<VPU::NCEConvolutionOp> convOps;
     SmallVector<VPU::NCEEltwiseOp> addOps;
     SmallVector<VPU::DequantizeOp> dequantizeOps;
-    mlir::Value result = VPU::splitNCEConvolutionOverIC(origOp, weightInput, convOps, addOps, dequantizeOps,
-                                                        tiles.value(), weightDequantizeOp, rewriter, _log.nest());
+    auto results = VPU::splitNCEConvolutionOverIC(origOp, weightInput, convOps, addOps, dequantizeOps, tiles.value(),
+                                                  weightDequantizeOp, rewriter, _log.nest());
 
     setStrategies<VPU::DequantizeOp>(dequantizeOps);
     setStrategies<VPU::NCEConvolutionOp>(
             convOps, {VPU::MultiClusterStrategy::SplitOverKernel, VPU::MultiClusterStrategy::SplitOverHeight});
     setStrategies<VPU::NCEEltwiseOp>(addOps, {VPU::MultiClusterStrategy::SplitOverHeight});
 
-    auto lastOp = result.getDefiningOp();
+    auto lastOp = results[0].getDefiningOp();
     if (mlir::isa<VPU::NCEDepthConvolutionOp>(lastOp)) {
         setStrategies<VPU::NCEDepthConvolutionOp>(
                 SmallVector<VPU::NCEDepthConvolutionOp>{mlir::cast<VPU::NCEDepthConvolutionOp>(lastOp)},
                 {VPU::MultiClusterStrategy::SplitOverKernel, VPU::MultiClusterStrategy::SplitOverHeight});
     }
 
-    rewriter.replaceOp(origOp, result);
+    rewriter.replaceOp(origOp, mlir::ValueRange(results));
 
     return mlir::success();
 }

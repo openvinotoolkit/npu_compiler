@@ -17,7 +17,7 @@ func.func @WrapSingleOpChannelsNotPow2(
     %conv = VPU.NCE.Convolution(%input, %weights) rawFilterShape [48, 48, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-            
+
             strides = [1, 1]
         } : tensor<1x48x48x16xf16, {order = #NHWC}>, tensor<48x48x1x1xf16, {order = #NHWC}> -> tensor<1x48x48x16xf16, {order = #NHWC}>
 

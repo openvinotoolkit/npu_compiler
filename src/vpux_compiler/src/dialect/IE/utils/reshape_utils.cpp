@@ -176,17 +176,6 @@ mlir::FailureOr<SmallVector<SmallVector<int64_t>>> getReassociationMapExtension(
     return createReassociationMap(inShape, outShape, true);
 }
 
-bool isNotDimExpansionReshape(ShapeRef origShape, ShapeRef reshapeShape) {
-    auto getNonOneDims = [](ShapeRef shape) {
-        Shape resultShape;
-        llvm::copy_if(shape, std::back_inserter(resultShape), [](int64_t elem) {
-            return elem != 1;
-        });
-        return resultShape;
-    };
-    return getNonOneDims(origShape) != getNonOneDims(reshapeShape);
-}
-
 bool isNotDimShrinkReshape(ShapeRef origShape, ShapeRef reshapeShape) {
     return origShape.size() <= reshapeShape.size();
 }

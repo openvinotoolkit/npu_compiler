@@ -112,5 +112,6 @@ void vpux::VPU::arch50xx::registerLayerWithPostOpModelInterface(mlir::DialectReg
     });
     registry.addExtension(+[](mlir::MLIRContext* ctx, VPU::VPUDialect*) {
         VPU::TransposedConvolutionOp::attachInterface<LayerWithPostOpModel<VPU::TransposedConvolutionOp>>(*ctx);
+        VPU::GroupConvolutionOp::attachInterface<LayerWithPostOpModel<VPU::GroupConvolutionOp>>(*ctx);
     });
 }

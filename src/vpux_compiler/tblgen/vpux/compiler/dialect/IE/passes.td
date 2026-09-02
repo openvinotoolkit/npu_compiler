@@ -211,7 +211,7 @@ def DuplicateFQAcrossFunctionCalls : PassBase<"duplicate-fq-across-function-call
 // Debatcher
 //
 
-def Debatcher : PassBase<"debatcher", "vpux::FunctionPass"> {
+def Debatcher : PassBase<"debatcher", "vpux::ModulePass"> {
     let summary = "Downcast input batched tensor arguments of a `main`-function to single batch tensors, which is supposed to unblock further transformations dedicated to support batched models compilation. This is a frontend of 'Debatcher-Outliner-DeDebatcher' approach";
 
     let description = [{
@@ -241,7 +241,7 @@ def Debatcher : PassBase<"debatcher", "vpux::FunctionPass"> {
 // DeDebatcher
 //
 
-def DeDebatcher : PassBase<"de-debatcher", "vpux::FunctionPass"> {
+def DeDebatcher : PassBase<"de-debatcher", "vpux::ModulePass"> {
     let summary = "Rollback DeDebatcher tensors downcasting operations from N->1 by adding a body function N-respective repetitions";
 
     let description = [{
@@ -382,14 +382,15 @@ def FuseReshapeMvn : PassBase<"fuse-reshape-mvn", "vpux::FunctionPass"> {
 // FuseRMSNorm
 //
 def FuseRMSNorm : PassBase<"fuse-rmsnorm", "vpux::FunctionPass"> {
-    let summary = "Fuse Power-ReduceMean-Add-Sqrt-Divide-Multiply-Multiply to RMSNorm";
+    let summary = "Fuse Power-ReduceMean-Add-[optional ReLU]-Sqrt-Divide-Multiply-Multiply to RMSOp";
     let description = [{
         AI-generated summary
 
         Detects and fuses Root Mean Square Normalization patterns where squared input
-        (Power(x,2) or Multiply(x,x)) is followed by ReduceSum, optional epsilon
-        addition/clamp, and reciprocal square root (Sqrt->Divide or Power(-0.5)),
-        into a single IE.RMSNorm operation with precomputed gamma and epsilon parameters.
+        (Power(x,2) or Multiply(x,x)) is followed by ReduceMean or ReduceSum, optional epsilon
+        addition/clamp, optional ReLU before Sqrt, and reciprocal square root
+        (Sqrt->Divide or Power(-0.5)),
+        into a single IE.RMS operation (RMSOp) with precomputed gamma and epsilon parameters.
         Supports multiple mathematical formulations including intermediate scale constants
         and dimension expansion operations.
     }];
@@ -405,8 +406,10 @@ def FuseRMSNorm : PassBase<"fuse-rmsnorm", "vpux::FunctionPass"> {
 def FuseNormalizeL2ToRMS : PassBase<"fuse-normalize-l2-to-rms", "vpux::FunctionPass"> {
     let summary = "Fuse NormalizeL2 + Multiply into RMSOp";
     let description = [{
-        Detects NormalizeL2 reducing the innermost dimension
-        (axes_value = [-1] or an equivalent positive axis for the input rank)
+        Detects NormalizeL2 (eps_mode = ADD) reducing a single innermost axis
+        (axes provided either via a constant tensor operand or via axes_value,
+        and containing exactly one axis: [-1] or an equivalent positive axis
+        for the input rank)
         followed by a Multiply with a constant scale, and fuses the pattern into
         a single IE.RMSOp with gamma = scale / sqrt(reduceSize).
     }];
@@ -473,27 +476,33 @@ def FuseColorConversion : PassBase<"fuse-color-conversion", "vpux::FunctionPass"
 }
 
 //
-// DynamicConcatToScatterNDUpdate
+// FoldShapeOfGatherDynamicReshapeToTranspose
 //
-def DynamicConcatToScatterNDUpdate : PassBase<"dynamic-concat-to-scatter-nd-update", "vpux::FunctionPass"> {
-    let summary = "Rewrite ConcatOp into ScatterNDUpdate";
+def FoldShapeOfGatherDynamicReshapeToTranspose :
+        PassBase<"fold-shapeof-gather-dynamic-reshape-to-transpose", "vpux::FunctionPass"> {
+    let summary = "Recover IE.Transpose from a ShapeOf/Gather/DynamicReshape decomposition";
+
     let description = [{
-       Rewrite ConcatOp into ScatterNDUpdate when one input is static and the other is dynamic.
-       Example:
-    ```
-    Concat inputs:
-     `tensor<1x?x1x128xf16, {bounds = [1, 640, 1, 128]}>`
-     `tensor<1x1x1x128xf16>`
+        Matches the following IR chain, which is emitted by the OpenVINO frontend when a
+        Transpose is applied to a fully-dynamic tensor:
 
-     Extracting the shape of the dynamic input with `IE.ShapeOfOp` and incrementing the channel dimension using `IE.SliceOp` and `IE.AddOp`changing it from `640` to `641`.
-     Reshaping the dynamic input with `IE.DynamicReshapeOp` to reflect updated bounds and shape tensor<1x?x1x128xf16, {bounds = [1, 641, 1, 128]}>`.
-     Creating indices for the `ScatterNDUpdateOp` transformation using `IE.ConcatOp` ->  [0, 641, 0].
-     Replacing the original `ConcatOp` with `ScatterNDUpdateOp`, preserving the dynamic dimension.
-     Output after transformation:`tensor<1x?x1x128xf16, {bounds = [1, 641, 1, 128]}>`
+            %shape   = IE.ShapeOf(%x)
+            %new_sh  = IE.Gather(%shape, %perm_const) {axis_value = 0, batch_dims = 0}
+            %out     = IE.DynamicReshape(%x, %new_sh)
 
-    ```
+        and rewrites it back into a single `IE.Transpose(%x)` with the extracted
+        permutation encoded in `order_value`. This is safe when `%perm_const` is a
+        constant permutation of `[0..rank-1]` and the recorded `output_shape`/`output_bounds`
+        of `IE.DynamicReshape` match the input shape/bounds permuted by that vector.
+
+        The rewrite is required because the HostCompile output-shape prediction pipeline
+        (OutlineDimOperations) relies on `ReifyRankedShapedTypeOpInterface`, which
+        `IE.ShapeOf`, `IE.Gather` and `IE.DynamicReshape` do not implement, whereas
+        `IE.Transpose` does.
     }];
-    let constructor = "vpux::IE::createDynamicConcatToScatterNDUpdatePass()";
+
+    let constructor = "vpux::IE::createFoldShapeOfGatherDynamicReshapeToTransposePass()";
+
     let dependentDialects = [
         "vpux::IE::IEDialect"
     ];
@@ -585,6 +594,30 @@ def FuseLogSoftmaxVariants : PassBase<"fuse-logsoftmax-variants", "vpux::Functio
 }
 
 //
+// ExpandAttention
+//
+def ExpandAttention : PassBase<"expand-attention", "vpux::FunctionPass"> {
+    let summary = "Pad shared Attention root sequence length before decomposition";
+    let description = [{
+        Pads the shared root tensor of IE.AttentionOp before decomposition when
+        the sequence length is not channel-aligned. After Attention decomposition,
+        the sequence length is mapped to the input and output channels of the
+        Convolution after MatMul lowering. Padding those channels independently
+        requires different operations (e.g. Expand and Concat), which makes later
+        padding cleanup difficult, especially after SDPA unrolling.
+
+        The pass traces Q/K/V inputs through supported view-like, fully-connected,
+        and element-wise operations to find the common root tensor, and inserts one
+        zero-padded Concat at it. FullyConnected weights may be constants directly
+        or constants wrapped by FakeQuantize.
+    }];
+    let constructor = "vpux::IE::createExpandAttentionPass()";
+    let dependentDialects = [
+        "vpux::IE::IEDialect",
+    ];
+}
+
+//
 // FuseAttention
 //
 def FuseAttention : PassBase<"fuse-attention", "vpux::FunctionPass"> {
@@ -633,8 +666,19 @@ def DecomposeAttention : PassBase<"decompose-attention", "vpux::FunctionPass"> {
         7. Drop Sink: If a sink input is provided, IE.Slice off the extra sink
            column added in step 5
         8. Output: Apply IE.MatMul to compute final attention output with values
+
+        By default, Attention ops matching a legal SDPA configuration are left untouched so
+        they can run on the native SDPA path. When `force-attention-decomposition` is set, every
+        Attention op is decomposed. The softmax scale placement (Query, Key, or result) is chosen
+        by shape heuristics. This is required on platforms without native SDPA execution (NPU40XX).
     }];
     let constructor = "vpux::IE::createDecomposeAttentionPass()";
+
+    let options = [
+        Option<"forceAttentionDecomposition", "force-attention-decomposition", "bool", /*default=*/"false",
+               "Force decomposition of every Attention op">
+    ];
+
     let dependentDialects = [
         "vpux::IE::IEDialect"
     ];
@@ -774,15 +818,16 @@ def ConvertSelectToEltwise : PassBase<"convert-select-to-eltwise", "vpux::Functi
 // FuseReduceSquare
 //
 def FuseReduceSquare : PassBase<"fuse-reduce-square", "vpux::FunctionPass"> {
-    let summary = "Fuse Power-ReduceMean-Sqrt to ReduceSquare";
+    let summary = "Fuse square-reduce-sqrt chains to ReduceSquare";
     let description = [{
         AI-generated summary
 
         Detects patterns where element-wise squared operations (Power(x,2) or
         Multiply(x,x)) immediately precede ReduceMean or ReduceSum, optionally followed
-        by epsilon addition, and fuses them into a single ReduceSquare operation that
-        computes mean/sum of squares directly. Extracts epsilon values and preserves
-        reduction axes and keep-dims attributes.
+        by epsilon addition, and terminated by either Sqrt or Power(..., 0.5). Fuses
+        these chains into a single ReduceSquare operation that computes the equivalent
+        reduction of squares. Extracts epsilon values and preserves reduction axes and
+        keep-dims attributes.
     }];
     let constructor = "vpux::IE::createFuseReduceSquarePass()";
     let dependentDialects = [
@@ -805,48 +850,6 @@ def OptimizeParallelLayers : PassBase<"optimize-parallel-layers", "vpux::Functio
         before rewriting to ensure numerical equivalence.
     }];
     let constructor = "vpux::IE::createOptimizeParallelLayersPass()";
-    let dependentDialects = [
-        "vpux::IE::IEDialect"
-    ];
-}
-
-//
-// EliminateSliceInSoftmaxMatMulPass
-//
-
-def EliminateSliceInSoftmaxMatMul : PassBase<"eliminate-slice-in-softmax-matmul", "vpux::FunctionPass"> {
-    let summary = "Eliminate Slice operation between Softmax and MatMul by dimension alignment padding";
-
-    let description = [{
-        This pass optimizes the pattern: Softmax -> Slice -> MatMul by:
-        1. Padding Softmax input to alignment (e.g., 1025 -> 1040) using -inf padding
-        2. Removing the Slice operation
-        3. Padding MatMul RHS input with zeros to match the aligned dimension
-
-        Example transformation:
-        Before:
-            Input (1x64x1024x1025) -> Softmax -> (1x64x1024x1025) -> Slice [0:1024] -> (1x64x1024x1024)
-                                                                                             |
-            RHS (1x64x64x1024) --------------------------------------------------------> MatMul -> (1x64x1024x64)
-
-        After:
-            Input (1x64x1024x1025) -> Concat [-inf x15] -> (1x64x1024x1040) -> Softmax -> (1x64x1024x1040)
-                                                                                                |
-            RHS (1x64x64x1024) -> Concat [0 x16] -> (1x64x64x1040) --------------------------> MatMul -> (1x64x1024x64)
-
-        Mathematical equivalence:
-        * Softmax with -inf padding: exp(-inf) = 0, padded positions contribute 0 to output
-        * MatMul with zero-padded RHS: extra dimensions contribute 0 to the result
-        * Therefore: Softmax(x)[0:n] @ W == Softmax_padded(x) @ W_padded
-
-        Benefits:
-        * Removes Slice operation overhead
-        * Aligns dimensions to power-of-2 for better SW layer performance
-        * Maintains mathematical correctness
-    }];
-
-    let constructor = "vpux::IE::createEliminateSliceInSoftmaxMatMulPass()";
-
     let dependentDialects = [
         "vpux::IE::IEDialect"
     ];
@@ -907,13 +910,39 @@ def OptimizeTileOp : PassBase<"optimize-tile-op", "vpux::FunctionPass"> {
     let summary = "Optimize tile ops";
 
     let description = [{
-        AI-generated summary
+        Optimizes IE.TileOp and related patterns via three rewrite patterns applied to
+        IE.TileOp, IE.ConvertOp, and IE.AddOp respectively. All cases require the TileOp
+        to have a single use and its consumer to be IE.MultiplyOp or IE.AddOp with matching
+        input/output element types (no implicit precision conversion) and no PPE post-op
+        (except spatial-broadcast cases).
 
-        Eliminates TileOp operations that broadcast trivial tensors (size 1) or large
-        single-channel inputs into subsequent eltwise operations that support auto-broadcast
-        (Multiply, Add), removing the explicit Tile and relying on the broadcast semantics
-        of the consuming operation. Skips folding when precision conversion or post-operations
-        are present.
+        1. FoldTileOpRewriter -- four fold paths on IE.TileOp:
+           - Scalar (totalSize==1): reshapes the scalar input to an all-ones shape matching
+             the consumer's expected rank; the consumer applies NUMPY broadcast implicitly.
+           - Large single-channel (4D, C==1, inputSize > total CMX): replaces the Tile with
+             its pre-Tile input; the consumer eltwise broadcasts the single-channel dimension.
+           - NxCx1x1 spatial-broadcast (4D, H==1 && W==1 on input, N/C unchanged, output
+             not 1D, outputSize * numTiles > CMX): replaces the Tile with its pre-Tile input
+             so the consumer's NUMPY broadcast handles H/W expansion without an explicit DMA.
+           - Force-fold (isSpatialBroadcastFromGroupConv): same replacement regardless of
+             size when the Tile's sole user is a bias-Add for a static-filter GroupConv with
+             a static-constant bias -- bypasses the CMX threshold guard.
+
+        2. FuseTileConvertRewrite -- fuses Convert(A->B) -> Tile(B) -> Convert(B->C) into
+           Convert(A->C) -> Tile(C) when sizeof(C) <= sizeof(B) in bits, so the Tile DMA
+           operates on smaller (or equal) data.
+
+        3. FuseGroupConvWithBiasAdd -- folds IE.Add(GroupConv(x,w), bias_1xCx1x1) into a
+           single GroupConvolutionOp with the bias in the weight-table slot, eliminating the
+           Add and any preceding Tile on the bias path.
+           Fires for: static-filter + static-bias (all platforms); dynamic-filter + static-bias
+           when the platform supports the new weight-table bias format (the bias must remain
+           static because downstream NCE lowering always materializes the weight-table bias
+           from a compile-time constant).
+           Skips: static-filter + dynamic-bias; dynamic-bias with dynamic-filter (regardless of
+           platform); Add with output type != GroupConv output type; Add with input/output
+           padding attrs; Add with a scale operand or static_scale attribute (would be dropped
+           by fusion); non-float bias element type.
     }];
 
     let constructor = "vpux::IE::createOptimizeTileOpPass()";
@@ -959,31 +988,6 @@ def OptimizeReordersAcrossFunctionCalls : PassBase<"optimize-reorders-across-fun
     }];
 
     let constructor = "vpux::IE::createOptimizeReordersAcrossFunctionCallsPass()";
-
-    let dependentDialects = [
-        "vpux::IE::IEDialect"
-    ];
-}
-
-//
-// ConvertSplitConcatToTranspose
-//
-
-def ConvertSplitConcatToTranspose : PassBase<"convert-split-concat-to-transpose", "vpux::FunctionPass"> {
-    let summary = "Convert the pattern {Split -> AffineReshape -> Concat} to Transpose";
-
-    let description = [{
-        AI-generated summary
-
-        Recognizes data movement patterns where Split along one dimension feeds multiple
-        AffineReshape operations (with compatible dimension mappings that merge/split only
-        dimensions 1 and size-1 expansion) which reconverge via Concat, replacing the entire
-        sequence with a direct Transpose operation that achieves the same permutation.
-        Validates that split produces dimension-1 outputs and concat recombines along
-        compatible axes.
-    }];
-
-    let constructor = "vpux::IE::createConvertSplitConcatToTransposePass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
@@ -1374,30 +1378,6 @@ def ConvertSpace2DepthLayer : PassBase<"convert-spaceToDepth", "vpux::FunctionPa
 }
 
 //
-// ConvertDeformableConvToConv
-//
-
-def ConvertDeformableConvToConv : PassBase<"convert-deformable-conv-to-conv", "vpux::FunctionPass"> {
-    let summary = "Convert DeformableConv layers to Conv";
-
-    let description = [{
-        AI-generated summary
-
-        Transforms DeformableConvolution operations into regular Convolution coupled with
-        a GridSample layer that applies dynamic spatial coordinate offsets from the offset
-        tensor. Reshapes offset tensor from (N, 2*KH*KW, H, W) format, permutes to
-        sample-grid format, adds spatial indices, normalizes to [-1,1] range, and applies
-        GridSample before standard convolution with the original weights.
-    }];
-
-    let constructor = "vpux::IE::createConvertDeformableConvToConvPass()";
-
-    let dependentDialects = [
-        "vpux::IE::IEDialect"
-    ];
-}
-
-//
 // ConvertGather
 //
 
@@ -1489,6 +1469,11 @@ def ConvertShapeTo4D : PassBase<"convert-shape-to-4d", "vpux::FunctionPass"> {
             "forceConvertGatherTo4D", "force-convert-gather-to-4d",
             "bool", "false",
             "For WS Init schedule, GatherOp is forced to 4D"
+        >,
+        Option<
+            "enableShapeVerification", "enable-shape-verification",
+            "bool", "false",
+            "When set, marks the module to enable 4D shape verification after conversion"
         >
     ];
 }
@@ -1903,9 +1888,25 @@ def AdjustConvolutionInputShape: PassBase<"adjust-convolution-input-shape", "vpu
         DPU workloads that can execute in parallel across clusters.
 
         Registered patterns:
+        - ReshapeConv1DInputWithHalo<ConvolutionOp> — for 1D convolutions ([1,C,1,L] or
+           [1,C,L,1]) with K>1, stride=1, dilation=1, no input/output_padding, and an
+           activation element type supported by Const::createZerosConst (F16/F32/FP8/
+           F4E2M1FN/per-tensor UniformQuantizedType; BF16 and per-axis quant are skipped).
+           Folds the long axis into 2D [1, C, numRows, L_row+K-1] with an explicit K-1 halo
+           (Concat-of-zero-const + Slice + Concat) so sliding-window semantics are preserved,
+           then runs a regular 2D conv (pads=0) and AffineReshape back. Recovers DPU MPE
+           utilization that is otherwise lost when H=1 (or W=1). Gated by a MAC threshold
+           (see Example below).
+        - ReshapeConv1DInputWithHalo<GroupConvolutionOp> — same for 1D grouped/depthwise.
+        - ReshapeTransposedConv1DInputWithHalo — same idea for 1D TransposedConvolution with
+           kernel % stride == 0, dilation=1 and no pads/output_padding. A strided transposed
+           conv scatters each input sample into a K-wide output window, so the halo is mirrored:
+           every row reads haloPad = K/stride - 1 extra samples per side and keeps only its own
+           valid output range, which stays disjoint across rows (no overlap-add). The input is
+           zero-extended when the row count does not divide evenly.
         - ReshapeConvInput<ConvolutionOp> — reshapes Convolution input when one
            spatial dimension is large and the other is 1, splitting the large
-           dimension into two factors. Favors larger height.
+           dimension into two factors. Only applies to 1x1 kernels. Favors larger height.
         - ReshapeConvInput<GroupConvolutionOp> — same as above for GroupConvolution.
            Favors larger width.
         - ReshapeSingleConstDWConvInput — reshapes depthwise GroupConvolution input
@@ -1924,15 +1925,44 @@ def AdjustConvolutionInputShape: PassBase<"adjust-convolution-input-shape", "vpu
                      Conv: 1x16x64x4
                             |
                      Reshape: 1x16x256x1
-    }];
 
-    let options = [
-        Option<
-            "preferredSpatialAlignment", "preferred-spatial-alignment",
-            "int64_t", "4",
-            "Preferred spatial (W) alignment for reshape. Default is 4; NPU5010 pipeline overrides to 8 for better DPU efficiency."
-        >
-    ];
+        Example (ReshapeConv1DInputWithHalo, K=11, Hp=64, SAME pad=5,5):
+            Activation: 1x256x1x1600    Weights: 256x256x1x11
+                |                        |
+            Pad W [5,5] -> 1x256x1x1610  |
+                |                        |
+            Slice * 64 + Concat H        |
+                |                        |
+            1x256x64x35                  |
+                  \\                    /
+                   Conv (pads = 0)
+                       |
+                   1x256x64x25
+                       |
+                AffineReshape -> 1x256x1x1600
+
+        Hp is the largest 4-multiple in [mpeAlignment, numDPU * mpeAlignment] that divides
+        L_out and keeps L_row = L_out / Hp >= max(K, mpeAlignment) — bigger Hp gives the
+        SOH tile-strategy more headroom. A 500 MMACs gate skips layers where Pad/Slice/Concat
+        staging would dominate.
+
+        Example (ReshapeTransposedConv1DInputWithHalo, K=8, stride=4, haloPad=1, numRows=17):
+            Activation: 1x384x220x1        Weights: 192x384x8x1
+                |                           |
+            Pad H [1,1] -> 1x384x222x1      |
+                |                           |
+            Slice * 17 + AffineReshape      AffineReshape -> 192x384x1x8
+                |                           |
+            Concat H: 1x384x17x14           |
+                  \\                       /
+                TransposedConv (strides = [1, 4], pads = 0)
+                       |
+                   1x192x17x60
+                       |
+                Slice W [4, 56) -> 1x192x17x52   (drop each row's stride*haloPad context)
+                       |
+                AffineReshape -> 1x192x884x1
+    }];
 
     let constructor = "vpux::IE::createAdjustConvolutionInputShapePass()";
         let dependentDialects = [
@@ -2714,6 +2744,25 @@ def UnrollBatch : PassBase<"unroll-batch", "vpux::FunctionPass"> {
 }
 
 //
+// AdjustQKVTransposeForUnrollSDPA
+//
+
+def AdjustQKVTransposeForUnrollSDPA : PassBase<"adjust-qkv-transpose-for-unroll-sdpa", "vpux::FunctionPass"> {
+    let summary = "Split shared QKV projection before SDPA unrolling";
+
+    let description = [{
+        This pass transforms SDPA patterns containing transposes on the Q, K, and V inputs,
+        enabling the UnrollSDPA pass to eliminate those transposes.
+    }];
+
+    let constructor = "vpux::IE::createAdjustQKVTransposeForUnrollSDPAPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
 // UnrollSDPAPattern
 //
 
@@ -2830,7 +2879,7 @@ def HandleU16FakeQuantize : PassBase<"handle-u16-fake-quantize", "vpux::Function
            a. If the input to the FakeQuantize is a constant, the quantization is folded directly
               into the constant values and the FakeQuantize op is replaced with the resulting constant.
            b. In case enableAdaptiveStripping is true:
-              - If any user of the FQ output is a U16 FQ child and the current FQ is per
+               - If any user of the FQ output is a U16 FQ child and the current FQ is per
                 tensor with in_low == out_low == 0 and in_high == out_high and has exactly one use
                 (the child FQ), it is replaced with a ReLU activation function. All users of the
                 output are scanned for a U16 FQ child, not just the first use-list entry.
@@ -2935,13 +2984,20 @@ def ConvertTransposedConv2DToConv2D : PassBase<"convert-transposed-conv-to-conv"
     let description = [{
         AI-generated summary
 
-        Converts TransposedConvolution to Upsampling followed by standard Convolution
-        through filter transformation. Requires constant filter to compute upsampling
-        spatial dimensions and validates feasibility via canConvertTransposedConvToConv.
-        Reconstructs the transposed operation by upsampling input with stride factors
-        embedded in spatial output padding, then applying regular Conv with stride 1 to
-        maintain output shape. Optionally skips conversion if SEP TransposedConv support
-        is available and beneficial for the platform.
+        Converts 2D TransposedConvolution to Upsampling followed by Convolution.
+        Requires a convertible op (canConvertTransposedConvToConv) and keeps the
+        original dilation attribute on the created IE.ConvolutionOp instead of
+        hard-coding [1, 1].
+
+        Upsampling padding is computed from effective kernel size:
+            K_eff - 1 = (K - 1) * dilation
+        so dilated cases are shape-correct after conversion.
+
+        When output shape is explicitly provided and the converted Conv output
+        is larger, the pass inserts Slice to crop back to requested output shape.
+
+        The pass may skip conversion when SEP TransposedConvolution support is
+        enabled and preferred for the platform.
     }];
 
     let constructor = "vpux::IE::createConvertTransposedConv2DToConv2DPass()";
@@ -2961,11 +3017,21 @@ def ConvertGroupTransposedConvToGroupConv : PassBase<"convert-group-transposed-c
     let description = [{
         AI-generated summary
 
-        Converts GroupTransposedConvolution to Upsampling followed by GroupConvolution,
-        supporting only 2D operations. Validates input/output/filter shapes, requires
-        non-null filter operation, and transforms 5D filter shape (groups dimension) to
-        4D format by merging group count into output channels. Applies upsampling with
-        group support and group-aware filter reshaping.
+        Converts 2D GroupTransposedConvolution to GroupConvolution.
+        Validates input/output/filter ranks, requires a valid filter producer,
+        and reshapes filter from 5D [G, OC, IC, KY, KX] to 4D by folding groups
+        into output channels.
+
+        Generic path:
+        - build Upsampling + optional output padding
+        - create IE.GroupConvolutionOp with stride [1, 1]
+        - preserve original dilation on created GroupConvolutionOp
+
+        Depthwise-dilated fast path (stride=1, no output-padding, no output-shape attr):
+        - computes equivalent non-negative padding
+        - expands filter by IE.ExpandDilatedOp
+        - emits IE.GroupConvolutionOp with dilations [1, 1]
+        - falls back to generic path when equivalent padding is negative
     }];
 
     let constructor = "vpux::IE::createConvertGroupTransposedConvToGroupConvPass()";
@@ -3257,7 +3323,7 @@ def AdjustFakeQdqParams : PassBase<"adjust-fake-qdq-params", "vpux::FunctionPass
 //
 
 def FuseQuantizationMultiply : PassBase<"fuse-fq-and-mul", "vpux::FunctionPass"> {
-    let summary = "Fuse Mul into FakeQuantize or Dequantize";
+    let summary = "Fuse Mul into FakeQuantize, Dequantize, or DynamicDequantize";
 
     let description = [{
     The pass is a part of `InitialTransformations` pipeline.
@@ -3330,6 +3396,27 @@ def FuseQuantizationMultiply : PassBase<"fuse-fq-and-mul", "vpux::FunctionPass">
      Supported Quantization Types:
     - UniformQuantizedType (per-tensor): Single scale and zero point
     - UniformPerAxisQuantizedType (per-channel): Per-channel scales along axis 0
+
+    DynamicDequantize + Multiply
+
+      input   scale   zp                       input   scale * C   zp
+        |       |     |                          |        |        |
+        v       v     v                          v        v        v
+      +-------------------+                    +-----------------------+
+      | DynamicDequantize |         =====>     |   DynamicDequantize   |
+      +-------------------+                    +-----------------------+
+                |                                          |
+                v                                          v
+           +----------+
+           | Multiply | <--- C
+           +----------+
+                |
+                v
+
+    Since IE.DynamicDequantize computes `(input - zp) * scale`, a trailing Multiply(C)
+    folds directly into its (constant) scale operand as `scale' = scale * C`, for both
+    a splat multiplier and a per-channel multiplier that aligns with the scale. The
+    weights-import marker attribute is preserved on the rewritten op.
 
     }];
 
@@ -3532,22 +3619,25 @@ def OptimizeUnalignedQDQSeq : PassBase<"optimize-unaligned-qdq-seq", "vpux::Func
 }
 
 //
-// ConvertWeightsToU8
+// ConvertWeightsToUnsigned
 //
 
-def ConvertWeightsToU8 : PassBase<"convert-weights-to-u8", "vpux::FunctionPass"> {
-    let summary = "Shift data from a signed range to an unsigned one";
+def ConvertWeightsToUnsigned : PassBase<"convert-weights-to-unsigned", "vpux::FunctionPass"> {
+    let summary = "Shift weight data from a signed range to an unsigned one";
 
     let description = [{
         The pass is a part of `LowPrecision` pipeline.
 
         This pass detects quantized convolution and shifts weights data from a signed range to an unsigned one.
+        Uses a platform-specific strategy to determine which conversions to apply:
+        - Default: converts I8 weights to U8.
+        - Later platforms: additionally converts I4 weights to U4 (symmetric quantization only).
 
         The weights in the OV .bin file are in Int8.
         The NPU hardware supports both UInt8 and Int8 computation.
         It has support for UInt8 with zero point. For Int8 the zero point is 0.
 
-        It can be advantageous for accuracy to convert the weights to UInt8 with zero point as it enables asymetric quantization.
+        It can be advantageous for accuracy to convert the weights to UInt8 with zero point as it enables asymmetric quantization.
         When using asymmetric quantization, the quantized range is fully utilized. That is because one can exactly map the min/max values
         from the float range to the min/max of the quantized range. Using symmetric quantization, if the float range is biased towards
         one side, could result in a quantized range where a significant portion of the dynamic range is dedicated to values that will never appear.
@@ -3570,7 +3660,7 @@ def ConvertWeightsToU8 : PassBase<"convert-weights-to-u8", "vpux::FunctionPass">
         Assume ZP_I8 = 16 (In the Subtract node). The zero-point for UInt8 would be 16+128 = 134.
     }];
 
-    let constructor = "vpux::IE::createConvertWeightsToU8Pass()";
+    let constructor = "vpux::IE::createConvertWeightsToUnsignedPass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
@@ -3880,6 +3970,40 @@ def FuseOpsToMatMul : PassBase<"fuse-ops-to-matmul", "vpux::FunctionPass"> {
             "bool", "false",
             "Flag to enable or disable the conversion from CumSum to MatMul"
         >
+    ];
+}
+
+//
+// FuseOneHotSelect
+//
+
+def FuseOneHotSelect : PassBase<"fuse-onehot-select", "vpux::FunctionPass"> {
+    let summary = "Fold one-hot select over per-branch subgraphs into a single selecting op";
+
+    let description = [{
+        Folds the "compute all N branches then one-hot select one" pattern, i.e.
+
+            out = ReduceSum_axis0( onehot(group_id) * Concat_axis0( branch_i ) )
+
+        into a single op that materializes only the selected branch at runtime.
+
+        Currently handled branch kinds:
+        * Per-codebook MatMul/FullyConnected select -> Gather of the selected
+          weight + a single MatMul.
+          Every branch computes `hidden @ W_i^T` (out = hidden @ W_group_id^T); the
+          weights are stacked into a single [N, M, K] constant and one Gather by
+          `group_id` selects the weight for the fused MatMul.
+        * Per-codebook Gather select -> single flat-index Gather.
+          Every branch gathers the same `token_id` row of a constant codebook
+          E_i[V, D] (out = E_group_id[token_id]); the codebooks are stacked into a
+          single [N*V, D] constant and one Gather with the flat index
+          `group_id * V + token_id` selects the row.
+    }];
+
+    let constructor = "vpux::IE::createFuseOneHotSelectPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
     ];
 }
 
@@ -4368,7 +4492,7 @@ def LoopOutliner : PassBase<"loop-outliner", "vpux::ModulePass"> {
 //
 
 def ChunkGatedDeltaRuleLoop : PassBase<"chunk-gated-delta-rule-loop", "vpux::FunctionPass"> {
-    let summary = "Transform Gated Delta Rule Loop into chunked computation.";
+    let summary = "Transform Gated Delta Rule and linear state recurrence loops into chunked computation.";
 
     let description = [{
         This pass detects `IE::LoopOp` bodies that implement the Gated Delta Rule
@@ -4376,6 +4500,11 @@ def ChunkGatedDeltaRuleLoop : PassBase<"chunk-gated-delta-rule-loop", "vpux::Fun
         (h_t = decay * h_{t-1} + k ⊗ beta * (v - <h_{t-1}, k>), y_t = <h_t, q>)
         and rewrites them into a chunked form that reduces the sequential trip count
         from N to N/chunk_size while enabling parallel intra-chunk computation.
+
+        The pass also rewrites linear state recurrences of the form
+        `h_t = gate_t * h_{t-1} + u_t`, where each `y_t` is accumulated by
+        `ScatterUpdate`. This form is transformed by sequentially unrolling
+        `chunk_size` iterations in each new loop iteration.
 
         The transformation is applied only when the loop matches the expected pattern
         and all implementation constraints are satisfied. In particular:
@@ -4832,12 +4961,13 @@ def BroadcastInputForMultiply : PassBase<"broadcast-input-for-multiply", "vpux::
            sits between the `Tile` and the `Multiply`, a new small `PermuteCast` on the un-tiled
            input is inserted so the layout contract is preserved.
 
-        2. `BroadcastInputRewriter` (lower priority, enabled only when `broadcast-input-for-multiply=true`):
-           Broadcasts mismatched-shape inputs in Multiply operations by extending smaller inputs
-           to match the output shape. Performs NCHW-to-NHWC casting, explicit broadcasting, and
-           dimension reordering back to original layout. Only applies when broadcasting is on the
-           highest non-trivial dimension and innermost dimension is properly aligned, enabling the
-           Multiply to execute on DPU instead of SHAVE.
+          2. `TileBroadcastInputRewriter` (lower priority, can be disabled only by setting `broadcast-input-for-multiply=false`):
+              Broadcasts mismatched-shape inputs in Multiply operations by materializing an explicit
+              `IE.Tile` on the smaller input so it matches the output shape. Performs NCHW-to-NHWC
+              casting, tiling, and dimension reordering back to original layout. Only applies when
+              broadcasting expands exactly one dimension from 1 -> N and the broadcasted dimension is
+              not more inner than the input's innermost non-trivial dimension, and the innermost
+              dimension is properly aligned, enabling the Multiply to execute on DPU instead of SHAVE.
     }];
 
     let constructor = "vpux::IE::createBroadcastInputForMultiplyPass()";
@@ -4849,7 +4979,7 @@ def BroadcastInputForMultiply : PassBase<"broadcast-input-for-multiply", "vpux::
     let options = [
         Option<
             "broadcastInputForMultiply", "broadcast-input-for-multiply",
-            "bool", "false",
+            "bool", "true",
             "Enable broadcasting input for Multiply ops"
         >
     ];
@@ -4946,60 +5076,26 @@ def ConvertReorderToPermuteQuantize : PassBase<"convert-reorder-to-permute-quant
 //
 
 def PropagateMemPermuteThroughEltwise : PassBase<"propagate-mem-permute-through-eltwise", "vpux::FunctionPass"> {
-    let summary = "Propagates IE.MemPermute backward through elementwise ops to fuse or cancel consecutive MemPermutes on each input branch";
+    let summary = "Propagates IE.MemPermute backward through elementwise ops (Add, Multiply, Subtract)";
 
     let description = [{
         Moves a trailing IE.MemPermute backward through elementwise ops (Add, Multiply, Subtract)
-        so that consecutive MemPermutes on each input branch become adjacent and can be fused
-        by canonicalization. When the two MemPermutes are inverses of each other they cancel
-        entirely, eliminating the DMA cost.
-
-        Direct-path pattern (upstream PermuteLike reachable via ShapeCast only):
-        At least one input has an upstream PermuteLike op (MemPermute or PermuteQuantize)
-        connected through ShapeCast. If a branch lacks an upstream PermuteLike op it is
-        handled by processNonPermuteBranch. The trailing MemPermute is propagated backward
-        so each branch that has one gets a new MemPermute adjacent to the existing one.
+        so that consecutive MemPermutes on each input branch become adjacent and can be
+        folded by canonicalization. Converts this subgraph:
         ```
-            IE.MemPermute -> [IE.ShapeCast] \
-                                             IE.Add -> [IE.ShapeCast] -> IE.MemPermute
-            IE.MemPermute -> [IE.ShapeCast] /
+            IE.MemPermute -> IE.ShapeCast \
+                                           IE.Add -> IE.ShapeCast -> IE.MemPermute
+            IE.MemPermute -> IE.ShapeCast /
         ```
-        becomes:
+        into:
         ```
-            IE.MemPermute -> IE.MemPermute -> [IE.ShapeCast] \
-                                                              IE.Add -> [IE.ShapeCast]
-            IE.MemPermute -> IE.MemPermute -> [IE.ShapeCast] /
+            IE.MemPermute -> IE.MemPermute -> IE.ShapeCast \
+                                                            IE.Add -> IE.ShapeCast
+            IE.MemPermute -> IE.MemPermute -> IE.ShapeCast /
         ```
-        The two consecutive IE.MemPermute ops per branch are folded by canonicalization.
-        When they are inverses, they cancel and remove the DMA entirely.
-
-        Indirect-path pattern (upstream PermuteLike reachable via QuantizeCast/PermuteCast,
-        e.g. FakeQuantize lowering: MemPermute -> QuantizeCast -> Add):
-        ExtractODUPermuteFromAdd extracts the implicit NHWC->NCHW output permute of Add into
-        an explicit trailing IE.MemPermute. OptimizeEltwise then propagates it backward:
-        because QuantizeCast/PermuteCast sits between the upstream MemPermute and Add,
-        processNonPermuteBranch inserts a new IE.MemPermute on the branch input and replaces
-        the trailing IE.MemPermute with a free IE.PermuteCast.
-        ```
-            IE.MemPermute -> IE.QuantizeCast \
-                                              IE.Add (NHWC->NCHW, implicit ODU permute)
-            IE.MemPermute -> IE.QuantizeCast /
-        ```
-        becomes:
-        ```
-            IE.MemPermute -> IE.QuantizeCast -> IE.MemPermute \
-                                                               IE.Add (NHWC->NHWC) -> IE.PermuteCast
-            IE.MemPermute -> IE.QuantizeCast -> IE.MemPermute /
-        ```
-        The Add now executes in NHWC->NHWC mode and the trailing IE.PermuteCast is zero-cost
-        (no data movement). Note: the new and original IE.MemPermute per branch are not
-        consecutive (IE.QuantizeCast sits between them), so they are not fused by canonicalization.
-
-        Also handles identity IE.AvgPool/IE.MaxPool via OptimizeIdentityPool, and
-        IE.SoftMax via SwapMemPermuteWithSoftmax.
-
-        The inverse pass "MovePermutePostEltwise" moves identical MemPermutes from
-        inputs to after the output.
+        When two consecutive IE.MemPermute ops are inverses they cancel entirely,
+        eliminating the DMA cost. The inverse pass "MovePermutePostEltwise" moves
+        identical MemPermutes from inputs to after the output.
     }];
 
     let constructor = "vpux::IE::createPropagateMemPermuteThroughEltwisePass()";
@@ -5124,6 +5220,19 @@ def PropagateMemPermuteBeforeOp : PassBase<"propagate-mem-permute-before-op", "v
         ```
             [IE.PermuteCast] -> IE.MemPermute -> IE.Reshape -> IE.PermuteCast
         ```
+
+        - Converts this subgraph
+        ```
+            IE.Upsampling -> IE.MemPermute
+        ```
+        into
+        ```
+            IE.MemPermute -> IE.Upsampling -> [IE.PermuteCast]
+        ```
+        This Upsampling rewrite fires only when the lowered Upsampling DMA goes from
+        strided to non-strided after the swap (i.e. a growth axis with factor>1 moves
+        from an inner to an outer memory position).
+
         - Converts this subgraph
         ```
             IE.MVN -> IE.MemPermute
@@ -5132,6 +5241,21 @@ def PropagateMemPermuteBeforeOp : PassBase<"propagate-mem-permute-before-op", "v
         ```
             IE.MemPermute -> IE.MVN-> IE.PermuteCast
         ```
+        - Converts this subgraph
+        ```
+            IE.Concat -> IE.Slice -> IE.MemPermute/IE.PermuteQuantize
+                      -> IE.Slice -> IE.MemPermute/IE.PermuteQuantize
+                      -> ...
+        ```
+        into
+        ```
+            IE.MemPermute(input) -> new IE.Concat -> IE.Slice -> [IE.PermuteCast]
+                                                  -> IE.Slice -> [IE.PermuteCast]
+                                                  -> ...
+        ```
+        This Concat/Slice closed-form rewrite fires only when it strictly improves DMA
+        access (strided Slice DMA becomes non-strided) and does not regress any
+        Concat-input DMA from non-strided to strided.
 
         Canonicalization may fuse IE.MemPermute with another one.
     }];
@@ -6090,6 +6214,44 @@ def ConvertConstantDynamicDequantizeToDequantize : PassBase<"convert-const-dynam
 }
 
 //
+// ConvertDQRawDataTypeToQuantized
+//
+
+def ConvertDQRawDataTypeToQuantized : PassBase<"convert-dq-raw-data-type-to-quantized", "vpux::FunctionPass"> {
+    let summary = "Normalize raw storage types in DynamicDequantize inputs to QuantizedType";
+
+    let description = [{
+        For each IE.DynamicDequantize op whose input carries a raw (non-quantized) element type
+        (e.g. si4, ui4, QuantileType, f8E4M3FN), insert an IE.QuantizeCast that attaches an
+        identity quant.uniform type (scale=1.0, zp=0) to the input tensor.
+
+        This normalizes the IR invariant expected by downstream passes: every
+        IE.DynamicDequantize input must have a QuantizedType element type.
+
+        Input subgraph:
+        ```
+        %input          tensor<...xi4>     (raw storage type)
+        %scale          tensor<...>
+        %out = IE.DynamicDequantize(%input, %scale)
+                        tensor<...>
+        ```
+        Output subgraph:
+        ```
+        %cast = IE.QuantizeCast(%input)
+                        tensor<...x!quant.uniform<i4:f16, 1.0:0>>
+        %out  = IE.DynamicDequantize(%cast, %scale)
+                        tensor<...>
+        ```
+    }];
+
+    let constructor = "vpux::IE::createConvertDQRawDataTypeToQuantizedPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
 // ConvertDynamicDequantizeToDequantize
 //
 
@@ -6122,6 +6284,28 @@ def ConvertDynamicDequantizeToDequantize : PassBase<"convert-dynamic-dequantize-
     }];
 
     let constructor = "vpux::IE::createConvertDynamicDequantizeToDequantizePass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// ConvertDynamicDequantizeToFakeQuantize
+//
+
+def ConvertDynamicDequantizeToFakeQuantize : PassBase<"convert-dynamic-dequantize-to-fake-quantize", "vpux::FunctionPass"> {
+    let summary = "Reconstruct 'IE.FakeQuantize' from a weights-import 'IE.DynamicDequantize'";
+
+    let description = [{
+        Bridge pass. Reconstructs the exact IE.FakeQuantize that the FakeQuantize weights import would have
+        produced from the IE.DynamicDequantize emitted by the DynamicDequantize weights import. This shields the downstream
+        FakeQuantize-centric pipeline while the weights import switches to DynamicDequantize.
+        DynamicDequantize forms that are not the weights-import shape (non-constant scale, Gather/KV-cache, etc.)
+        are left untouched.
+    }];
+
+    let constructor = "vpux::IE::createConvertDynamicDequantizeToFakeQuantizePass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
@@ -6337,11 +6521,11 @@ def ConvertGatherElementsToGather : PassBase<"convert-gather-elements-to-gather"
 }
 
 //
-// SwapOperationWithGather
+// SwapOperationsWithGatherAndSlice
 //
 
-def SwapOperationWithGather : PassBase<"swap-operation-with-gather", "vpux::FunctionPass"> {
-    let summary = "Move operation after GatherOp";
+def SwapOperationsWithGatherAndSlice : PassBase<"swap-operations-with-gather-and-slice", "vpux::FunctionPass"> {
+    let summary = "Reorder operations around GatherOp and SliceOp";
 
     let description = [{
         AI-generated summary
@@ -6352,7 +6536,7 @@ def SwapOperationWithGather : PassBase<"swap-operation-with-gather", "vpux::Func
         and computational cost.
     }];
 
-    let constructor = "vpux::IE::createSwapOperationWithGatherPass()";
+    let constructor = "vpux::IE::createSwapOperationsWithGatherAndSlicePass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
@@ -6483,6 +6667,38 @@ def PropagateAndCleanUpFQ : PassBase<"propagate-and-clean-up-fq", "vpux::Functio
         "vpux::IE::IEDialect"
     ];
 }
+
+//
+// DecomposeMatMulThroughSlice
+//
+
+def DecomposeMatMulThroughSlice : PassBase<"decompose-matmul-through-slice", "vpux::FunctionPass"> {
+    let summary = "Decompose a fused MatMul + VariadicSplit into separate per-slice MatMuls";
+    let description = [{
+        This pass is part of the `PostImportPipeline` pipeline and must run
+        before `ConvertVariadicSplitToStridedSlice`.
+
+        Looking for the following pattern:
+            MatMul(act, W_qkv)
+            -> Add(bias)
+            -> Reshape / AffineReshape
+            -> VariadicSplit(equal split lengths)
+
+        Replaces it with N separate MatMul+Add+Reshape sequences, each
+        operating on a column-slice of W_qkv and the corresponding bias slice.
+        The VariadicSplit is eliminated entirely. Each per-output MatMul is
+        smaller and independent, avoiding DDR->DDR copies that the original
+        strided VariadicSplit requires.
+
+    }];
+
+    let constructor = "vpux::IE::createDecomposeMatMulThroughSlicePass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
 
 //
 // ConvertVariadicSplitToStridedSlice
@@ -6636,6 +6852,37 @@ def DumpStatisticsOfIeOps : PassBase<"dump-statistics-of-ie-ops", "vpux::ModuleP
     }];
 
     let constructor = "vpux::IE::createDumpStatisticsOfIeOpsPass()";
+}
+
+//
+// ConvertBlockCacheAttentionToFlashSDPA
+//
+
+def ConvertBlockCacheAttentionToFlashSDPA : PassBase<"convert-block-cache-attention-to-flash-sdpa", "vpux::FunctionPass"> {
+    let summary = "Converts IE.Attention with block-based KV-cache concat inputs into a cascade of IE.FlashSDPA ops";
+
+    let description = [{
+        Matches IE::AttentionOp whose K and V inputs are formed by a Concat of
+        paged/blocked KV-cache blocks (optionally wrapped by a GQA head-fold
+        Reshape: 4D Concat [1, kvH, S, E] -> [kvH, 1, S, E]).  "Block-based"
+        refers to KV-cache blocking, not VPU-level computation tiling.
+
+        Rewrites the op into a cascade of IE::FlashSDPAOp with online softmax,
+        one per merged block group.  Adjacent blocks are greedily merged until
+        the cumulative sequence length is a multiple of 16.  When a GQA Reshape
+        wrapper is detected, Q is un-folded to batch=1 so FlashSDPA handles
+        head-grouping natively.
+
+        Preconditions: no bias/padSizeS/sink operand; >= 3 Concat inputs;
+        total source sequence length >= 2048 (prefill) or >= 8192 (decode)
+        and divisible by 16.
+    }];
+
+    let constructor = "vpux::IE::createConvertBlockCacheAttentionToFlashSDPAPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
 }
 
 //
@@ -6994,13 +7241,25 @@ def FuseOutstandingDequant: PassBase<"fuse-outstanding-dequant", "vpux::Function
         The pass is a part of `LowPrecision` pipeline.
 
         Pass walks through quant-agnostic ops and removes dequantize after
-        NCE task with quantized output.
-        Allowed operations are defined by isAllowedElemTypeOp. These are ops that do not affect data values.
+        NCE task with quantized output. If Dequantize implicitly holds a ReLUx clamp,
+        that is a Clamp range of [0, x], then explicitly create this Clamp after the NCEOp.
+        If it does not exist then fuse Dequantize without creating clamp. Before creating clamp
+        check that attribute of NCEOp contains clamp already, and merge the two clamp values together.
+        This pass always creates explicit clamps rather than fusing as clamp attribute.
 
-        Converts :
+        Allowed operations to walk through are defined by isAllowedElemTypeOp.
+        These are ops that do not affect data values.
+        They are "View-like" ops, where Clamp won't be affected if it's moved through these ops.
+
+        If no ReLUx implicitly found in Dequantize, then Convert :
         `u8_Convolution_u8 -> u8_AllowedElemTypeOp_u8 -> ... -> u8_Dequantize_f16 -> f16_SWKernel_f16`
         To :
         `u8_Convolution_f16 -> f16_AllowedElemTypeOp_f16 -> ... -> f16_SWKernel_f16`
+
+        If ReLUx implicitly found in Dequantize, then Convert :
+        `u8_Convolution_u8 -> u8_AllowedElemTypeOp_u8 -> ... -> u8_Dequantize_f16 -> f16_SWKernel_f16`
+        To :
+        `u8_Convolution_f16 -> f16_Clamp_f16 -> f16_AllowedElemTypeOp_f16 -> ... -> f16_SWKernel_f16`
     }];
 
     let constructor = "vpux::IE::createFuseOutstandingDequant()";
@@ -7063,6 +7322,11 @@ def FuseScale : PassBase<"fuse-scale", "vpux::FunctionPass"> {
            attribute of a following AvgPool.
         - FuseStaticScaleToPpeForwardWithScaleCheck<IE::ConvolutionOp>: Same as forward
            fusion into Convolution but only when scale >= 1.0 to avoid accuracy degradation.
+        - FuseRoPEQueryScaleToSlicedConvs: Fuses a scalar `IE.Multiply` scale that fans out to
+           several per-head `IE.Convolution` operations through `IE.Slice` and view ops
+           (e.g. AffineReshape) into each convolution's `static_scale`. Applies only when the
+           scaled value feeds convolution input #0, the convolution has no bias and no
+           post-op/clamp, and consumes FP16 activations.
         Also we could fuse channel wise scales to convolution if it could support new weights table format
         Apply the pass before ConvertToScaleShift and after ConvertDivideToMultiply to increase
         the applicability.
@@ -7413,7 +7677,7 @@ def InitialLowPrecisionTransformationsPipelineRewriterExecutor : PassBase<"run-i
     let summary = "Build initial low precision transformations pipeline rewriter collection";
 
     let description = [{
-        This pass runs the set of rewriters from DecomposeMultiZPQuantization, WeightsDequantizeToFakeQuantize,
+        This pass runs the set of rewriters from DecomposeMultiZPQuantization, WeightsDequantizeToDynamicDequantize,
         ConsolidateWeightsDequantization and ConsolidateActivationFP8Quantization from the InitialLowPrecisionTransformations pipeline.
     }];
 
@@ -7422,11 +7686,6 @@ def InitialLowPrecisionTransformationsPipelineRewriterExecutor : PassBase<"run-i
             "rewriterName", "rewriter",
             "std::string", "",
             "Name of the rewriter to run"
-        >,
-         Option<
-            "enableDynamicQuantizationForStaticCase", "enable-dynamic-quantization-for-static-case",
-            "bool", "false",
-            "[Optional] Enable dynamic quantization for static case"
         >
     ];
 
@@ -7476,6 +7735,30 @@ def ForbidFourBitOutputs : PassBase<"forbid-four-bit-outputs", "vpux::ModulePass
     }];
 
     let constructor = "vpux::IE::createForbidFourBitOutputsPass()";
+}
+
+//
+// OptimizeQuantizationForAttention
+//
+
+def OptimizeQuantizationForAttention : PassBase<"optimize-quantization-for-attention", "vpux::FunctionPass"> {
+    let summary = "Move ScatterUpdate to operate on quantized (si8) KV cache data";
+
+    let description = [{
+        This pass optimizes the quantization/dequantization pattern around ScatterUpdate operations in KV-cache inference.
+        It moves the scatter from f32 to si8 domain by:
+            1. Removing the dequant chain (Convert si8→f32 + Multiply scale) before the scatter
+            2. Quantizing the update token (Multiply + Round + Clamp + Convert) before inserting
+            3. Performing the ScatterUpdate directly in si8
+            4. Re-dequantizing the output for downstream SDPA consumers
+        This reduces memory bandwidth and storage for KV-cache by keeping the cache tensor in int8 throughout the scatter operation.
+    }];
+
+    let constructor = "vpux::IE::createOptimizeQuantizationForAttentionPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
 }
 
 #endif

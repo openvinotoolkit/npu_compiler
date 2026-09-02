@@ -184,9 +184,9 @@ mlir::LogicalResult FuseConstantPadWithMaxpool::matchAndRewrite(IE::MaxPoolOp or
             origMaxPoolOp, kernelSizeAttr, origMaxPoolOp.getPadsBeginAttr(), origMaxPoolOp.getPadsEndAttr(),
             [&](mlir::Value origPadInput, mlir::ArrayAttr newPadsBegin, mlir::ArrayAttr newPadsEnd) {
                 rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(
-                        origMaxPoolOp, origPadInput, origMaxPoolOp.getKernelSizeAttr(), origMaxPoolOp.getStridesAttr(),
-                        newPadsBegin, newPadsEnd, origMaxPoolOp.getRoundingType(), origMaxPoolOp.getPostOpAttr(),
-                        origMaxPoolOp.getClampAttr(), origMaxPoolOp.getStaticScaleAttr(),
+                        origMaxPoolOp, origPadInput, origMaxPoolOp.getScale(), origMaxPoolOp.getKernelSizeAttr(),
+                        origMaxPoolOp.getStridesAttr(), newPadsBegin, newPadsEnd, origMaxPoolOp.getRoundingType(),
+                        origMaxPoolOp.getPostOpAttr(), origMaxPoolOp.getClampAttr(), origMaxPoolOp.getStaticScaleAttr(),
                         origMaxPoolOp.getOutputPaddingAttr(), origMaxPoolOp.getInputPaddingAttr());
             },
             _log.nest());

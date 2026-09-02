@@ -49,7 +49,7 @@ OpType getCommonOp(SmallVector<VPURT::TaskOp> tasks, bool input) {
     return commonOp;
 }
 
-bool verifyPossibleType(SmallVector<int64_t> shape, SmallVector<Bit> strides, const DimsOrder& order) {
+bool verifyPossibleType(ShapeRef shape, ArrayRef<Bit> strides, const DimsOrder& order) {
     const auto newOrder = inferNewDimsOrder(order, shape.size());
 
     const auto memShape = newOrder.toMemoryOrder(ShapeRef(shape));
@@ -79,7 +79,7 @@ vpux::NDTypeInterface createNewType(NDTypeInterface srcType, size_t newLeadingDi
         const auto strides = srcType.getStrides();
         SmallVector<Bit> newStrides(strides.begin(), strides.end());
         newStrides.insert(newStrides.begin(), strideInfo.value);
-        if (!verifyPossibleType(std::move(newShape), newStrides, srcType.getDimsOrder())) {
+        if (!verifyPossibleType(ShapeRef(newShape), newStrides, srcType.getDimsOrder())) {
             return nullptr;
         }
         newType = newType.changeStrides(StridesRef(newStrides));
@@ -227,11 +227,11 @@ void vpux::VPUIP::handleDmaFusion(mlir::func::FuncOp funcOp, vpux::Logger log,
         auto dmaOp = mlir::dyn_cast<VPUIP::NNDMAOp>(fusionCandidates.front().getInnerTaskOp());
         mlir::OpBuilder builder(dmaOp);
         auto newDmaOp = builder.create<VPUIP::NNDMAOp>(
-                appendLoc(dmaOp->getLoc(), "fused_dma_{0}", dmaLocSuffix), newSrc, newDst,
-                getIntAttr(dmaOp->getContext(), newPort), dmaOp.getIsOutOfOrder(), dmaOp.getIsCritical(),
-                dmaOp.getSpillIdAttr(), dmaOp.getCompressCandidate(), /*dmaHwpId=*/nullptr,
-                /*profilingMetadata=*/nullptr, /*splitCandidate=*/dmaOp.getSplitCandidateAttr(),
-                /*profiling_buffer_mgmt=*/false, /*fusionId=*/nullptr);
+                appendLoc(dmaOp->getLoc(), "fused_dma_{0}", dmaLocSuffix), newSrc,
+                /*dynamic_sequence_length_buff=*/nullptr, newDst, getIntAttr(dmaOp->getContext(), newPort),
+                dmaOp.getIsOutOfOrder(), dmaOp.getIsCritical(), dmaOp.getSpillIdAttr(), dmaOp.getCompressCandidate(),
+                /*dmaHwpId=*/nullptr, /*profilingMetadata=*/nullptr, /*splitCandidate=*/dmaOp.getSplitCandidateAttr(),
+                /*profiling_buffer_mgmt=*/false, /*fusionId=*/nullptr, /*taskDynId=*/nullptr);
         if (dmaOp.getProfilingBufferMgmt()) {
             newDmaOp.setProfilingBufferMgmt(true);
         }

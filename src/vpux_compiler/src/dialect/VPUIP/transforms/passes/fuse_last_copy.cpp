@@ -83,11 +83,28 @@ void fuseLastCopy(VPUIP::CopyOp copyOp, const AliasesInfo& aliasesInfo, Logger l
         }
     }
 
-    auto copyOpInputType = mlir::cast<NDTypeInterface>(copyOp.getInput().getType());
-    auto copyOpOutputType = mlir::cast<NDTypeInterface>(copyOp.getOutput().getType());
-    const auto inReqs = StrideReqs::compact(copyOpInputType.getRank());
-    const auto outReqs = StrideReqs::compact(copyOpOutputType.getRank());
-    if (!inReqs.checkStrides(copyOpInputType) || !outReqs.checkStrides(copyOpOutputType)) {
+    // A last copy can only be fused away if it is a plain compact buffer copy, so that redirecting the
+    // producer to write straight into the output buffer preserves the data layout. For static shapes the
+    // compact-stride requirement is checked directly. For dynamic shapes the stride machinery cannot be
+    // evaluated , so we assume compactness of dynamic tensors, which is the case, and we do not plan
+    // to change it
+    const auto isFusableType = [](mlir::Type type) -> bool {
+        const auto ndType = mlir::cast<NDTypeInterface>(type);
+        if (ndType.getShape().isStatic()) {
+            return StrideReqs::compact(ndType.getRank()).checkStrides(ndType);
+        }
+        const auto memref = mlir::dyn_cast<mlir::MemRefType>(type);
+        if (memref == nullptr) {
+            return false;
+        }
+        const auto layout = memref.getLayout();
+        if (layout.isIdentity() || mlir::isa<mlir::StridedLayoutAttr>(layout)) {
+            return true;
+        }
+
+        return false;
+    };
+    if (!isFusableType(copyOp.getInput().getType()) || !isFusableType(copyOp.getOutput().getType())) {
         nestedLogger.trace("Cannot fuse: Copy has input or output strides");
         return;
     }
@@ -187,11 +204,7 @@ void fuseLastCopy(VPUIP::CopyOp copyOp, const AliasesInfo& aliasesInfo, Logger l
         //   block-arg -> OpTy /
 
         concatViewOp = mlir::dyn_cast<VPUIP::ConcatViewOp>(preOfTypeCastOp);
-        if (concatViewOp != nullptr) {
-            if (!concatViewOp.getOutput().hasOneUse()) {
-                return;
-            }
-        } else if (VPUIP::isPureViewOp(preOfTypeCastOp)) {
+        if (concatViewOp == nullptr && VPUIP::isPureViewOp(preOfTypeCastOp)) {
             return;
         }
 
@@ -231,7 +244,7 @@ void fuseLastCopy(VPUIP::CopyOp copyOp, const AliasesInfo& aliasesInfo, Logger l
         currOp->erase();
     }
 
-    if (concatViewOp) {
+    if (concatViewOp && concatViewOp.getOutput().use_empty()) {
         concatViewOp->erase();
     }
 

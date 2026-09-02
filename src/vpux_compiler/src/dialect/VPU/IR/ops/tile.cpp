@@ -113,7 +113,7 @@ void vpux::VPU::TileOp::adjustAttrs(const TilingInfo& inputTiling, const TileInf
 
     // repeats values is eq with output shape divided by input shape
     SmallVector<int64_t> newRepeats;
-    for (size_t i = 0; i < getRepeatsValues().getValue().size(); i++) {
+    for (size_t i = 0; i < getRepeatsValues().size(); i++) {
         newRepeats.push_back(outputShape[i] / suggestedInShape[i]);
     }
 

@@ -15,10 +15,10 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "intel_npu/config/config.hpp"
 #include "openvino/core/partial_shape.hpp"
 #include "openvino/core/type/element_type.hpp"
 #include "openvino/runtime/common.hpp"
+#include "vpux/utils/ov/config.hpp"
 
 namespace vpux {
 

@@ -31,7 +31,7 @@ public:
             return false;
         }
 
-        return VPU::NCEInvariant::isSupported(mlir::cast<MainOpType>(mainOp)).succeeded();
+        return isSupportedOnNCE(mainOp, logCb);
     }
 
     bool isSupportedClampOp(mlir::Operation* mainOp, mlir::Operation* maybeClampOp, const LogCb& logCb) const {
@@ -45,7 +45,7 @@ public:
             return false;
         }
 
-        return VPU::NCEInvariant::isSupported(mlir::cast<MainOpType>(mainOp)).succeeded();
+        return isSupportedOnNCE(mainOp, logCb);
     }
 
     bool isSupportedPostOp(mlir::Operation* mainOp, mlir::Operation* postOp, const LogCb& logCb) const {
@@ -57,7 +57,25 @@ public:
             return false;
         }
 
-        return VPU::NCEInvariant::isSupported(mlir::cast<MainOpType>(mainOp)).succeeded();
+        return isSupportedOnNCE(mainOp, logCb);
+    }
+
+private:
+    // NOTE: Some ops (e.g. dilated GroupConvolution) are not directly legal for a plain NCE task, but
+    //       can still be lowered to a DPU task through an alternative HW mechanism, such as the
+    //       Storage Element (SE) feature.
+    static bool isSupportedOnNCE(mlir::Operation* mainOp, const LogCb& logCb) {
+        if (VPU::NCEInvariant::isSupported(mlir::cast<MainOpType>(mainOp)).succeeded()) {
+            return true;
+        }
+
+        auto seOpIfc = mlir::dyn_cast<IE::SEOpInterface>(mainOp);
+        if (seOpIfc == nullptr) {
+            return false;
+        }
+
+        return seOpIfc.isSupported(logCb, /*checkLayout=*/true, /*checkChannelAlignment=*/true,
+                                   /*checkBatch=*/true);
     }
 };
 

@@ -199,4 +199,3 @@ endif()
 #
 
 ov_cpack(${NPU_CPACK_COMPONENTS_ALL})
-

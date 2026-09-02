@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
+#include "vpux/compiler/utils/platform_resources.hpp"
 
 #include <npu_40xx_nnrt.hpp>
 
@@ -50,8 +51,9 @@ void vpux::arch50xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
                                      backendCompilationOptions.enableDumpStatisticsOfWlmOps,
                                      backendCompilationOptions.workloadManagementBarrierProgrammingMode, log);
 
-    pm.addPass(VPUMI40XX::createAddMappedInferenceVersionOpPass(
-            log, VPU_NNRT_40XX_API_VER_MAJOR, VPU_NNRT_40XX_API_VER_MINOR, VPU_NNRT_40XX_API_VER_PATCH));
+    pm.addPass(VPUMI40XX::createAddMappedInferenceVersionOpPass(log, npu40xx::NNRT_API_UD2025_38_MAJOR_VERSION,
+                                                                npu40xx::NNRT_API_UD2025_38_MINOR_VERSION,
+                                                                npu40xx::NNRT_API_UD2025_38_PATCH_VERSION));
 
     arch40xx::elfSubsetPipelineVPUASM(pm, backendCompilationOptions.workloadManagementDmaFifoType == DMAFifoType::HW,
                                       log);
@@ -63,12 +65,11 @@ void vpux::arch50xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
     pm.addPass(createConvertVPUIPDPU2NPUReg50XXPass(log, backendCompilationOptions.npu5PPEBackwardsCompatibilityMode));
 
     pm.addPass(VPURegMapped::createDeduceDynamicMappedInferenceVersionPass(log));
+    pm.addPass(ELF::createAddCompatibilityStringPass(log));
 
     pm.addPass(ELF::createHandleAlignmentRequirementsPass(log));
     pm.addPass(ELF::createSetOpOffsetsPass(log));
-    pm.addPass(ELF::createSetCMXSymbolValuePass(
-            log, npu40xx::nn_public::VPU_WORKSPACE_ADDR, npu40xx::nn_public::VPU_WORKSPACE_SIZE,
-            npu40xx::VPU_METADATA_STORAGE_START, npu40xx::nn_public::VPU_METADATA_SIZE));
+    pm.addPass(ELF::createSetCMXSymbolValuePass(log));
     pm.addPass(ELF::createAddRelocationsForDynamicStridesDMAsPass(log));
     pm.addPass(ELF::createAddELFRelocationsPass(log));
     pm.addPass(ELF::createRemoveEmptyELFSectionsPass(log));

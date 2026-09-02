@@ -9,18 +9,24 @@
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/type_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/utils/json_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/strings.hpp"
+#include "vpux/utils/core/developer_build_utils.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
 
+#include <llvm/ADT/STLExtras.h>
+
 #include <cinttypes>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <mutex>
 #include <optional>
 #include <string>
 
@@ -141,12 +147,7 @@ uint64_t computeOpStrategyHash(mlir::Operation* op, StringRef device, int64_t nu
     uint64_t h = FNV_OFFSET;
 
     // Op name (e.g. "VPU.NCEConvolution").
-    {
-        std::string name;
-        llvm::raw_string_ostream os(name);
-        op->getName().print(os);
-        h = fnv1a(name, h);
-    }
+    h = fnv1a(op->getName().getStringRef(), h);
 
     // Always hash both input slots for stability when operand count varies.
     const size_t nOperands = op->getNumOperands();
@@ -187,7 +188,7 @@ uint64_t computeOpStrategyHash(mlir::Operation* op, StringRef device, int64_t nu
 namespace {
 
 // ── PTC binary format (version 2) ──────────────────────────────────────────────
-// Must match the format written by tools/precomputed-tiling-cache/convert_tiling_cache.py.
+// Must match the format written by tools/precomputed-strategy-table/convert_precomputed_strategy_table.py.
 //
 // Layout: [PtcHeader 16B] [HT: ht_slots × uint32 record indices] [PtcRecord × n_entries 64B]
 //
@@ -381,6 +382,189 @@ void applyPrecomputedStrategyTableBinary(ArrayRef<uint8_t> buf, mlir::func::Func
     });
 
     log.info("[PTC] Done: {0} hit(s), {1} miss(es) out of {2} operation(s)", nHits, nMisses, nOps);
+}
+
+// ── JSON descriptor string helpers ───────────────────────────────────────────
+// These exist solely to populate human-readable fields in the JSON output;
+// they are not used for hash computation.
+
+namespace {
+
+// Formats an integer sequence as "(a, b, c)"; used for shapes, strides and padding.
+std::string formatParenList(ArrayRef<int64_t> values) {
+    std::string s;
+    llvm::raw_string_ostream os(s);
+    os << "(";
+    llvm::interleaveComma(values, os);
+    os << ")";
+    return s;
+}
+
+// Returns the value's NDTypeInterface, or nullptr if val is null or untyped.
+vpux::NDTypeInterface ndTypeOrNull(mlir::Value val) {
+    return val ? mlir::dyn_cast<vpux::NDTypeInterface>(val.getType()) : nullptr;
+}
+
+std::string shapeToStr(mlir::Value val) {
+    const auto nd = ndTypeOrNull(val);
+    return nd ? formatParenList(nd.getShape().raw()) : "N/A";
+}
+
+std::string layoutToStr(mlir::Value val) {
+    const auto nd = ndTypeOrNull(val);
+    return nd ? nd.getDimsOrder().getCanonicalName().str() : "N/A";
+}
+
+std::string elemTypeToStr(mlir::Value val) {
+    const auto nd = ndTypeOrNull(val);
+    if (!nd) {
+        return "N/A";
+    }
+    mlir::Type elemType = nd.getElementType();
+    if (auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType)) {
+        elemType = qType.getStorageType();
+        if (auto qfType = mlir::dyn_cast<vpux::type::QuantileType>(elemType)) {
+            elemType = qfType.getStorageType();
+        }
+    }
+    std::string s;
+    llvm::raw_string_ostream(s) << elemType;
+    return s;
+}
+
+std::string stridesForOp(mlir::Operation* op) {
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
+    return nceOp ? formatParenList(nceOp.getStridesVal()) : "N/A";
+}
+
+std::string paddingForOp(mlir::Operation* op) {
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
+    if (!nceOp) {
+        return "N/A";
+    }
+    auto padAttr = nceOp.getPad();
+    if (!padAttr) {
+        return "(0, 0, 0, 0)";
+    }
+    const SmallVector<int64_t> sides = {padAttr.getLeft().getInt(), padAttr.getRight().getInt(),
+                                        padAttr.getTop().getInt(), padAttr.getBottom().getInt()};
+    return formatParenList(sides);
+}
+
+std::string engineStrForOp(mlir::Operation* op) {
+    switch (engineKindForOp(op)) {
+    case EngineKind::SHAVE:
+        return "SHAVE";
+    case EngineKind::DCIM:
+        return "DCIM";
+    default:
+        return "SCL";
+    }
+}
+
+// Returns operand `idx`, or a null Value if the op has fewer operands.
+mlir::Value operandOrNull(mlir::Operation* op, unsigned idx) {
+    return idx < op->getNumOperands() ? op->getOperand(idx) : mlir::Value{};
+}
+
+// Returns result `idx`, or a null Value if the op has fewer results.
+mlir::Value resultOrNull(mlir::Operation* op, unsigned idx) {
+    return idx < op->getNumResults() ? op->getResult(idx) : mlir::Value{};
+}
+
+}  // namespace
+
+void createPrecomputedStrategyTableJSON(llvm::json::Value& json, mlir::func::FuncOp func) {
+    const auto device = config::stringifyArchKind(config::getArch(func.getOperation())).str();
+    const int64_t numTiles = getNumDpuTiles(func.getOperation());
+
+    // Seed from existing entries so multiple funcs accumulate into one table.
+    // json is overwritten below, so steal its contents instead of copying them.
+    auto* existingObj = json.getAsObject();
+    llvm::json::Object entries = (existingObj != nullptr) ? std::move(*existingObj) : llvm::json::Object{};
+
+    func->walk([&](VPU::LayerOpInterface layerOp) {
+        mlir::Operation* op = layerOp.getOperation();
+        if (!mlir::isa<VPU::NCEOpInterface>(op) && !mlir::isa<VPU::SWOpInterface>(op)) {
+            return;
+        }
+        // Only include ops decided to need temporal tiling.
+        if (!op->hasAttr(tilingStrategy)) {
+            return;
+        }
+
+        const auto key = hashToHex(computeOpStrategyHash(op, device, numTiles));
+        llvm::json::Object entry;
+
+        entry["layer_name"] = vpux::stringifyPrimaryLocation(op->getLoc());
+        entry["op_type"] = op->getName().getStringRef().str();
+
+        const auto input1 = operandOrNull(op, 0);
+        const auto input2 = operandOrNull(op, 1);
+        const auto output = resultOrNull(op, 0);
+
+        entry["input1_shape"] = shapeToStr(input1);
+        entry["input1_layout"] = layoutToStr(input1);
+        entry["input1_element_type"] = elemTypeToStr(input1);
+        entry["input2_shape"] = shapeToStr(input2);
+        entry["input2_layout"] = layoutToStr(input2);
+        entry["input2_element_type"] = elemTypeToStr(input2);
+        entry["output_shape"] = shapeToStr(output);
+        entry["output_layout"] = layoutToStr(output);
+        entry["output_element_type"] = elemTypeToStr(output);
+
+        entry["strides"] = stridesForOp(op);
+        entry["padding"] = paddingForOp(op);
+        entry["device"] = device;
+        entry["engine"] = engineStrForOp(op);
+        entry["num_tiles"] = numTiles;
+
+        entry[ptcSpatialTiling.str()] = op->hasAttr(vpux::multiClusterStrategy)
+                                                ? convertAttrToJSON(op->getAttr(vpux::multiClusterStrategy))
+                                                : llvm::json::Value(vpux::defaultNoValue.str());
+        entry[ptcTemporalTiling.str()] = convertAttrToJSON(op->getAttr(tilingStrategy));
+        entry[ptcPipelineMode.str()] = llvm::json::Value(vpux::defaultNoValue.str());
+        entry["strategy_cost_cycles"] = llvm::json::Value(vpux::defaultNoValue.str());
+
+        if (entries.find(key) != entries.end()) {
+            Logger::global().warning("[PTC] Hash collision or duplicate op: key '{0}' already exists in the table; "
+                                     "overwriting entry for op '{1}'",
+                                     key, vpux::stringifyPrimaryLocation(op->getLoc()));
+        }
+        entries[key] = llvm::json::Value(std::move(entry));
+    });
+
+    json = llvm::json::Value(std::move(entries));
+}
+
+void writePrecomputedStrategyTableJSON(mlir::func::FuncOp func) {
+#if defined(VPUX_DEVELOPER_BUILD)
+    bool writePtc = false;
+    std::string writePtcLoc = "precomputed_strategy_table.json";
+    parseEnv("VPUX_PTC_WRITE_ENABLED", writePtc);
+    parseEnv("VPUX_PTC_WRITE_LOCATION", writePtcLoc);
+    if (!writePtc) {
+        return;
+    }
+
+    static std::mutex ptcFileMutex;
+    std::lock_guard<std::mutex> lock(ptcFileMutex);
+
+    llvm::json::Value tableJson(nullptr);
+    if (std::ifstream existing(writePtcLoc); existing.good()) {
+        auto read = readManualStrategyJSON(writePtcLoc);
+        if (read) {
+            tableJson = std::move(*read);
+        } else {
+            Logger::global().warning("[PTC] Failed to parse existing JSON at '{0}': {1}; starting from an empty table",
+                                     writePtcLoc, llvm::toString(read.takeError()));
+        }
+    }
+    createPrecomputedStrategyTableJSON(tableJson, func);
+    writeManualStrategyJSON(writePtcLoc, tableJson);
+#else
+    (void)func;
+#endif  // defined(VPUX_DEVELOPER_BUILD)
 }
 
 }  // namespace vpux::VPU

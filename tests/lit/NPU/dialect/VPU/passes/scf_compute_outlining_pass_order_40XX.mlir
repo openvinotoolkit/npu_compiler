@@ -104,13 +104,13 @@ module @LoopInvariantCodeMotionTest {
                 %input1_slice = tensor.extract_slice %arg1[0, 0, %h_slice_offset, %w_slice_offset] [1, 16, 32, 16] [1, 1, 1, 1]
                     : tensor<1x16x128x128xf16, {order = #NHWC}> to tensor<1x16x32x16xf16, {order = #NHWC}>
 
-                %eltwise = VPU.NCE.Eltwise(%input0_slice, %input1_slice) {
+                %eltwise = VPU.NCE.Eltwise(%input0_slice, %input1_slice) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     op_type = #VPU.eltwise_type<ADD>,
                     ppe = #VPU.PPEInt<mode = <ADD>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
                                       lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>
                 } : tensor<1x16x32x16xf16, {order = #NHWC}>, tensor<1x16x32x16xf16, {order = #NHWC}> -> tensor<1x16x32x16xf16, {order = #NHWC}>
 
-                %biased = VPU.NCE.Eltwise(%eltwise, %cst_bias) {
+                %biased = VPU.NCE.Eltwise(%eltwise, %cst_bias) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
                     op_type = #VPU.eltwise_type<ADD>,
                     ppe = #VPU.PPEInt<mode = <ADD>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
                                       lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>

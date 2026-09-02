@@ -100,11 +100,7 @@ public:
             }
 
             auto axis = gatherOp.getAxisValue();
-            if (!axis.has_value()) {
-                return false;
-            }
-
-            return axis.value() == 0;
+            return axis == 0;
         };
         if (!isLegalGather(gatherOp)) {
             return matchFailed(_log, rewriter, gatherOp, "Not a legal gather op");

@@ -95,10 +95,13 @@ void AddBuffersForNetResults::safeRunOnModule() {
         return mlir::WalkResult::advance();
     });
 
-    VPUIP::allocateBuffersForNetResults(callOps, funcOps, _log);
+    VPUIP::updateFuncBoundariesForNetResults(funcOps, _log);
     if (_useMemrefForHostFunctionBufferization) {
-        VPUIP::allocateBuffersForNetResults<mlir::memref::CopyOp>({}, hostFuncOps, _log);
+        VPUIP::updateFuncBoundariesForNetResults<mlir::memref::CopyOp>(hostFuncOps, _log);
     }
+    // Update call sites only after every function boundary (kernels and host entry functions) has been
+    // extended, so each result's caller-supplied output buffer already exists and can be reused directly.
+    VPUIP::updateCallsForNetResults(callOps, _log);
 }
 
 }  // namespace

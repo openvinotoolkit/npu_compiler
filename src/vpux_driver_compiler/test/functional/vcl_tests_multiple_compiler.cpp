@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vcl_tests_common.h"
+#include "vcl_tests_common.hpp"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -32,55 +32,22 @@ public:
         return outputs.size();
     }
 
-    /**
-     * @brief Create multiple compilers and do compilation at same time
-     */
-    void run();
-
 private:
     std::vector<std::string> outputs;
     std::mutex lock;
 };
 
 vcl_result_t VCLMultipleCompilerTest::singleCompilation(const std::string& options) {
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    auto id = std::this_thread::get_id();
-    std::stringstream ss;
-    ss << id;
-    std::string threadName = ss.str();
     vcl_result_t ret = VCL_RESULT_SUCCESS;
-
-    /// Default device is 4000, can be updated by test config
-    vcl_compiler_desc_t compilerDesc;
-    compilerDesc.version.major = VCL_COMPILER_VERSION_MAJOR;
-    compilerDesc.version.minor = VCL_COMPILER_VERSION_MINOR;
-    compilerDesc.debugLevel = VCL_LOG_ERROR;
-    vcl_device_desc_t deviceDesc = {sizeof(vcl_device_desc_t), 0x643e, 3, 5};
     vcl_compiler_handle_t compiler = nullptr;
-    ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, nullptr);
-    if (ret) {
-        printErrorInfo("Failed to create compiler! Result:0x", ret);
+    vcl_log_handle_t logHandle = nullptr;
+    ret = createCompiler(compiler, logHandle, VCL_LOG_INFO);
+    if (ret != VCL_RESULT_SUCCESS) {
         return ret;
-    }
-
-    vcl_compiler_properties_t compilerProp;
-    ret = vclCompilerGetProperties(compiler, &compilerProp);
-    if (ret) {
-        printErrorInfo("Failed to query compiler props! Result:0x", ret);
-        vclCompilerDestroy(compiler);
-        return ret;
-    } else {
-        std::cout << "############################################" << std::endl;
-        std::cout << threadName.c_str() << " Current compiler info:" << std::endl;
-        std::cout << threadName.c_str() << " ID: " << compilerProp.id << std::endl;
-        std::cout << threadName.c_str() << " Version:" << compilerProp.version.major << "."
-                  << compilerProp.version.minor << std::endl;
-        std::cout << threadName.c_str() << "\tSupported opsets:" << compilerProp.supportedOpsets << std::endl;
-        std::cout << "############################################" << std::endl;
     }
 
     vcl_executable_handle_t executable = nullptr;
-    vcl_executable_desc_t exeDesc = {getModelIR().data(), getModelIRSize(), options.c_str(), options.size() + 1};
+    auto exeDesc = makeExeDesc(options);
 
     ret = vclExecutableCreate(compiler, exeDesc, &executable);
     if (ret != VCL_RESULT_SUCCESS) {
@@ -105,19 +72,6 @@ vcl_result_t VCLMultipleCompilerTest::singleCompilation(const std::string& optio
         }
         ret = vclExecutableGetSerializableBlob(executable, blob, &blobSize);
         if (ret == VCL_RESULT_SUCCESS) {
-#ifdef BLOB_DUMP
-            std::string blobName = "ct1_" + threadName + ".net";
-            std::ofstream bfos(blobName, std::ios::binary);
-            if (!bfos.is_open()) {
-                std::cerr << "Failed to open " << blobName << ", skip dump!" << std::endl;
-            } else {
-                bfos.write(reinterpret_cast<char*>(blob), blobSize);
-                if (bfos.fail()) {
-                    std::cerr << "Short write to " << blobName << ", the file is invalid!" << std::endl;
-                }
-            }
-            bfos.close();
-#endif  // BLOB_DUMP
             std::string output(reinterpret_cast<char*>(blob), blobSize);
             lock.lock();
             outputs.push_back(std::move(output));
@@ -158,7 +112,7 @@ bool VCLMultipleCompilerTest::check() const {
     return true;
 }
 
-void VCLMultipleCompilerTest::run() {
+TEST_P(VCLMultipleCompilerTest, CompilerInstance) {
     std::vector<vcl_result_t> res(5, VCL_RESULT_SUCCESS);
     /// Get the ref output from single thread env;
     std::thread t0{[&res, this] {
@@ -197,16 +151,12 @@ void VCLMultipleCompilerTest::run() {
     EXPECT_EQ(check(), true);
 }
 
-TEST_P(VCLMultipleCompilerTest, CompilerInstance) {
-    run();
-}
-
 /// The path of config files for tests
 const auto cidTool = VCLMultipleCompilerTest::getCidToolPath();
 /// Models and configs for smoke test
-const auto smokeIRInfos = VCLMultipleCompilerTest::readJson2Vec(cidTool + VCLTest::SMOKE_TEST_CONFIG);
+const auto smokeIRInfos = VCLMultipleCompilerTest::readJson2Vec(cidTool + VCLTest::SMOKE_TEST_CONFIG.data());
 /// Models and configs for normal test
-const auto irInfos = VCLMultipleCompilerTest::readJson2Vec(cidTool + VCLTest::TEST_CONFIG);
+const auto irInfos = VCLMultipleCompilerTest::readJson2Vec(cidTool + VCLTest::TEST_CONFIG.data());
 /// Parameters for smoke tests
 const auto smokeParams = testing::Combine(testing::ValuesIn(smokeIRInfos));
 /// Parameters for normal tests
@@ -218,172 +168,4 @@ INSTANTIATE_TEST_SUITE_P(smoke_MultipleCompilerInstanceTest, VCLMultipleCompiler
 INSTANTIATE_TEST_SUITE_P(MultipleCompilerInstanceTest, VCLMultipleCompilerTest, params,
                          VCLMultipleCompilerTest::getTestCaseName);
 
-class VCLAllocatorMultipleCompilerTest : public VCLTestsCommon {
-public:
-    /**
-     * @brief Use compiler to compile one model
-     *
-     * @param options  Build flags of a model
-     */
-    vcl_result_t singleCompilation(const std::string& options);
-
-    /**
-     * @brief Check if all compilations have created blob
-     */
-    bool check() const;
-
-    size_t getOutputSize() const {
-        return outputs.size();
-    }
-
-    /**
-     * @brief Create multiple compilers and do compilation at same time
-     */
-    void run();
-
-private:
-    std::vector<std::string> outputs;
-    std::mutex lock;
-};
-
-vcl_result_t VCLAllocatorMultipleCompilerTest::singleCompilation(const std::string& options) {
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    auto id = std::this_thread::get_id();
-    std::stringstream ss;
-    ss << id;
-    std::string threadName = ss.str();
-    vcl_result_t ret = VCL_RESULT_SUCCESS;
-
-    /// Default device is 4000, can be updated by test config
-    vcl_compiler_desc_t compilerDesc;
-    compilerDesc.version.major = VCL_COMPILER_VERSION_MAJOR;
-    compilerDesc.version.minor = VCL_COMPILER_VERSION_MINOR;
-    compilerDesc.debugLevel = VCL_LOG_INFO;
-    vcl_device_desc_t deviceDesc = {sizeof(vcl_device_desc_t), 0x643e, 3, 5};
-    vcl_compiler_handle_t compiler = nullptr;
-    ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, nullptr);
-    if (ret != VCL_RESULT_SUCCESS) {
-        printErrorInfo("Failed to create compiler! Result: 0x", ret);
-        return ret;
-    }
-
-    vcl_compiler_properties_t compilerProp;
-    ret = vclCompilerGetProperties(compiler, &compilerProp);
-    if (ret != VCL_RESULT_SUCCESS) {
-        printErrorInfo("Failed to query compiler props! Result: 0x", ret);
-        vclCompilerDestroy(compiler);
-        return ret;
-    }
-    std::cout << "############################################" << std::endl;
-    std::cout << threadName << " Current compiler info:" << std::endl
-              << threadName << " ID: " << compilerProp.id << std::endl
-              << threadName << " Version: " << compilerProp.version.major << "." << compilerProp.version.minor
-              << std::endl
-              << threadName << "\tSupported opsets: " << compilerProp.supportedOpsets << std::endl;
-    std::cout << "############################################" << std::endl;
-
-    vcl_allocator_t allocator;
-    allocator.allocate = VCLTest::allocateBlob;
-    allocator.deallocate = VCLTest::deallocateBlob;
-    uint8_t* blob = nullptr;
-    uint64_t size = 0;
-
-    vcl_executable_desc_t exeDesc = {getModelIR().data(), getModelIRSize(), options.c_str(), options.size() + 1};
-    ret = vclAllocatedExecutableCreate(compiler, exeDesc, &allocator, &blob, &size);
-
-    if (ret != VCL_RESULT_SUCCESS || blob == nullptr || size == 0) {
-        printErrorInfo("Failed to create executable handle! Result: 0x", ret);
-        vclCompilerDestroy(compiler);
-        return ret;
-    }
-
-#ifdef BLOB_DUMP
-    auto ir = GetParam();
-    auto netInfo = std::get<0>(ir);
-    const std::string networkName = netInfo.at("network");
-    std::string blobName = "ct_" + threadName + networkName + ".net.allocator";
-    std::ofstream bfos(blobName, std::ios::binary);
-    if (!bfos.is_open()) {
-        std::cerr << "Failed to open " << blobName << ", skip dump!" << std::endl;
-    } else {
-        bfos.write(reinterpret_cast<char*>(blob), size);
-        if (bfos.fail()) {
-            std::cerr << "Short write to " << blobName << ", the file is invalid!" << std::endl;
-        }
-    }
-    bfos.close();
-#endif  // BLOB_DUMP
-    std::string output(reinterpret_cast<char*>(blob), size);
-    {
-        std::lock_guard<std::mutex> guard(lock);
-        outputs.push_back(std::move(output));
-    }
-
-    allocator.deallocate(blob);
-
-    ret = vclCompilerDestroy(compiler);
-    if (ret != VCL_RESULT_SUCCESS) {
-        printErrorInfo("Failed to destroy compiler! Result: 0x", ret);
-        return ret;
-    }
-    return ret;
-}
-
-bool VCLAllocatorMultipleCompilerTest::check() const {
-    const size_t count = outputs.size();
-    if (count == 0) {
-        std::cerr << "No outputs!" << std::endl;
-        return false;
-    }
-
-    for (size_t i = 1; i < count; i++) {
-        if (outputs[i].size() == 0) {
-            std::cerr << "blob " << i << "'s size is zero." << std::endl;
-            return false;
-        }
-    }
-    return true;
-}
-
-void VCLAllocatorMultipleCompilerTest::run() {
-    std::vector<vcl_result_t> res(5, VCL_RESULT_SUCCESS);
-    std::vector<std::thread> threads;
-    // Get the ref output from single thread env;
-    threads.emplace_back([&res, this] {
-        res[0] = singleCompilation(this->getNetOptions());
-    });
-
-    // Get the outputs from multiple threads env;
-    for (int i = 1; i < 5; ++i) {
-        threads.emplace_back([&res, this, i] {
-            res[i] = singleCompilation(this->getNetOptions());
-        });
-    }
-
-    // Join all threads
-    for (auto& thread : threads) {
-        thread.join();
-    }
-
-    for (auto i = res.begin(); i != res.end(); ++i) {
-        if (*i != VCL_RESULT_SUCCESS) {
-            std::string printStr =
-                    "Failed to run " + std::to_string(std::distance(res.begin(), i)) + " thread!\n" + "Result:0x";
-            printErrorInfo(printStr, *i);
-        }
-    }
-
-    EXPECT_EQ(getOutputSize(), 5) << "Did not get all outputs successfully!" << std::endl;
-    EXPECT_EQ(check(), true);
-}
-
-TEST_P(VCLAllocatorMultipleCompilerTest, CompilerInstance) {
-    run();
-}
-
-INSTANTIATE_TEST_SUITE_P(smoke_MultipleCompilerInstanceTest, VCLAllocatorMultipleCompilerTest, smokeParams,
-                         VCLAllocatorMultipleCompilerTest::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(MultipleCompilerInstanceTest, VCLAllocatorMultipleCompilerTest, params,
-                         VCLAllocatorMultipleCompilerTest::getTestCaseName);
 }  // namespace VCLTest

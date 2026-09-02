@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024-2025 Intel Corporation
+// Copyright (C) 2024-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -71,8 +71,8 @@ NDTypeInterface getConcatDistributedType(VPU::DistributedTypeInterface origType,
             distribution = VPU::getExplicitDistrAttrForActualDataFromSparseType(sparseType);
         }
 
-        auto newDistributedAttr = getConcatExplicitDistributedAttrForNewShape(
-                distribution, shape, distributedDataType.getElementType(), origType.getContext());
+        auto newDistributedAttr =
+                getConcatExplicitDistributedAttrForNewShape(distribution, shape, origType.getContext());
         return mlir::cast<vpux::NDTypeInterface>(
                 origType.changeTypeComponentsForExplicitDistribution(typeComponents, newDistributedAttr));
     }

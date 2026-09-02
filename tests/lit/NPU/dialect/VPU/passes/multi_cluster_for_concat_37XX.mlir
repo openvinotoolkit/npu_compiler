@@ -239,11 +239,11 @@ func.func @CMXConcatWithShortcut(%arg0: tensor<1x16x8x8xf16, {order = #NHWC}>) -
 func.func @CMXConcatWithoutSplitOverHeight(%arg0: tensor<1x16x132x120xf16, {order = #NHWC}>, %arg1: tensor<1x16x132x120xf16, {order = #NHWC}>) -> tensor<1x240x64x33xf16, {order = #NHWC}> {
     %cst_0 = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}> = dense<1.562500e-02> : tensor<1x1x1x1xf32>, [#const.Broadcast<0 : i64, 16 : i64>, #const.Reshape<[16, 1, 1, 1]>, #const.CastElemType<f16>, #const.Reorder<#NHWC>, #const.Reorder<#NCHW>, #const.Reshape<[16, 1, 1, 1]>, #const.PadWithZero<[0, 0, 0, 0], [0, 15, 0, 0]>, #const.Reorder<#NHWC>]
     %cst_1 = const.Declare tensor<16x1x1x4xsi32> = dense<10> : tensor<16x1x1x4xsi32>
-    %0 = VPU.NCE.DepthConvolution(%arg0, %cst_0, %cst_1) rawFilterShape [16, 1, 1, 1] {ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,  strides = [1, 1]} -> tensor<1x16x132x120xf16, {order = #NHWC}>
+    %0 = VPU.NCE.DepthConvolution(%arg0, %cst_0, %cst_1) rawFilterShape [16, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,  strides = [1, 1]} -> tensor<1x16x132x120xf16, {order = #NHWC}>
     %1 = VPU.ShapeCast {shape = [1, 33, 120, 64]} inputs(%0 : tensor<1x16x132x120xf16, {order = #NHWC}>) -> tensor<1x33x120x64xf16, {order = #NHWC}>
     %2 = VPU.AffineReshape(%1) {dim_mapping = [[0], [1], [2, 3], [4]], shape_value = [1, 33, 120, 1, 64]} : tensor<1x33x120x64xf16, {order = #NHWC}> -> tensor<1x33x120x1x64xf16, {order = #NDHWC}>
 
-    %3 = VPU.NCE.DepthConvolution(%arg1, %cst_0, %cst_1) rawFilterShape [16, 1, 1, 1] {ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,  strides = [1, 1]} -> tensor<1x16x132x120xf16, {order = #NHWC}>
+    %3 = VPU.NCE.DepthConvolution(%arg1, %cst_0, %cst_1) rawFilterShape [16, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>, ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,  strides = [1, 1]} -> tensor<1x16x132x120xf16, {order = #NHWC}>
     %4 = VPU.ShapeCast {shape = [1, 33, 120, 64]} inputs(%3 : tensor<1x16x132x120xf16, {order = #NHWC}>) -> tensor<1x33x120x64xf16, {order = #NHWC}>
     %5 = VPU.AffineReshape(%4) {dim_mapping = [[0], [1], [2, 3], [4]], shape_value = [1, 33, 120, 1, 64]} : tensor<1x33x120x64xf16, {order = #NHWC}> -> tensor<1x33x120x1x64xf16, {order = #NDHWC}>
 

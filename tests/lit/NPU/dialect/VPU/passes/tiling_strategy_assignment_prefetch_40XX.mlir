@@ -3,13 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --tiling-strategy-assignment %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --cmx-stack-frames-reserve-mem --cmx-metadata-reserve-mem --tiling-strategy-assignment %s | FileCheck %s
 // REQUIRES: platform-NPU4000
 
 module @executors {
-    config.Resources 3 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 3 of @NCE at 1.700000e+03 MHz
     // CHECK-LABEL:   @MultiplyPipeliningTiling
     // CHECK-SAME:    ([[INPUT0:%.+]]: tensor<1x1024x1x3072xf16>
     // CHECK-SAME:     [[INPUT1:%.+]]: tensor<1x1x1x3072xf16>)
@@ -43,7 +41,7 @@ func.func @DontTileD2SDMA(%arg0: tensor<1x64x128x128x!qElemType, {order = #NHWC}
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         tilingStrategy = [1, 1, 2, 1]} : tensor<1x64x128x128x!qElemType, {order = #NHWC}>
             -> tensor<1x16x256x256x!qElemType, {order = #NHWC}>
-    %eltwise = VPU.NCE.Eltwise(%d2s, %d2s) {
+    %eltwise = VPU.NCE.Eltwise(%d2s, %d2s) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>,
         tilingStrategy = [1, 1, 2, 1]}
             -> tensor<1x16x256x256x!qElemType, {order = #NHWC}>
@@ -76,7 +74,7 @@ func.func @DontTileD2SDMAWithSlice(%arg0: tensor<1x64x128x129x!qElemType, {order
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         tilingStrategy = [1, 1, 2, 1]} : tensor<1x64x128x128x!qElemType, {order = #NHWC}>
             -> tensor<1x16x256x256x!qElemType, {order = #NHWC}>
-    %eltwise = VPU.NCE.Eltwise(%d2s, %d2s) {
+    %eltwise = VPU.NCE.Eltwise(%d2s, %d2s) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>,
         tilingStrategy = [1, 1, 2, 1]}
             -> tensor<1x16x256x256x!qElemType, {order = #NHWC}>
@@ -166,9 +164,7 @@ func.func @NCEMatMulSOGAndGHTile(%arg0: tensor<12x1x512x512xf16>, %arg1: tensor<
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-  config.Resources 4 of @NCE at 1.850000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-  }
+  config.Resources 4 of @NCE at 1.850000e+03 MHz
 
   // CHECK-LABEL: @pipeliningTilingForBigFilter
   func.func @pipeliningTilingForBigFilter(%arg0: tensor<1x1536x1x1xf16, {order = #NHWC}>, %arg1: tensor<8160x1536x1x1x!quant.uniform<i8:f16, 1.000000e+00>, {order = #NHWC}>) -> tensor<1x8160x1x1xf16, {order = #NHWC}> {
@@ -186,9 +182,7 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     // CHECK-LABEL:   @SplitNCEConvOverOH
     // CHECK-SAME:          [[INPUT:%arg[0-9]]]: tensor<1x32x64x48xf16, {order = #NHWC}>
@@ -199,7 +193,7 @@ module @executors {
         %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [256, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x64x48xf16, {order = #NHWC}>, tensor<256x32x3x3xf16, {order = #NHWC}>, tensor<256x1x1x4xsi32> -> tensor<1x256x64x48xf16, {order = #NHWC}>
 
@@ -230,9 +224,7 @@ module @executors {
 !qElemType = !quant.uniform<i4:f16, 1.3385416666666667>
 
 module @executors {
-    config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     // CHECK-LABEL:   @SplitI4QuantNCEConvOverOC
     // CHECK-SAME:          [[INPUT:%arg[0-9]]]: tensor<1x128x256x4xf16, {order = #NHWC}>
@@ -271,9 +263,7 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     // CHECK-LABEL: @TileOverCWithBigC
     // CHECK-SAME:          [[INPUT:%arg[0-9]]]: tensor<1x1024x4x4xf16, {order = #NHWC}>
@@ -288,7 +278,7 @@ module @executors {
         %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [8016, 1024, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x1024x4x4xf16, {order = #NHWC}>, tensor<8016x1024x1x1xf16, {order = #NHWC}>, tensor<8016x1x1x4xsi32> -> tensor<1x8016x4x4xf16, {order = #NHWC}>
 
@@ -315,9 +305,7 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     // CHECK-LABEL: @SplitNCEPoolOverH
     // CHECK-SAME:      [[INPUT:%arg[0-9]]]: tensor<1x16x340x256xf16, {order = #NHWC}>)
@@ -346,9 +334,7 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     // CHECK-LABEL: @TileWithSOK
     // CHECK-SAME:          [[INPUT:%arg[0-9]]]: tensor<1x32x30x30xf16, {order = #NHWC}>
@@ -364,7 +350,7 @@ module @executors {
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 3 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x30x30xf16, {order = #NHWC}>, tensor<768x32x7x7xf16, {order = #NHWC}>, tensor<768x1x1x4xsi32> -> tensor<1x768x30x30xf16, {order = #NHWC}>
 
@@ -393,9 +379,7 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     // CHECK-LABEL:   @SplitSparseNCEConvOverOH
     // CHECK-SAME:          [[INPUT:%arg[0-9]]]: tensor<1x32x80x60xf16, {order = #NHWC}>
@@ -409,7 +393,7 @@ module @executors {
         %0 = VPU.NCE.Convolution(%arg0, %weights_sparse, %weights_table) rawFilterShape [160, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x80x60xf16, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<160x32x3x3xf16, {order = #NHWC}>, sparsity_map=tensor<160x1x1x384xi1>, is_weights>, tensor<160x1x1x4xsi32, {order = #NCHW}> -> tensor<1x160x80x60xf16, {order = #NHWC}>
 
@@ -444,9 +428,7 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     // CHECK-LABEL:   @SplitSparseNCEConvOverOH
     // CHECK-SAME:          [[INPUT:%arg[0-9]]]: tensor<1x32x80x60xf16, {order = #NHWC}>
@@ -460,7 +442,7 @@ module @executors {
         %0 = VPU.NCE.Convolution(%arg0, %weights_sparse, %weights_table) rawFilterShape [160, 32, 3, 3] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
-            
+
             strides = [1, 1]
         } : tensor<1x32x80x60xf16, {order = #NHWC}>, !VPU.SparseTensor<data=tensor<160x32x3x3xf16, {order = #NHWC}>, sparsity_map=tensor<160x1x1x384xi1>, is_weights>, tensor<160x1x1x4xsi32, {order = #NCHW}> -> tensor<1x160x80x60xf16, {order = #NHWC}>
 
@@ -494,9 +476,7 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     // CHECK-LABEL: @SplitNCEAveragePoolOverW
     // CHECK-SAME:      [[INPUT:%arg[0-9]]]: tensor<1x16x7x8640xf16, {order = #NHWC}>
@@ -517,9 +497,7 @@ module @executors {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @executors {
-    config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     // CHECK-LABEL:   @SplitNCECompressConv
     // CHECK-SAME:      [[ARG_0:%[^:]+]]: tensor<1x4x512x512xf16, {order = #NHWC}>
@@ -558,9 +536,7 @@ module @executors {
 !qElemType = !quant.uniform<u8:f16, 1.0>
 
 module @executors {
-    config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     // CHECK-LABEL: func.func @PrefetchTilingWithSOHParentConsidered
     // CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x512x14x14x!qElemType, {order = #NHWC}>
@@ -655,9 +631,7 @@ func.func @DepthToSpacefillDividedTilesCorrectly(%arg0: tensor<1x8x184x40xf16>) 
 // -----
 
 module @executors {
-    config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     // CHECK-LABEL: func.func @SplitSoftMaxWithSoK
     // CHECK-SAME:  [[INPUT:%arg[0-9]]]: tensor<1x8x4096x4096xf16>
@@ -675,9 +649,7 @@ module @executors {
 // -----
 
 module @executors {
-    config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     // CHECK-LABEL: func.func @SplitSoftMaxOverH
     // CHECK-SAME:  [[INPUT:%arg[0-9]]]: tensor<1x20x256x384xf16>
@@ -696,9 +668,7 @@ module @executors {
 // -----
 
 module @executors {
-    config.Resources 6 of @NCE at 1.700000e+03 MHz {
-        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    }
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     // CHECK-LABEL: @SwishSplitOverW
     // CHECK-SAME:  [[INPUT:%arg[0-9]]]: tensor<1x8x80x960xf16>) -> tensor<1x8x80x960xf16> {

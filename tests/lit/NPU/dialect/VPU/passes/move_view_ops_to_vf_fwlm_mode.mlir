@@ -127,7 +127,7 @@ func.func @NotMoveShapeCastDueToUserOp(%arg0: tensor<1x512x65536x1xf16, {order =
     %cst = const.Declare tensor<512x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<512x16x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
     %0 = VPU.ShapeCast {shape = [1, 512, 256, 256]} inputs(%arg0 : tensor<1x512x65536x1xf16, {order = #NHWC}>) -> tensor<1x512x256x256xf16, {order = #NHWC}>
     %1 = VPU.VerticalFusion (%0 as %arg1: tensor<1x512x256x256xf16, {order = #NHWC}>, %cst as %arg2: tensor<512x16x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 32, 1]} -> tensor<1x512x256x256xf16, {order = #NHWC}> {
-         %inner = VPU.NCE.DepthConvolution(%arg1, %arg2) rawFilterShape [512, 1, 1, 1] {
+         %inner = VPU.NCE.DepthConvolution(%arg1, %arg2) rawFilterShape [512, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
               multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
               pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
               ppe = #VPU.PPEStub<>,
@@ -135,7 +135,7 @@ func.func @NotMoveShapeCastDueToUserOp(%arg0: tensor<1x512x65536x1xf16, {order =
          VPU.Yield %inner
     }
     %2 = VPU.VerticalFusion (%1 as %arg1: tensor<1x512x256x256xf16, {order = #NHWC}>, %cst as %arg2: tensor<512x16x1x1xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 1, 37]} -> tensor<1x512x256x256xf16, {order = #NHWC}> {
-         %inner = VPU.NCE.DepthConvolution(%arg1, %arg2) rawFilterShape [512, 1, 1, 1] {
+         %inner = VPU.NCE.DepthConvolution(%arg1, %arg2) rawFilterShape [512, 1, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
               multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
               pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
               ppe = #VPU.PPEStub<>,
@@ -217,7 +217,7 @@ func.func @NotMoveSliceDueToInterpolateUser(%arg0: tensor<1x48x48x48xf16, {order
                                            pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SIZES>>,
                     axes_attr = [2, 3],
                     multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
-                    operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
+                    operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>,
                     sizes_attr = [96, 96]} : tensor<1x32x48x48xf16, {order = #NHWC}> -> tensor<1x32x96x96xf16, {order = #NHWC}>
         VPU.Yield %inner
     }
@@ -241,7 +241,7 @@ func.func @MoveAffineReshapeToRMSVF(%arg0: tensor<1x3072x1x1xf16, {order = #NHWC
 
   %0 = VPU.VerticalFusion (%arg0 as %arg2: tensor<1x3072x1x1xf16, {order = #NHWC}>, %arg1 as %arg3: tensor<1x3072x1x1xf16, {order = #NHWC}>)
           attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<1x3072x1x1xf16, {order = #NHWC}> {
-    %1 = VPU.NCE.Eltwise(%arg2, %arg3) {
+    %1 = VPU.NCE.Eltwise(%arg2, %arg3) {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
       mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
       multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>,
       op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>
@@ -312,4 +312,57 @@ func.func @MoveShapeCastWith3ReshapedDims(%arg0: tensor<1x64x512x4xf16, {order =
     //CHECK:  [[SWISH:%.+]] = VPU.Swish([[SHAPECAST]])
     //CHECK:  VPU.Yield [[SWISH]]
     //CHECK:  return [[VF1]] : tensor<1x1x1024x1024xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NotMovePermuteCastWhenWeightsUserHasNoMCStrategy
+func.func @NotMovePermuteCastWhenWeightsUserHasNoMCStrategy(
+        %activation: tensor<1x64x16x16xf16, {order = #NHWC}>,
+        %weights: tensor<64x64x1x1xf16>,
+        %secondWeights: tensor<64x64x1x1xf16, {order = #NHWC}>) -> tensor<1x64x16x16xf16, {order = #NHWC}> {
+    %parent = VPU.VerticalFusion (%weights as %weightsArg: tensor<64x64x1x1xf16>)
+        attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<64x64x1x1xf16> {
+        %inner = VPU.Swish(%weightsArg) {
+            beta_value = 1.000000e+00 : f64,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>
+        } : tensor<64x64x1x1xf16> -> tensor<64x64x1x1xf16>
+        VPU.Yield %inner
+    }
+    %view = VPU.PermuteCast(%parent) {dst_order = #NHWC, mem_perm = #NHWC}
+        : tensor<64x64x1x1xf16> -> tensor<64x64x1x1xf16, {order = #NHWC}>
+    %vf = VPU.VerticalFusion (
+            %view as %weightsArg: tensor<64x64x1x1xf16, {order = #NHWC}>,
+            %activation as %activationArg: tensor<1x64x16x16xf16, {order = #NHWC}>,
+            %secondWeights as %secondWeightsArg: tensor<64x64x1x1xf16, {order = #NHWC}>)
+        attributes {tilingStrategy = [1, 1, 4, 1]} -> tensor<1x64x16x16xf16, {order = #NHWC}> {
+        %firstConv = VPU.NCE.Convolution(%activationArg, %weightsArg) rawFilterShape [64, 64, 1, 1] {
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            ppe = #VPU.PPEStub<>,
+            strides = [1, 1]
+        } : tensor<1x64x16x16xf16, {order = #NHWC}>, tensor<64x64x1x1xf16, {order = #NHWC}> -> tensor<1x64x16x16xf16, {order = #NHWC}>
+        %secondConv = VPU.NCE.Convolution(%firstConv, %secondWeightsArg) rawFilterShape [64, 64, 1, 1] {
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            ppe = #VPU.PPEStub<>,
+            strides = [1, 1]
+        } : tensor<1x64x16x16xf16, {order = #NHWC}>, tensor<64x64x1x1xf16, {order = #NHWC}> -> tensor<1x64x16x16xf16, {order = #NHWC}>
+        VPU.Yield %secondConv
+    }
+    return %vf : tensor<1x64x16x16xf16, {order = #NHWC}>
+
+    // CHECK: [[PARENT:%.+]] = VPU.VerticalFusion
+    // CHECK: [[VIEW:%.+]] = VPU.PermuteCast([[PARENT]])
+    // CHECK: [[VF:%.+]] = VPU.VerticalFusion ([[VIEW]]
+    // CHECK: [[FIRST_CONV:%.+]] = VPU.NCE.Convolution
+    // CHECK-NOT: multiClusterStrategy
+    // CHECK: [[SECOND_CONV:%.+]] = VPU.NCE.Convolution
+    // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+    // CHECK: return [[VF]]
 }

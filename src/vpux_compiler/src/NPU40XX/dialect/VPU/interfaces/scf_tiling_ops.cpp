@@ -60,7 +60,6 @@ void vpux::VPU::arch40xx::registerSCFTilingOpsInterfaces(mlir::DialectRegistry& 
         VPU::SwishOp::attachInterface<vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::SwishOp>>(*ctx);
         VPU::EluOp::attachInterface<vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::EluOp>>(*ctx);
         VPU::HardSigmoidOp::attachInterface<vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::HardSigmoidOp>>(*ctx);
-        VPU::HSigmoidOp::attachInterface<vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::HSigmoidOp>>(*ctx);
         VPU::HSwishOp::attachInterface<vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::HSwishOp>>(*ctx);
         VPU::LeakyReluOp::attachInterface<vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::LeakyReluOp>>(*ctx);
         VPU::PReluOp::attachInterface<vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::PReluOp>>(*ctx);

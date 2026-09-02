@@ -25,11 +25,11 @@ def IE_AbsOp :
     let summary = "InferenceEngine Abs layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32, F64, SI8, SI16, SI32]>:$input
+        RankedTensorOf<[F16, F32, F64, SI8, SI16, SI32, SI64]>:$input
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32, F64, SI8, SI16, SI32]>:$output
+        RankedTensorOf<[F16, F32, F64, SI8, SI16, SI32, SI64]>:$output
     );
 }
 
@@ -114,7 +114,8 @@ def IE_AtanOp :
             "Atan",
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
-                IE_EltwiseOp
+                IE_EltwiseOp,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
         > {
     let summary = "InferenceEngine Atan layer";
@@ -263,6 +264,25 @@ def IE_ErfOp :
             ]
         > {
     let summary = "InferenceEngine Erf layer";
+
+    let arguments = (ins
+        RankedTensorOf<[F16, F32, F64]>:$input
+    );
+
+    let results = (outs
+        RankedTensorOf<[F16, F32, F64]>:$output
+    );
+}
+
+def IE_ErfInvOp :
+        IE_LayerOp<
+            "ErfInv",
+            [
+                DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
+                IE_EltwiseOp
+            ]
+        > {
+    let summary = "InferenceEngine ErfInv layer";
 
     let arguments = (ins
         RankedTensorOf<[F16, F32, F64]>:$input

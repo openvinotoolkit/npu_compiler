@@ -177,9 +177,10 @@ void AliasesInfoBase::visitOp(mlir::Operation* op, bool ignoreInnerRegions = fal
                     auto* entryRegion = entry.getSuccessor();
                     VPUX_THROW_UNLESS(entryRegion != nullptr,
                                       "Entry region without an attached successor region at '{0}'", regionOp->getLoc());
+                    auto regionSuccessor = mlir::RegionSuccessor(entryRegion);
 
-                    const auto outerArgs = regionOp.getEntrySuccessorOperands(mlir::RegionBranchPoint(entryRegion));
-                    const auto innerArgs = entry.getSuccessorInputs();
+                    const auto outerArgs = regionOp.getEntrySuccessorOperands(regionSuccessor);
+                    const auto innerArgs = regionOp.getSuccessorInputs(regionSuccessor);
 
                     VPUX_THROW_UNLESS(outerArgs.size() == innerArgs.size(),
                                       "Mismatch between RegionBranch operands and its entry region arguments at '{0}'",
@@ -207,17 +208,17 @@ void AliasesInfoBase::visitOp(mlir::Operation* op, bool ignoreInnerRegions = fal
 
                 for (auto& region : regionOp->getRegions()) {
                     SmallVector<mlir::RegionSuccessor> successors;
-                    regionOp.getSuccessorRegions(mlir::RegionBranchPoint(&region), successors);
+                    regionOp.getSuccessorRegions(region, successors);
 
                     for (auto& successor : successors) {
                         for (auto& block : region) {
                             if (auto opInterface = llvm::dyn_cast<mlir::RegionBranchTerminatorOpInterface>(
                                         block.getTerminator())) {
                                 mlir::Region* pSuccessor = successor.getSuccessor();
-                                auto branchPoint = (pSuccessor != nullptr) ? mlir::RegionBranchPoint(pSuccessor)
-                                                                           : mlir::RegionBranchPoint::parent();
-                                auto innerResults = opInterface.getSuccessorOperands(branchPoint);
-                                const auto outerResults = successor.getSuccessorInputs();
+                                auto regionSuccessor = (pSuccessor != nullptr) ? mlir::RegionSuccessor(pSuccessor)
+                                                                               : mlir::RegionSuccessor::parent();
+                                auto innerResults = opInterface.getSuccessorOperands(regionSuccessor);
+                                const auto outerResults = regionOp.getSuccessorInputs(regionSuccessor);
 
                                 VPUX_THROW_UNLESS(innerResults.size() == outerResults.size(),
                                                   "Mismatch between successor operands and its parent results at '{0}'",

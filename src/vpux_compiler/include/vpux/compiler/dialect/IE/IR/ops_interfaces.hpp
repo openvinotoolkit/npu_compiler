@@ -130,6 +130,9 @@ private:
 //
 
 mlir::LogicalResult verifyLayer(mlir::Operation* op);
+bool hasToVerifyShape(mlir::Operation* op);
+mlir::LogicalResult verifyShapeInfo(mlir::Operation* op);
+mlir::LogicalResult verifyInputIs4D(mlir::Value input, bool allowNull = false);
 
 using InferTypeComponentsCb = FuncRef<mlir::LogicalResult(
         mlir::MLIRContext*, std::optional<mlir::Location>, mlir::ValueRange, mlir::DictionaryAttr,

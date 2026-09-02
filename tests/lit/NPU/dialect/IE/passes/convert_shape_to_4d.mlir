@@ -1058,18 +1058,17 @@ func.func @ConvertConcatTo4DWithoutOffset(%arg0: tensor<1x3x40x40x5xf16>, %arg1:
     %0 = IE.Concat(%arg0, %arg1, %arg2) {per_axis = #IE.Concat<axis = 4 : i64, offset = 1 : i64, stride = 3 : i64>} : tensor<1x3x40x40x5xf16>, tensor<1x3x40x40x5xf16>, tensor<1x3x40x40x5xf16> -> tensor<1x3x40x40x15xf16>
     return %0 : tensor<1x3x40x40x15xf16>
 
-    // CHECK:             [[AFFINERESHAPE0:%.+]] = IE.AffineReshape({{[^:]+}})
+    // CHECK:             [[RESHAPE0:%.+]] = IE.AffineReshape({{[^:]+}})
     // CHECK{LITERAL}:    {dim_mapping = [[0], [1], [1], [1], [2, 3]], shape_value = [1, 4800, 5, 1]} : tensor<1x3x40x40x5xf16> -> tensor<1x4800x5x1xf16>
-    // CHECK:             [[AFFINERESHAPE1:%.+]] = IE.AffineReshape({{[^:]+}})
+    // CHECK:             [[RESHAPE1:%.+]] = IE.AffineReshape({{[^:]+}})
     // CHECK{LITERAL}:    {dim_mapping = [[0], [1], [1], [1], [2, 3]], shape_value = [1, 4800, 5, 1]} : tensor<1x3x40x40x5xf16> -> tensor<1x4800x5x1xf16>
-    // CHECK:             [[AFFINERESHAPE2:%.+]] = IE.AffineReshape({{[^:]+}})
+    // CHECK:             [[RESHAPE2:%.+]] = IE.AffineReshape({{[^:]+}})
     // CHECK{LITERAL}:    {dim_mapping = [[0], [1], [1], [1], [2, 3]], shape_value = [1, 4800, 5, 1]} : tensor<1x3x40x40x5xf16> -> tensor<1x4800x5x1xf16>
-    // CHECK:             [[CONCAT0:%.+]] = IE.Concat([[AFFINERESHAPE0]], [[AFFINERESHAPE1]], [[AFFINERESHAPE2]])
-    // CHECK{LITERAL}:    {static_offsets = [[0, 0, 0, 0], [0, 0, 5, 0], [0, 0, 10, 0]]} : tensor<1x4800x5x1xf16>, tensor<1x4800x5x1xf16>, tensor<1x4800x5x1xf16> -> tensor<1x4800x15x1xf16>
-    // CHECK:             [[AFFINERESHAPE3:%.+]] = IE.AffineReshape([[CONCAT0]])
+    // CHECK:             [[CONCAT:%.+]] = IE.Concat([[RESHAPE0]], [[RESHAPE1]], [[RESHAPE2]])
+    // CHECK{LITERAL}:    {per_axis = #IE.Concat<axis = 2 : i64, offset = 1 : i64, stride = 3 : i64>} : tensor<1x4800x5x1xf16>, tensor<1x4800x5x1xf16>, tensor<1x4800x5x1xf16> -> tensor<1x4800x15x1xf16>
+    // CHECK:             [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[CONCAT]])
     // CHECK{LITERAL}:    {dim_mapping = [[0], [1, 2, 3], [4], [4]], shape_value = [1, 3, 40, 40, 15]} : tensor<1x4800x15x1xf16> -> tensor<1x3x40x40x15xf16>
-
-    // CHECK:              return [[AFFINERESHAPE3]] : tensor<1x3x40x40x15xf16>
+    // CHECK:              return [[RESHAPE_OUT]] : tensor<1x3x40x40x15xf16>
 }
 
 // -----
@@ -1079,18 +1078,17 @@ func.func @ConvertConcatTo4DWithoutOffsetAndNegativeAxis(%arg0: tensor<1x3x40x40
     %0 = IE.Concat(%arg0, %arg1, %arg2) {per_axis = #IE.Concat<axis = -1 : i64, offset = 1 : i64, stride = 3 : i64>} : tensor<1x3x40x40x5xf16>, tensor<1x3x40x40x5xf16>, tensor<1x3x40x40x5xf16> -> tensor<1x3x40x40x15xf16>
     return %0 : tensor<1x3x40x40x15xf16>
 
-    // CHECK:             [[AFFINERESHAPE0:%.+]] = IE.AffineReshape({{[^:]+}})
+    // CHECK:             [[RESHAPE0:%.+]] = IE.AffineReshape({{[^:]+}})
     // CHECK{LITERAL}:    {dim_mapping = [[0], [1], [1], [1], [2, 3]], shape_value = [1, 4800, 5, 1]} : tensor<1x3x40x40x5xf16> -> tensor<1x4800x5x1xf16>
-    // CHECK:             [[AFFINERESHAPE1:%.+]] = IE.AffineReshape({{[^:]+}})
+    // CHECK:             [[RESHAPE1:%.+]] = IE.AffineReshape({{[^:]+}})
     // CHECK{LITERAL}:    {dim_mapping = [[0], [1], [1], [1], [2, 3]], shape_value = [1, 4800, 5, 1]} : tensor<1x3x40x40x5xf16> -> tensor<1x4800x5x1xf16>
-    // CHECK:             [[AFFINERESHAPE2:%.+]] = IE.AffineReshape({{[^:]+}})
+    // CHECK:             [[RESHAPE2:%.+]] = IE.AffineReshape({{[^:]+}})
     // CHECK{LITERAL}:    {dim_mapping = [[0], [1], [1], [1], [2, 3]], shape_value = [1, 4800, 5, 1]} : tensor<1x3x40x40x5xf16> -> tensor<1x4800x5x1xf16>
-    // CHECK:             [[CONCAT0:%.+]] = IE.Concat([[AFFINERESHAPE0]], [[AFFINERESHAPE1]], [[AFFINERESHAPE2]])
-    // CHECK{LITERAL}:    {static_offsets = [[0, 0, 0, 0], [0, 0, 5, 0], [0, 0, 10, 0]]} : tensor<1x4800x5x1xf16>, tensor<1x4800x5x1xf16>, tensor<1x4800x5x1xf16> -> tensor<1x4800x15x1xf16>
-    // CHECK:             [[AFFINERESHAPE3:%.+]] = IE.AffineReshape([[CONCAT0]])
+    // CHECK:             [[CONCAT:%.+]] = IE.Concat([[RESHAPE0]], [[RESHAPE1]], [[RESHAPE2]])
+    // CHECK{LITERAL}:    {per_axis = #IE.Concat<axis = 2 : i64, offset = 1 : i64, stride = 3 : i64>} : tensor<1x4800x5x1xf16>, tensor<1x4800x5x1xf16>, tensor<1x4800x5x1xf16> -> tensor<1x4800x15x1xf16>
+    // CHECK:             [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[CONCAT]])
     // CHECK{LITERAL}:    {dim_mapping = [[0], [1, 2, 3], [4], [4]], shape_value = [1, 3, 40, 40, 15]} : tensor<1x4800x15x1xf16> -> tensor<1x3x40x40x15xf16>
-
-    // CHECK:              return [[AFFINERESHAPE3]] : tensor<1x3x40x40x15xf16>
+    // CHECK:              return [[RESHAPE_OUT]] : tensor<1x3x40x40x15xf16>
 }
 
 // -----
@@ -1789,62 +1787,58 @@ func.func @DoNotConvertBroadcast(%input: tensor<3x4x1x1024x64xf16>) -> tensor<3x
 // -----
 
 // CHECK-LABEL: func.func @Convert3DConcatTo4DWithAxis
+// CHECK-SAME:      [[ARG0:%.+]]: tensor<1x128x249xf16>, [[ARG1:%.+]]: tensor<1x32x249xf16>
 func.func @Convert3DConcatTo4DWithAxis(%arg0: tensor<1x128x249xf16>, %arg1: tensor<1x32x249xf16>) -> tensor<1x160x249xf16> {
     %0 = IE.Concat(%arg0, %arg1) {per_axis = #IE.Concat<axis = 1 : i64, offset = 1 : i64, stride = 1 : i64>} : tensor<1x128x249xf16>, tensor<1x32x249xf16> -> tensor<1x160x249xf16>
     return %0 : tensor<1x160x249xf16>
 
-    // CHECK:             [[AFFINERESHAPE0:%.+]] = IE.AffineReshape({{[^:]+}})
+    // CHECK:             [[RESHAPE0:%.+]] = IE.AffineReshape([[ARG0]])
     // CHECK{LITERAL}:    {dim_mapping = [[0], [1, 2], [3]], shape_value = [1, 128, 1, 249]} : tensor<1x128x249xf16> -> tensor<1x128x1x249xf16>
-    // CHECK:             [[AFFINERESHAPE1:%.+]] = IE.AffineReshape({{[^:]+}})
+    // CHECK:             [[RESHAPE1:%.+]] = IE.AffineReshape([[ARG1]])
     // CHECK{LITERAL}:    {dim_mapping = [[0], [1, 2], [3]], shape_value = [1, 32, 1, 249]} : tensor<1x32x249xf16> -> tensor<1x32x1x249xf16>
-
-    // CHECK:             [[CONCAT0:%.+]] = IE.Concat([[AFFINERESHAPE0]], [[AFFINERESHAPE1]])
-    // CHECK{LITERAL}:    {static_offsets = [[0, 0, 0, 0], [0, 128, 0, 0]]} : tensor<1x128x1x249xf16>, tensor<1x32x1x249xf16> -> tensor<1x160x1x249xf16>
-    // CHECK:             [[AFFINERESHAPE2:%.+]] = IE.AffineReshape([[CONCAT0]])
-    // CHECK{LITERAL}:    dim_mapping = [[0], [1], [1], [2]], shape_value = [1, 160, 249]} : tensor<1x160x1x249xf16> -> tensor<1x160x249xf16>
-
-    // CHECK:              return [[AFFINERESHAPE2]] : tensor<1x160x249xf16>
-
+    // CHECK:             [[CONCAT:%.+]] = IE.Concat([[RESHAPE0]], [[RESHAPE1]])
+    // CHECK{LITERAL}:    {per_axis = #IE.Concat<axis = 1 : i64, offset = 1 : i64, stride = 1 : i64>} : tensor<1x128x1x249xf16>, tensor<1x32x1x249xf16> -> tensor<1x160x1x249xf16>
+    // CHECK:             [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[CONCAT]])
+    // CHECK{LITERAL}:    {dim_mapping = [[0], [1], [1], [2]], shape_value = [1, 160, 249]} : tensor<1x160x1x249xf16> -> tensor<1x160x249xf16>
+    // CHECK:              return [[RESHAPE_OUT]] : tensor<1x160x249xf16>
 }
 
 // -----
 
 // CHECK-LABEL: func.func @Convert2DConcatTo4DWithAxis
+// CHECK-SAME:      [[ARG0:%.+]]: tensor<1x128xf16>, [[ARG1:%.+]]: tensor<1x32xf16>
 func.func @Convert2DConcatTo4DWithAxis(%arg0: tensor<1x128xf16>, %arg1: tensor<1x32xf16>) -> tensor<1x160xf16> {
     %0 = IE.Concat(%arg0, %arg1) {per_axis = #IE.Concat<axis = 1 : i64, offset = 1 : i64, stride = 1 : i64>} : tensor<1x128xf16>, tensor<1x32xf16> -> tensor<1x160xf16>
     return %0 : tensor<1x160xf16>
 
-    // CHECK:             [[AFFINERESHAPE0:%.+]] = IE.AffineReshape({{[^:]+}})
+    // CHECK:             [[RESHAPE0:%.+]] = IE.AffineReshape([[ARG0]])
     // CHECK{LITERAL}:    {dim_mapping = [[0], [1, 2, 3]], shape_value = [1, 128, 1, 1]} : tensor<1x128xf16> -> tensor<1x128x1x1xf16>
-    // CHECK:             [[AFFINERESHAPE1:%.+]] = IE.AffineReshape({{[^:]+}})
+    // CHECK:             [[RESHAPE1:%.+]] = IE.AffineReshape([[ARG1]])
     // CHECK{LITERAL}:    {dim_mapping = [[0], [1, 2, 3]], shape_value = [1, 32, 1, 1]} : tensor<1x32xf16> -> tensor<1x32x1x1xf16>
-
-    // CHECK:             [[CONCAT0:%.+]] = IE.Concat([[AFFINERESHAPE0]], [[AFFINERESHAPE1]])
-    // CHECK{LITERAL}:    {static_offsets = [[0, 0, 0, 0], [0, 128, 0, 0]]} : tensor<1x128x1x1xf16>, tensor<1x32x1x1xf16> -> tensor<1x160x1x1xf16>
-    // CHECK:             [[AFFINERESHAPE2:%.+]] = IE.AffineReshape([[CONCAT0]])
+    // CHECK:             [[CONCAT:%.+]] = IE.Concat([[RESHAPE0]], [[RESHAPE1]])
+    // CHECK{LITERAL}:    {per_axis = #IE.Concat<axis = 1 : i64, offset = 1 : i64, stride = 1 : i64>} : tensor<1x128x1x1xf16>, tensor<1x32x1x1xf16> -> tensor<1x160x1x1xf16>
+    // CHECK:             [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[CONCAT]])
     // CHECK{LITERAL}:    {dim_mapping = [[0], [1], [1], [1]], shape_value = [1, 160]} : tensor<1x160x1x1xf16> -> tensor<1x160xf16>
-
-    // CHECK:              return [[AFFINERESHAPE2]] : tensor<1x160xf16>
+    // CHECK:              return [[RESHAPE_OUT]] : tensor<1x160xf16>
 }
 
 // -----
 
 // CHECK-LABEL: func.func @Convert1DConcatTo4DWithAxis
+// CHECK-SAME:      [[ARG0:%.+]]: tensor<128xf16>, [[ARG1:%.+]]: tensor<32xf16>
 func.func @Convert1DConcatTo4DWithAxis(%arg0: tensor<128xf16>, %arg1: tensor<32xf16>) -> tensor<160xf16> {
     %0 = IE.Concat(%arg0, %arg1) {per_axis = #IE.Concat<axis = 0 : i64, offset = 1 : i64, stride = 1 : i64>} : tensor<128xf16>, tensor<32xf16> -> tensor<160xf16>
     return %0 : tensor<160xf16>
 
-    // CHECK:             [[AFFINERESHAPE0:%.+]] = IE.AffineReshape({{[^:]+}})
+    // CHECK:             [[RESHAPE0:%.+]] = IE.AffineReshape([[ARG0]])
     // CHECK{LITERAL}:    {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 128, 1]} : tensor<128xf16> -> tensor<1x1x128x1xf16>
-    // CHECK:             [[AFFINERESHAPE1:%.+]] = IE.AffineReshape({{[^:]+}})
+    // CHECK:             [[RESHAPE1:%.+]] = IE.AffineReshape([[ARG1]])
     // CHECK{LITERAL}:    {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 32, 1]} : tensor<32xf16> -> tensor<1x1x32x1xf16>
-
-    // CHECK:             [[CONCAT0:%.+]] = IE.Concat([[AFFINERESHAPE0]], [[AFFINERESHAPE1]])
-    // CHECK{LITERAL}:    {static_offsets = [[0, 0, 0, 0], [0, 0, 128, 0]]} : tensor<1x1x128x1xf16>, tensor<1x1x32x1xf16> -> tensor<1x1x160x1xf16>
-    // CHECK:             [[AFFINERESHAPE2:%.+]] = IE.AffineReshape([[CONCAT0]])
+    // CHECK:             [[CONCAT:%.+]] = IE.Concat([[RESHAPE0]], [[RESHAPE1]])
+    // CHECK{LITERAL}:    {per_axis = #IE.Concat<axis = 2 : i64, offset = 1 : i64, stride = 1 : i64>} : tensor<1x1x128x1xf16>, tensor<1x1x32x1xf16> -> tensor<1x1x160x1xf16>
+    // CHECK:             [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[CONCAT]])
     // CHECK{LITERAL}:    {dim_mapping = [[0], [0], [0], [0]], shape_value = [160]} : tensor<1x1x160x1xf16> -> tensor<160xf16>
-
-    // CHECK:              return [[AFFINERESHAPE2]] : tensor<160xf16>
+    // CHECK:              return [[RESHAPE_OUT]] : tensor<160xf16>
 }
 
 // -----
@@ -3692,4 +3686,67 @@ func.func @NotConvert5DRollOpNoSqueezableDims(%arg0: tensor<2x8x56x56x16xf16>) -
     // CHECK:    [[AXES:%.+]]  = const.Declare tensor<2xsi64>
     // CHECK:    [[ROLL:%.+]] = IE.Roll([[DATA]], [[SHIFT]], [[AXES]]) : tensor<2x8x56x56x16xf16>, tensor<2xsi64>, tensor<2xsi64> -> tensor<2x8x56x56x16xf16>
     // CHECK:    return [[ROLL]] : tensor<2x8x56x56x16xf16>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @Convert1DStridedConcatTo4D
+// CHECK-SAME:      [[ARG0:%.+]]: tensor<17408xf16>, [[ARG1:%.+]]: tensor<4352xf16>
+func.func @Convert1DStridedConcatTo4D(%arg0: tensor<17408xf16>, %arg1: tensor<4352xf16>) -> tensor<17408xf16> {
+    %0 = IE.StridedSlice(%arg0) {begin_mask = [0], begins_attr = [0], ellipsis_mask = [0], end_mask = [0], ends_attr = [17408], new_axis_mask = [0], operandSegmentSizes = array<i32: 1, 0, 0, 0>, shrink_axis_mask = [0], strides_attr = [4]} : tensor<17408xf16> -> tensor<4352xf16>
+    %1 = IE.StridedSlice(%arg0) {begin_mask = [0], begins_attr = [1], ellipsis_mask = [0], end_mask = [0], ends_attr = [17408], new_axis_mask = [0], operandSegmentSizes = array<i32: 1, 0, 0, 0>, shrink_axis_mask = [0], strides_attr = [4]} : tensor<17408xf16> -> tensor<4352xf16>
+    %2 = IE.StridedSlice(%arg0) {begin_mask = [0], begins_attr = [2], ellipsis_mask = [0], end_mask = [0], ends_attr = [17408], new_axis_mask = [0], operandSegmentSizes = array<i32: 1, 0, 0, 0>, shrink_axis_mask = [0], strides_attr = [4]} : tensor<17408xf16> -> tensor<4352xf16>
+    %3 = IE.Concat(%0, %1, %2, %arg1) {per_axis = #IE.Concat<axis = 0 : i64, offset = 1 : i64, stride = 4 : i64>} : tensor<4352xf16>, tensor<4352xf16>, tensor<4352xf16>, tensor<4352xf16> -> tensor<17408xf16>
+    return %3 : tensor<17408xf16>
+
+    // CHECK-NOT: IE.Concat{{.*}}per_axis = #IE.Concat<axis = 0
+    // CHECK:             [[AR0:%.+]] = IE.AffineReshape([[ARG0]])
+    // CHECK{LITERAL}:    {dim_mapping = [[0, 1, 2, 3]], shape_value = [17408, 1, 1, 1]} : tensor<17408xf16> -> tensor<17408x1x1x1xf16>
+    // CHECK:             [[SS0:%.+]] = IE.StridedSlice([[AR0]])
+    // CHECK-SAME:        begins_attr = [0, 0, 0, 0]{{.*}}strides_attr = [4, 1, 1, 1]
+    // CHECK-SAME:        tensor<17408x1x1x1xf16> -> tensor<4352x1x1x1xf16>
+    // CHECK:             [[AR1:%.+]] = IE.AffineReshape([[ARG0]])
+    // CHECK{LITERAL}:    {dim_mapping = [[0, 1, 2, 3]], shape_value = [17408, 1, 1, 1]} : tensor<17408xf16> -> tensor<17408x1x1x1xf16>
+    // CHECK:             [[SS1:%.+]] = IE.StridedSlice([[AR1]])
+    // CHECK-SAME:        begins_attr = [1, 0, 0, 0]{{.*}}strides_attr = [4, 1, 1, 1]
+    // CHECK-SAME:        tensor<17408x1x1x1xf16> -> tensor<4352x1x1x1xf16>
+    // CHECK:             [[AR2:%.+]] = IE.AffineReshape([[ARG0]])
+    // CHECK{LITERAL}:    {dim_mapping = [[0, 1, 2, 3]], shape_value = [17408, 1, 1, 1]} : tensor<17408xf16> -> tensor<17408x1x1x1xf16>
+    // CHECK:             [[SS2:%.+]] = IE.StridedSlice([[AR2]])
+    // CHECK-SAME:        begins_attr = [2, 0, 0, 0]{{.*}}strides_attr = [4, 1, 1, 1]
+    // CHECK-SAME:        tensor<17408x1x1x1xf16> -> tensor<4352x1x1x1xf16>
+    // CHECK:             [[R0:%.+]] = IE.AffineReshape([[SS0]])
+    // CHECK{LITERAL}:    {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 4352, 1]} : tensor<4352x1x1x1xf16> -> tensor<1x1x4352x1xf16>
+    // CHECK:             [[R1:%.+]] = IE.AffineReshape([[SS1]])
+    // CHECK{LITERAL}:    {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 4352, 1]} : tensor<4352x1x1x1xf16> -> tensor<1x1x4352x1xf16>
+    // CHECK:             [[R2:%.+]] = IE.AffineReshape([[SS2]])
+    // CHECK{LITERAL}:    {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 4352, 1]} : tensor<4352x1x1x1xf16> -> tensor<1x1x4352x1xf16>
+    // CHECK:             [[RUPD:%.+]] = IE.AffineReshape([[ARG1]])
+    // CHECK{LITERAL}:    {dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 4352, 1]} : tensor<4352xf16> -> tensor<1x1x4352x1xf16>
+    // CHECK:             [[CONCAT:%.+]] = IE.Concat([[R0]], [[R1]], [[R2]], [[RUPD]])
+    // CHECK{LITERAL}:    {per_axis = #IE.Concat<axis = 2 : i64, offset = 1 : i64, stride = 4 : i64>}
+    // CHECK-SAME:        tensor<1x1x4352x1xf16>, tensor<1x1x4352x1xf16>, tensor<1x1x4352x1xf16>, tensor<1x1x4352x1xf16> -> tensor<1x1x17408x1xf16>
+    // CHECK:             [[OUT:%.+]] = IE.AffineReshape([[CONCAT]])
+    // CHECK{LITERAL}:    {dim_mapping = [[0], [0], [0], [0]], shape_value = [17408]} : tensor<1x1x17408x1xf16> -> tensor<17408xf16>
+    // CHECK:             return [[OUT]] : tensor<17408xf16>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @ConcatPerAxisWithOffsetPreserved
+// CHECK-SAME:      [[ARG0:%.+]]: tensor<1x64x64xf16>, [[ARG1:%.+]]: tensor<1x64x64xf16>
+func.func @ConcatPerAxisWithOffsetPreserved(%arg0: tensor<1x64x64xf16>, %arg1: tensor<1x64x64xf16>) -> tensor<1x128x64xf16> {
+    %0 = IE.Concat(%arg0, %arg1) {per_axis = #IE.Concat<axis = 1 : i64, offset = 2 : i64, stride = 1 : i64>} : tensor<1x64x64xf16>, tensor<1x64x64xf16> -> tensor<1x128x64xf16>
+    return %0 : tensor<1x128x64xf16>
+
+    // CHECK-NOT: static_offsets
+    // CHECK:             [[RESHAPE0:%.+]] = IE.AffineReshape([[ARG0]])
+    // CHECK{LITERAL}:    {dim_mapping = [[0], [1, 2], [3]], shape_value = [1, 64, 1, 64]} : tensor<1x64x64xf16> -> tensor<1x64x1x64xf16>
+    // CHECK:             [[RESHAPE1:%.+]] = IE.AffineReshape([[ARG1]])
+    // CHECK{LITERAL}:    {dim_mapping = [[0], [1, 2], [3]], shape_value = [1, 64, 1, 64]} : tensor<1x64x64xf16> -> tensor<1x64x1x64xf16>
+    // CHECK:             [[CONCAT:%.+]] = IE.Concat([[RESHAPE0]], [[RESHAPE1]])
+    // CHECK{LITERAL}:    {per_axis = #IE.Concat<axis = 1 : i64, offset = 2 : i64, stride = 1 : i64>} : tensor<1x64x1x64xf16>, tensor<1x64x1x64xf16> -> tensor<1x128x1x64xf16>
+    // CHECK:             [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[CONCAT]])
+    // CHECK{LITERAL}:    {dim_mapping = [[0], [1], [1], [2]], shape_value = [1, 128, 64]} : tensor<1x128x1x64xf16> -> tensor<1x128x64xf16>
+    // CHECK:             return [[RESHAPE_OUT]] : tensor<1x128x64xf16>
 }

@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/precomputed_strategy_table_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tiling_algorithm/tiling_context.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tiling_pass_config_utils.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
@@ -143,6 +144,11 @@ void ApplyTilingPass::safeRunOnFunc() {
     }
 
     VPU::removeDynamicDimAlignment(funcOp);
+
+    // Clean up the temporary pinnedStrategy attribute after apply tiling
+    funcOp->walk([](mlir::Operation* op) {
+        op->removeAttr(VPU::pinnedStrategy);
+    });
 }
 }  // namespace
 

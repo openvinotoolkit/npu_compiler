@@ -142,8 +142,21 @@ bool isValidToPropagateDequantize(mlir::Operation* user, bool seOpsEnabled, mlir
     // For DynamicDequantize: verify the scale shape can be propagated through AffineReshape before modifying IR.
     if (!scaleShape.empty()) {
         if (auto affineReshapeOp = mlir::dyn_cast<IE::AffineReshapeOp>(user)) {
-            if (!computeShapeValueFromAffineReshape(affineReshapeOp, scaleShape).has_value()) {
+            const auto newScaleShape = computeShapeValueFromAffineReshape(affineReshapeOp, scaleShape);
+            if (!newScaleShape.has_value()) {
                 log.trace("Scale shape cannot be propagated through AffineReshape {0}", affineReshapeOp);
+                return false;
+            }
+            // The reshape must preserve the total number of scale elements.  A mismatch means
+            // a group dimension is being merged with a non-group dimension (e.g. the 16 groups
+            // in [1,2048,16,1] folding into the output channel), which is semantically invalid
+            // for per-group DynamicDequantize.
+            const auto origElems = vpux::details::calcTotalShapeSize(scaleShape.raw());
+            const auto newElems = vpux::details::calcTotalShapeSize(newScaleShape.value());
+            if (origElems != newElems) {
+                log.trace("Scale reshape through AffineReshape {0} changes element count ({1} -> {2}): "
+                          "group dimensions cannot be merged",
+                          affineReshapeOp, origElems, newElems);
                 return false;
             }
         }

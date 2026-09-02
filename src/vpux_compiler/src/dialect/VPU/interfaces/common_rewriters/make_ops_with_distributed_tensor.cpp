@@ -37,20 +37,23 @@ mlir::LogicalResult VPU::ClusteredOpRewriter::matchAndRewrite(VPU::ClusteredOpIn
     }
 
     auto* newOp = rewriter.clone(*origOp);
-    for (auto operand : origOp->getOperands() | indexed) {
-        newOp->setOperand(operand.index(), distributedCopyOps[operand.index()]);
-    }
+    rewriter.modifyOpInPlace(newOp, [&]() {
+        for (auto operand : origOp->getOperands() | indexed) {
+            newOp->setOperand(operand.index(), distributedCopyOps[operand.index()]);
+        }
+        for (auto result : newOp->getResults() | indexed) {
+            result.value().setType(distributedOutputTypes[result.index()]);
+        }
+        newOp->removeAttr(multiClusterStrategy);
+    });
 
     SmallVector<mlir::Value> newCopyOutputs;
     rewriter.setInsertionPointAfter(newOp);
     for (auto result : newOp->getResults() | indexed) {
-        result.value().setType(distributedOutputTypes[result.index()]);
         auto outputCopyOp = rewriter.create<VPU::UnrolledTypeOp>(
                 newOp->getLoc(), origOp->getResult(result.index()).getType(), result.value());
         newCopyOutputs.push_back(outputCopyOp->getResult(0));
     }
-
-    newOp->removeAttr(multiClusterStrategy);
 
     rewriter.replaceOp(origOp, newCopyOutputs);
     return mlir::success();
@@ -67,8 +70,6 @@ mlir::LogicalResult VPU::NCEEltwiseRewriter::matchAndRewrite(VPU::NCEEltwiseOp o
     auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(origOp.getOperation());
     VPUX_THROW_UNLESS(clusteredOp != nullptr, "Operation '{0}' cannot be converted to VPU::ClusteredOpInterface",
                       origOp);
-
-    auto distributedOutputTensorType = _typeLookup.at(origOp->getResult(0));
 
     SmallVector<mlir::Value> distributedCopyOps{};
     const auto& operandLookup = _inputTypeLookup.at(origOp.getOperation());
@@ -89,14 +90,24 @@ mlir::LogicalResult VPU::NCEEltwiseRewriter::matchAndRewrite(VPU::NCEEltwiseOp o
     mlir::IRMapping mapper;
     mapper.map(origOp->getOperands(), mlir::ValueRange{distributedCopyOps});
     auto* newOp = rewriter.clone(*origOp, mapper);
-    newOp->getResult(0).setType(distributedOutputTensorType);
-    if (newOp->hasAttr(multiClusterStrategy)) {
-        newOp->removeAttr(multiClusterStrategy);
-    }
-    auto outputCopyOp =
-            rewriter.create<VPU::UnrolledTypeOp>(newOp->getLoc(), origOp->getResult(0).getType(), newOp->getResult(0));
+    rewriter.modifyOpInPlace(newOp, [&]() {
+        if (newOp->hasAttr(multiClusterStrategy)) {
+            newOp->removeAttr(multiClusterStrategy);
+        }
+        for (auto result : newOp->getResults() | indexed) {
+            result.value().setType(_typeLookup.at(origOp->getResult(result.index())));
+        }
+    });
 
-    rewriter.replaceOp(origOp, outputCopyOp);
+    SmallVector<mlir::Value> newCopyOutputs;
+    rewriter.setInsertionPointAfter(newOp);
+    for (auto result : newOp->getResults() | indexed) {
+        auto outputCopyOp = rewriter.create<VPU::UnrolledTypeOp>(
+                newOp->getLoc(), origOp->getResult(result.index()).getType(), result.value());
+        newCopyOutputs.push_back(outputCopyOp->getResult(0));
+    }
+
+    rewriter.replaceOp(origOp, newCopyOutputs);
 
     return mlir::success();
 }

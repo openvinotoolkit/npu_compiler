@@ -62,7 +62,7 @@ module @foo {
     DataInfo "output" : tensor<1x1x16x1000xf16>
   }
   func.func @main(%arg0: tensor<1x1x16x1000xf16>) -> tensor<1x1x16x1000xf16> {
-    %0 = VPU.GenericSwLayer(%arg0) {callee = @VPU.SW::@generated_0} : tensor<1x1x16x1000xf16> -> tensor<1x1x16x1000xf16>
+    %0 = VPU.GenericSwLayer(%arg0 : tensor<1x1x16x1000xf16>) @VPU.SW::@generated_0 -> tensor<1x1x16x1000xf16>
     return %0 : tensor<1x1x16x1000xf16>
   }
 }

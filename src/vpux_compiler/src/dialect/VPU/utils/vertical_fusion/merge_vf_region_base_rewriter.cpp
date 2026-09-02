@@ -5,8 +5,10 @@
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/merge_vf_region_base_rewriter.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/precomputed_strategy_table_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_case.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_case.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
@@ -20,6 +22,7 @@
 namespace vpux {
 namespace VPU {
 
+namespace {
 // Check if the op doesn't have multi cluster strategy but can have distributed output. For some ops like SpaceToDepth,
 // they don't implement the ClusteredOpInteface, which means that it only runs on single tile instead, however, it will
 // converted into DMA op with Distributed output type if the distributed output type is compatible with its user. So the
@@ -85,6 +88,7 @@ mlir::FailureOr<VPU::VerticalFusionOp> findMergeableVFInput(VFConfigType& vfConf
     }
     return mlir::failure();
 }
+}  // namespace
 
 // This function checks if other inputs of currentOp can be merged
 // If prevOp was tried to merge with currentOp, return false
@@ -92,7 +96,7 @@ template <typename VFCaseType>
 bool MergeVFRegionBaseRewriter<VFCaseType>::checkOtherVFInput(VPU::VerticalFusionOp currentOp,
                                                               VPU::VerticalFusionOp prevOp) const {
     // Check if currentOp has mergeable input
-    VFConfigType vfConfig(currentOp);
+    auto vfConfig = createVFConfig(currentOp);
     auto mergeableOp = findMergeableVFInput(vfConfig);
     if (mlir::failed(mergeableOp)) {
         return false;
@@ -169,76 +173,60 @@ bool MergeVFRegionBaseRewriter<VFCaseType>::isLegalFusion(VPU::VerticalFusionOp 
         return false;
     }
 
-    // Get output op of previous vf region
-    auto prevOutputOp = prevOp.getBody()->getTerminator()->getOperands().back().getDefiningOp();
-    // Get input arg of current vf region corresponding to previous vf op
-    auto currInputArg = getLinkedArgumentBetweenVFOps(currentOp, prevOp);
-    VPUX_THROW_UNLESS(currInputArg != nullptr,
-                      "No corresponding input argument found for current VF region {0} with previous VF region {1}",
-                      currentOp, prevOp);
+    // Get input args of current vf region corresponding to previous vf op
+    const auto currInputArgs = getLinkedArgumentsBetweenVFOps(currentOp, prevOp);
+    VPUX_THROW_WHEN(currInputArgs.empty(),
+                    "No corresponding input argument found for current VF region {0} with previous VF region {1}",
+                    currentOp, prevOp);
 
     const auto isClusteredOpWithMCStrategy = [](mlir::Operation* op) {
         auto clusterOp = mlir::dyn_cast_or_null<VPU::ClusteredOpInterface>(op);
         return clusterOp != nullptr && clusterOp.getMultiClusterStrategy().has_value();
     };
 
-    // Check if previous output op has MC strategy
-    const auto prevOutDistType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(
-            getDistributedOutputType(prevOp, currentOp.getOperand(currInputArg.getArgNumber())));
-    const auto isPrevOutOpWithMCStrategy = prevOutDistType != nullptr;
+    for (const auto& currInputArg : currInputArgs) {
+        VPUX_THROW_WHEN(
+                currInputArg == nullptr,
+                "Corresponding input argument found for current VF region {0} with previous VF region {1} is nullptr",
+                currentOp, prevOp);
+        // Get output op of previous vf region that produces the linked result
+        auto prevOutputResult = mlir::cast<mlir::OpResult>(currentOp.getOperand(currInputArg.getArgNumber()));
+        auto* prevOutputOp =
+                prevOp.getBody()->getTerminator()->getOperand(prevOutputResult.getResultNumber()).getDefiningOp();
+        // Check if previous output op has MC strategy
+        const auto prevOutDistType = mlir::dyn_cast_if_present<VPU::DistributedTensorType>(
+                getDistributedOutputType(prevOp, currentOp.getOperand(currInputArg.getArgNumber())));
+        const auto isPrevOutOpWithMCStrategy = prevOutDistType != nullptr;
 
-    const auto hasTrueOverlappedParams = [](VPU::DistributedTensorType tensor) {
-        if (tensor == nullptr) {
-            return false;
-        }
-        if (tensor.getDistribution().getMode().getValue() != VPU::DistributionMode::OVERLAPPED) {
-            return false;
-        }
-        if (tensor.getPerClusterMemoryShapes() != tensor.getPerClusterComputeShapes()) {
-            return true;
-        }
-        if (tensor.getPerClusterMemoryShapeOffsets() != tensor.getPerClusterComputeShapeOffsets()) {
-            return true;
-        }
-        return false;
-    };
-    bool outputTrueOverlapped = hasTrueOverlappedParams(prevOutDistType);
-    auto prevOutputOpSw = mlir::dyn_cast_or_null<VPU::SWOpInterface>(prevOutputOp);
-
-    // Here we need to ensure either all current input ops and previous output op have no mc strategy,
-    // or all have mc stratgy with compatible distributed tensor types
-    for (auto currInputOp : currInputArg.getUsers()) {
-        SmallVector<mlir::Operation*> currInputViewLikeOps;
-        while (mlir::isa<VPU::TilingViewLikeOpInterface>(currInputOp) && currInputOp->hasOneUse()) {
-            currInputViewLikeOps.push_back(currInputOp);
-            currInputOp = *(currInputOp->getUsers().begin());
-        }
-        const auto isCurrInOpWithMCStrategy = isClusteredOpWithMCStrategy(currInputOp);
-        if (isPrevOutOpWithMCStrategy != isCurrInOpWithMCStrategy) {
-            return false;
-        }
-        if (isPrevOutOpWithMCStrategy && isCurrInOpWithMCStrategy) {
-            auto currInputOperand = currInputViewLikeOps.empty() ? mlir::cast<mlir::Value>(currInputArg)
-                                                                 : currInputViewLikeOps.back()->getResult(0);
-            auto actualCurrInDistType = mlir::cast<VPU::DistributedTensorType>(
-                    getDistributedInputType(currInputOp, currInputOperand).getDistributedTypes().front());
-            bool isSparse = mlir::isa<VPU::SparseTensorType>(currInputOperand.getType());
-
-            auto inputTrueOverlapped = hasTrueOverlappedParams(actualCurrInDistType);
-
-            //  E#112803 will handle sparse consumers
-            if (inputTrueOverlapped && isSparse) {
+        // Hard legality gate: only non-adjustable constraints belong here.
+        // Distribution compatibility (areDistributionAttrsCompatible) and eltwise segmented-like checks
+        // are intentionally NOT checked here — they are current-state checks that may be resolved by
+        // isMCStrategyAligned or adjustMCStrategyInMergedVF. Hard-rejecting them here would prevent the
+        // adjustment path from running.
+        for (auto currInputOp : currInputArg.getUsers()) {
+            SmallVector<mlir::Operation*> currInputViewLikeOps;
+            while (mlir::isa<VPU::TilingViewLikeOpInterface>(currInputOp) && currInputOp->hasOneUse()) {
+                currInputViewLikeOps.push_back(currInputOp);
+                currInputOp = *(currInputOp->getUsers().begin());
+            }
+            const auto isCurrInOpWithMCStrategy = isClusteredOpWithMCStrategy(currInputOp);
+            if (isPrevOutOpWithMCStrategy != isCurrInOpWithMCStrategy) {
                 return false;
             }
+            if (isPrevOutOpWithMCStrategy && isCurrInOpWithMCStrategy) {
+                auto currInputOperand = currInputViewLikeOps.empty() ? mlir::cast<mlir::Value>(currInputArg)
+                                                                     : currInputViewLikeOps.back()->getResult(0);
+                auto actualCurrInDistType = mlir::cast<VPU::DistributedTensorType>(
+                        getDistributedInputType(currInputOp, currInputOperand).getDistributedTypes().front());
 
-            // TODO E#92130 extend Shave operations with OVERLAPPED param propagation
-            auto currInputOpSw = mlir::dyn_cast_or_null<VPU::SWOpInterface>(currInputOp);
-            if ((currInputOpSw != nullptr && !currInputOpSw.supportLoweringAsDMA() && outputTrueOverlapped) ||
-                (prevOutputOpSw != nullptr && !prevOutputOpSw.supportLoweringAsDMA() && inputTrueOverlapped)) {
-                return false;
+                if (!checkMCFusionHardLegality(prevOutDistType, actualCurrInDistType, prevOutputOp, currInputOp,
+                                               currInputOperand)) {
+                    return false;
+                }
             }
         }
     }
+
     return true;
 }
 
@@ -276,7 +264,11 @@ bool MergeVFRegionBaseRewriter<VFCaseType>::waitOtherUsers(VPU::VerticalFusionOp
 template <typename VFCaseType>
 void MergeVFRegionBaseRewriter<VFCaseType>::fuseBlocks(mlir::PatternRewriter& rewriter, VPU::VerticalFusionOp currentOp,
                                                        VPU::VerticalFusionOp mergedOp) const {
-    rewriter.replaceOp(currentOp, mergedOp.getResult(0));
+    // The pinnedStrategy is overwritten by VF strategy, remove the attribute
+    for (auto& operation : mergedOp.getBody()->without_terminator()) {
+        operation.removeAttr(VPU::pinnedStrategy);
+    }
+    rewriter.replaceOp(currentOp, mergedOp.getResults());
 }
 
 template class MergeVFRegionBaseRewriter<VPU::VF::v1::VFCase>;

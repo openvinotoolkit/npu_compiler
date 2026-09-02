@@ -15,7 +15,7 @@ namespace vpux {
 
 class BackendPipelineStrategy40XX final : public IBackendPipelineStrategy {
 public:
-    void buildELFPipeline(mlir::OpPassManager& pm, const intel_npu::Config& config, mlir::TimingScope& rootTiming,
+    void buildELFPipeline(mlir::OpPassManager& pm, const vpux::OV::Config& config, mlir::TimingScope& rootTiming,
                           Logger log) final;
 };
 

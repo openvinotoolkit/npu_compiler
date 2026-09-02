@@ -335,6 +335,13 @@ def VPU_MVN1NormalizeOp :
         BoolAttr:$across_channels,
         BoolAttr:$normalize_variance,
         DefaultValuedOptionalAttr<BoolAttr, "false">:$high_precision_normalize,
+        // Set to true when this op was created by the forceDecompose path in DecomposeMVNPass.
+        // Only those ops should be converted to NCEMaxPool by RunMVNNormalizeOnDPU -- they came
+        // from CMX-fitting (previously monolithic-Shave) MVN ops where offloading the normalize
+        // step to DPU frees Shave capacity. MVN1NormalizeOps from the normal decompose path
+        // (internalReshape / CMX-overflow) were already Shave-efficient; converting those
+        // creates DPU contention without Shave savings.
+        DefaultValuedOptionalAttr<BoolAttr, "false">:$from_force_decompose,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
@@ -360,6 +367,14 @@ def VPU_MVN1NormalizeOp :
             "::mlir::BoolAttr":$across_channels,
             "::mlir::BoolAttr":$normalize_variance,
             "::mlir::BoolAttr":$high_precision_normalize
+        )>,
+        OpBuilder<(ins
+            "::mlir::Value":$input,
+            "::mlir::Value":$meanVar,
+            "::mlir::BoolAttr":$across_channels,
+            "::mlir::BoolAttr":$normalize_variance,
+            "::mlir::BoolAttr":$high_precision_normalize,
+            "::mlir::BoolAttr":$from_force_decompose
         )>
     ];
 
@@ -523,6 +538,64 @@ def VPU_RMSOp :
         )>
     ];
 
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
+}
+
+def VPU_GatedDeltaNetOp :
+        VPU_LayerOp<
+            "GatedDeltaNet",
+            [
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getMaxNumTiles", "getOutputTiling",
+                                                                         "getMainOutputTile"]>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["getDistributedTypeForOpOperand",
+                                                                     "getDistributedTypeForOpResult",
+                                                                     "isOperationSplitOverHeightCompatible"]>,
+                DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
+            ]
+        > {
+    let summary = "GatedDeltaNet VPU layer";
+
+    let arguments = (ins
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$query,
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$key,
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$value,
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$recurrent_state,
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$gate,
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$beta,
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$scratch,
+        UnitAttr:$fuse_qk_l2norm,
+        F64Attr:$q_l2_norm_eps,
+        F64Attr:$k_l2_norm_eps,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
+    );
+
+    let results = (outs
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output,
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output_state
+    );
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$query,
+            "::mlir::Value":$key,
+            "::mlir::Value":$value,
+            "::mlir::Value":$recurrent_state,
+            "::mlir::Value":$gate,
+            "::mlir::Value":$beta,
+            "::mlir::UnitAttr":$fuse_qk_l2norm,
+            "::mlir::FloatAttr":$q_l2_norm_eps,
+            "::mlir::FloatAttr":$k_l2_norm_eps
+        )>
+    ];
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let hasVerifier = 1;
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 

@@ -167,7 +167,7 @@ mlir::LogicalResult ensureNTilesIsCompatibleWithMultiClusterUp(mlir::Operation* 
     const auto dimAlignInfo = getAlignDimAndSize(op);
     auto dimToAlign = dimAlignInfo.first;
     auto dimAlignment = dimAlignInfo.second;
-    auto tiles = fillDividedTiles(op, nTilesOnDim, outputShape);
+    auto tiles = fillDividedTiles(op, nTilesOnDim, outputShape, /*efficientWorkloadAlign=*/true);
     while (nTilesOnDim[dimToTile] <= maxTiling[dimToTile.ind()]) {
         if (!mlir::failed(tiles)) {
             auto isMCCompatible = isMultiClusterCompatibleForTiling(op, tiles.value(), log);
@@ -185,7 +185,7 @@ mlir::LogicalResult ensureNTilesIsCompatibleWithMultiClusterUp(mlir::Operation* 
             }
         }
         dimPlus(nTilesOnDim, dimToTile, dimToAlign, dimAlignment, outputShape, maxTiling, log);
-        tiles = fillDividedTiles(op, nTilesOnDim, outputShape);
+        tiles = fillDividedTiles(op, nTilesOnDim, outputShape, /*efficientWorkloadAlign=*/true);
     }
     return mlir::failure();
 }

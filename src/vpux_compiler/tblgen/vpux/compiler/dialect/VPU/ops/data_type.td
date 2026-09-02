@@ -24,7 +24,8 @@ def VPU_ConvertOp :
                 VPU_TilingBuilderOpInterface,
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverKernelCompatible"]>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
@@ -103,7 +104,7 @@ def VPU_DequantizeOp :
 def VPU_DynamicQuantizeOp :
         VPU_LayerOp<"DynamicQuantize",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getOutputTiling"]>,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getOutputTiling", "getMainOutputTile"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["getDistributedTypeForOpOperand",
                                                                      "getDistributedTypeForOpResult"]>
@@ -281,7 +282,8 @@ def VPU_FakeQuantizeOp :
             [
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
                 VPU_EltwiseOp
             ]
         > {

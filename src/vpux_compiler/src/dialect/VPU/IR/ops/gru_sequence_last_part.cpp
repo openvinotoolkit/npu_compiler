@@ -155,27 +155,18 @@ mlir::FailureOr<OutputTiling> vpux::VPU::GRUSequenceLastPartOp::getTilingStrateg
     return origTilesY;
 }
 
-void reverseTilesOrderReverseMode(OutputTiling& tilesY, int64_t seqLengthTile, IE::RNNSequenceDirection origDirection) {
-    const auto reverse = [seqLengthTile, &tilesY](size_t i) {
-        for (size_t j = 0; j < size_t(seqLengthTile / 2); ++j) {
-            std::swap(tilesY[i + j], tilesY[i + seqLengthTile - 1 - j]);
-        }
-    };
-    if (origDirection == IE::RNNSequenceDirection::BIDIRECTIONAL) {
-        for (size_t i = 0; i < tilesY.size(); i += seqLengthTile) {
-            if (tilesY[i].offsets[Dim(1)] == 1) {
-                reverse(i);
-            }
-        }
-    }
-    if (origDirection == IE::RNNSequenceDirection::REVERSE) {
-        for (size_t i = 0; i < tilesY.size(); i += seqLengthTile) {
-            reverse(i);
-        }
-    }
-}
-
 OutputTiling vpux::VPU::GRUSequenceLastPartOp::getOutputTiling(const vpux::TileInfo& firstOutputTile,
                                                                vpux::Logger /*log*/) {
     return GRUSequenceOutputTiling(firstOutputTile);
+}
+
+vpux::TileInfo vpux::VPU::GRUSequenceLastPartOp::getMainOutputTile(mlir::OpResult /*secondaryOutput*/,
+                                                                   const vpux::TileInfo& /*secondaryOutputTile*/,
+                                                                   vpux::Logger /*log*/) {
+    // The shape of the first output is [batch_size, num_directions, seq_len, hidden_size],
+    // and the shape of second output is [batch_size, num_directions, hidden_size].
+    // The first output cannot be completely inferred from the tile of the second output,
+    // since it is not known if/how sequence length is tiled.
+    // Returning empty tile to signal that no valid main tile can be inferred.
+    return vpux::TileInfo(ShapeRef());
 }

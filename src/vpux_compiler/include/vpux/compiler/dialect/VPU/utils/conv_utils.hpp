@@ -41,12 +41,12 @@ PadInfo shrinkPadsForDilatedConvolution(const PadInfo& pads, const ArrayRef<int6
 
 bool hasReduceOutputs(VPU::NCEConvolutionOp op);
 
-mlir::Value splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, mlir::Value weightInput,
-                                      SmallVector<VPU::NCEConvolutionOp>& convOps,
-                                      SmallVector<VPU::NCEEltwiseOp>& addOps,
-                                      SmallVector<VPU::DequantizeOp>& dequantizeOps, const OutputTiling& tiles,
-                                      VPU::DequantizeOp weightDequantizeOp, mlir::PatternRewriter& rewriter,
-                                      Logger log);
+SmallVector<mlir::Value> splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, mlir::Value weightInput,
+                                                   SmallVector<VPU::NCEConvolutionOp>& convOps,
+                                                   SmallVector<VPU::NCEEltwiseOp>& addOps,
+                                                   SmallVector<VPU::DequantizeOp>& dequantizeOps,
+                                                   const OutputTiling& tiles, VPU::DequantizeOp weightDequantizeOp,
+                                                   mlir::PatternRewriter& rewriter, Logger log);
 
 template <typename ConvTypeOp>
 static bool areConvInputOutputs4d(ConvTypeOp convOp, LogCb logCb) {

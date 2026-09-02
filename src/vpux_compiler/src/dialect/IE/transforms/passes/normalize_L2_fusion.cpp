@@ -73,7 +73,7 @@ mlir::LogicalResult NormalizeL2Fusion::matchAndRewrite(IE::ReduceL2Op origOp, ml
         return mlir::failure();
     }
     auto normalizeL2Op = rewriter.replaceOpWithNewOp<IE::NormalizeL2Op>(
-            divideOp, origOp.getInput(), origOp.getAxes(), origOp.getAxesValueAttr(), clampOp.getMinAttr(),
+            divideOp, origOp.getInput(), nullptr, origOp.getAxesValueAttr(), clampOp.getMinAttr(),
             IE::EpsModeAttr::get(origOp.getContext(), IE::EpsMode::ADD));
     _log.trace("Replace '{0}' with new op '{1}'", origOp, normalizeL2Op);
     return mlir::success();

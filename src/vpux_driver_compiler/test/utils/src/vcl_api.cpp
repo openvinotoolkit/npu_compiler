@@ -7,7 +7,7 @@
 #include "openvino/util/shared_object.hpp"
 
 namespace VCLTest {
-VCLApi::VCLApi(): _logger("VCLApi", intel_npu::Logger::global().level()) {
+VCLApi::VCLApi(): _logger("VCLApi", vpux::Logger::global().level()) {
     const std::filesystem::path baseName = std::string("openvino_intel_npu_compiler_loader") + OV_BUILD_POSTFIX;
     try {
         auto libpath = ov::util::make_plugin_library_name({}, baseName);

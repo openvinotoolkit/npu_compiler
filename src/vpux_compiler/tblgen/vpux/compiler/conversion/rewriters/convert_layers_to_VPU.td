@@ -117,7 +117,7 @@ def createTileOp :
 
 def RewriteTile :
         Pat<
-            (IE_TileOp $input, $repeats, $repeats_values),
+            (IE_TileOp $input, $repeats_values),
             (createTileOp $input, $repeats_values)
         >;
 
@@ -149,9 +149,10 @@ def createAvgPoolOp :
 class ShouldBeNull<string desc> : Constraint<CPred<"!$_self">, desc>;
 def RewriteAvgPool :
         Pat<
-            (IE_AvgPoolOp $input, $kernel_size, $strides, $pads_begin, $pads_end, $rounding_type, $exclude_pads, $post_op, $clamp, $static_scale, $output_padding, $input_padding),
+            (IE_AvgPoolOp $input, $scale, $kernel_size, $strides, $pads_begin, $pads_end, $rounding_type, $exclude_pads, $post_op, $clamp, $static_scale, $output_padding, $input_padding),
             (createAvgPoolOp $input, $kernel_size, $strides, $pads_begin, $pads_end, $rounding_type, $exclude_pads),
             [
+                (ShouldBeNull<"scale must be null">:$scale),
                 (ShouldBeNull<"post_op must be null">:$post_op),
                 (ShouldBeNull<"clamp must be null">:$clamp),
                 (ShouldBeNull<"static_scale must be null">:$static_scale)
@@ -271,55 +272,55 @@ class createReduceOp<string type> :
 
 def RewriteReduceMax :
         Pat<
-            (IE_ReduceMaxOp $input, $axes, $axes_value, $keep_dims),
+            (IE_ReduceMaxOp $input, $axes_value, $keep_dims),
             (createReduceOp<"Max"> $input, $axes_value, $keep_dims)
         >;
 
 def RewriteReduceMean :
         Pat<
-            (IE_ReduceMeanOp $input, $axes, $axes_value, $keep_dims, $output_padding, $input_padding),
+            (IE_ReduceMeanOp $input, $axes_value, $keep_dims, $output_padding, $input_padding),
             (createReduceOp<"Mean"> $input, $axes_value, $keep_dims)
         >;
 
 def RewriteReduceProd :
         Pat<
-            (IE_ReduceProdOp $input, $axes, $axes_value, $keep_dims),
+            (IE_ReduceProdOp $input, $axes_value, $keep_dims),
             (createReduceOp<"Prod"> $input, $axes_value, $keep_dims)
         >;
 
 def RewriteReduceSum :
         Pat<
-            (IE_ReduceSumOp $input, $axes, $axes_value, $keep_dims, $output_padding, $input_padding),
+            (IE_ReduceSumOp $input, $axes_value, $keep_dims, $output_padding, $input_padding),
             (createReduceOp<"Sum"> $input, $axes_value, $keep_dims)
         >;
 
 def RewriteReduceMin :
         Pat<
-            (IE_ReduceMinOp $input, $axes, $axes_value, $keep_dims),
+            (IE_ReduceMinOp $input, $axes_value, $keep_dims),
             (createReduceOp<"Min"> $input, $axes_value, $keep_dims)
         >;
 
 def RewriteReduceL1 :
         Pat<
-            (IE_ReduceL1Op $input, $axes, $axes_value, $keep_dims),
+            (IE_ReduceL1Op $input, $axes_value, $keep_dims),
             (createReduceOp<"L1"> $input, $axes_value, $keep_dims)
         >;
 
 def RewriteReduceLogicalOr :
         Pat<
-            (IE_ReduceLogicalOrOp $input, $axes, $axes_value, $keep_dims),
+            (IE_ReduceLogicalOrOp $input, $axes_value, $keep_dims),
             (createReduceOp<"LogicalOr"> $input, $axes_value, $keep_dims)
         >;
 
 def RewriteReduceLogicalAnd :
         Pat<
-            (IE_ReduceLogicalAndOp $input, $axes, $axes_value, $keep_dims),
+            (IE_ReduceLogicalAndOp $input, $axes_value, $keep_dims),
             (createReduceOp<"LogicalAnd"> $input, $axes_value, $keep_dims)
         >;
 
 def RewriteReduceL2 :
         Pat<
-            (IE_ReduceL2Op $input, $axes, $axes_value, $keep_dims),
+            (IE_ReduceL2Op $input, $axes_value, $keep_dims),
             (createReduceOp<"L2"> $input, $axes_value, $keep_dims)
         >;
 
@@ -367,9 +368,10 @@ def createMaxPoolOp :
 
 def RewriteMaxPool :
         Pat<
-            (IE_MaxPoolOp $input, $kernel_size, $strides, $pads_begin, $pads_end, $rounding_type, $post_op, $clamp, $static_scale, $output_padding, $input_padding),
+            (IE_MaxPoolOp $input, $scale, $kernel_size, $strides, $pads_begin, $pads_end, $rounding_type, $post_op, $clamp, $static_scale, $output_padding, $input_padding),
             (createMaxPoolOp $input, $kernel_size, $strides, $pads_begin, $pads_end, $rounding_type, $post_op, $clamp),
             [
+                (ShouldBeNull<"scale must be null">:$scale),
                 (ShouldBeNull<"static_scale must be null">:$static_scale)
             ]
         >;
@@ -654,6 +656,21 @@ def RewriteErf :
         Pat<
             (IE_ErfOp $input),
             (createErfOp $input)
+        >;
+
+        //
+// IE.ErfInv -> VPU.ErfInv
+//
+
+def createErfInvOp :
+        NativeCodeCall<[{
+            $_builder.create<vpux::VPU::ErfInvOp>($_loc, $0)
+        }]>;
+
+def RewriteErfInv :
+        Pat<
+            (IE_ErfInvOp $input),
+            (createErfInvOp $input)
         >;
 
 //
@@ -991,8 +1008,8 @@ def RewritePerAxisTile :
         >;
 
 //
-// IE.[Subtract|Multiply|Divide|SquaredDiff|Power|FloorMod|Mod|Min|Max|And|BitwiseAnd|BitwiseOr|BitwiseXor|BitwiseRightShift|BitwiseLeftShift|Equal|Less|LessEqual|NotEqual|Greater|GreaterEqual|LogicalOr|LogicalXor]Pool
-//     -> VPU.[Subtract|Multiply|Divide|SquaredDiff|Power|FloorMod|Mod|Min|Max|And|BitwiseAnd|BitwiseOr|BitwiseXor|BitwiseRightShift|BitwiseLeftShift|Equal|Less|LessEqual|NotEqual|Greater|GreaterEqual|LogicalOr|LogicalXor]Pool
+// IE.[Subtract|Divide|SquaredDiff|Power|FloorMod|Mod|Min|Max|And|BitwiseAnd|BitwiseOr|BitwiseXor|BitwiseRightShift|BitwiseLeftShift|Equal|Less|LessEqual|NotEqual|Greater|GreaterEqual|LogicalOr|LogicalXor]Pool
+//     -> VPU.[Subtract|Divide|SquaredDiff|Power|FloorMod|Mod|Min|Max|And|BitwiseAnd|BitwiseOr|BitwiseXor|BitwiseRightShift|BitwiseLeftShift|Equal|Less|LessEqual|NotEqual|Greater|GreaterEqual|LogicalOr|LogicalXor]Pool
 //
 
 class createEltwiseOp<string type> :
@@ -1080,15 +1097,6 @@ def RewriteLogicalXor :
         Pat<
             (IE_LogicalXorOp $input1, $input2, $auto_broadcast),
             (createEltwiseOp<"LogicalXor"> $input1, $input2, $auto_broadcast)
-        >;
-
-def RewriteMultiply :
-        Pat<
-            (IE_MultiplyOp $input1, $input2, $scale, $auto_broadcast, $post_op, $clamp, $output_padding, $input_padding),
-            (createEltwiseOpWithPostOp<"Multiply"> $input1, $input2, $auto_broadcast, $post_op),
-            [
-                (ShouldBeNull<"scale must be null">:$scale)
-            ]
         >;
 
 def RewriteAnd :
@@ -1634,13 +1642,13 @@ def RewriteMVN6 :
 def createGatherOp :
         NativeCodeCall<[{
             $_builder.create<vpux::VPU::GatherOp>(
-                $_loc, $0, $1, $2, $3, $4, $5)
+                $_loc, $0, $1, $2, $3, $4)
         }]>;
 
 def RewriteGather :
         Pat<
-            (IE_GatherOp $input, $indices, $axis, $axis_value, $batch_dims, $indices_rank),
-            (createGatherOp $input, $indices, $axis, $axis_value, $batch_dims, $indices_rank)
+            (IE_GatherOp $input, $indices, $axis_value, $batch_dims, $indices_rank),
+            (createGatherOp $input, $indices, $axis_value, $batch_dims, $indices_rank)
         >;
 
 //
@@ -1768,7 +1776,7 @@ def createBatchToSpace :
 
 def RewriteBatchToSpace :
         Pat<
-            (IE_BatchToSpace $input, $block_shape, $crops_begin, $crops_end, $block_shape_value, $crops_begin_value, $crops_end_value),
+            (IE_BatchToSpace $input, $block_shape_value, $crops_begin_value, $crops_end_value),
             (createBatchToSpace $input, $block_shape_value, $crops_begin_value, $crops_end_value)
         >;
 
@@ -2209,7 +2217,7 @@ def createReduceSquareOp :
 
 def RewriteReduceSquare :
         Pat<
-            (IE_ReduceSquareOp $input, $axes, $epsilon, $axes_value, $keep_dims, $scale),
+            (IE_ReduceSquareOp $input, $epsilon, $axes_value, $keep_dims, $scale),
             (createReduceSquareOp $input, $axes_value, $keep_dims, $epsilon, $scale)
         >;
 
@@ -2325,6 +2333,21 @@ def RewriteAttention :
             (IE_AttentionOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $inputBias, $inputSink,
                                                                 $padSizeS),
             (createAttentionOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $inputBias, $inputSink, $padSizeS)
+        >;
+
+//
+// IE.AttentionDMAOp -> VPU.AttentionDMAOp
+//
+
+def createAttentionDMAOp :
+        NativeCodeCall<[{
+            $_builder.create<vpux::VPU::AttentionDMAOp>($_loc, $0, $1, $2, $3, $4, $5, $6, $7, $8)
+        }]>;
+
+def RewriteAttentionDMA :
+        Pat<
+            (IE_AttentionDMAOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $inputSink, $inputBias, $seqLenK, $padSizeS),
+            (createAttentionDMAOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $inputSink, $inputBias, $seqLenK, $padSizeS)
         >;
 
 //

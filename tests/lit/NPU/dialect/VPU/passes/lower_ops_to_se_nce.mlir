@@ -46,7 +46,7 @@ func.func @DoNotLowerInterpolateWithBatch(%arg0: tensor<4x16x3x3xf16, {order = #
             axes_attr = [2, 3],
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<4x16x3x3xf16, {order = #NHWC}> -> tensor<4x16x6x6xf16, {order = #NHWC}>
 
     return %0 : tensor<4x16x6x6xf16, {order = #NHWC}>
@@ -78,7 +78,7 @@ func.func @DoNotLowerInterpolateBilinearAlignCorners(%arg0: tensor<1x16x3x3xf16,
             axes_attr = [2, 3],
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x6x6xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x6x6xf16, {order = #NHWC}>
@@ -110,7 +110,7 @@ func.func @DoNotLowerInterpolateBilinearTFHALFPIXELFORNN(%arg0: tensor<1x16x3x3x
             axes_attr = [2, 3],
             scales_attr = [2.000000e+00, 2.000000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x6x6xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x6x6xf16, {order = #NHWC}>
@@ -142,7 +142,7 @@ func.func @DoNotLowerInterpolateBilinearFloatScales(%arg0: tensor<1x16x3x3xf16, 
             axes_attr = [2, 3],
             scales_attr = [2.999998e+00, 2.999998e+00],
             sizes_attr = [8, 8],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x8x8xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x8x8xf16, {order = #NHWC}>
@@ -174,7 +174,7 @@ func.func @DoNotLowerInterpolateBilinearAsymmetricLargeKernel(%arg0: tensor<1x16
             axes_attr = [2, 3],
             scales_attr = [16.000000e+00, 16.0000000e+00],
             sizes_attr = [36, 36],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x48x48xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x48x48xf16, {order = #NHWC}>
@@ -207,7 +207,7 @@ func.func @DoNotLowerInterpolateBilinearHalfPixelLargeKernel(%arg0: tensor<1x16x
             axes_attr = [2, 3],
             scales_attr = [20.000000e+00, 20.0000000e+00],
             sizes_attr = [60, 60],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x60x60xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x60x60xf16, {order = #NHWC}>
@@ -240,7 +240,7 @@ func.func @DoNotLowerInterpolateBilinearAlignCornersWithIllegalScales(%arg0: ten
             axes_attr = [2, 3],
             scales_attr = [1.000000e+00, 1.0000000e+00],
             sizes_attr = [6, 6],
-            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
         } : tensor<1x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x6x6xf16, {order = #NHWC}>
 
     return %0 : tensor<1x16x6x6xf16, {order = #NHWC}>
@@ -252,5 +252,38 @@ func.func @DoNotLowerInterpolateBilinearAlignCornersWithIllegalScales(%arg0: ten
     // CHECK-NOT:   VPU.NCE.Interpolate
 
     // CHECK:       [[OUTPUT:%.+]] = VPU.Interpolate([[INPUT_DATA]])
+    // CHECK:       return [[OUTPUT]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @DoNotLowerDynamicInterpolate
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<4x16x?x?xf16, {order = #NHWC}>
+func.func @DoNotLowerDynamicInterpolate(%arg0: tensor<4x16x?x?xf16, {order = #NHWC}>) -> tensor<4x16x?x?xf16, {order = #NHWC}> {
+    %0 = VPU.Interpolate(%arg0) {
+            attr = #IE.Interpolate<antialias = false,
+                                   coord_mode = <ASYMMETRIC>,
+                                   cube_coeff = -7.500000e-01,
+                                   mode = <NEAREST>,
+                                   nearest_mode = <FLOOR>,
+                                   pads_begin = [0, 0, 0, 0],
+                                   pads_end = [0, 0, 0, 0],
+                                   shape_calc_mode = <SCALES>>,
+            axes_attr = [2, 3],
+            scales_attr = [2.000000e+00, 2.000000e+00],
+            sizes_attr = [6, 6],
+            operandSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0, 0, 0>
+        } : tensor<4x16x?x?xf16, {order = #NHWC}> -> tensor<4x16x?x?xf16, {order = #NHWC}>
+
+    return %0 : tensor<4x16x?x?xf16, {order = #NHWC}>
+
+    // CHECK-NOT:   VPU.StorageElementTable
+    // CHECK-NOT:   const.Declare
+    // CHECK-NOT:   VPU.GroupSparseTensor
+    // CHECK-NOT:   VPU.NCE.Interpolate
+
+    // CHECK:       [[OUTPUT:%.+]] = VPU.Interpolate([[INPUT]])
     // CHECK:       return [[OUTPUT]]
 }

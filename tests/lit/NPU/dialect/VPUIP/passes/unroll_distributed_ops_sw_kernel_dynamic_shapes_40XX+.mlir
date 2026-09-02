@@ -368,3 +368,133 @@ func.func @UnrollSWKernelNoDynInputOneDynOutput() -> (memref<1x3x32x48xf16, @DDR
 
     return %data_out, %shape_out : memref<1x3x32x48xf16, @DDR>, memref<4xsi32, @DDR>
 }
+
+// -----
+
+// Test that multiple dynamicInputShapes are correctly unrolled per-cluster.
+// Previously only a single dynamicInputShape was supported (VPUX_THROW_UNLESS size <= 1).
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#C = affine_map<(d0) -> (d0)>
+
+module @VPU.SW {
+  func.func nested @builtin_AttentionDMA(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xui8, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "attention_dma.cpp", VPU.kernel_entry = "attention_dma"}
+  func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+}
+
+!InputQ = !VPUIP.DistributedBuffer<
+    1x6x64x64xf16, #NCHW, @CMX_NN, {
+    mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments,
+    compute_shapes = [[1, 6, 64, 64], [1, 6, 64, 64]], compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]],
+    memory_shapes = [[1, 6, 64, 64], [1, 6, 64, 64]], memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]
+}>
+
+!InputK = !VPUIP.DistributedBuffer<
+    1x6x128x64xf16, #NCHW, @CMX_NN, {
+    mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments,
+    compute_shapes = [[1, 6, 128, 64], [1, 6, 128, 64]], compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]],
+    memory_shapes = [[1, 6, 128, 64], [1, 6, 128, 64]], memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]
+}>
+
+!InputV = !VPUIP.DistributedBuffer<
+    1x6x128x64xf16, #NCHW, @CMX_NN, {
+    mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments,
+    compute_shapes = [[1, 6, 128, 64], [1, 6, 128, 64]], compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]],
+    memory_shapes = [[1, 6, 128, 64], [1, 6, 128, 64]], memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]
+}>
+
+!InputScale = !VPUIP.DistributedBuffer<
+    1x1x1x1xf16, #NCHW, @CMX_NN, {
+    mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments,
+    compute_shapes = [[1, 1, 1, 1], [1, 1, 1, 1]], compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]],
+    memory_shapes = [[1, 1, 1, 1], [1, 1, 1, 1]], memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]
+}>
+
+!AuxBuffer = !VPUIP.DistributedBuffer<
+    1x1x1x524288xui8, #NCHW, @CMX_NN, {
+    mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments,
+    compute_shapes = [[1, 1, 1, 524288], [1, 1, 1, 524288]], compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]],
+    memory_shapes = [[1, 1, 1, 524288], [1, 1, 1, 524288]], memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]
+}>
+
+!OutputDist = !VPUIP.DistributedBuffer<
+    1x6x64x64xf16, #NCHW, @CMX_NN, {
+    mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments,
+    compute_shapes = [[1, 6, 64, 64], [1, 6, 64, 64]], compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]],
+    memory_shapes = [[1, 6, 64, 64], [1, 6, 64, 64]], memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]
+}>
+
+!DistributedShape = !VPUIP.DistributedBuffer<4xsi32, #C, @CMX_NN, {
+    mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments
+}>
+
+// CHECK-LABEL: @UnrollSWKernelMultipleDynamicInputShapes
+func.func @UnrollSWKernelMultipleDynamicInputShapes() -> !OutputDist {
+    %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+    %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+
+    %inputQ = VPURT.DeclareBuffer <CMX_NN> <0> -> !InputQ
+    %inputK = VPURT.DeclareBuffer <CMX_NN> <49152> -> !InputK
+    %inputV = VPURT.DeclareBuffer <CMX_NN> <147456> -> !InputV
+    %inputScale = VPURT.DeclareBuffer <CMX_NN> [0, 1] <245760> -> !InputScale
+    %auxBuf = VPURT.DeclareBuffer <CMX_NN> <245762> -> !AuxBuffer
+    %output = VPURT.DeclareBuffer <CMX_NN> <770050> -> !OutputDist
+
+    %shapeQ = VPURT.DeclareBuffer <CMX_NN> [0, 1] <819202> -> !DistributedShape
+    %shapeK = VPURT.DeclareBuffer <CMX_NN> [0, 1] <819218> -> !DistributedShape
+    %shapeV = VPURT.DeclareBuffer <CMX_NN> [0, 1] <819234> -> !DistributedShape
+    %shapeOut = VPURT.DeclareBuffer <CMX_NN> [0, 1] <819250> -> !DistributedShape
+
+    // CHECK-DAG: [[SHAPE_Q_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <819202> -> memref<4xsi32, [@CMX_NN, 0]>
+    // CHECK-DAG: [[SHAPE_Q_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <819202> -> memref<4xsi32, [@CMX_NN, 1]>
+    // CHECK-DAG: [[SHAPE_K_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <819218> -> memref<4xsi32, [@CMX_NN, 0]>
+    // CHECK-DAG: [[SHAPE_K_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <819218> -> memref<4xsi32, [@CMX_NN, 1]>
+    // CHECK-DAG: [[SHAPE_V_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <819234> -> memref<4xsi32, [@CMX_NN, 0]>
+    // CHECK-DAG: [[SHAPE_V_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <819234> -> memref<4xsi32, [@CMX_NN, 1]>
+    // CHECK-DAG: [[SHAPE_OUT_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <819250> -> memref<4xsi32, [@CMX_NN, 0]>
+    // CHECK-DAG: [[SHAPE_OUT_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <819250> -> memref<4xsi32, [@CMX_NN, 1]>
+
+    VPURT.Task waits(%bar0 : !VPURT.Barrier) updates(%bar1 : !VPURT.Barrier) {
+    %results, %dynamicOutputShapes = VPUIP.SW.Kernel {
+        dynamicInputShapesMap = array<i32: 0, 1, 2, -1, -1>,
+        dynamicOutputShapesMap = array<i32: 0>,
+        resultSegmentSizes = array<i32: 1, 1, 0>}
+        @VPU.SW::@builtin_AttentionDMA
+        inputs(
+            %inputQ as %arg0: !InputQ,
+            %inputK as %arg1: !InputK,
+            %inputV as %arg2: !InputV,
+            %inputScale as %arg3: !InputScale,
+            %auxBuf as %arg4: !AuxBuffer)
+        dynamicInputShapes(
+            %shapeQ : !DistributedShape,
+            %shapeK : !DistributedShape,
+            %shapeV : !DistributedShape)
+        outputs(
+            %output as %arg5: !OutputDist)
+        dynamicOutputShapes(
+            %shapeOut : !DistributedShape)
+        on tile 0 -> (!OutputDist, !DistributedShape) {
+      VPUIP.SW.Kernel.run {attrs = []}(%arg0, %arg1, %arg2, %arg3, %arg4, %arg5) :
+        !InputQ, !InputK, !InputV, !InputScale, !AuxBuffer, !OutputDist
+        }
+    }
+
+    // Verify cluster 0: all 3 dynamic input shape buffers unrolled to cluster 0
+    // CHECK: VPURT.Task waits(
+    // CHECK: VPUIP.SW.Kernel
+    // CHECK-SAME: dynamicInputShapesMap = array<i32: 0, 1, 2, -1, -1>
+    // CHECK-SAME: @VPU.SW::@builtin_AttentionDMA
+    // CHECK-SAME: dynamicInputShapes([[SHAPE_Q_0]] : memref<4xsi32, [@CMX_NN, 0]>, [[SHAPE_K_0]] : memref<4xsi32, [@CMX_NN, 0]>, [[SHAPE_V_0]] : memref<4xsi32, [@CMX_NN, 0]>)
+    // CHECK-SAME: dynamicOutputShapes([[SHAPE_OUT_0]] : memref<4xsi32, [@CMX_NN, 0]>)
+
+    // Verify cluster 1: all 3 dynamic input shape buffers unrolled to cluster 1
+    // CHECK: VPURT.Task waits(
+    // CHECK: VPUIP.SW.Kernel
+    // CHECK-SAME: dynamicInputShapesMap = array<i32: 0, 1, 2, -1, -1>
+    // CHECK-SAME: @VPU.SW::@builtin_AttentionDMA
+    // CHECK-SAME: dynamicInputShapes([[SHAPE_Q_1]] : memref<4xsi32, [@CMX_NN, 1]>, [[SHAPE_K_1]] : memref<4xsi32, [@CMX_NN, 1]>, [[SHAPE_V_1]] : memref<4xsi32, [@CMX_NN, 1]>)
+    // CHECK-SAME: dynamicOutputShapes([[SHAPE_OUT_1]] : memref<4xsi32, [@CMX_NN, 1]>)
+
+    return %output : !OutputDist
+}
