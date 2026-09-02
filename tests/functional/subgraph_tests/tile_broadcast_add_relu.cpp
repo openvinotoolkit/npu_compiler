@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// Regression test for EISW-163853 (K2 accuracy regression, PR #28182).
+// Regression test for E#163853 (K2 accuracy regression, PR #28182).
 //
 // The OptimizeTileOp IE pass folds Tile(bias_1xCx1x1) → Add(act, tile_out) when the
 // resulting broadcast-Add is cheaper than a DPU Eltwise on equal-sized tensors.

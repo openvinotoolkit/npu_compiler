@@ -179,7 +179,7 @@ bool isNCEDataInOperand(VPUIP::NCEClusterTaskOp nceOp, unsigned operandIndex) {
 
     // Start with the NCE operands already covered by the current optimization
     // model. Other auxiliary inputs can be enabled here after per-input
-    // legality and performance validation, tracked by EISW-227976.
+    // legality and performance validation, tracked by E#227976.
     return containsOperandIndex(nceOp.getInputMutable()) || containsOperandIndex(nceOp.getWeightsMutable()) ||
            containsOperandIndex(nceOp.getWeightTableMutable());
 }
