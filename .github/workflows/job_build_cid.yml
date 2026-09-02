@@ -303,7 +303,7 @@ jobs:
             --build "${OPENVINO_BUILD_DIR}" \
             --parallel \
             --config "${CMAKE_BUILD_TYPE}" \
-            --target openvino_intel_npu_compiler openvino_intel_npu_compiler_loader npu_interpreter_runtime compilerTest profilingTest vpuxCompilerL0Test loaderTest
+            --target openvino_intel_npu_compiler openvino_intel_npu_compiler_loader openvino_intel_npu_vm_runtime compilerTest profilingTest vpuxCompilerL0Test loaderTest
 
       - name: CMake cpack - CiD target
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
