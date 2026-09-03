@@ -16,6 +16,8 @@
 
 #include <llvm/ADT/DenseSet.h>
 
+#include <optional>
+
 namespace vpux {
 
 class AsyncDepsInfo final {
@@ -40,8 +42,13 @@ public:
     void verifyAcyclic() const;
 
 private:
+    using DepsMap = SmallVector<llvm::DenseSet<size_t>>;
+    using DepsVecCache = SmallVector<std::optional<SmallVector<size_t>>>;
+
     void setIndex(mlir::async::ExecuteOp execOp, uint64_t index);
     SmallVector<size_t> getDepsVec(const llvm::DenseSet<size_t>& deps) const;
+    const SmallVector<size_t>& getCachedDepsVec(size_t opIdx, const DepsMap& depsMap, DepsVecCache& depsVecCache) const;
+    static void invalidateDepsVecCacheEntry(DepsVecCache& depsVecCache, size_t opIdx);
     bool hasCycle() const;
 
 private:
@@ -56,8 +63,14 @@ private:
     SmallVector<mlir::async::ExecuteOp> _allExecOps;
 
     // indexOf(mlir::async::ExecuteOp) 'depends on' [ indexOf(mlir::async::ExecuteOp)... ].
-    SmallVector<llvm::DenseSet<size_t>> _depsMap;
-    SmallVector<llvm::DenseSet<size_t>> _consumerMap;
+    DepsMap _depsMap;
+    DepsMap _consumerMap;
+
+    // getOpDeps() and getConsumerOps() are called repeatedly by the schedulers. Keep the
+    // deterministically sorted representation and invalidate only entries whose set changes.
+    mutable DepsVecCache _depsVecCache;
+    mutable DepsVecCache _consumerVecCache;
+
     size_t _execOpCount = 0;
 };
 
