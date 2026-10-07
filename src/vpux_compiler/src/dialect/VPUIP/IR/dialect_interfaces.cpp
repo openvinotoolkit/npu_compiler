@@ -97,6 +97,11 @@ struct CallOPPreInliner {
 
     private:
         ResourceDescriptor() = delete;
+        ResourceDescriptor(FunctionAnalyticBase base, DebatchedCallOpData data, std::optional<size_t> ddr)
+                : FunctionAnalyticBase(std::move(base)),
+                  callOpData(std::move(data)),
+                  singleFunctionDDRConsumptionBytes(ddr) {
+        }
     };
     /*
      * Delegates processing to appropriate handler if conditions apt the hadler invocation,
