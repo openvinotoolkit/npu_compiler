@@ -64,14 +64,14 @@ jobs:
       - name: Restore Driver package from cache
         if: ${{ inputs.build-cache }}
         id: cache-restore
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: ${{ steps.cache-key.outputs.cache-key }}
           path: ${{ env.NPU_DRIVER_INSTALL_DIR }}
 
       - name: Checkout versions action
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: ${{ env.NPU_ACTIONS_DIR }}
           sparse-checkout: |
@@ -85,7 +85,7 @@ jobs:
 
       - name: Clone Linux NPU Driver
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         timeout-minutes: 15
         with:
           repository: ${{ steps.versions.outputs.npu-linux-driver-repository }}
@@ -95,7 +95,7 @@ jobs:
 
       - name: System info
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: openvinotoolkit/openvino/.github/actions/system_info@52ddc07385712456dd9f8c5ecf05d7e49c6da329 # 2026.2.0
+        uses: openvinotoolkit/openvino/.github/actions/system_info@e213a14725769a6a2bf86fc86650aa78a9c05d3e # 2026.4.1
 
       - name: Install system packages
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
@@ -145,13 +145,13 @@ jobs:
 
       - name: Cache artifacts
         if: ${{ inputs.build-cache && !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.NPU_DRIVER_INSTALL_DIR }}
           key: ${{ steps.cache-key.outputs.cache-key }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           path: ${{ env.NPU_DRIVER_INSTALL_DIR }}
           name: ${{ env.NPU_DRIVER_BUILD_PACKAGE }}
