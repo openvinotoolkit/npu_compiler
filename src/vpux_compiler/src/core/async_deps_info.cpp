@@ -133,6 +133,25 @@ SmallVector<size_t> vpux::AsyncDepsInfo::getDepsVec(const llvm::DenseSet<size_t>
     return vec;
 }
 
+const SmallVector<size_t>& vpux::AsyncDepsInfo::getCachedDepsVec(size_t opIdx, const DepsMap& depsMap,
+                                                                 DepsVecCache& depsVecCache) const {
+    if (depsVecCache.size() < depsMap.size()) {
+        depsVecCache.resize(depsMap.size());
+    }
+
+    auto& cachedDeps = depsVecCache[opIdx];
+    if (!cachedDeps.has_value()) {
+        cachedDeps.emplace(getDepsVec(depsMap[opIdx]));
+    }
+    return cachedDeps.value();
+}
+
+void vpux::AsyncDepsInfo::invalidateDepsVecCacheEntry(DepsVecCache& depsVecCache, size_t opIdx) {
+    if (opIdx < depsVecCache.size()) {
+        depsVecCache[opIdx].reset();
+    }
+}
+
 uint32_t vpux::AsyncDepsInfo::getIndex(mlir::async::ExecuteOp execOp) const {
     const auto attr = execOp->getAttrOfType<mlir::IntegerAttr>(_indexAttrName);
     VPUX_THROW_UNLESS(attr != nullptr, "Attribute '{0}' was not set for '{1}' operation at '{2}'", _indexAttrName,
@@ -200,7 +219,7 @@ void vpux::AsyncDepsInfo::addExecOp(mlir::async::ExecuteOp execOp) {
         _log.trace("It has a dependency from other 'async.execute' Operation at '{0}'", argExecOp->getLoc());
 
         const auto argExecInd = getIndex(argExecOp);
-        _depsMap[execInd].insert(argExecInd);
+        addDependency(argExecInd, execInd);
     }
 
     _log = _log.unnest();
@@ -217,10 +236,17 @@ void vpux::AsyncDepsInfo::addDependency(mlir::async::ExecuteOp from, mlir::async
 }
 
 void vpux::AsyncDepsInfo::addDependency(size_t fromOpIdx, size_t toOpIdx) {
-    _depsMap[toOpIdx].insert(fromOpIdx);
+    const auto depsInsertion = _depsMap[toOpIdx].insert(fromOpIdx);
+    if (depsInsertion.second) {
+        invalidateDepsVecCacheEntry(_depsVecCache, toOpIdx);
+    }
+
     if (!_consumerMap.empty()) {
         // also update consumer map if build
-        _consumerMap[fromOpIdx].insert(toOpIdx);
+        const auto consumerInsertion = _consumerMap[fromOpIdx].insert(toOpIdx);
+        if (consumerInsertion.second) {
+            invalidateDepsVecCacheEntry(_consumerVecCache, fromOpIdx);
+        }
     }
 }
 
@@ -272,9 +298,10 @@ void vpux::AsyncDepsInfo::optimizeDepsMap() {
         }
     }
 
+    _depsVecCache.clear();
+
     if (!_consumerMap.empty()) {
         // re-build consumer map using new deps map if build
-        _consumerMap.clear();
         buildConsMap();
     }
 }
@@ -284,7 +311,9 @@ void vpux::AsyncDepsInfo::optimizeDepsMap() {
 //
 
 void vpux::AsyncDepsInfo::buildConsMap() {
+    _consumerMap.clear();
     _consumerMap.resize(_depsMap.size());
+    _consumerVecCache.clear();
 
     for (size_t idx = 0; idx < _depsMap.size(); idx++) {
         for (auto bit : _depsMap[idx]) {
@@ -305,7 +334,7 @@ void vpux::AsyncDepsInfo::updateTokenDependencies() {
         _log.trace("Process 'async.execute' Operation at '{0}'", execOpIt->getLoc());
 
         const auto execInd = getIndex(*execOpIt);
-        const auto execDeps = getDepsVec(_depsMap[execInd]);
+        const auto execDeps = getOpDeps(execInd);
 
         SmallVector<mlir::Value> depsVec;
         for (auto depInd : execDeps) {
@@ -346,13 +375,13 @@ void vpux::AsyncDepsInfo::preAllocateForNewOps(size_t numOfNewOps) {
 
 const llvm::SmallVector<size_t> vpux::AsyncDepsInfo::getOpDeps(size_t opIdx) const {
     VPUX_THROW_WHEN(opIdx >= _execOpCount, "Invalid index '{0}' for _depsMap", opIdx);
-    return getDepsVec(_depsMap[opIdx]);
+    return getCachedDepsVec(opIdx, _depsMap, _depsVecCache);
 }
 
 const llvm::SmallVector<size_t> vpux::AsyncDepsInfo::getConsumerOps(size_t opIdx) const {
     VPUX_THROW_WHEN(_consumerMap.empty(), "Consumer map was not build");
     VPUX_THROW_WHEN(opIdx >= _execOpCount, "Invalid index '{0}' for _consumerMap", opIdx);
-    return getDepsVec(_consumerMap[opIdx]);
+    return getCachedDepsVec(opIdx, _consumerMap, _consumerVecCache);
 }
 
 std::unordered_map<size_t, size_t> vpux::AsyncDepsInfo::calculateOpInDegreeTable() const {

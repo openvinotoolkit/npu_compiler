@@ -77,6 +77,11 @@ TEST_F(MLIR_AsyncDepsInfo, AddDependencySCSPWithCircle) {
     auto op2Consumers = info.getConsumerOps(2);
     EXPECT_EQ(op2Consumers.size(), 0);
 
+    // Prime the dependency cache before adding a new edge.
+    auto op2Deps = info.getOpDeps(2);
+    ASSERT_EQ(op2Deps.size(), 1);
+    EXPECT_EQ(op2Deps[0], 1);
+
     // Calling addDependency twice should not duplicate entries
     info.addDependency(0, 2);
     info.addDependency(0, 2);
@@ -86,9 +91,9 @@ TEST_F(MLIR_AsyncDepsInfo, AddDependencySCSPWithCircle) {
     EXPECT_TRUE(std::find(op0ConsumersAfter.begin(), op0ConsumersAfter.end(), 2) != op0ConsumersAfter.end());
 
     auto op2DepsAfter = info.getOpDeps(2);
-    EXPECT_EQ(op2DepsAfter.size(), 2);
-    EXPECT_TRUE(std::find(op2DepsAfter.begin(), op2DepsAfter.end(), 0) != op2DepsAfter.end());
-    EXPECT_TRUE(std::find(op2DepsAfter.begin(), op2DepsAfter.end(), 1) != op2DepsAfter.end());
+    ASSERT_EQ(op2DepsAfter.size(), 2);
+    EXPECT_EQ(op2DepsAfter[0], 0);
+    EXPECT_EQ(op2DepsAfter[1], 1);
 
     // Introduce a cycle and verifyAcyclic should throw
     info.addDependency(2, 0);
@@ -149,17 +154,17 @@ TEST_F(MLIR_AsyncDepsInfo, AddDependencyMCMP) {
     // One producer feeding multiple consumers
     // op0 feeds op2, op3, and op4
     auto op0Consumers = info.getConsumerOps(0);
-    EXPECT_EQ(op0Consumers.size(), 3);
-    EXPECT_TRUE(std::find(op0Consumers.begin(), op0Consumers.end(), 2) != op0Consumers.end());
-    EXPECT_TRUE(std::find(op0Consumers.begin(), op0Consumers.end(), 3) != op0Consumers.end());
-    EXPECT_TRUE(std::find(op0Consumers.begin(), op0Consumers.end(), 4) != op0Consumers.end());
+    ASSERT_EQ(op0Consumers.size(), 3);
+    EXPECT_EQ(op0Consumers[0], 2);
+    EXPECT_EQ(op0Consumers[1], 3);
+    EXPECT_EQ(op0Consumers[2], 4);
 
     // Multiple producers feeding one consumer
     // op4 consumes from both op0 and op1
     auto op4Deps = info.getOpDeps(4);
-    EXPECT_EQ(op4Deps.size(), 2);
-    EXPECT_TRUE(std::find(op4Deps.begin(), op4Deps.end(), 0) != op4Deps.end());
-    EXPECT_TRUE(std::find(op4Deps.begin(), op4Deps.end(), 1) != op4Deps.end());
+    ASSERT_EQ(op4Deps.size(), 2);
+    EXPECT_EQ(op4Deps[0], 0);
+    EXPECT_EQ(op4Deps[1], 1);
 
     // op1 has one consumer (op4)
     auto op1Consumers = info.getConsumerOps(1);
@@ -168,20 +173,34 @@ TEST_F(MLIR_AsyncDepsInfo, AddDependencyMCMP) {
 
     // Add new dependency from op1 to op2 and verify consumer map is updated
     info.addDependency(1, 2);
+    info.addDependency(1, 2);
 
     auto op1ConsumersAfter = info.getConsumerOps(1);
-    EXPECT_EQ(op1ConsumersAfter.size(), 2);
-    EXPECT_TRUE(std::find(op1ConsumersAfter.begin(), op1ConsumersAfter.end(), 2) != op1ConsumersAfter.end());
-    EXPECT_TRUE(std::find(op1ConsumersAfter.begin(), op1ConsumersAfter.end(), 4) != op1ConsumersAfter.end());
+    ASSERT_EQ(op1ConsumersAfter.size(), 2);
+    EXPECT_EQ(op1ConsumersAfter[0], 2);
+    EXPECT_EQ(op1ConsumersAfter[1], 4);
 
     auto op2DepsAfter = info.getOpDeps(2);
-    EXPECT_EQ(op2DepsAfter.size(), 2);
-    EXPECT_TRUE(std::find(op2DepsAfter.begin(), op2DepsAfter.end(), 0) != op2DepsAfter.end());
-    EXPECT_TRUE(std::find(op2DepsAfter.begin(), op2DepsAfter.end(), 1) != op2DepsAfter.end());
+    ASSERT_EQ(op2DepsAfter.size(), 2);
+    EXPECT_EQ(op2DepsAfter[0], 0);
+    EXPECT_EQ(op2DepsAfter[1], 1);
 
     // Verify op0 consumers remain unchanged after adding op1->op2 dependency
     auto op0ConsumersAfter = info.getConsumerOps(0);
     EXPECT_EQ(op0ConsumersAfter.size(), 3);
+
+    // Rebuilding token operands consumes the cached, sorted dependency vectors.
+    // Exercise both the cache-miss and cache-hit paths and preserve deterministic order.
+    const auto verifyOp2Dependencies = [&]() {
+        auto op2Dependencies = info.getExecuteOpAtIndex(2).getDependencies();
+        ASSERT_EQ(op2Dependencies.size(), 2);
+        EXPECT_EQ(op2Dependencies[0], info.getExecuteOpAtIndex(0).getToken());
+        EXPECT_EQ(op2Dependencies[1], info.getExecuteOpAtIndex(1).getToken());
+    };
+    info.updateTokenDependencies();
+    verifyOp2Dependencies();
+    info.updateTokenDependencies();
+    verifyOp2Dependencies();
 }
 
 TEST_F(MLIR_AsyncDepsInfo, OptimizeDepsMap) {
@@ -222,10 +241,15 @@ TEST_F(MLIR_AsyncDepsInfo, OptimizeDepsMap) {
     ASSERT_TRUE(func != nullptr);
 
     vpux::AsyncDepsInfo info(func);
+    info.buildConsMap();
 
     // Before optimization: op2 depends on both op0 and op1
     auto op2DepsBefore = info.getOpDeps(2);
     EXPECT_EQ(op2DepsBefore.size(), 2);
+
+    // Prime the consumer cache before optimizeDepsMap rebuilds the consumer map.
+    auto op0ConsumersBefore = info.getConsumerOps(0);
+    EXPECT_EQ(op0ConsumersBefore.size(), 2);
 
     // Optimize: since op1 depends on op0, and op2 depends on both,
     // the dependency from op2 to op0 is redundant
@@ -235,6 +259,10 @@ TEST_F(MLIR_AsyncDepsInfo, OptimizeDepsMap) {
     auto op2DepsAfter = info.getOpDeps(2);
     EXPECT_EQ(op2DepsAfter.size(), 1);
     EXPECT_EQ(op2DepsAfter[0], 1);
+
+    auto op0ConsumersAfter = info.getConsumerOps(0);
+    EXPECT_EQ(op0ConsumersAfter.size(), 1);
+    EXPECT_EQ(op0ConsumersAfter[0], 1);
 }
 
 TEST_F(MLIR_AsyncDepsInfo, CalculateInOutDegree) {
@@ -314,26 +342,38 @@ TEST_F(MLIR_AsyncDepsInfo, InsertNewExecOp) {
     ASSERT_TRUE(func != nullptr);
 
     vpux::AsyncDepsInfo info(func);
+    info.buildConsMap();
+
+    // Prime both caches before extending the maps.
+    EXPECT_TRUE(info.getOpDeps(0).empty());
+    EXPECT_TRUE(info.getConsumerOps(0).empty());
 
     // Initial count should be 1
     EXPECT_EQ(info.getExecOpCount(), 1);
 
-    // Create a new async.execute operation
+    // Reserve a batch of slots to cover the production insertion pattern.
+    info.preAllocateForNewOps(2);
+
+    // Create new async.execute operations
     mlir::OpBuilder builder(&ctx);
-    builder.setInsertionPointToEnd(&func.getBody().front());
 
     auto memrefType = mlir::MemRefType::get({1, 32, 256, 256}, builder.getF16Type());
     auto asyncValueType = mlir::async::ValueType::get(memrefType);
     auto tokenType = builder.getType<mlir::async::TokenType>();
 
-    auto newExecOp =
-            builder.create<mlir::async::ExecuteOp>(builder.getUnknownLoc(), mlir::TypeRange{tokenType, asyncValueType},
-                                                   mlir::ValueRange{}, mlir::ValueRange{});
+    auto createExecOp = [&](mlir::ValueRange dependencies) {
+        builder.setInsertionPointToEnd(&func.getBody().front());
+        auto execOp = builder.create<mlir::async::ExecuteOp>(
+                builder.getUnknownLoc(), mlir::TypeRange{tokenType, asyncValueType}, dependencies, mlir::ValueRange{});
 
-    auto& bodyBlock = newExecOp.getBodyRegion().emplaceBlock();
-    builder.setInsertionPointToStart(&bodyBlock);
-    auto allocOp = builder.create<mlir::memref::AllocOp>(builder.getUnknownLoc(), memrefType);
-    builder.create<mlir::async::YieldOp>(builder.getUnknownLoc(), mlir::ValueRange{allocOp});
+        auto& bodyBlock = execOp.getBodyRegion().emplaceBlock();
+        builder.setInsertionPointToStart(&bodyBlock);
+        auto allocOp = builder.create<mlir::memref::AllocOp>(builder.getUnknownLoc(), memrefType);
+        builder.create<mlir::async::YieldOp>(builder.getUnknownLoc(), mlir::ValueRange{allocOp});
+        return execOp;
+    };
+
+    auto newExecOp = createExecOp(mlir::ValueRange{info.getExecuteOpAtIndex(0).getToken()});
 
     // Insert new exec op to deps map
     size_t newIdx = info.insertNewExecOpToDepsMap(newExecOp);
@@ -344,4 +384,41 @@ TEST_F(MLIR_AsyncDepsInfo, InsertNewExecOp) {
 
     auto retrievedOp = info.getExecuteOpAtIndex(newIdx);
     EXPECT_EQ(retrievedOp, newExecOp);
+
+    auto newOpDeps = info.getOpDeps(newIdx);
+    ASSERT_EQ(newOpDeps.size(), 1);
+    EXPECT_EQ(newOpDeps[0], 0);
+
+    auto op0Consumers = info.getConsumerOps(0);
+    ASSERT_EQ(op0Consumers.size(), 1);
+    EXPECT_EQ(op0Consumers[0], newIdx);
+
+    // Query between insertions so the second insertion must invalidate warm caches.
+    EXPECT_TRUE(info.getConsumerOps(newIdx).empty());
+
+    SmallVector<mlir::Value> secondOpDependencies{newExecOp.getToken(), info.getExecuteOpAtIndex(0).getToken()};
+    auto secondExecOp = createExecOp(secondOpDependencies);
+    auto secondIdx = info.insertNewExecOpToDepsMap(secondExecOp);
+
+    EXPECT_EQ(info.getExecOpCount(), 3);
+    EXPECT_EQ(secondIdx, 2);
+
+    auto secondOpDeps = info.getOpDeps(secondIdx);
+    ASSERT_EQ(secondOpDeps.size(), 2);
+    EXPECT_EQ(secondOpDeps[0], 0);
+    EXPECT_EQ(secondOpDeps[1], 1);
+
+    op0Consumers = info.getConsumerOps(0);
+    ASSERT_EQ(op0Consumers.size(), 2);
+    EXPECT_EQ(op0Consumers[0], 1);
+    EXPECT_EQ(op0Consumers[1], 2);
+
+    auto op1Consumers = info.getConsumerOps(1);
+    ASSERT_EQ(op1Consumers.size(), 1);
+    EXPECT_EQ(op1Consumers[0], 2);
+
+    // Repeat the final reads to exercise the cache-hit path.
+    EXPECT_EQ(info.getOpDeps(secondIdx), secondOpDeps);
+    EXPECT_EQ(info.getConsumerOps(0), op0Consumers);
+    EXPECT_EQ(info.getConsumerOps(1), op1Consumers);
 }
