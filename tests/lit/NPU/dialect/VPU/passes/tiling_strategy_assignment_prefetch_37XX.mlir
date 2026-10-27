@@ -535,6 +535,44 @@ func.func @LargeConstPipeliningSOKFor(
 
 // -----
 
+!qElemType = !quant.uniform<i4:f16, 0.0078125>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// Int4 GEMV (FullyConnected with one token, as in LLM decode). The op fits CMX untiled, but the filter
+// is large, so it should get a large-filter pipelining strategy. Two filter tiles fit CMX only from 4 tiles.
+
+// CHECK-LABEL: @LargeConstPipeliningGEMVInt4
+// CHECK-SAME:          [[INPUT:%arg[0-9]]]: tensor<1x1536x1x1xf16, {order = #NHWC}>
+func.func @LargeConstPipeliningGEMVInt4(
+        %arg0: tensor<1x1536x1x1xf16, {order = #NHWC}>)
+            -> tensor<1x4480x1x1xf16, {order = #NHWC}> {
+    %weights = const.Declare tensor<4480x1536x1x1x!qElemType, {order = #NHWC}> = dense<1>
+        : tensor<4480x1536x1x1xsi4>, [#const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+    %weights_table = const.Declare tensor<4480x1x1x4xsi32> = dense<1>
+        : tensor<4480x1x1x4xsi32>
+
+    %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) rawFilterShape [4480, 1536, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        ppe = #VPU.PPEStub<>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        strides = [1, 1]
+    } : tensor<1x1536x1x1xf16, {order = #NHWC}>, tensor<4480x1536x1x1x!qElemType, {order = #NHWC}>, tensor<4480x1x1x4xsi32> -> tensor<1x4480x1x1xf16, {order = #NHWC}>
+
+    return %0 : tensor<1x4480x1x1xf16, {order = #NHWC}>
+
+    // CHECK-DAG:       [[WEIGHTS:%.+]] = const.Declare tensor<4480x1536x1x1x!qElemType, {order = #NHWC}>
+    // CHECK-DAG:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<4480x1x1x4xsi32>
+
+    // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [4480, 1536, 1, 1]
+    // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+    // CHECK-SAME:          tilingStrategy = [1, 4, 1, 1]
+    // CHECK-SAME:          -> tensor<1x4480x1x1xf16, {order = #NHWC}>
+
+    // CHECK:       return [[CONV]] : tensor<1x4480x1x1xf16, {order = #NHWC}>
+}
+
+// -----
+
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: func.func @SplitNCEEltwise
