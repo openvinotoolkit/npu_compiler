@@ -46,6 +46,9 @@ static constexpr double LARGE_CONST_THRESHOLD_RATIO = 0.25;
 // An experimental number from activation prefetch pass.
 // The purpose is to avoid excessive tiling.
 static constexpr int MAX_PREFETCH_TILING_TIME = 3;
+// Upper bound on the tile count tried for large-filter pipelining when the op fits CMX untiled
+// (MAX_PREFETCH_TILING_TIME is relative to the isolated tile count, which is 1 in that case).
+static constexpr int MAX_LARGE_FILTER_PIPELINE_TILES = 8;
 
 // An experimental number from large data (weights & input & output) pipelining.
 // The purpose is to avoid excessive tiling.
