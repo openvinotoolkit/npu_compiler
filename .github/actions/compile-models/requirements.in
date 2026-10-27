@@ -3,7 +3,7 @@
 setuptools>=84.0.0
 
 # Core
-transformers>=5.19.0
+transformers>=5.20.1
 torch==2.14.1+cpu
 torchvision==0.29.1+cpu
 protobuf==7.36.2
@@ -23,8 +23,8 @@ requests>=2.34.2
 tqdm>=4.67.3
 accelerate>=1.15.0
 urllib3>=2.8.0
-filelock>=4.0.12
+filelock>=4.2.4
 idna>=3.20
-ml-dtypes>=0.5.4
+ml-dtypes>=0.6.0
 anyio>=4.15.1
 fsspec>=2026.9.0
