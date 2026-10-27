@@ -76,11 +76,12 @@ mlir::FailureOr<SymbolizationResult> KernelParamsRewriter::symbolize(VPUMI40XX::
     // Simplify skipDescIds logic: use direct access when has_value, otherwise nullptr
     auto skipDescIds = op.getSkipDescIds().value_or(nullptr);
 
-    auto newOp = rewriter.create<VPUASM::KernelParamsOp>(
-            op.getLoc(), symName, inputsAttr, outputsAttr, inputsShapeAttr, outputsShapeAttr, op.getKernelTypeAttr(),
-            std::move(kernelParams), std::move(inputDimsBinaryVector), std::move(inputStridesBinaryVector),
-            std::move(outputDimsBinaryVector), std::move(outputStridesBinaryVector), isOutputBroadcasted,
-            op.getIsJitCompiled(), op.getUsesDma(), skipDescIds);
+    auto newOp =
+            VPUASM::KernelParamsOp::create(rewriter, op.getLoc(), symName, inputsAttr, outputsAttr, inputsShapeAttr,
+                                           outputsShapeAttr, op.getKernelTypeAttr(), std::move(kernelParams),
+                                           std::move(inputDimsBinaryVector), std::move(inputStridesBinaryVector),
+                                           std::move(outputDimsBinaryVector), std::move(outputStridesBinaryVector),
+                                           isOutputBroadcasted, op.getIsJitCompiled(), op.getUsesDma(), skipDescIds);
     rewriter.eraseOp(op);
 
     return SymbolizationResult(newOp);

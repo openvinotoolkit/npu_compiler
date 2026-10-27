@@ -142,7 +142,7 @@ public:
 
         const auto tensorAttr = vpux::TensorAttr::get(ctx, affineMap, /*memSpace=*/nullptr, BoundsRef(inBounds), {});
         const auto tensorType = mlir::RankedTensorType::get(shape, elemType, tensorAttr);
-        return builder.create<mlir::tensor::EmptyOp>(loc, tensorType, mlir::ValueRange{});
+        return mlir::tensor::EmptyOp::create(builder, loc, tensorType, mlir::ValueRange{});
     }
     virtual std::optional<mlir::tensor::EmptyOp> prepareWeights(mlir::OpBuilder& builder,
                                                                 std::shared_ptr<BaseParams> baseParams) {
@@ -151,7 +151,7 @@ public:
         const SmallVector<int64_t>& shapeWeights = baseParams->m_inputsShapeInfo[1].shape;
         const auto elemType = mlir::Float16Type::get(ctx);
         const auto tensorTypeWeights = mlir::RankedTensorType::get(shapeWeights, elemType, nullptr);
-        return builder.create<mlir::tensor::EmptyOp>(loc, tensorTypeWeights, mlir::ValueRange{});
+        return mlir::tensor::EmptyOp::create(builder, loc, tensorTypeWeights, mlir::ValueRange{});
     }
     virtual mlir::Operation* buildFunction(mlir::OpBuilder& builder, std::shared_ptr<BaseParams> baseParams) = 0;
     virtual std::string getOpName(std::shared_ptr<BaseParams> baseParams) = 0;
@@ -179,8 +179,8 @@ public:
             eraseLater(input);
             auto weights = prepareWeights(builder, baseParams);
             eraseLater(weights);
-            return builder.create<IE::MatMulOp>(loc, input.value(), weights.value(), matmulParams->m_transpose_a,
-                                                matmulParams->m_transpose_b);
+            return IE::MatMulOp::create(builder, loc, input.value(), weights.value(), matmulParams->m_transpose_a,
+                                        matmulParams->m_transpose_b);
         }
         return nullptr;
     }
@@ -207,8 +207,8 @@ public:
             const auto attrPadsEnd = getIntArrayAttr(ctx, convParams->m_padsEnd);
             const auto attrDilation = getIntArrayAttr(ctx, convParams->m_dilations);
 
-            return builder.create<IE::ConvolutionOp>(loc, input.value(), weights.value(), attrStride, attrPadsBegin,
-                                                     attrPadsEnd, attrDilation);
+            return IE::ConvolutionOp::create(builder, loc, input.value(), weights.value(), attrStride, attrPadsBegin,
+                                             attrPadsEnd, attrDilation);
         }
         return nullptr;
     }
@@ -233,10 +233,10 @@ public:
 
             switch (actFuncParams->m_activationFunc) {
             case ActivationFunctionParams::ReLU:
-                return builder.create<IE::ReLUOp>(loc, input.value());
+                return IE::ReLUOp::create(builder, loc, input.value());
             case ActivationFunctionParams::SoftMax:
-                return builder.create<IE::SoftMaxOp>(loc, input.value(), /*axisInd=*/getIntAttr(ctx, 1),
-                                                     /*padSize=*/nullptr);
+                return IE::SoftMaxOp::create(builder, loc, input.value(), /*axisInd=*/getIntAttr(ctx, 1),
+                                             /*padSize=*/nullptr);
             default:
                 return nullptr;
             }
@@ -271,12 +271,12 @@ public:
             auto rhsOp = prepareWeights(builder, baseParams);
             eraseLater(rhsOp);
 
-            return builder.create<IE::AddOp>(loc, lhsOp.value(), rhsOp.value(),
-                                             IE::AutoBroadcastTypeAttr::get(ctx, addParams->m_broadcastType),
-                                             /*post_op=*/nullptr,
-                                             /*clamp=*/nullptr,
-                                             /*outputPadding=*/nullptr,
-                                             /*inputPadding=*/nullptr);
+            return IE::AddOp::create(builder, loc, lhsOp.value(), rhsOp.value(),
+                                     IE::AutoBroadcastTypeAttr::get(ctx, addParams->m_broadcastType),
+                                     /*post_op=*/nullptr,
+                                     /*clamp=*/nullptr,
+                                     /*outputPadding=*/nullptr,
+                                     /*inputPadding=*/nullptr);
         }
         return nullptr;
     }
@@ -295,8 +295,8 @@ public:
             auto input = prepareInput(builder, baseParams);
             eraseLater(input);
 
-            return builder.create<IE::MaxPoolOp>(
-                    loc, input.value(), nullptr, getIntArrayAttr(ctx, maxPoolParams->m_kernelSize),
+            return IE::MaxPoolOp::create(
+                    builder, loc, input.value(), nullptr, getIntArrayAttr(ctx, maxPoolParams->m_kernelSize),
                     getIntArrayAttr(ctx, maxPoolParams->m_strides), getIntArrayAttr(ctx, maxPoolParams->m_padsBegin),
                     getIntArrayAttr(ctx, maxPoolParams->m_padsEnd),
                     vpux::IE::RoundingTypeAttr::get(ctx, maxPoolParams->m_roundingType), nullptr, nullptr, nullptr,
@@ -333,8 +333,8 @@ public:
         eraseLater(bias);
 
         // Create LSTMSequence operation
-        return builder.create<IE::LSTMSequenceOp>(
-                loc, mlir::Value(inputData->getResult()), mlir::Value(initialHiddenState->getResult()),
+        return IE::LSTMSequenceOp::create(
+                builder, loc, mlir::Value(inputData->getResult()), mlir::Value(initialHiddenState->getResult()),
                 mlir::Value(initialCellState->getResult()), mlir::Value(sequenceLengthData->getResult()),
                 mlir::Value(weights->getResult()), mlir::Value(recurrenceWeights->getResult()),
                 mlir::Value(bias->getResult()), nullptr /*sequenceLengthAttr*/, IE::RNNSequenceDirection::FORWARD);

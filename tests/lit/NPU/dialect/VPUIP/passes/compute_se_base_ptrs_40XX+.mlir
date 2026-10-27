@@ -114,7 +114,7 @@ func.func @SEPaddingWithLargePadSize(%input_data: !Input_DDR, %input_sm: !InputS
     %w_data, %w_sm = VPUIP.UngroupSparseBuffer(%weights)  {resultSegmentSizes = array<i32: 1, 1, 0>}
         -> !WeightsDistributed, !WeightsSMDistributed
     %out_cmx = VPURT.AllocDistributed -> !OutputDistributed
-    %conv_out = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+    %conv_out = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in_data : !InputDistributed)
         input_storage_element_table(%in_se : !InputSEDistributed)
         weights(%w_data : !WeightsDistributed)

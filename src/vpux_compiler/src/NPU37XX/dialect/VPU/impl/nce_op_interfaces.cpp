@@ -130,6 +130,9 @@ public:
     mlir::Value getReduceTensorMinMax(mlir::Operation* op) const {
         return mlir::cast<VPU::NCEEltwiseOp>(op).getReduceTensorMinMax();
     }
+    bool hasReduceOutput(mlir::Operation* op) const {
+        return VPU::hasAnyReduceOutput<VPU::NCEEltwiseOp>(op);
+    }
 };
 class PermuteOpModel : public VPU::NCEEltwiseOpModel<PermuteOpModel, VPU::NCEPermuteOp>, public Cuboid16MpeModeModel {};
 

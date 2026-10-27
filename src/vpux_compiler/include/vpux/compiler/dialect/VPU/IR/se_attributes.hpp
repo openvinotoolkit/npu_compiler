@@ -56,7 +56,7 @@ struct DilationFactors {
 };
 
 inline DilationFactors extractDilationFactors(mlir::ArrayAttr dilationFactorsAttr) {
-    VPUX_THROW_UNLESS(dilationFactorsAttr != nullptr, "SEDilatedConvAttr: missing dilation attribute");
+    VPUX_THROW_WHEN(dilationFactorsAttr == nullptr, "SEDilatedConvAttr: missing dilation attribute");
     auto dilationFactors = parseIntArrayAttr<int64_t>(dilationFactorsAttr);
 
     VPUX_THROW_WHEN(dilationFactors.size() != 2,
@@ -72,7 +72,7 @@ struct DilationKernelSize {
 };
 
 inline DilationKernelSize extractDilationKernelSize(mlir::ArrayAttr dilationKernelSizeAttr) {
-    VPUX_THROW_UNLESS(dilationKernelSizeAttr != nullptr, "SEDilatedConvAttr: missing kernel size attribute");
+    VPUX_THROW_WHEN(dilationKernelSizeAttr == nullptr, "SEDilatedConvAttr: missing kernel size attribute");
     auto dilationKernelSize = parseIntArrayAttr<int64_t>(dilationKernelSizeAttr);
 
     VPUX_THROW_WHEN(dilationKernelSize.size() != 2,
@@ -87,7 +87,7 @@ struct DilationStrides {
 };
 
 inline DilationStrides extractDilationStrides(mlir::ArrayAttr dilationStridesAttr) {
-    VPUX_THROW_UNLESS(dilationStridesAttr != nullptr, "SEDilatedConvAttr: missing strides attribute");
+    VPUX_THROW_WHEN(dilationStridesAttr == nullptr, "SEDilatedConvAttr: missing strides attribute");
     auto dilationStrides = parseIntArrayAttr<int64_t>(dilationStridesAttr);
 
     VPUX_THROW_WHEN(dilationStrides.size() != 2,
@@ -105,7 +105,7 @@ struct DilationDataOffsets {
 };
 
 inline DilationDataOffsets extractDilationDataOffsets(mlir::ArrayAttr dilationDataOffsetsAttr) {
-    VPUX_THROW_UNLESS(dilationDataOffsetsAttr != nullptr, "SEDilatedConvAttr: missing data offsets attribute");
+    VPUX_THROW_WHEN(dilationDataOffsetsAttr == nullptr, "SEDilatedConvAttr: missing data offsets attribute");
     auto dilationDataOffsets = parseIntArrayAttr<int64_t>(dilationDataOffsetsAttr);
 
     VPUX_THROW_WHEN(dilationDataOffsets.size() != 4,
@@ -124,7 +124,7 @@ struct DilationDataSizes {
 };
 
 inline DilationDataSizes extractDilationDataSizes(mlir::ArrayAttr dilationDataSizesAttr) {
-    VPUX_THROW_UNLESS(dilationDataSizesAttr != nullptr, "SEDilatedConvAttr: missing data sizes attribute");
+    VPUX_THROW_WHEN(dilationDataSizesAttr == nullptr, "SEDilatedConvAttr: missing data sizes attribute");
     auto dilationDataSizes = parseIntArrayAttr<int64_t>(dilationDataSizesAttr);
 
     VPUX_THROW_WHEN(dilationDataSizes.size() != 4,

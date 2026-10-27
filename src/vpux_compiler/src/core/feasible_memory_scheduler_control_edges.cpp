@@ -53,8 +53,8 @@ void FeasibleMemorySchedulerControlEdges::insertDependenciesBasic(
                     auto srcAsyncOp = _depsInfo.getExecuteOpAtIndex(opIt->op_);
                     auto dstAsyncOp = _depsInfo.getExecuteOpAtIndex(nextTimeOpIt->op_);
                     _log.trace("Dep: {0} -> {1}", opIt->op_, nextTimeOpIt->op_);
-                    VPUX_THROW_UNLESS((srcAsyncOp != nullptr) && (dstAsyncOp != nullptr),
-                                      "srcAsyncOp/dstAsyncOp not located based on index");
+                    VPUX_THROW_WHEN((srcAsyncOp == nullptr) || (dstAsyncOp == nullptr),
+                                    "srcAsyncOp/dstAsyncOp not located based on index");
                     _depsInfo.addDependency(srcAsyncOp, dstAsyncOp);
                 } else if (nextTimeOpIt->cycleBegin_ > (opIt->cycleBegin_ + nextTimeDiff)) {
                     break;
@@ -114,8 +114,8 @@ void FeasibleMemorySchedulerControlEdges::insertScheduleOrderDepsForExecutor(
                     // time t+1
                     auto dstAsyncOp = _depsInfo.getExecuteOpAtIndex(nextTimeOpIt->op_);
                     _log.trace("Dep: {0} -> {1}", opIt->op_, nextTimeOpIt->op_);
-                    VPUX_THROW_UNLESS((srcAsyncOp != nullptr) && (dstAsyncOp != nullptr),
-                                      "srcAsyncOp/dstAsyncOp not located based on index");
+                    VPUX_THROW_WHEN(srcAsyncOp == nullptr || dstAsyncOp == nullptr,
+                                    "srcAsyncOp/dstAsyncOp not located based on index");
                     auto srcCycleEnd = getAsyncExecuteCycleEnd(srcAsyncOp);
                     auto dstCycleBegin = getAsyncExecuteCycleBegin(dstAsyncOp);
                     VPUX_THROW_UNLESS(srcCycleEnd <= dstCycleBegin,

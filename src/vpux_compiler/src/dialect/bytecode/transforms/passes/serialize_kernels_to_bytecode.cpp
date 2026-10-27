@@ -65,9 +65,9 @@ void SerializeKernelsToBytecodePass::safeRunOnModule() {
         binaryOp.erase();
 
         // Create stub module to preserve Core::NestedCallOp symbol resolution
-        auto containerModule = builder.create<mlir::ModuleOp>(moduleLoc, moduleName);
+        auto containerModule = mlir::ModuleOp::create(builder, moduleLoc, moduleName);
         auto bodyBuilder = mlir::OpBuilder::atBlockEnd(containerModule.getBody());
-        auto funcDecl = bodyBuilder.create<mlir::func::FuncOp>(moduleLoc, funcName, funcType);
+        auto funcDecl = mlir::func::FuncOp::create(bodyBuilder, moduleLoc, funcName, funcType);
         funcDecl.setNested();
     }
 }

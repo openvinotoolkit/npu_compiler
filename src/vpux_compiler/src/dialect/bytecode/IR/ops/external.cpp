@@ -52,8 +52,12 @@ mlir::LogicalResult bytecode::ExtBufferCreateOp::verify() {
 
     SmallVector<int64_t> strides;
     int64_t offset = 0;
-    if (mlir::failed(memrefType.getStridesAndOffset(strides, offset))) {
+    const auto layout = memrefType.getLayout();
+    if (!mlir::isa<mlir::StridedLayoutAttr>(layout) && !layout.isIdentity()) {
         return emitOpError("memref layout must be representable as a strided layout, got ") << memrefType;
+    }
+    if (mlir::failed(memrefType.getStridesAndOffset(strides, offset))) {
+        return emitOpError("failed to get strides and offset for memref type ") << memrefType;
     }
     for (const auto stride : strides) {
         if (mlir::ShapedType::isDynamic(stride)) {

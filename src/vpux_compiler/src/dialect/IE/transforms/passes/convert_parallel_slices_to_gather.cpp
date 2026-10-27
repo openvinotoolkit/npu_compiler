@@ -135,7 +135,7 @@ mlir::LogicalResult MergeParallelGatherSameIndices::matchAndRewrite(IE::ConcatOp
 
     _log.trace("Merging {0} parallel GatherOps into single Gather+Reshape", numGathers);
 
-    auto concatTables = rewriter.create<IE::ConcatOp>(concatOp->getLoc(), tableInputs, Dim(anchorAxis));
+    auto concatTables = IE::ConcatOp::create(rewriter, concatOp->getLoc(), tableInputs, Dim(anchorAxis));
     const auto offsetType = mlir::RankedTensorType::get({numGathers}, indicesElemType);
     auto makeOffsets = [&](auto zeroTag) -> mlir::Value {
         using T = decltype(zeroTag);
@@ -148,17 +148,17 @@ mlir::LogicalResult MergeParallelGatherSameIndices::matchAndRewrite(IE::ConcatOp
     mlir::Value offsetConst = indicesElemType.isInteger(64) ? makeOffsets(int64_t{0}) : makeOffsets(int32_t{0});
 
     auto numpyAttr = IE::AutoBroadcastTypeAttr::get(rewriter.getContext(), IE::AutoBroadcastType::NUMPY);
-    auto mergedIdx = rewriter.create<IE::AddOp>(concatOp->getLoc(), indices, offsetConst, numpyAttr,
-                                                /*post_op=*/nullptr, /*clamp=*/nullptr,
-                                                /*output_padding=*/nullptr, /*input_padding=*/nullptr);
+    auto mergedIdx = IE::AddOp::create(rewriter, concatOp->getLoc(), indices, offsetConst, numpyAttr,
+                                       /*post_op=*/nullptr, /*clamp=*/nullptr,
+                                       /*output_padding=*/nullptr, /*input_padding=*/nullptr);
 
     auto mergedGather =
-            rewriter.create<IE::GatherOp>(concatOp->getLoc(), concatTables.getOutput(), mergedIdx.getOutput(),
-                                          anchor.getAxisValue(), anchor.getBatchDims(), anchor.getIndicesRankAttr());
+            IE::GatherOp::create(rewriter, concatOp->getLoc(), concatTables.getOutput(), mergedIdx.getOutput(),
+                                 anchor.getAxisValue(), anchor.getBatchDims(), anchor.getIndicesRankAttr());
 
     const auto concatShape = getShape(concatOp.getOutput());
-    auto reshaped = rewriter.create<IE::ReshapeOp>(concatOp->getLoc(), mergedGather.getOutput(),
-                                                   getIntArrayAttr(rewriter.getContext(), concatShape));
+    auto reshaped = IE::ReshapeOp::create(rewriter, concatOp->getLoc(), mergedGather.getOutput(),
+                                          getIntArrayAttr(rewriter.getContext(), concatShape));
 
     rewriter.replaceOp(concatOp, reshaped.getOutput());
     return mlir::success();
@@ -329,8 +329,8 @@ mlir::Value ConvertToGather::convertSliceGroupToGather(SmallVector<IE::SliceOp> 
     newInputShapeVec[0] = sourceShape.totalSize() / elementSize;
     newInputShapeVec[1] = elementSize;
     const auto newType = mlir::cast<NDTypeInterface>(source.getType()).changeShape(ShapeRef(newInputShapeVec));
-    auto newInput = rewriter.create<IE::ReshapeOp>(source.getLoc(), newType, source,
-                                                   getIntArrayAttr(rewriter.getContext(), ShapeRef(newInputShapeVec)));
+    auto newInput = IE::ReshapeOp::create(rewriter, source.getLoc(), newType, source,
+                                          getIntArrayAttr(rewriter.getContext(), ShapeRef(newInputShapeVec)));
 
     const auto numOfSliceOps = groupedSliceOps.size();
     _log.debug("{0} Slice operations in current group:", numOfSliceOps);
@@ -351,7 +351,7 @@ mlir::Value ConvertToGather::convertSliceGroupToGather(SmallVector<IE::SliceOp> 
 
     int64_t batchDims = 0;
     int64_t axis = 0;
-    auto newGather = rewriter.create<IE::GatherOp>(source.getLoc(), newInput, indices, axis, batchDims, nullptr);
+    auto newGather = IE::GatherOp::create(rewriter, source.getLoc(), newInput, indices, axis, batchDims, nullptr);
 
     _log.trace("Created gather {0}", newGather);
     return newGather.getOutput();
@@ -367,8 +367,8 @@ mlir::Value ConvertToGather::reshape3DGatherTo2D(mlir::Value gather, mlir::Patte
     auto newGatherShape = ShapeRef(newShapeVec);
     _log.debug("Reshape Gather shape from {0} to {1}", origGatherShape, newGatherShape);
     auto newType = mlir::cast<NDTypeInterface>(gather.getType()).changeShape(newGatherShape);
-    auto reshape = rewriter.create<IE::ReshapeOp>(gather.getLoc(), newType, gather,
-                                                  getIntArrayAttr(rewriter.getContext(), newGatherShape));
+    auto reshape = IE::ReshapeOp::create(rewriter, gather.getLoc(), newType, gather,
+                                         getIntArrayAttr(rewriter.getContext(), newGatherShape));
 
     _log.trace("Created Reshape {0}", reshape);
     return reshape.getOutput();
@@ -427,7 +427,7 @@ mlir::LogicalResult ConvertToGather::matchAndRewrite(IE::ConcatOp origOp, mlir::
         newConcatInput.push_back(reshape);
     }
 
-    auto newConcat = rewriter.create<IE::ConcatOp>(origOp.getLoc(), newConcatInput, Dim(0));
+    auto newConcat = IE::ConcatOp::create(rewriter, origOp.getLoc(), newConcatInput, Dim(0));
 
     rewriter.replaceOp(origOp, newConcat);
 

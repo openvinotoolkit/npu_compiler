@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/core/aliases_info.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/HostExec/params.hpp"
 #include "vpux/compiler/dialect/HostExec/transforms/passes.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
@@ -144,6 +144,9 @@ mlir::LogicalResult net::NetworkInfoOp::verifySymbolUses(mlir::SymbolTableCollec
             }
         }
         return errorAt(*this, "entryPoint '@{0}' doesn't refer to existing Function", getEntryPoint());
+    }
+    if (!netFunc.isPublic()) {
+        return errorAt(*this, "entryPoint '@{0}' must be a public function", getEntryPoint());
     }
 
     auto inputsInfo = to_small_vector(this->getInputsInfo().getOps<net::DataInfoOp>());
@@ -313,6 +316,6 @@ void net::NetworkInfoOp::getFromModule(mlir::ModuleOp module, net::NetworkInfoOp
     netInfo = netOps.front();
     netFunc = module.lookupSymbol<mlir::func::FuncOp>(netInfo.getEntryPointAttr());
 
-    VPUX_THROW_UNLESS(netFunc != nullptr, "Can't find entryPoint '@{0}' for '{1}' Operation", netInfo.getEntryPoint(),
-                      netInfo->getName());
+    VPUX_THROW_WHEN(netFunc == nullptr, "Can't find entryPoint '@{0}' for '{1}' Operation", netInfo.getEntryPoint(),
+                    netInfo->getName());
 }

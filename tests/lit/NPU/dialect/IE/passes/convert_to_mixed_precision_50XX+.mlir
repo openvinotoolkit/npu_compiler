@@ -90,8 +90,8 @@ func.func @MixedPrecisionFp16InputQuantBf8WeightsConv(%arg0: tensor<1x16x16x16xf
 
 // -----
 
-!qElemType = !quant.uniform<!QuantileType.quantile<ui4:f8E5M2, {-8.0,-7.0,-6.0,-5.0,-4.0,-3.0,-2.0,-1.0,0.0,1.0,2.0,3.0,4.0,5.0,6.0,7.0}>:f16, 1.000000e+00>
-// CHECK: !qElemType = !quant.uniform<!QuantileType.quantile<ui4:f8E5M2, {-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00}>:f16, 1.000000e+00>
+!qElemType = !quant.uniform<!quant.quantile<ui4:f8E5M2, {-8.0,-7.0,-6.0,-5.0,-4.0,-3.0,-2.0,-1.0,0.0,1.0,2.0,3.0,4.0,5.0,6.0,7.0}>:f16, 1.000000e+00>
+// CHECK: !qElemType = !quant.uniform<!quant.quantile<ui4:f8E5M2, {-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00}>:f16, 1.000000e+00>
 
 // CHECK-LABEL: @MixedPrecisionFp16InputBf8WeightsQuantileConv
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x16x16x16xf16>)
@@ -134,10 +134,10 @@ func.func @MixedPrecisionHf8InputQuantBf8WeightsConv(%arg0: tensor<1x16x16x16x!q
 // -----
 
 !qElemType = !quant.uniform<f8E5M2:f16, 1.000000e+00>
-!qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:f8E4M3FN, {0.0,1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0,15.0}>:f16, 1.000000e+00>
+!qElemType1 = !quant.uniform<!quant.quantile<ui4:f8E4M3FN, {0.0,1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0,15.0}>:f16, 1.000000e+00>
 
 // CHECK: !qElemType = !quant.uniform<f8E5M2:f16, 1.000000e+00>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:f8E4M3FN, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,8.000000e+00,9.000000e+00,1.000000e+01,1.100000e+01,1.200000e+01,1.300000e+01,1.400000e+01,1.500000e+01}>:f16, 1.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui4:f8E4M3FN, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,8.000000e+00,9.000000e+00,1.000000e+01,1.100000e+01,1.200000e+01,1.300000e+01,1.400000e+01,1.500000e+01}>:f16, 1.000000e+00>
 
 // CHECK-LABEL: @MixedPrecisionBf8InputQuantHf8WeightsQuantileConv
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x16x1x1xf16>)
@@ -162,10 +162,10 @@ func.func @MixedPrecisionBf8InputQuantHf8WeightsQuantileConv(%arg0: tensor<1x16x
 // -----
 
 !qElemType = !quant.uniform<f8E5M2:f16, 1.000000e+00>
-!qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:f8E4M3FN, {0.0,1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0,15.0}>:f16, 1.000000e+00>
+!qElemType1 = !quant.uniform<!quant.quantile<ui4:f8E4M3FN, {0.0,1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,10.0,11.0,12.0,13.0,14.0,15.0}>:f16, 1.000000e+00>
 
 // CHECK: !qElemType = !quant.uniform<f8E5M2:f16, 1.000000e+00>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:f8E4M3FN, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,8.000000e+00,9.000000e+00,1.000000e+01,1.100000e+01,1.200000e+01,1.300000e+01,1.400000e+01,1.500000e+01}>:f16, 1.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui4:f8E4M3FN, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,8.000000e+00,9.000000e+00,1.000000e+01,1.100000e+01,1.200000e+01,1.300000e+01,1.400000e+01,1.500000e+01}>:f16, 1.000000e+00>
 
 // CHECK-LABEL: @MixedPrecisionBf8InputHf8WeightsQuantileConv
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x16x1x1x!qElemType>)

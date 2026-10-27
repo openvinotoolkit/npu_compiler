@@ -64,7 +64,7 @@ private:
 public:
     void setReferenceSoftwareMode();
     void setDefaultHardwareMode();
-    void setHostCompileMode(std::string_view mode = "HostCompile");
+    void setHostCompileMode(std::string_view mode = "HostCompile_Interpreter");
 
     void setPluginCompilerType();
     void setBatchCompilerMode(const std::string& mode);

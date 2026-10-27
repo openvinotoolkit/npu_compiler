@@ -27,7 +27,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func nested @dma_broadcast() {
+  func.func @dma_broadcast() {
     %320 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %352 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:1:0>
     %353 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:1:1>

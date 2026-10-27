@@ -50,12 +50,15 @@ namespace {
 class FuseMemPermutes final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
 public:
     FuseMemPermutes(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit = 1)
-            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit) {
+            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit), _log(Logger::global()) {
         this->setDebugName("FuseMemPermutes");
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::MemPermuteOp memPermuteOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
 };
 
 mlir::LogicalResult FuseMemPermutes::matchAndRewrite(IE::MemPermuteOp memPermuteOp,
@@ -72,12 +75,15 @@ mlir::LogicalResult FuseMemPermutes::matchAndRewrite(IE::MemPermuteOp memPermute
 class FusePermCastAndMemPerm final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
 public:
     FusePermCastAndMemPerm(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit = 1)
-            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit) {
+            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit), _log(Logger::global()) {
         this->setDebugName("FusePermCastAndMemPerm");
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::MemPermuteOp memPermuteOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
 };
 
 mlir::LogicalResult FusePermCastAndMemPerm::matchAndRewrite(IE::MemPermuteOp memPermuteOp,
@@ -92,12 +98,15 @@ mlir::LogicalResult FusePermCastAndMemPerm::matchAndRewrite(IE::MemPermuteOp mem
 class FuseMemPermuteThroughConcat final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
 public:
     FuseMemPermuteThroughConcat(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit = 1)
-            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit) {
+            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit), _log(Logger::global()) {
         this->setDebugName("FuseMemPermuteThroughConcat");
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::MemPermuteOp memPermuteOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
 };
 
 mlir::LogicalResult FuseMemPermuteThroughConcat::matchAndRewrite(IE::MemPermuteOp memPermuteOp,
@@ -214,12 +223,15 @@ mlir::ArrayAttr getNewPaddingAttr(mlir::MLIRContext* ctx, ArrayRef<int64_t> pads
 class FuseMemPermuteThroughExpand final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
 public:
     FuseMemPermuteThroughExpand(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit = 1)
-            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit) {
+            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit), _log(Logger::global()) {
         this->setDebugName("FuseMemPermuteThroughExpand");
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::MemPermuteOp memPermuteOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
 };
 
 mlir::LogicalResult FuseMemPermuteThroughExpand::matchAndRewrite(IE::MemPermuteOp memPermuteOp,
@@ -249,8 +261,8 @@ mlir::LogicalResult FuseMemPermuteThroughExpand::matchAndRewrite(IE::MemPermuteO
     auto outputType = mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getOutput().getType());
     auto outputOrder = outputType.getDimsOrder();
 
-    auto newExpandOp = rewriter.create<IE::ExpandOp>(expandOp.getLoc(), topMemPermuteOp.getInput(), newPadsBeginAttr,
-                                                     newPadsEndAttr);
+    auto newExpandOp = IE::ExpandOp::create(rewriter, expandOp.getLoc(), topMemPermuteOp.getInput(), newPadsBeginAttr,
+                                            newPadsEndAttr);
     const auto permuteCastInOrder = DimsOrder::fromValue(newExpandOp.getOutput());
     const auto permuteCastInShape = getShape(newExpandOp.getOutput());
     const auto permuteCastInMemShape = permuteCastInOrder.toMemoryOrder(permuteCastInShape);
@@ -260,8 +272,8 @@ mlir::LogicalResult FuseMemPermuteThroughExpand::matchAndRewrite(IE::MemPermuteO
         return mlir::failure();
     }
 
-    auto newPermuteCastOp = rewriter.create<IE::PermuteCastOp>(
-            memPermuteOp.getLoc(), memPermuteOp.getOutput().getType(), newExpandOp.getOutput(),
+    auto newPermuteCastOp = IE::PermuteCastOp::create(
+            rewriter, memPermuteOp.getLoc(), memPermuteOp.getOutput().getType(), newExpandOp.getOutput(),
             mlir::AffineMapAttr::get(outputOrder.toAffineMap(getContext())), mlir::AffineMapAttr::get(newMemPerm));
 
     memPermuteOp.replaceAllUsesWith(newPermuteCastOp.getOutput());
@@ -276,12 +288,15 @@ mlir::LogicalResult FuseMemPermuteThroughExpand::matchAndRewrite(IE::MemPermuteO
 class FuseMemPermuteAndPermuteQuantize final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
 public:
     FuseMemPermuteAndPermuteQuantize(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit = 1)
-            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit) {
+            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit), _log(Logger::global()) {
         this->setDebugName("FuseMemPermuteAndPermuteQuantize");
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::MemPermuteOp memPermuteOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
 };
 
 mlir::LogicalResult FuseMemPermuteAndPermuteQuantize::matchAndRewrite(IE::MemPermuteOp memPermuteOp,
@@ -352,12 +367,15 @@ mlir::LogicalResult ConvertToPermuteCast::matchAndRewrite(IE::MemPermuteOp memPe
 class ConvertShapeCastToPermuteCast final : public mlir::OpRewritePattern<IE::ShapeCastOp> {
 public:
     ConvertShapeCastToPermuteCast(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit = 1)
-            : mlir::OpRewritePattern<IE::ShapeCastOp>(ctx, benefit) {
+            : mlir::OpRewritePattern<IE::ShapeCastOp>(ctx, benefit), _log(Logger::global()) {
         this->setDebugName("ConvertShapeCastToPermuteCast");
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::ShapeCastOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
 };
 
 mlir::LogicalResult ConvertShapeCastToPermuteCast::matchAndRewrite(IE::ShapeCastOp origOp,
@@ -469,10 +487,16 @@ bool isValidReshapeMapping(ArrayRef<SmallVector<int64_t>> newDimMapping, ArrayRe
 
 class EliminateMemPermuteThroughReshapeSlice final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
 public:
-    using mlir::OpRewritePattern<IE::MemPermuteOp>::OpRewritePattern;
+    EliminateMemPermuteThroughReshapeSlice(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit = 1)
+            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit), _log(Logger::global()) {
+        this->setDebugName("EliminateMemPermuteThroughReshapeSlice");
+    }
 
 private:
     mlir::LogicalResult matchAndRewrite(IE::MemPermuteOp memPermuteOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
 };
 
 mlir::LogicalResult EliminateMemPermuteThroughReshapeSlice::matchAndRewrite(IE::MemPermuteOp memPermuteOp,
@@ -482,10 +506,10 @@ mlir::LogicalResult EliminateMemPermuteThroughReshapeSlice::matchAndRewrite(IE::
     const auto inType = mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getInput().getType());
     const auto outType = mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getOutput().getType());
     if (inType.getRank() != 4 || outType.getRank() != 4) {
-        return matchFailed(rewriter, memPermuteOp, "MemPermute input/output rank is not 4");
+        return matchFailed(_log, rewriter, memPermuteOp, "MemPermute input/output rank is not 4");
     }
     if (inType.getDimsOrder() != DimsOrder::NCHW || outType.getDimsOrder() != DimsOrder::NCHW) {
-        return matchFailed(rewriter, memPermuteOp, "MemPermute input/output order is not NCHW");
+        return matchFailed(_log, rewriter, memPermuteOp, "MemPermute input/output order is not NCHW");
     }
 
     // permVec[outPos] = inputDim: maps each MemPermute output dim to its source input dim
@@ -497,11 +521,11 @@ mlir::LogicalResult EliminateMemPermuteThroughReshapeSlice::matchAndRewrite(IE::
 
     // Step 2: MemPermute must have exactly one user: AffineReshape
     if (!memPermuteOp->hasOneUse()) {
-        return matchFailed(rewriter, memPermuteOp, "MemPermute has multiple users");
+        return matchFailed(_log, rewriter, memPermuteOp, "MemPermute has multiple users");
     }
     auto affineReshapeOp = mlir::dyn_cast<IE::AffineReshapeOp>(*memPermuteOp->getUsers().begin());
     if (affineReshapeOp == nullptr) {
-        return matchFailed(rewriter, memPermuteOp, "MemPermute user is not AffineReshape");
+        return matchFailed(_log, rewriter, memPermuteOp, "MemPermute user is not AffineReshape");
     }
 
     // Steps 3 & 4: Collect Slice users and validate each cuts the same single dim D with size=1.
@@ -513,7 +537,7 @@ mlir::LogicalResult EliminateMemPermuteThroughReshapeSlice::matchAndRewrite(IE::
     for (auto* user : affineReshapeOp->getUsers()) {
         auto sliceOp = mlir::dyn_cast<IE::SliceOp>(user);
         if (sliceOp == nullptr) {
-            return matchFailed(rewriter, memPermuteOp, "AffineReshape has non-Slice user");
+            return matchFailed(_log, rewriter, memPermuteOp, "AffineReshape has non-Slice user");
         }
         const auto staticOffsets = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsetsAttr());
         const auto staticSizes = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizesAttr());
@@ -522,34 +546,34 @@ mlir::LogicalResult EliminateMemPermuteThroughReshapeSlice::matchAndRewrite(IE::
         for (int64_t d = 0; d < static_cast<int64_t>(staticSizes.size()); ++d) {
             if (staticSizes[d] != reshapeOutShape[Dim(d)]) {
                 if (cutDim != -1) {
-                    return matchFailed(rewriter, memPermuteOp, "Slice cuts more than one dim");
+                    return matchFailed(_log, rewriter, memPermuteOp, "Slice cuts more than one dim");
                 }
                 cutDim = d;
             }
         }
         if (cutDim == -1) {
-            return matchFailed(rewriter, memPermuteOp, "Slice does not cut any dim");
+            return matchFailed(_log, rewriter, memPermuteOp, "Slice does not cut any dim");
         }
         if (staticSizes[cutDim] != 1) {
-            return matchFailed(rewriter, memPermuteOp, "Slice size on cutting dim is not 1");
+            return matchFailed(_log, rewriter, memPermuteOp, "Slice size on cutting dim is not 1");
         }
         for (int64_t d = 0; d < static_cast<int64_t>(staticOffsets.size()); ++d) {
             if (d != cutDim && staticOffsets[d] != 0) {
-                return matchFailed(rewriter, memPermuteOp, "Slice has non-zero offset on non-cutting dim {0}", d);
+                return matchFailed(_log, rewriter, memPermuteOp, "Slice has non-zero offset on non-cutting dim {0}", d);
             }
         }
         if (sliceDim == -1) {
             sliceDim = cutDim;
         } else if (sliceDim != cutDim) {
-            return matchFailed(rewriter, memPermuteOp, "Slices cut different dims");
+            return matchFailed(_log, rewriter, memPermuteOp, "Slices cut different dims");
         }
         sliceOps.push_back(sliceOp);
     }
     if (sliceOps.empty()) {
-        return matchFailed(rewriter, memPermuteOp, "AffineReshape has no users");
+        return matchFailed(_log, rewriter, memPermuteOp, "AffineReshape has no users");
     }
     if (sliceDim < 0) {
-        return matchFailed(rewriter, memPermuteOp, "Could not determine slice dim");
+        return matchFailed(_log, rewriter, memPermuteOp, "Could not determine slice dim");
     }
 
     // Step 5: Slice dim D passes through the AffineReshape unchanged:
@@ -565,7 +589,7 @@ mlir::LogicalResult EliminateMemPermuteThroughReshapeSlice::matchAndRewrite(IE::
         for (auto outDim : dimMapping[i]) {
             if (outDim == sliceDim && permuteOutShape[Dim(i)] > 1) {
                 if (reshapeInDim != -1) {
-                    return matchFailed(rewriter, memPermuteOp,
+                    return matchFailed(_log, rewriter, memPermuteOp,
                                        "More than one non-trivial input dim maps to slice dim {0}", sliceDim);
                 }
                 reshapeInDim = i;
@@ -574,13 +598,13 @@ mlir::LogicalResult EliminateMemPermuteThroughReshapeSlice::matchAndRewrite(IE::
         }
     }
     if (reshapeInDim == -1) {
-        return matchFailed(rewriter, memPermuteOp, "No non-trivial AffineReshape input dim maps to slice dim {0}",
+        return matchFailed(_log, rewriter, memPermuteOp, "No non-trivial AffineReshape input dim maps to slice dim {0}",
                            sliceDim);
     }
     // Require that reshapeInDim maps exclusively to sliceDim (not split across multiple output dims).
     if (dimMapping[reshapeInDim].size() != 1) {
-        return matchFailed(rewriter, memPermuteOp, "AffineReshape input dim {0} is split across multiple output dims",
-                           reshapeInDim);
+        return matchFailed(_log, rewriter, memPermuteOp,
+                           "AffineReshape input dim {0} is split across multiple output dims", reshapeInDim);
     }
 
     // Step 6: Back-infer origSliceDim via the inverse permutation.
@@ -612,7 +636,7 @@ mlir::LogicalResult EliminateMemPermuteThroughReshapeSlice::matchAndRewrite(IE::
         auto curMin = newDimMapping[origSliceDim].front();
         if (curMin < prevMax) {
             if (newDimMapping[origSliceDim].size() != 1 || newDimMapping[origSliceDim - 1].size() != 1) {
-                return matchFailed(rewriter, memPermuteOp,
+                return matchFailed(_log, rewriter, memPermuteOp,
                                    "Cannot apply monotonicity fixup to multi-entry dim mapping");
             }
             newDimMapping[origSliceDim] = SmallVector<int64_t>{prevMax};
@@ -622,7 +646,7 @@ mlir::LogicalResult EliminateMemPermuteThroughReshapeSlice::matchAndRewrite(IE::
         auto curMax = newDimMapping[0].back();
         if (curMax > nextMin) {
             if (newDimMapping[0].size() != 1 || newDimMapping[1].size() != 1) {
-                return matchFailed(rewriter, memPermuteOp,
+                return matchFailed(_log, rewriter, memPermuteOp,
                                    "Cannot apply monotonicity fixup to multi-entry dim mapping");
             }
             newDimMapping[0] = SmallVector<int64_t>{nextMin};
@@ -636,7 +660,7 @@ mlir::LogicalResult EliminateMemPermuteThroughReshapeSlice::matchAndRewrite(IE::
         newInputShape.push_back(d == origSliceDim ? 1 : permuteInShape[Dim(d)]);
     }
     if (!isValidReshapeMapping(newDimMapping, newInputShape, sliceOutShape)) {
-        return matchFailed(rewriter, memPermuteOp, "New dim mapping is not valid after adjustment");
+        return matchFailed(_log, rewriter, memPermuteOp, "New dim mapping is not valid after adjustment");
     }
 
     // Sort slices by their offset on sliceDim for deterministic IR output order
@@ -660,13 +684,13 @@ mlir::LogicalResult EliminateMemPermuteThroughReshapeSlice::matchAndRewrite(IE::
             newSizes.push_back(d == origSliceDim ? 1 : permuteInShape[Dim(d)]);
         }
 
-        auto newSlice = rewriter.create<IE::SliceOp>(sliceOp.getLoc(), memPermuteOp.getInput(),
-                                                     getIntArrayAttr(ctx, newOffsets), getIntArrayAttr(ctx, newSizes));
+        auto newSlice = IE::SliceOp::create(rewriter, sliceOp.getLoc(), memPermuteOp.getInput(),
+                                            getIntArrayAttr(ctx, newOffsets), getIntArrayAttr(ctx, newSizes));
 
         auto newDimMappingAttr = getIntArrayOfArray(ctx, newDimMapping);
         auto newShapeAttr = getIntArrayAttr(ctx, sliceOutShape.raw());
-        auto newReshape = rewriter.create<IE::AffineReshapeOp>(sliceOp.getLoc(), newSlice.getResult(),
-                                                               newDimMappingAttr, newShapeAttr);
+        auto newReshape = IE::AffineReshapeOp::create(rewriter, sliceOp.getLoc(), newSlice.getResult(),
+                                                      newDimMappingAttr, newShapeAttr);
 
         rewriter.replaceOp(sliceOp, newReshape.getResult());
     }

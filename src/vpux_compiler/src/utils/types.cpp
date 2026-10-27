@@ -6,7 +6,7 @@
 #include "vpux/compiler/utils/types.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/attributes/strides.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
@@ -157,7 +157,7 @@ std::string vpux::elementTypeToString(mlir::Type type) {
 //
 
 Bit vpux::getElemTypeSize(mlir::Type type) {
-    if (const auto quantileType = mlir::dyn_cast<vpux::type::QuantileType>(type)) {
+    if (const auto quantileType = mlir::dyn_cast<mlir::quant::QuantileType>(type)) {
         return Bit(quantileType.getStorageWidth());
     }
 
@@ -178,13 +178,13 @@ Bit vpux::getElemTypeSize(mlir::Type type) {
 
 Byte vpux::getTotalSize(mlir::Value val) {
     const auto type = mlir::dyn_cast<vpux::NDTypeInterface>(val.getType());
-    VPUX_THROW_UNLESS(type != nullptr, "Value '{0}' has non vpux::NDTypeInterface '{1}'", val, val.getType());
+    VPUX_THROW_WHEN(type == nullptr, "Value '{0}' has non vpux::NDTypeInterface '{1}'", val, val.getType());
     return type.getTotalAllocSize();
 }
 
 Byte vpux::getCompactSize(mlir::Value val) {
     const auto type = mlir::dyn_cast<vpux::NDTypeInterface>(val.getType());
-    VPUX_THROW_UNLESS(type != nullptr, "Value '{0}' has non vpux::NDTypeInterface '{1}'", val, val.getType());
+    VPUX_THROW_WHEN(type == nullptr, "Value '{0}' has non vpux::NDTypeInterface '{1}'", val, val.getType());
     return type.getCompactAllocSize();
 }
 
@@ -290,8 +290,8 @@ mlir::MemRefType vpux::getMemRefType(ShapeRef shape, mlir::Type elemType, const 
         const Bit elemSize = getElemTypeSize(elemType);
         auto memShape = effectiveOrder.toMemoryOrder(shape);
         if (shape.isDynamic()) {
-            VPUX_THROW_UNLESS(!bounds.empty(), "Dynamic shape '{0}' with explicit strides requires non-empty bounds",
-                              shape);
+            VPUX_THROW_WHEN(bounds.empty(), "Dynamic shape '{0}' with explicit strides requires non-empty bounds",
+                            shape);
             memShape = effectiveOrder.toMemoryOrder(ShapeRef(bounds.raw()));
         }
         const auto memStrides = effectiveOrder.toMemoryOrder(strides);

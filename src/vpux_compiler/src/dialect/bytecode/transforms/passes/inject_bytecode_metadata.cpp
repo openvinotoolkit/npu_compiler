@@ -72,11 +72,10 @@ void createMetaDataOp(mlir::OpBuilder& metadataBuilder, const vpux::IODescriptor
                       GetShapeRefFn&& getShapeRef) {
     const mlir::StringRef name = descriptor.nameFromCompiler;
     const auto& nodeFriendlyName = descriptor.nodeFriendlyName;
-    T metadataOp = metadataBuilder.create<T>(
-            metadataBuilder.getUnknownLoc(), getStringRef(name, name), getTypeRef(descriptor.precision, ctx),
-            getShapeRef(descriptor.shapeFromCompiler),
-            mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), static_cast<int64_t>(index)),
-            mlir::BoolAttr::get(ctx, descriptor.supportsStridedLayout));
+    T metadataOp = T::create(metadataBuilder, metadataBuilder.getUnknownLoc(), getStringRef(name, name),
+                             getTypeRef(descriptor.precision, ctx), getShapeRef(descriptor.shapeFromCompiler),
+                             mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 32), static_cast<int64_t>(index)),
+                             mlir::BoolAttr::get(ctx, descriptor.supportsStridedLayout));
 
     if (!descriptor.outputTensorNames.empty()) {
         SmallVector<std::string> sortedTensorNames(descriptor.outputTensorNames.begin(),
@@ -232,10 +231,9 @@ void InjectBytecodeMetadataPass::safeRunOnModule() {
     };
 
     const auto networkNameRef = getStringRef(module.getName().value_or("network"), "network_name");
-    metadataBuilder.create<bytecode::NetworkMetadataOp>(
-            metadataBuilder.getUnknownLoc(), networkNameRef,
-            mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 64), metadata.numStreams),
-            mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 64), numCmdLists));
+    bytecode::NetworkMetadataOp::create(metadataBuilder, metadataBuilder.getUnknownLoc(), networkNameRef,
+                                        mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 64), metadata.numStreams),
+                                        mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 64), numCmdLists));
 
     for (auto [index, inputInfo] : enumerate(metadata.inputs)) {
         createMetaDataOp<bytecode::InputMetadataOp>(metadataBuilder, inputInfo, index, ctx, getStringRef, getTypeRef,

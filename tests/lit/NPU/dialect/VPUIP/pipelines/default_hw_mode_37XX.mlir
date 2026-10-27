@@ -120,7 +120,7 @@ module @TwoFunctions attributes {config.compilationMode = #config.compilation_mo
         %3 = VPUIP.ViewOp %2 : !VPUIP.DistributedBuffer<1x16x6x16xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
                                 to !VPUIP.DistributedBuffer<1x16x16x6xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 1, 2], num_clusters = 2 : i64}>
         %4 = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x16x16x6xf16, #NWCH, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 1, 2], num_clusters = 2 : i64}>
-        %5 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 189 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+        %5 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 189 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}>
                 input(%3 : !VPUIP.DistributedBuffer<1x16x16x6xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 1, 2], num_clusters = 2 : i64}>)
                 weights(%3 : !VPUIP.DistributedBuffer<1x16x16x6xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 1, 2], num_clusters = 2 : i64}>)
                 parent_input(%3 : !VPUIP.DistributedBuffer<1x16x16x6xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 1, 2], num_clusters = 2 : i64}>)
@@ -170,7 +170,7 @@ module @TwoFunctions attributes {config.compilationMode = #config.compilation_mo
 
         // CONV
         %16 = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x32x4x4xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
-        %17 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 651 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_superdense, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+        %17 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 651 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_superdense, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
             input(%11 : !VPUIP.DistributedBuffer<1x16x6x6xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, alignment = [1, 1, 2, 1]}>)
             weights(%13 : !VPUIP.DistributedBuffer<32x16x3x3xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>)
             weight_table(%15 : !VPUIP.DistributedBuffer<32x1x1x4xsi32, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>)

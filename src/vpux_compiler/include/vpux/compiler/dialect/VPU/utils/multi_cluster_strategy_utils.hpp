@@ -17,6 +17,10 @@ class VPULayerCostModel;
 struct VPULayerStrategy;
 }  // namespace VPUNN
 
+namespace vpux {
+enum class DmaDirectionType;
+}  // namespace vpux
+
 namespace vpux::VPU {
 
 struct HwLayerTilingStrategyCosts {
@@ -93,8 +97,8 @@ public:
                                        VPU::MultiClusterStrategy userStrategy) const;
 
     /* DMA spills cost */
-    double getSpillingDMACost(vpux::NDTypeInterface srcTensorType) const;
-    double getSpillingDMACost(vpux::NDTypeInterface srcTensorType, const TensorDistributionMap& distributions) const;
+    double getSpillingReadCost(vpux::NDTypeInterface srcTensorType, const TensorDistributionMap& distributions) const;
+    double getSpillingWriteCost(vpux::NDTypeInterface srcTensorType, const TensorDistributionMap& distributions) const;
 
     /* Helper functions for subgraph optimization of MC strategy*/
     bool hasMultiClusterStrategy(mlir::Operation* op) const;
@@ -150,8 +154,12 @@ private:
                                  VPU::ClusteredOpInterface userOp, VPU::MultiClusterStrategy userStrategy) const;
 
     /* DMA cost calculation helpers */
-    double getDMACostOfType(vpux::NDTypeInterface srcTensorType) const;
-    double getDMACostOfType(vpux::NDTypeInterface srcType, const DistributionInfo& distribution) const;
+    double getDMACostOfType(vpux::NDTypeInterface srcTensorType, vpux::DmaDirectionType dmaDirection) const;
+    double getDMACostOfType(vpux::NDTypeInterface srcType, const DistributionInfo& distribution,
+                            vpux::DmaDirectionType dmaDirection) const;
+    double getSpillingDMACost(vpux::NDTypeInterface srcTensorType, vpux::DmaDirectionType dmaDirection) const;
+    double getSpillingDMACost(vpux::NDTypeInterface srcTensorType, const TensorDistributionMap& distributions,
+                              vpux::DmaDirectionType dmaDirection) const;
 
     /* Greedy strategy helpers */
     bool preferChannelSplitting(VPU::ClusteredOpInterface clusteredOp);

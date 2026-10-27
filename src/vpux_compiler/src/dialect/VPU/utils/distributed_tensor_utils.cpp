@@ -12,6 +12,7 @@
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/native_attributes/distribution_info.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/control_flow.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
@@ -1205,7 +1206,8 @@ std::optional<SmallVector<int64_t>> vpux::VPU::getActivationTensorAlignment(
     if (mlir::isa<VPU::SWOpInterface>(origOp)) {
         std::optional<SmallVector<int64_t>> optionalAlignment = std::nullopt;
         if (VPU::isSWOpAndNeedsAlignment(origOp)) {
-            auto nTilesOnDim = getActivationTensorNumTiles(clusteredOp, numClusters, strategy, inputType);
+            auto nTilesOnDim = getSWInputTensorNumTiles(mlir::cast<VPU::ClusteredOpInterface>(origOp), numClusters,
+                                                        strategy, operand, inputType);
             optionalAlignment = getSWOpAlignment(origOp, ShapeRef(nTilesOnDim), inputType, outputType);
         }
         if (isSWOpWithAlignedChannelReq(clusteredOp, inputType, outputType)) {
@@ -1378,7 +1380,7 @@ std::optional<vpux::NDTypeInterface> vpux::VPU::adjustOutputAlignmentForSOH(VPU:
     }
 
     auto originalDistTypeIf = mlir::dyn_cast<vpux::VPU::DistributedTypeInterface>(originalDistType);
-    VPUX_THROW_UNLESS(originalDistTypeIf != nullptr, "Expected type to be distributed, got {0}", originalDistType);
+    VPUX_THROW_WHEN(originalDistTypeIf == nullptr, "Expected type to be distributed, got {0}", originalDistType);
     VPUX_THROW_UNLESS(originalDistTypeIf.containsDistributedTypes(), "Type does not contain distributed components");
     const auto distributedTypes = originalDistTypeIf.getDistributedTypes();
 
@@ -1786,6 +1788,10 @@ DistributionMode vpux::VPU::getOutputTensorDistributionMode(VPU::ClusteredOpInte
         if (isSOKSegmentedOutputCompatible(clusteredOp.getOperation())) {
             return DistributionMode::SEGMENTED;
         }
+        auto nceOp = mlir::dyn_cast_if_present<VPU::NCEOpInterface>(clusteredOp.getOperation());
+        if (nceOp != nullptr && nceOp.hasReduceOutput()) {
+            return DistributionMode::SEGMENTED;
+        }
         // For MaxPool with NWCH output layout and large channel, use SEGMENTED mode to avoid IMD hang issue.
         // E#160387 to track this
         const auto outputOrder = outputType.getDimsOrder();
@@ -1798,6 +1804,11 @@ DistributionMode vpux::VPU::getOutputTensorDistributionMode(VPU::ClusteredOpInte
         }
         return DistributionMode::DUPLICATED | DistributionMode::SEGMENTED;
     } else if (strategy == VPU::MultiClusterStrategy::HKSwitch) {
+        auto nceOp = mlir::dyn_cast_if_present<VPU::NCEOpInterface>(clusteredOp.getOperation());
+        if (nceOp != nullptr && nceOp.hasReduceOutput()) {
+            return DistributionMode::SEGMENTED;
+        }
+
         return DistributionMode::MULTICASTED | DistributionMode::SEGMENTED;
     } else if (strategy == VPU::MultiClusterStrategy::SplitOverBatch) {
         return DistributionMode::SEGMENTED;
@@ -2229,7 +2240,7 @@ DistributedTensorType vpux::VPU::createDistributedTensorType(VPU::SWOpInterface 
     auto elemType = inputType.getElementType();
 
     return DistributedTensorType::get(
-            ctx, inputType.getShape().raw(), elemType, order, memSpace,
+            ctx, getBoundedShape(inputType).raw(), elemType, order, memSpace,
             VPU::DistributionInfo::getAttrFromClass(
                     ctx, createDistributionInfo(swOp, distributionMode, numTiles, optimalNumberOfClusters, alignment,
                                                 uniformDistributedSegments)));
@@ -2242,7 +2253,7 @@ DistributedTensorType vpux::VPU::createDistributedTensorType(
         const bool equalComputeAndMemoryView, const std::optional<ArrayRef<int64_t>> memoryNumTiles) {
     auto* ctx = nceOp->getContext();
 
-    const auto shape = inputType.getShape();
+    const auto shape = getBoundedShape(inputType);
     const auto memSpace = vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(MemoryKind::CMX_NN));
 
     const auto order = mlir::AffineMapAttr::get(inputType.getDimsOrder().toAffineMap(ctx));
@@ -2272,7 +2283,7 @@ DistributedTensorType vpux::VPU::createDistributedTensorType(
     auto elemType = inputType.getElementType();
 
     return DistributedTensorType::get(
-            ctx, inputType.getShape().raw(), elemType, order, memSpace,
+            ctx, getBoundedShape(inputType).raw(), elemType, order, memSpace,
             VPU::DistributionInfo::getAttrFromClass(
                     ctx, createDistributionInfo(viewLikeOp, distributionMode, numTiles, optimalNumberOfClusters,
                                                 alignment, uniformDistributedSegments, kernel,
@@ -2290,7 +2301,7 @@ DistributedTensorType vpux::VPU::createDistributedTensorType(
     auto elemType = inputType.getElementType();
 
     return DistributedTensorType::get(
-            ctx, inputType.getShape().raw(), elemType, order, memSpace,
+            ctx, getBoundedShape(inputType).raw(), elemType, order, memSpace,
             VPU::DistributionInfo::getAttrFromClass(
                     ctx, createDistributionInfo(gatherDMAOp, distributionMode, numTiles, optimalNumberOfClusters,
                                                 alignment, uniformDistributedSegments)));
@@ -2302,7 +2313,7 @@ vpux::VPU::CopyOp vpux::VPU::createDistributedCopyIn(mlir::PatternRewriter& rewr
     rewriter.setInsertionPoint(clusteredOp);
     const auto memSpace = IndexedSymbolAttr::get(rewriter.getContext(), stringifyEnum(MemoryKind::CMX_NN));
     auto distributedInputCopyOp =
-            rewriter.create<VPU::CopyOp>(clusteredOp.getLoc(), inputTensorDistributedTensorType, input, memSpace);
+            VPU::CopyOp::create(rewriter, clusteredOp.getLoc(), inputTensorDistributedTensorType, input, memSpace);
 
     return distributedInputCopyOp;
 }
@@ -2312,7 +2323,7 @@ vpux::VPU::UnrolledTypeOp vpux::VPU::createDistributedUnrolledTypeIn(
         vpux::NDTypeInterface inputTensorDistributedTensorType) {
     rewriter.setInsertionPoint(clusteredOp);
     auto distributedInputCopyOp =
-            rewriter.create<VPU::UnrolledTypeOp>(clusteredOp.getLoc(), inputTensorDistributedTensorType, input);
+            VPU::UnrolledTypeOp::create(rewriter, clusteredOp.getLoc(), inputTensorDistributedTensorType, input);
 
     return distributedInputCopyOp;
 }
@@ -4157,4 +4168,58 @@ std::optional<SmallVector<int64_t>> VPU::getSubbyteAwareSegmentedDistributionAli
 
     return VPU::getSubbyteAwareSegmentedDistributionAlignment(newShape, perClusterShapes.value(), axis, alignment,
                                                               origType);
+}
+
+mlir::LogicalResult VPU::checkPerClusterByteAlignment(const DistributionInfoAttr distribution, ShapeRef shape,
+                                                      mlir::Type elementType, const DimsOrder& dimsOrder,
+                                                      const MemStrides& memStrides,
+                                                      FuncRef<mlir::InFlightDiagnostic()> emitError) {
+    // duplicated mode has the same offset in full tensor for all clusters; allocation should ensure it's byte aligned.
+    // non-subbyte types always have byte-aligned element offsets (element_size >= 8 bits); only subbyte types require
+    // the per-cluster offset byte-alignment check below.
+    // 1-bit element type is used in sparsity maps, which do not need the same restrictions; skipping check
+    const auto elemTypeSize = vpux::getElemTypeSize(elementType).count();
+    const auto subbyteNotI1 = elemTypeSize < CHAR_BIT && elemTypeSize > 1;
+    if (!subbyteNotI1 || distribution.getMode().getValue() == VPU::DistributionMode::DUPLICATED) {
+        return mlir::success();
+    }
+
+    auto checkPerClusterByteAlignment = [&](ArrayRef<Shape> offsets) {
+        for (const auto& clusterOff : offsets) {
+            auto offset = Bit(0);
+            for (auto pos = static_cast<int64_t>(clusterOff.size() - 1); pos >= 0; pos--) {
+                auto logicalDim = dimsOrder.dimAt(pos);
+                offset += clusterOff[logicalDim] * memStrides[MemDim(pos)];
+            }
+
+            if (offset.count() % CHAR_BIT != 0) {
+                return false;
+            }
+        }
+
+        return true;
+    };
+
+    const auto memoryOffsets = distribution.getMemoryOffsets() != nullptr
+                                       ? VPU::arrayAttrToVecOfShapes(distribution.getMemoryOffsets())
+                                       : VPU::getPerClusterMemoryShapeOffsets(shape, distribution);
+    if (!checkPerClusterByteAlignment(memoryOffsets)) {
+        return printTo(emitError(),
+                       "Memory offsets are not byte-aligned, distribution = {0}, elemType = {1}, shape = {2}.",
+                       distribution, elementType, shape);
+    }
+
+    const auto computeOffsets = distribution.getComputeOffsets() != nullptr
+                                        ? VPU::arrayAttrToVecOfShapes(distribution.getComputeOffsets())
+                                        : VPU::getPerClusterComputeShapeOffsets(shape, distribution);
+    if (computeOffsets != memoryOffsets) {
+        return checkPerClusterByteAlignment(computeOffsets)
+                       ? mlir::success()
+                       : printTo(emitError(),
+                                 "Compute offsets are not byte-aligned, distribution = {0}, elemType = {1}, shape = "
+                                 "{2}.",
+                                 distribution, elementType, shape);
+    }
+
+    return mlir::success();
 }

@@ -81,6 +81,7 @@ constexpr StringRef SHV_FIFO_ADDRS = "config.ShvFIFOAddrs";
 constexpr StringRef DPU_FIFO_ADDRS = "config.DpuFIFOAddrs";
 constexpr StringRef BARRIER_FIFO_ADDR = "config.BarrierFIFOAddr";
 constexpr StringRef BARRIER_FIFO_DEPTH = "config.BarrierFIFODepth";
+constexpr StringRef BARRIER_FIFO_DUMMY_ENTRY = "config.BarrierFIFODummyEntry";
 constexpr StringRef MAX_BARRIERS_PER_TASK = "config.MaxBarriersPerTask";
 constexpr StringRef USE_LEGACY_BARRIERS = "config.UseLegacyBarriers";
 bool hasUseLegacyBarriers(mlir::Operation* op);
@@ -122,5 +123,6 @@ bool isSoftmaxMaskAwareEnabled(mlir::Operation* op);
 double getSoftmaxMaskAwareThreshold(mlir::Operation* op);
 bool isBarrierFifoDummyEntrySupported(config::ArchKind arch);
 bool isFinalBarrierConsumerRequired(config::ArchKind arch, [[maybe_unused]] bool is4kWlmBarrierProgrammingMode);
+bool isShvToDmaImplicitDep(config::ArchKind arch);
 }  // namespace config
 }  // namespace vpux

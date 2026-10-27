@@ -88,12 +88,12 @@ public:
         auto newFakeConvertInputShape = to_small_vector(fakeConvertInputShape);
         newFakeConvertInputShape.insert(newFakeConvertInputShape.begin(), targetRank - fakeConvertInputShape.size(), 1);
 
-        auto activationReshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "act_reshape"), fakeConvertInput,
-                                                                  getIntArrayAttr(ctx, newFakeConvertInputShape));
+        auto activationReshapeOp = IE::ReshapeOp::create(rewriter, appendLoc(loc, "act_reshape"), fakeConvertInput,
+                                                         getIntArrayAttr(ctx, newFakeConvertInputShape));
 
         auto newFakeConvertScaleShape = SmallVector<size_t>{1, 1, 1, 1};
-        auto filterReshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "scale_reshape"), origOp.getScale(),
-                                                              getIntArrayAttr(ctx, newFakeConvertScaleShape));
+        auto filterReshapeOp = IE::ReshapeOp::create(rewriter, appendLoc(loc, "scale_reshape"), origOp.getScale(),
+                                                     getIntArrayAttr(ctx, newFakeConvertScaleShape));
 
         // Broadcast filter
         auto targetShape = Shape{newFakeConvertInputShape[Dims4D::Filter::IC.ind()], 1, 1, 1};
@@ -111,14 +111,14 @@ public:
         auto padEndAttr = getIntArrayAttr(origOp.getContext(), padEnd);
         auto groupAttr = getIntAttr(origOp.getContext(), newFakeConvertInputShape[Dims4D::Act::C.ind()]);
 
-        auto depthWiseConv = rewriter.create<IE::GroupConvolutionOp>(
-                appendLoc(loc, "conv"), activationReshapeOp, broadCastOp,
+        auto depthWiseConv = IE::GroupConvolutionOp::create(
+                rewriter, appendLoc(loc, "conv"), activationReshapeOp, broadCastOp,
                 /*bias=*/nullptr, stridesAttr, padBeginAttr, padEndAttr, dilationsAttr, groupAttr,
                 /*postOp=*/nullptr, /*clamp=*/nullptr,
                 /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
 
-        auto convOutReshape = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "conv_reshape"), depthWiseConv.getOutput(),
-                                                             getIntArrayAttr(ctx, getShape(origOp.getOutput())));
+        auto convOutReshape = IE::ReshapeOp::create(rewriter, appendLoc(loc, "conv_reshape"), depthWiseConv.getOutput(),
+                                                    getIntArrayAttr(ctx, getShape(origOp.getOutput())));
 
         // Create a pair of dummy Quantize->Dequantize operations to ensure the data actually gets converted
         const auto dequantType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType()).getElementType();
@@ -135,16 +135,16 @@ public:
                                                        dequantType, /*scales=*/1.0, /*zeroPoints=*/0, qMin, qMax);
 
         auto quantizeOp =
-                rewriter.create<IE::QuantizeOp>(appendLoc(loc, "quantize"), convOutReshape.getOutput(), quantType);
+                IE::QuantizeOp::create(rewriter, appendLoc(loc, "quantize"), convOutReshape.getOutput(), quantType);
         auto dequantizeOp =
-                rewriter.create<IE::DequantizeOp>(appendLoc(loc, "dequantize"), quantizeOp.getOutput(), dequantType);
+                IE::DequantizeOp::create(rewriter, appendLoc(loc, "dequantize"), quantizeOp.getOutput(), dequantType);
 
         rewriter.replaceOp(origOp, dequantizeOp.getOutput());
 
         // Create Divide
         rewriter.setInsertionPointAfter(dequantizeOp);
-        auto divideOp = rewriter.create<IE::DivideOp>(appendLoc(loc, "divide"), dequantizeOp.getOutput(), scale,
-                                                      IE::AutoBroadcastType::NUMPY);
+        auto divideOp = IE::DivideOp::create(rewriter, appendLoc(loc, "divide"), dequantizeOp.getOutput(), scale,
+                                             IE::AutoBroadcastType::NUMPY);
         rewriter.replaceAllUsesExcept(dequantizeOp.getOutput(), divideOp.getOutput(), {divideOp});
 
         return mlir::success();
@@ -246,8 +246,8 @@ mlir::LogicalResult MoveDividePost<ConcreteOp>::matchAndRewrite(IE::DivideOp ori
 
     // Insert new Divide
     rewriter.setInsertionPointAfter(layerOp);
-    auto newDivide = rewriter.create<IE::DivideOp>(appendLoc(origOp->getLoc(), "post_fc"), layerOp->getResult(0), scale,
-                                                   IE::AutoBroadcastType::NUMPY);
+    auto newDivide = IE::DivideOp::create(rewriter, appendLoc(origOp->getLoc(), "post_fc"), layerOp->getResult(0),
+                                          scale, IE::AutoBroadcastType::NUMPY);
     rewriter.replaceAllUsesExcept(layerOp->getResult(0), newDivide.getOutput(), {newDivide});
 
     return mlir::success();

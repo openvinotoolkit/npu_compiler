@@ -16,16 +16,13 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
-#include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_matmul_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/factors.hpp"
-#include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
 
@@ -212,8 +209,8 @@ mlir::LogicalResult AdjustShapeForSoftmax::matchAndRewrite(VPU::SoftMaxOp softma
         return mlir::failure();
     }
 
-    auto reshapeInOp = rewriter.create<VPU::ShapeCastOp>(softmaxOp.getLoc(), inType.changeShape(shape),
-                                                         softmaxOp.getInput(), getIntArrayAttr(ctx, shape));
+    auto reshapeInOp = VPU::ShapeCastOp::create(rewriter, softmaxOp.getLoc(), inType.changeShape(shape),
+                                                softmaxOp.getInput(), getIntArrayAttr(ctx, shape));
 
     mlir::Value newMax;
     if (const auto origMax = softmaxOp.getMax()) {
@@ -221,16 +218,16 @@ mlir::LogicalResult AdjustShapeForSoftmax::matchAndRewrite(VPU::SoftMaxOp softma
         auto maxShape = std::move(shape);
         maxShape[Dim(axisInd)] = 1;
         const auto maxType = mlir::cast<vpux::NDTypeInterface>(origMax.getType());
-        auto reshapeMaxOp = rewriter.create<VPU::ShapeCastOp>(softmaxOp.getLoc(), maxType.changeShape(maxShape),
-                                                              origMax, getIntArrayAttr(ctx, maxShape));
+        auto reshapeMaxOp = VPU::ShapeCastOp::create(rewriter, softmaxOp.getLoc(), maxType.changeShape(maxShape),
+                                                     origMax, getIntArrayAttr(ctx, maxShape));
         newMax = reshapeMaxOp.getResult();
     }
 
-    auto newSoftmaxOp = rewriter.create<VPU::SoftMaxOp>(softmaxOp.getLoc(), reshapeInOp.getResult(), newMax,
-                                                        getIntAttr(ctx, axisInd), softmaxOp.getPadSizeAttr(),
-                                                        softmaxOp.getDstElemTypeAttr(), softmaxOp.getMaskAwareAttr());
-    auto reshapeOutOp = rewriter.create<VPU::ShapeCastOp>(softmaxOp.getLoc(), outType, newSoftmaxOp.getOutput(),
-                                                          getIntArrayAttr(ctx, inShape));
+    auto newSoftmaxOp = VPU::SoftMaxOp::create(rewriter, softmaxOp.getLoc(), reshapeInOp.getResult(), newMax,
+                                               getIntAttr(ctx, axisInd), softmaxOp.getPadSizeAttr(),
+                                               softmaxOp.getDstElemTypeAttr(), softmaxOp.getMaskAwareAttr());
+    auto reshapeOutOp = VPU::ShapeCastOp::create(rewriter, softmaxOp.getLoc(), outType, newSoftmaxOp.getOutput(),
+                                                 getIntArrayAttr(ctx, inShape));
 
     softmaxOp.replaceAllUsesWith(reshapeOutOp.getResult());
     rewriter.eraseOp(softmaxOp);
@@ -346,8 +343,8 @@ mlir::LogicalResult AdjustShapeForUnaryMultiShave<UnaryOp>::matchAndRewrite(Unar
 
     _log.nest(1).trace("Adjusted shape to {0} for MultiShaveOpt at {1}", shape, op->getLoc());
 
-    auto reshapeInOp = rewriter.create<VPU::ShapeCastOp>(op->getLoc(), origInputType.changeShape(shape), op.getInput(),
-                                                         getIntArrayAttr(ctx, shape));
+    auto reshapeInOp = VPU::ShapeCastOp::create(rewriter, op->getLoc(), origInputType.changeShape(shape), op.getInput(),
+                                                getIntArrayAttr(ctx, shape));
 
     mlir::IRMapping mapping;
     mapping.map(op.getInput(), reshapeInOp.getResult());
@@ -419,18 +416,18 @@ mlir::LogicalResult AdjustShapeForMultiply::matchAndRewrite(VPU::MultiplyOp mult
 
     _log.nest(1).trace("Adjusted shape to {0} for MultiShaveOpt at {1}", shape, multiplyOp->getLoc());
 
-    auto reshapeIn1Op = rewriter.create<VPU::ShapeCastOp>(multiplyOp->getLoc(), origInType.changeShape(shape),
-                                                          multiplyOp.getInput1(), getIntArrayAttr(ctx, shape));
+    auto reshapeIn1Op = VPU::ShapeCastOp::create(rewriter, multiplyOp->getLoc(), origInType.changeShape(shape),
+                                                 multiplyOp.getInput1(), getIntArrayAttr(ctx, shape));
 
-    auto reshapeIn2Op = rewriter.create<VPU::ShapeCastOp>(multiplyOp->getLoc(), origInType.changeShape(shape),
-                                                          multiplyOp.getInput2(), getIntArrayAttr(ctx, shape));
+    auto reshapeIn2Op = VPU::ShapeCastOp::create(rewriter, multiplyOp->getLoc(), origInType.changeShape(shape),
+                                                 multiplyOp.getInput2(), getIntArrayAttr(ctx, shape));
 
-    auto newMultiplyOp = rewriter.create<VPU::MultiplyOp>(
-            multiplyOp->getLoc(), origIOType.changeShape(shape), reshapeIn1Op.getResult(), reshapeIn2Op.getResult(),
-            multiplyOp.getAutoBroadcastAttr(), multiplyOp.getPostOpAttr(), nullptr);
+    auto newMultiplyOp = VPU::MultiplyOp::create(
+            rewriter, multiplyOp->getLoc(), origIOType.changeShape(shape), reshapeIn1Op.getResult(),
+            reshapeIn2Op.getResult(), multiplyOp.getAutoBroadcastAttr(), multiplyOp.getPostOpAttr(), nullptr);
 
-    auto reshapeOutOp = rewriter.create<VPU::ShapeCastOp>(multiplyOp->getLoc(), origIOType, newMultiplyOp.getOutput(),
-                                                          getIntArrayAttr(ctx, origIOShape));
+    auto reshapeOutOp = VPU::ShapeCastOp::create(rewriter, multiplyOp->getLoc(), origIOType, newMultiplyOp.getOutput(),
+                                                 getIntArrayAttr(ctx, origIOShape));
 
     multiplyOp.replaceAllUsesWith(reshapeOutOp.getResult());
     rewriter.eraseOp(multiplyOp);
@@ -497,15 +494,15 @@ mlir::LogicalResult AdjustShapeForMVN::matchAndRewrite(VPU::MVNOp mvnOp, mlir::P
 
     _log.nest(1).trace("Adjusted shape {0} to {1} for MultiShaveOpt at {1}", origIOShape, shape, mvnOp->getLoc());
 
-    auto reshapeInOp = rewriter.create<VPU::ShapeCastOp>(mvnOp->getLoc(), origIOType.changeShape(shape),
-                                                         mvnOp.getInput(), getIntArrayAttr(ctx, shape));
+    auto reshapeInOp = VPU::ShapeCastOp::create(rewriter, mvnOp->getLoc(), origIOType.changeShape(shape),
+                                                mvnOp.getInput(), getIntArrayAttr(ctx, shape));
 
-    auto newMVNOp = rewriter.create<VPU::MVNOp>(mvnOp->getLoc(), reshapeInOp.getResult(),
-                                                mlir::BoolAttr::get(ctx, isAcrossChannels),
-                                                mvnOp.getNormalizeVarianceAttr(), mvnOp.getEpsAttr());
+    auto newMVNOp = VPU::MVNOp::create(rewriter, mvnOp->getLoc(), reshapeInOp.getResult(),
+                                       mlir::BoolAttr::get(ctx, isAcrossChannels), mvnOp.getNormalizeVarianceAttr(),
+                                       mvnOp.getEpsAttr());
 
-    auto reshapeOutOp = rewriter.create<VPU::ShapeCastOp>(mvnOp->getLoc(), origIOType, newMVNOp.getOutput(),
-                                                          getIntArrayAttr(ctx, origIOShape));
+    auto reshapeOutOp = VPU::ShapeCastOp::create(rewriter, mvnOp->getLoc(), origIOType, newMVNOp.getOutput(),
+                                                 getIntArrayAttr(ctx, origIOShape));
 
     mvnOp.replaceAllUsesWith(reshapeOutOp.getResult());
     rewriter.eraseOp(mvnOp);
@@ -575,13 +572,13 @@ mlir::LogicalResult AdjustShapeForReduce<ReduceOp>::matchAndRewrite(ReduceOp red
 
     const auto outType = mlir::cast<vpux::NDTypeInterface>(reduceOp.getOutput().getType());
     const auto ctx = rewriter.getContext();
-    auto reshapeInOp = rewriter.create<VPU::ShapeCastOp>(reduceOp.getLoc(), inType.changeShape(targetShape),
-                                                         reduceOp.getInput(), getIntArrayAttr(ctx, targetShape));
+    auto reshapeInOp = VPU::ShapeCastOp::create(rewriter, reduceOp.getLoc(), inType.changeShape(targetShape),
+                                                reduceOp.getInput(), getIntArrayAttr(ctx, targetShape));
     auto newReduceOp =
-            rewriter.create<ReduceOp>(reduceOp.getLoc(), reshapeInOp.getResult(),
-                                      getIntArrayAttr(ctx, SmallVector<int64_t>{axisInd}), reduceOp.getKeepDimsAttr());
-    auto reshapeOutOp = rewriter.create<VPU::ShapeCastOp>(reduceOp.getLoc(), outType, newReduceOp.getOutput(),
-                                                          getIntArrayAttr(ctx, outType.getShape()));
+            ReduceOp::create(rewriter, reduceOp.getLoc(), reshapeInOp.getResult(),
+                             getIntArrayAttr(ctx, SmallVector<int64_t>{axisInd}), reduceOp.getKeepDimsAttr());
+    auto reshapeOutOp = VPU::ShapeCastOp::create(rewriter, reduceOp.getLoc(), outType, newReduceOp.getOutput(),
+                                                 getIntArrayAttr(ctx, outType.getShape()));
 
     rewriter.replaceOp(reduceOp, reshapeOutOp.getResult());
     return mlir::success();
@@ -646,21 +643,21 @@ mlir::LogicalResult AdjustShapeForNCEPermute::matchAndRewrite(VPU::NCEPermuteOp 
     _log.trace("Create NCEPermute with target shape {0}", targetShape);
     // Reshape input
     auto inShapeCast =
-            rewriter.create<VPU::ShapeCastOp>(origOp->getLoc(), origOp.getInput(), getIntArrayAttr(ctx, targetShape));
+            VPU::ShapeCastOp::create(rewriter, origOp->getLoc(), origOp.getInput(), getIntArrayAttr(ctx, targetShape));
 
     // Create new NCEPermute
     auto origOutputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     targetShape[Dims4D::Act::C] = origOp.getExpandedChannels();
     auto newOutputType = origOutputType.changeShape(targetShape);
-    auto newNCEPermuteOp = rewriter.create<VPU::NCEPermuteOp>(
-            origOp->getLoc(), newOutputType, inShapeCast.getResult(), origOp.getExpandedChannelsAttr(),
-            origOp.getDstElemTypeAttr(), origOp.getDstOrderAttr(), origOp.getPpeAttr(), origOp.getMpeEngineAttr(),
-            origOp.getMultiClusterStrategyAttr());
+    auto newNCEPermuteOp = VPU::NCEPermuteOp::create(rewriter, origOp->getLoc(), newOutputType, inShapeCast.getResult(),
+                                                     origOp.getExpandedChannelsAttr(), origOp.getDstElemTypeAttr(),
+                                                     origOp.getDstOrderAttr(), origOp.getPpeAttr(),
+                                                     origOp.getMpeEngineAttr(), origOp.getMultiClusterStrategyAttr());
 
     // Reshape output
     auto origOutputShape = outputType.getShape();
-    auto outShapeCast = rewriter.create<VPU::ShapeCastOp>(origOp->getLoc(), newNCEPermuteOp.getOutput(),
-                                                          getIntArrayAttr(ctx, origOutputShape));
+    auto outShapeCast = VPU::ShapeCastOp::create(rewriter, origOp->getLoc(), newNCEPermuteOp.getOutput(),
+                                                 getIntArrayAttr(ctx, origOutputShape));
 
     rewriter.replaceOp(origOp, outShapeCast.getResult());
 
@@ -732,18 +729,18 @@ mlir::LogicalResult AdjustShapeForNCEMatMul::matchAndRewrite(VPU::NCEMatMulOp or
     // Here, only the shape rank is checked to ensure correctness using DimsGroups5D::Act
     const auto inputShape = getShape(origOp.getInput());
     if (inputShape.size() != DimsGroups5D::Act::numDims) {
-        return matchFailed(rewriter, origOp, "Only NCE MatMul with a 5D shape is supported");
+        return matchFailed(_log, rewriter, origOp, "Only NCE MatMul with a 5D shape is supported");
     }
 
     const auto origH = inputShape[DimsGroups5D::Act::H];
     const auto origW = inputShape[DimsGroups5D::Act::W];
     if (origH == 1 || origW != 1) {
-        return matchFailed(rewriter, origOp, "NCE MatMul does not need balancing");
+        return matchFailed(_log, rewriter, origOp, "NCE MatMul does not need balancing");
     }
 
     const auto [newH, newW] = getBalanceHW(origH);
     if (newW == 1) {
-        return matchFailed(rewriter, origOp, "NCE MatMul cannot balance H and W");
+        return matchFailed(_log, rewriter, origOp, "NCE MatMul cannot balance H and W");
     }
 
     _log.trace("Adjust input shape for NCE MatMul at '{0}'", origOp.getLoc());
@@ -757,9 +754,9 @@ mlir::LogicalResult AdjustShapeForNCEMatMul::matchAndRewrite(VPU::NCEMatMulOp or
                                                    {DimsGroups5D::Act::H.ind(), DimsGroups5D ::Act::W.ind()},
                                                    {DimsGroups5D::Act::W.ind()}};
 
-    auto newInput = rewriter.create<VPU::AffineReshapeOp>(origOp.getLoc(), origOp.getInput(),
-                                                          getIntArrayOfArray(ctx, inDimMapping),
-                                                          getIntArrayAttr(ctx, newInShape));
+    auto newInput =
+            VPU::AffineReshapeOp::create(rewriter, origOp.getLoc(), origOp.getInput(),
+                                         getIntArrayOfArray(ctx, inDimMapping), getIntArrayAttr(ctx, newInShape));
 
     auto input1Type = mlir::cast<vpux::NDTypeInterface>(newInput.getOutput().getType());
     auto input2Type = mlir::cast<vpux::NDTypeInterface>(origOp.getWeights().getType());
@@ -783,11 +780,11 @@ mlir::LogicalResult AdjustShapeForNCEMatMul::matchAndRewrite(VPU::NCEMatMulOp or
         reduceTensorMinMaxType = resultSegmentSizes[3] ? extraReduceTypes[reduceIdx++] : nullptr;
     }
 
-    auto newMatMulOp = rewriter.create<VPU::NCEMatMulOp>(
-            origOp.getLoc(), outputType, reduceXyMaxType, reduceXyMinType, reduceTensorMinMaxType, newInput.getOutput(),
-            origOp.getWeights(), origOp.getWeightsTable(), origOp.getWeightTableScale(), origOp.getWeightTableBias(),
-            origOp.getWeightZeroPoints(), origOp.getStridesAttr(), origOp.getPadAttr(), origOp.getPpeAttr(),
-            origOp.getMpeEngineAttr(),
+    auto newMatMulOp = VPU::NCEMatMulOp::create(
+            rewriter, origOp.getLoc(), outputType, reduceXyMaxType, reduceXyMinType, reduceTensorMinMaxType,
+            newInput.getOutput(), origOp.getWeights(), origOp.getWeightsTable(), origOp.getWeightTableScale(),
+            origOp.getWeightTableBias(), origOp.getWeightZeroPoints(), origOp.getStridesAttr(), origOp.getPadAttr(),
+            origOp.getPpeAttr(), origOp.getMpeEngineAttr(),
             /*rawFilterShape=*/origOp.getRawFilterShape(), origOp.getStaticRawFilterShape(),
             /* multiClusterStrategyAttr = */ nullptr, origOp.getAxesValueAttr());
 
@@ -862,12 +859,12 @@ mlir::LogicalResult AdjustShapeForNCEAvgPool::matchAndRewrite(VPU::NCEAveragePoo
 
     const auto inputShape = getShape(origOp.getInput());
     if (inputShape.size() != 4) {
-        return matchFailed(rewriter, origOp, "Only NCE AveragePoolOp with a 4D shape is supported");
+        return matchFailed(_log, rewriter, origOp, "Only NCE AveragePoolOp with a 4D shape is supported");
     }
 
     auto needToAdjustShape = inputShape[Dims4D::Act::N] > 1;
     if (!needToAdjustShape) {
-        return matchFailed(rewriter, origOp, "No need for shape adjustment for NCE AveragePoolOp");
+        return matchFailed(_log, rewriter, origOp, "No need for shape adjustment for NCE AveragePoolOp");
     }
 
     auto totalShapeSize = inputShape.totalSize();
@@ -878,7 +875,7 @@ mlir::LogicalResult AdjustShapeForNCEAvgPool::matchAndRewrite(VPU::NCEAveragePoo
     const auto remainingShapeSize = totalShapeSize / VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
     const auto factorsList = vpux::getFactorsList(remainingShapeSize);
     if (factorsList.empty()) {
-        return matchFailed(rewriter, origOp, "Failed to get factors list for {0}", remainingShapeSize);
+        return matchFailed(_log, rewriter, origOp, "Failed to get factors list for {0}", remainingShapeSize);
     }
 
     auto newInShape = inputShape.toValues();
@@ -891,285 +888,24 @@ mlir::LogicalResult AdjustShapeForNCEAvgPool::matchAndRewrite(VPU::NCEAveragePoo
 
     // Reshape input
     auto inShapeCast =
-            rewriter.create<VPU::ShapeCastOp>(origOp->getLoc(), origOp.getInput(), getIntArrayAttr(ctx, newInShape));
+            VPU::ShapeCastOp::create(rewriter, origOp->getLoc(), origOp.getInput(), getIntArrayAttr(ctx, newInShape));
 
     // Create new pooling
     auto origOutputType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType());
     auto newOutputType = origOutputType.changeShape(newInShape);
-    auto newPoolOp = rewriter.create<VPU::NCEAveragePoolOp>(
-            origOp->getLoc(), newOutputType, inShapeCast.getResult(), origOp.getWeightTableScale(),
+    auto newPoolOp = VPU::NCEAveragePoolOp::create(
+            rewriter, origOp->getLoc(), newOutputType, inShapeCast.getResult(), origOp.getWeightTableScale(),
             origOp.getWeightTableBias(), origOp.getKernelSizeAttr(), origOp.getStridesAttr(), origOp.getPadAttr(),
             origOp.getPpeAttr(), origOp.getMpeEngineAttr(), origOp.getMultiClusterStrategyAttr(),
             origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
     // Reshape output
     auto origOutputShape = getShape(origOp.getOutput());
-    auto outShapeCast = rewriter.create<VPU::ShapeCastOp>(origOp->getLoc(), newPoolOp.getOutput(),
-                                                          getIntArrayAttr(ctx, origOutputShape));
+    auto outShapeCast = VPU::ShapeCastOp::create(rewriter, origOp->getLoc(), newPoolOp.getOutput(),
+                                                 getIntArrayAttr(ctx, origOutputShape));
 
     rewriter.replaceOp(origOp, outShapeCast.getResult());
 
-    return mlir::success();
-}
-
-//
-// ConvertTileWithEltwiseToNCEPool
-//
-
-class ConvertTileWithEltwiseToNCEPool final : public mlir::OpRewritePattern<VPU::TileOp> {
-public:
-    ConvertTileWithEltwiseToNCEPool(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<VPU::TileOp>(ctx), _log(log) {
-        this->setDebugName("AdjustForOptimizedLayersPass::ConvertTileWithEltwiseToNCEPool");
-    }
-
-private:
-    mlir::LogicalResult matchAndRewrite(VPU::TileOp originOp, mlir::PatternRewriter& rewriter) const final;
-
-private:
-    Logger _log;
-};
-
-mlir::LogicalResult ConvertTileWithEltwiseToNCEPool::matchAndRewrite(VPU::TileOp origOp,
-                                                                     mlir::PatternRewriter& rewriter) const {
-    _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
-
-    // NOTE: hasOneUse is not an essential condition. If all users consume origOp in the
-    // same way as a single eltwise, this rewrite would still be valid. The generalization
-    // is not implemented for now; revisit it if real cases appear.
-    if (!origOp->hasOneUse()) {
-        _log.trace("TileOp has multiple users at '{0}'", origOp->getLoc());
-        return mlir::failure();
-    }
-
-    auto userOp = mlir::dyn_cast<VPU::NCEEltwiseOp>(*origOp.getOutput().getUsers().begin());
-    if (userOp == nullptr) {
-        _log.trace("TileOp has a non-eltwise user at '{0}'", origOp->getLoc());
-        return mlir::failure();
-    }
-
-    if (userOp.getWeightTableScale() != nullptr || userOp.getWeightTableBias() != nullptr) {
-        // Existing table operands would need to be composed with the table produced from Tile:
-        // for ADD, newBias = oldBias + oldScale * tileValue; for MULTIPLY,
-        // newScale = oldScale * tileValue. The current rewrite does not materialize these
-        // extra table computations, so keep such cases unchanged.
-        _log.trace("Eltwise user already has weight-table scale/bias operands at '{0}'", userOp->getLoc());
-        return mlir::failure();
-    }
-
-    const auto eltType = userOp.getOpType();
-    if (eltType != VPU::EltwiseType::ADD && eltType != VPU::EltwiseType::MULTIPLY) {
-        // The NCE pool rewrite models TileOp as either a per-channel bias (ADD) or scale
-        // (MULTIPLY) table. SUBTRACT depends on operand order/sign, and the remaining eltwise
-        // kinds are not linear scale/bias transforms, so they are intentionally left untouched.
-        _log.trace("Eltwise type '{0}' is not supported for TileOp at '{1}'", eltType, origOp->getLoc());
-        return mlir::failure();
-    }
-
-    auto ctx = origOp.getContext();
-    const auto& ppeConfig = VPU::getPpeConfig(ctx);
-    const auto scaleBiasAdapter = ppeConfig.getFactoryAs<VPU::IPpeAdapterScaleBias*>();
-    if (scaleBiasAdapter == nullptr) {
-        _log.trace("PPE scale/bias adapter is not available at '{0}'", origOp->getLoc());
-        return mlir::failure();
-    }
-
-    auto input = origOp.getInput();
-    const auto inputShape = getShape(input);
-    if (inputShape.isDynamic()) {
-        _log.trace("TileOp input has dynamic shape at '{0}'", origOp->getLoc());
-        return mlir::failure();
-    }
-
-    if (inputShape.size() != 4) {
-        _log.trace("TileOp input is not 4D at '{0}'", origOp->getLoc());
-        return mlir::failure();
-    }
-
-    if (inputShape[Dims4D::Act::N] != 1 || inputShape[Dims4D::Act::H] != 1 || inputShape[Dims4D::Act::W] != 1) {
-        _log.trace("TileOp input is not flattened to [1, C, 1, 1] at '{0}'", origOp->getLoc());
-        return mlir::failure();
-    }
-
-    const auto repeatedValues = parseIntArrayAttr<int64_t>(origOp.getRepeatsValues());
-    if (repeatedValues.size() != 4) {
-        _log.trace("TileOp repeats are not 4D at '{0}'", origOp->getLoc());
-        return mlir::failure();
-    }
-    if (Shape(repeatedValues)[Dims4D::Act::N] != 1 || Shape(repeatedValues)[Dims4D::Act::C] != 1) {
-        _log.trace("TileOp repeats are not supported at '{0}'", origOp->getLoc());
-        return mlir::failure();
-    }
-
-    const auto eltwiseInput1 = userOp.getInput1();
-    const auto eltwiseInput2 = userOp.getInput2();
-    auto newInput = eltwiseInput1 == origOp.getOutput() ? eltwiseInput2 : eltwiseInput1;
-    if (getShape(newInput).isDynamic() || getShape(userOp.getOutput()).isDynamic()) {
-        _log.trace("Eltwise input or output has dynamic shape at '{0}'", userOp->getLoc());
-        return mlir::failure();
-    }
-
-    const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
-    const auto inputElemType = inputType.getElementType();
-
-    auto fp16Type = mlir::Float16Type::get(ctx);
-    auto fp32Type = mlir::Float32Type::get(ctx);
-    if (inputElemType != fp16Type && inputElemType != fp32Type) {
-        // The TileOp value is materialized as an FP32 weight-table scale or bias tensor. Quantized
-        // and other element types would require zero-point and quantization-scale handling before
-        // they can be safely reinterpreted as weight-table data.
-        _log.trace("TileOp input element type is not supported at '{0}'", origOp->getLoc());
-        return mlir::failure();
-    }
-
-    auto userPpe = userOp.getPpe();
-    const auto scale = scaleBiasAdapter->getScale(userPpe);
-    const auto bias = scaleBiasAdapter->getBias(userPpe);
-    // The earlier check rejected eltwise users carrying per-channel weight-table scale/bias
-    // operands, and quantized inputs were excluded above, so any scale/bias here is stored
-    // per-tensor in the PPE and is expected to be present.
-    VPUX_THROW_UNLESS(bias.has_value() && scale.has_value(),
-                      "Eltwise user at '{0}' has no per-tensor scale/bias in its PPE", userOp->getLoc());
-    // Non-neutral PPE scale/bias would need to be composed with the generated per-channel
-    // weight-table scale/bias, for example by emitting a follow-up NCE pool op or by consolidating
-    // compatible tables. That combination is not validated here, so this rewrite only handles
-    // the neutral PPE case.
-    if (!llvm::all_of(scale.value(), [](double scaleValue) {
-            return scaleValue == 1.0;
-        })) {
-        _log.trace("Eltwise user has non-neutral scale at '{0}'", userOp->getLoc());
-        return mlir::failure();
-    }
-    if (bias.value() != 0.0) {
-        _log.trace("Eltwise user has non-neutral bias at '{0}'", userOp->getLoc());
-        return mlir::failure();
-    }
-
-    const auto createWeightsTable = [&](llvm::StringRef suffix, float value) {
-        const auto tableShape = Shape({inputShape[Dims4D::Act::C], 1, 1, 1});
-        const auto tableType = mlir::RankedTensorType::get(tableShape.raw(), fp32Type);
-        const SmallVector<float> tableValues = {value};
-        return Const::createConst<float>(rewriter, appendLoc(origOp.getLoc(), suffix), tableType, ArrayRef(tableValues),
-                                         [](Const::ContentSetup& contentSetup) -> Const::ContentSetup {
-                                             return contentSetup.reorder(DimsOrder::NCHW);
-                                         });
-    };
-
-    const SmallVector<int64_t> poolStrides = {1, 1};
-    const SmallVector<int64_t> poolKernels = {1, 1};
-    const SmallVector<int64_t> pads = {0, 0};
-    const auto padAttr = VPU::getPaddingAttr(ctx, PadInfo(getIntArrayAttr(ctx, pads), getIntArrayAttr(ctx, pads)));
-
-    auto materializeWeightTableInput = [&](mlir::Value value) -> mlir::FailureOr<mlir::Value> {
-        auto tableInput = value;
-        auto tableInputType = mlir::cast<vpux::NDTypeInterface>(tableInput.getType());
-
-        if (tableInputType.getElementType() == fp16Type) {
-            const auto fp32OutputType = tableInputType.changeElemType(fp32Type);
-            if (auto avgPoolOp = tableInput.getDefiningOp<VPU::NCEAveragePoolOp>()) {
-                // NCE pool ops can produce FP32 directly, so avoid materializing an extra ConvertOp
-                // when the per-channel table comes from another NCE pool.
-                if (avgPoolOp->hasOneUse()) {
-                    rewriter.modifyOpInPlace(avgPoolOp, [&]() {
-                        avgPoolOp.getOutput().setType(fp32OutputType);
-                    });
-                    tableInput = avgPoolOp.getOutput();
-                } else {
-                    auto* clonedAvgPoolOp = rewriter.clone(*avgPoolOp);
-                    rewriter.modifyOpInPlace(clonedAvgPoolOp, [&]() {
-                        clonedAvgPoolOp->getResult(0).setType(fp32OutputType);
-                    });
-                    tableInput = clonedAvgPoolOp->getResult(0);
-                }
-            } else if (auto maxPoolOp = tableInput.getDefiningOp<VPU::NCEMaxPoolOp>()) {
-                // NCE pool ops can produce FP32 directly, so avoid materializing an extra ConvertOp
-                // when the per-channel table comes from another NCE pool.
-                if (maxPoolOp->hasOneUse()) {
-                    rewriter.modifyOpInPlace(maxPoolOp, [&]() {
-                        maxPoolOp.getOutput().setType(fp32OutputType);
-                    });
-                    tableInput = maxPoolOp.getOutput();
-                } else {
-                    auto* clonedMaxPoolOp = rewriter.clone(*maxPoolOp);
-                    rewriter.modifyOpInPlace(clonedMaxPoolOp, [&]() {
-                        clonedMaxPoolOp->getResult(0).setType(fp32OutputType);
-                    });
-                    tableInput = clonedMaxPoolOp->getResult(0);
-                }
-            } else {
-                auto materializedMaxPoolOp = rewriter.create<VPU::NCEMaxPoolOp>(
-                        appendLoc(origOp.getLoc(), "weight_table_maxpool"), fp32OutputType,
-                        /*reduceXyMax=*/nullptr, /*reduceXyMin=*/nullptr,
-                        /*reduceTensorMinMax=*/nullptr, tableInput, /*weightsTable=*/nullptr,
-                        /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
-                        getIntArrayAttr(ctx, poolKernels), getIntArrayAttr(ctx, poolStrides), padAttr,
-                        VPU::PPEStubAttr::get(ctx),
-                        /*mpe_engineAttr=*/nullptr, /*multi_cluster_strategyAttr=*/nullptr,
-                        /*output_paddingAttr=*/nullptr, /*input_paddingAttr=*/nullptr,
-                        /*s2dd2s_configAttr=*/nullptr, /*axes_valueAttr=*/nullptr);
-                // A stub PPE leaks into later stages: passes such as MultiClusterStrategyAssignment
-                // query the architecture PPE factory, which only accepts the concrete PPEFpAttr and
-                // throws on PPEStub. Assign the NOOP fp PPE produced by the active factory for this
-                // freshly created conversion MaxPool.
-                rewriter.modifyOpInPlace(materializedMaxPoolOp, [&]() {
-                    materializedMaxPoolOp.setPpeAttr(ppeConfig.retrievePPEAttribute(materializedMaxPoolOp));
-                });
-                tableInput = materializedMaxPoolOp.getOutput();
-            }
-            tableInputType = mlir::cast<vpux::NDTypeInterface>(tableInput.getType());
-        }
-
-        if (tableInputType.getDimsOrder() != DimsOrder::NCHW) {
-            const auto memPerm =
-                    tryToFindPermutationForPermuteCast(tableInputType, DimsOrder::NCHW, tableInputType.getShape(), ctx);
-            if (!memPerm.has_value()) {
-                return mlir::failure();
-            }
-
-            auto permuteCastOp =
-                    rewriter.create<VPU::PermuteCastOp>(appendLoc(origOp.getLoc(), "weight_table_permute"), tableInput,
-                                                        DimsOrder::NCHW.toAffineMap(ctx), memPerm.value());
-            tableInput = permuteCastOp.getOutput();
-        }
-
-        return tableInput;
-    };
-
-    rewriter.setInsertionPoint(userOp);
-
-    auto fp32Input = materializeWeightTableInput(input);
-    if (mlir::failed(fp32Input)) {
-        _log.trace("Cannot materialize weight-table input for TileOp at '{0}'", origOp->getLoc());
-        return mlir::failure();
-    }
-
-    auto shapeCastOp = rewriter.create<VPU::AffineReshapeOp>(
-            appendLoc(origOp.getLoc(), "weight_table_reshape"), *fp32Input,
-            getIntArrayOfArray(ctx, SmallVector<SmallVector<int64_t>>{{0}, {0}, {1}, {2, 3}}),
-            getIntArrayAttr(ctx, SmallVector<int64_t>{inputShape[Dims4D::Act::C], 1, 1, 1}));
-
-    mlir::Value scaleTable = nullptr;
-    mlir::Value biasTable = nullptr;
-    if (eltType == VPU::EltwiseType::ADD) {
-        biasTable = shapeCastOp.getOutput();
-        scaleTable = createWeightsTable("scale_table", 1.0f);
-    } else if (eltType == VPU::EltwiseType::MULTIPLY) {
-        scaleTable = shapeCastOp.getOutput();
-        biasTable = createWeightsTable("bias_table", 0.0f);
-    } else {
-        VPUX_THROW("Unexpected eltwise type: {0}", eltType);
-    }
-
-    auto newPpe = scaleBiasAdapter->discardScaleBias(userPpe);
-    rewriter.replaceOpWithNewOp<VPU::NCEMaxPoolOp>(
-            userOp, userOp.getResult(0).getType(),
-            /*reduceXyMax=*/nullptr, /*reduceXyMin=*/nullptr, /*reduceTensorMinMax=*/nullptr, newInput,
-            /*weightsTable=*/nullptr, scaleTable, biasTable, getIntArrayAttr(ctx, poolKernels),
-            getIntArrayAttr(ctx, poolStrides), padAttr, newPpe,
-            /*mpe_engineAttr=*/nullptr, /*multi_cluster_strategyAttr=*/nullptr, userOp.getOutputPaddingAttr(),
-            userOp.getInputPaddingAttr(), /*s2dd2s_configAttr=*/nullptr, /*axes_valueAttr=*/nullptr);
-
-    rewriter.eraseOp(origOp);
     return mlir::success();
 }
 
@@ -1216,11 +952,6 @@ void AdjustForOptimizedLayersPass::safeRunOnFunc() {
     patterns.add<AdjustShapeForNCEPermute>(&ctx, _log);
     patterns.add<AdjustShapeForNCEMatMul>(&ctx, _log);
     patterns.add<AdjustShapeForNCEAvgPool>(&ctx, _log);
-
-    const auto& strategyFactory = VPU::getVPUStrategyFactory(&ctx);
-    if (strategyFactory != nullptr && strategyFactory->isConvertTileWithEltwiseToNCEPoolSupported()) {
-        patterns.add<ConvertTileWithEltwiseToNCEPool>(&ctx, _log);
-    }
 
     collectOpsAndApplyPatterns(func, std::move(patterns));
 }

@@ -45,7 +45,7 @@ TEST_P(LLVMTransitiveCloneTests, CloneFunctions) {
     auto symref = mlir::SymbolRefAttr::get(&ctx, modSymRef, {flatEntrySymRef});
 
     auto moduleBuilder = mlir::OpBuilder::atBlockBegin(module->getBody());
-    auto tmpModuleOp = moduleBuilder.create<mlir::ModuleOp>(module->getLoc(), llvm::StringRef("TempModule"));
+    auto tmpModuleOp = mlir::ModuleOp::create(moduleBuilder, module->getLoc(), llvm::StringRef("TempModule"));
 
     transitivelyCloneFunctions(tmpModuleOp, *module, symref);
     llvm::SetVector<StringRef> inlinedOps(params.inlinedOps.begin(), params.inlinedOps.end());

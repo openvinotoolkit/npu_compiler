@@ -28,16 +28,16 @@ void ELF::CreateRelocationSectionOp::serialize(elf::Writer& writer, ELF::Section
     VPUX_THROW_UNLESS(target, "Reloc section expected to refer at a valid target section");
 
     auto targetMapEntry = sectionMap.find(target.getOperation());
-    VPUX_THROW_UNLESS(targetMapEntry != sectionMap.end(),
-                      "Can't serialize a reloc section that doesn't have its dependent target section");
+    VPUX_THROW_WHEN(targetMapEntry == sectionMap.end(),
+                    "Can't serialize a reloc section that doesn't have its dependent target section");
 
     auto targetSection = targetMapEntry->second;
     section->setSectionToPatch(targetSection);
     section->maskFlags(static_cast<elf::Elf_Xword>(getSecFlags()));
 
     auto symTabMapEntry = sectionMap.find(symTabRef);
-    VPUX_THROW_UNLESS(symTabMapEntry != sectionMap.end(),
-                      "Can't serialize a reloc section that doesn't have its dependent symbol table section");
+    VPUX_THROW_WHEN(symTabMapEntry == sectionMap.end(),
+                    "Can't serialize a reloc section that doesn't have its dependent symbol table section");
 
     auto symTabSection = symTabMapEntry->second;
     section->setSpecialSymbolTable(symTabSection->getIndex());

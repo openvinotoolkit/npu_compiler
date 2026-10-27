@@ -393,6 +393,7 @@ def VPU_ClampOp :
     ];
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
+    let hasFolder = 1;
 }
 
 def VPU_CosOp :

@@ -4,7 +4,7 @@
 //
 
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -79,18 +79,18 @@ mlir::LogicalResult ConvertConstantDynamicDequantizeToDequantize::matchAndRewrit
     // (e.g., from SplitFakeQuant or ConsolidateWeightsDequantization). Model-original
     // DynamicDequantize ops must not be touched.
     if (!origOp->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
-        return matchFailed(rewriter, origOp, "not a synthetic DynamicDequantize (missing marker)");
+        return matchFailed(_log, rewriter, origOp, "not a synthetic DynamicDequantize (missing marker)");
     }
 
     // Both scale and optional ZP must be compile-time constants.
     auto scaleOp = origOp.getScale().getDefiningOp<Const::DeclareOp>();
     if (scaleOp == nullptr) {
-        return matchFailed(rewriter, origOp, "scale is not a compile-time constant");
+        return matchFailed(_log, rewriter, origOp, "scale is not a compile-time constant");
     }
 
     auto zpOp = origOp.getZp() != nullptr ? origOp.getZp().getDefiningOp<Const::DeclareOp>() : nullptr;
     if (origOp.getZp() != nullptr && zpOp == nullptr) {
-        return matchFailed(rewriter, origOp, "Both scale and zp must be compile-time constant");
+        return matchFailed(_log, rewriter, origOp, "Both scale and zp must be compile-time constant");
     }
 
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
@@ -124,7 +124,7 @@ mlir::LogicalResult ConvertConstantDynamicDequantizeToDequantize::matchAndRewrit
                                 mlir::quant::QuantizedType::getDefaultMaximumForInteger(isSigned, intType.getWidth());
                         return mlir::success();
                     })
-                    .Case<vpux::type::QuantileType>([&](vpux::type::QuantileType quantileType) {
+                    .Case<mlir::quant::QuantileType>([&](mlir::quant::QuantileType quantileType) {
                         const bool isSigned = quantileType.shouldDefaultToSigned();
                         flags = isSigned ? mlir::quant::QuantizationFlags::Signed : 0;
                         storageType = quantileType;
@@ -137,8 +137,10 @@ mlir::LogicalResult ConvertConstantDynamicDequantizeToDequantize::matchAndRewrit
                         // Raw float storage type (e.g., f8E5M2, f8E4M3FN, f4E2M1FN)
                         const auto storageParamsFP = vpux::getStorageParams(elemType);
                         if (mlir::failed(storageParamsFP)) {
-                            return matchFailed(rewriter, origOp, "unsupported input element type {0}", elemType);
+                            return matchFailed(_log, rewriter, origOp, "unsupported input element type {0}", elemType);
                         }
+
+                        flags = mlir::quant::QuantizationFlags::Signed;
                         storageType = elemType;
                         storageMin = static_cast<int64_t>(std::get<0>(*storageParamsFP));
                         storageMax = static_cast<int64_t>(std::get<1>(*storageParamsFP));
@@ -172,7 +174,7 @@ mlir::LogicalResult ConvertConstantDynamicDequantizeToDequantize::matchAndRewrit
         }
     }
     if (nonOneAxes.size() > 1) {
-        return matchFailed(rewriter, origOp, "per-channel quantization on multiple axes is not supported");
+        return matchFailed(_log, rewriter, origOp, "per-channel quantization on multiple axes is not supported");
     }
 
     const int32_t quantAxis = nonOneAxes.empty() ? 0 : nonOneAxes.front();
@@ -215,7 +217,7 @@ mlir::LogicalResult ConvertConstantDynamicDequantizeToDequantize::matchAndRewrit
         } else if (scales.size() == 1) {
             scales.assign(zeroPoints.size(), scales.front());
         } else if (zeroPoints.size() != scales.size()) {
-            return matchFailed(rewriter, origOp, "ZP element count {0} does not match scale count {1}",
+            return matchFailed(_log, rewriter, origOp, "ZP element count {0} does not match scale count {1}",
                                zeroPoints.size(), scales.size());
         }
     } else {
@@ -255,10 +257,10 @@ mlir::LogicalResult ConvertConstantDynamicDequantizeToDequantize::matchAndRewrit
     // For raw storage inputs (integer, QuantileType, low-precision float) and identity-placeholder
     // quantized inputs, embed the reconstructed quant type via QuantizeCast before Dequantize.
     auto quantCastOp =
-            rewriter.create<IE::QuantizeCastOp>(takeOpLoc(origOp, "quant_cast"), origOp.getInput(), newQType);
+            IE::QuantizeCastOp::create(rewriter, takeOpLoc(origOp, "quant_cast"), origOp.getInput(), newQType);
 
     auto dequantizeOp =
-            rewriter.create<IE::DequantizeOp>(origOp->getLoc(), quantCastOp.getOutput(), origOp.getDstElemType());
+            IE::DequantizeOp::create(rewriter, origOp->getLoc(), quantCastOp.getOutput(), origOp.getDstElemType());
     rewriter.replaceOp(origOp, dequantizeOp.getOutput());
     return mlir::success();
 }

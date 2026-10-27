@@ -174,12 +174,12 @@ void processSwKernelWithInputBlockArg(mlir::func::FuncOp funcOp, VPUIP::SwKernel
         // create new alloc op to copy the content of the block arg
         builder.setInsertionPointToStart(&funcOp.getBody().front());
         auto newBufferType = rootBlockArg.getType();
-        auto newBufferOp = builder.create<mlir::memref::AllocOp>(rootBlockArg.getLoc(),
-                                                                 mlir::cast<mlir::MemRefType>(newBufferType));
+        auto newBufferOp = mlir::memref::AllocOp::create(builder, rootBlockArg.getLoc(),
+                                                         mlir::cast<mlir::MemRefType>(newBufferType));
 
         // add input copy
         const auto inputCopyLoc = appendLoc(newBufferOp->getLoc(), "ddr_copy");
-        auto inputCopyOp = builder.create<VPUIP::CopyOp>(inputCopyLoc, rootBlockArg, newBufferOp);
+        auto inputCopyOp = VPUIP::CopyOp::create(builder, inputCopyLoc, rootBlockArg, newBufferOp);
 
         // replace the uses of the block arg with the input copy
         rootBlockArg.replaceAllUsesExcept(inputCopyOp, inputCopyOp);
@@ -190,12 +190,12 @@ void processSwKernelWithInputBlockArg(mlir::func::FuncOp funcOp, VPUIP::SwKernel
     // create new alloc op to copy the content of the block arg
     builder.setInsertionPointToStart(&funcOp.getBody().front());
     auto newBufferOp =
-            builder.create<mlir::memref::AllocOp>(input.getLoc(), mlir::cast<mlir::MemRefType>(input.getType()));
+            mlir::memref::AllocOp::create(builder, input.getLoc(), mlir::cast<mlir::MemRefType>(input.getType()));
 
     // add input copy
     const auto inputCopyLoc = appendLoc(newBufferOp->getLoc(), "ddr_copy");
     builder.setInsertionPoint(swKernelOp);
-    auto inputCopyOp = builder.create<VPUIP::CopyOp>(inputCopyLoc, input, newBufferOp);
+    auto inputCopyOp = VPUIP::CopyOp::create(builder, inputCopyLoc, input, newBufferOp);
 
     // set input copy as SwKernel operand instead of the block arg
     input.replaceUsesWithIf(inputCopyOp, [&](mlir::OpOperand& operand) {
@@ -259,14 +259,14 @@ void processSwKernelWithOutputBlockArg(mlir::func::FuncOp funcOp, VPUIP::SwKerne
         // set the new buffer to be the operand of the subview and concat op
         builder.setInsertionPointToStart(&funcOp.getBody().front());
         auto newBufferType = outBufSource.getType();
-        auto newBufferOp = builder.create<mlir::memref::AllocOp>(outBufSource.getLoc(),
-                                                                 mlir::cast<mlir::MemRefType>(newBufferType));
+        auto newBufferOp = mlir::memref::AllocOp::create(builder, outBufSource.getLoc(),
+                                                         mlir::cast<mlir::MemRefType>(newBufferType));
         outBufSource.replaceAllUsesWith(newBufferOp);
 
         // add output copy
         builder.setInsertionPointAfter(concat);
         const auto outputCopyLoc = appendLoc(newBufferOp->getLoc(), "ddr_copy");
-        auto outputCopyOp = builder.create<VPUIP::CopyOp>(outputCopyLoc, concat, outBufSource);
+        auto outputCopyOp = VPUIP::CopyOp::create(builder, outputCopyLoc, concat, outBufSource);
 
         // modify all uses of the concat op to use the output copy instead
         updateUseWithNewValue(concatUses, outputCopyOp);
@@ -280,13 +280,13 @@ void processSwKernelWithOutputBlockArg(mlir::func::FuncOp funcOp, VPUIP::SwKerne
     // set the new buffer to be the operand of the SwKernel instead of the block arg
     builder.setInsertionPointToStart(&funcOp.getBody().front());
     auto newBufferOp =
-            builder.create<mlir::memref::AllocOp>(outputBuf.getLoc(), mlir::cast<mlir::MemRefType>(outputType));
+            mlir::memref::AllocOp::create(builder, outputBuf.getLoc(), mlir::cast<mlir::MemRefType>(outputType));
     swKernelOp->setOperand(outputBufOperandIdx, newBufferOp);
 
     // add output copy
     const auto outputCopyLoc = appendLoc(newBufferOp->getLoc(), "ddr_copy");
     builder.setInsertionPointAfter(swKernelOp);
-    auto outputCopyOp = builder.create<VPUIP::CopyOp>(outputCopyLoc, swKernelOutput, outputBuf);
+    auto outputCopyOp = VPUIP::CopyOp::create(builder, outputCopyLoc, swKernelOutput, outputBuf);
 
     // modify all uses of the SwKernel output to use the output copy instead
     for (auto& use : swKernelOutputUses) {
@@ -368,12 +368,12 @@ void processCallOpWithInputBlockArg(mlir::Value calledFuncArg,
         }
         // create new input buffer
         auto newBufferType = rootBlockArg.getType();
-        auto newBufferOp = builder.create<mlir::memref::AllocOp>(rootBlockArg.getLoc(),
-                                                                 mlir::cast<mlir::MemRefType>(newBufferType));
+        auto newBufferOp = mlir::memref::AllocOp::create(builder, rootBlockArg.getLoc(),
+                                                         mlir::cast<mlir::MemRefType>(newBufferType));
         auto newBufferResult = newBufferOp->getResult(0);
         // add input copy
         const auto inputCopyLoc = appendLoc(newBufferOp->getLoc(), "ddr_copy");
-        auto inputCopyOp = builder.create<VPUIP::CopyOp>(inputCopyLoc, rootBlockArg, newBufferResult);
+        auto inputCopyOp = VPUIP::CopyOp::create(builder, inputCopyLoc, rootBlockArg, newBufferResult);
         // set input copy as call op operand instead of the block arg
         rootBlockArg.replaceAllUsesExcept(inputCopyOp, inputCopyOp);
         blockArgumentToNewCopy.insert(std::make_pair(rootBlockArg, inputCopyOp));
@@ -389,13 +389,13 @@ void processCallOpWithInputBlockArg(mlir::Value calledFuncArg,
         auto blockArgLoc = calledFuncArg.getLoc();
         auto blockArgType = calledFuncArg.getType();
         auto newBufferOp =
-                builder.create<mlir::memref::AllocOp>(blockArgLoc, mlir::cast<mlir::MemRefType>(blockArgType));
+                mlir::memref::AllocOp::create(builder, blockArgLoc, mlir::cast<mlir::MemRefType>(blockArgType));
         auto newBufferResult = newBufferOp->getResult(0);
 
         // add input copy
         builder.setInsertionPoint(callOp);
         const auto inputCopyLoc = appendLoc(blockArgLoc, "ddr_copy");
-        auto inputCopyOp = builder.create<VPUIP::CopyOp>(inputCopyLoc, calledFuncArg, newBufferResult);
+        auto inputCopyOp = VPUIP::CopyOp::create(builder, inputCopyLoc, calledFuncArg, newBufferResult);
 
         // set input copy as call op operand instead of the block arg
         calledFuncArg.replaceUsesWithIf(inputCopyOp, [&](mlir::OpOperand& operand) {
@@ -433,14 +433,14 @@ void processCallOpWithOutputBlockArg(mlir::Value calledFuncArg,
         // set the new buffer to be the operand of the subview and concat op
         builder.setInsertionPointToStart(&mainFuncOp.getBody().front());
         auto newBufferType = outBufSource.getType();
-        auto newBufferOp = builder.create<mlir::memref::AllocOp>(outBufSource.getLoc(),
-                                                                 mlir::cast<mlir::MemRefType>(newBufferType));
+        auto newBufferOp = mlir::memref::AllocOp::create(builder, outBufSource.getLoc(),
+                                                         mlir::cast<mlir::MemRefType>(newBufferType));
         outBufSource.replaceAllUsesWith(newBufferOp);
 
         // add output copy
         builder.setInsertionPointAfter(concat);
         const auto outputCopyLoc = appendLoc(newBufferOp->getLoc(), "ddr_copy");
-        auto outputCopyOp = builder.create<VPUIP::CopyOp>(outputCopyLoc, concat, outBufSource);
+        auto outputCopyOp = VPUIP::CopyOp::create(builder, outputCopyLoc, concat, outBufSource);
 
         // modify all uses of the concat op to use the output copy instead
         updateUseWithNewValue(concatUses, outputCopyOp);
@@ -451,7 +451,7 @@ void processCallOpWithOutputBlockArg(mlir::Value calledFuncArg,
     // create new buffer
     auto blockArgLoc = calledFuncArg.getLoc();
     auto blockArgType = calledFuncArg.getType();
-    auto newBufferOp = builder.create<mlir::memref::AllocOp>(blockArgLoc, mlir::cast<mlir::MemRefType>(blockArgType));
+    auto newBufferOp = mlir::memref::AllocOp::create(builder, blockArgLoc, mlir::cast<mlir::MemRefType>(blockArgType));
     auto newBufferResult = newBufferOp->getResult(0);
 
     auto callOpArgIndex = getOperandIndex(callOp, calledFuncArg);
@@ -464,7 +464,7 @@ void processCallOpWithOutputBlockArg(mlir::Value calledFuncArg,
     // add output copy
     builder.setInsertionPointAfter(callOp);
     const auto outputCopyLoc = appendLoc(blockArgLoc, "ddr_copy");
-    auto outputCopyOp = builder.create<VPUIP::CopyOp>(outputCopyLoc, callOpResult, calledFuncArg);
+    auto outputCopyOp = VPUIP::CopyOp::create(builder, outputCopyLoc, callOpResult, calledFuncArg);
 
     // modify all uses of the call op output to use the output copy instead
     updateUseWithNewValue(callOpResultUses, outputCopyOp);

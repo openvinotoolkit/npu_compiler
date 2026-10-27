@@ -126,8 +126,8 @@ mlir::LogicalResult addFetchTasks(VPUMI40XX::MappedInferenceOp mpi, const VPUReg
                 auto wlmPageAttr = groupIdx < 2 ? mlir::IntegerAttr::get(getInt64Type(ctx), static_cast<uint64_t>(-1))
                                                 : insertionDma.getWlmPageAttr();
 
-                auto fetchTaskOp = builder.create<VPURegMapped::FetchTaskOp>(
-                        currentGroup.getLoc(), insertionDma.getIndexType(), insertionDma.getWaitBarriers(),
+                auto fetchTaskOp = VPURegMapped::FetchTaskOp::create(
+                        builder, currentGroup.getLoc(), insertionDma.getIndexType(), insertionDma.getWaitBarriers(),
                         insertionDma.getUpdateBarriers(), insertionDma.getPreviousTask(),
                         currentGroup.getStartIndexes()[0], currentGroup.getEndIndexes()[0],
                         currentGroup.getStartIndexes()[1], currentGroup.getEndIndexes()[1],

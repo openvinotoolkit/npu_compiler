@@ -182,12 +182,11 @@ INSTANTIATE_TEST_SUITE_P(smoke_QuantizedInterp_SW, QuantizedSEInterpSubGraphTest
 INSTANTIATE_TEST_SUITE_P(smoke_QuantizedInterp_HW, QuantizedSEInterpSubGraphTest_NPU4000_HW, basicCases,
                          QuantizedSEInterpSubGraphTest_NPU4000_HW::getTestCaseName);
 
-// TODO: E156484 - investigate accuracy issue
+// E#156484 - investigate accuracy issue
 INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_QuantizedInterp_HW, QuantizedSEInterpSubGraphTest_NPU5010_HW, basicCases,
                          QuantizedSEInterpSubGraphTest_NPU5010_HW::getTestCaseName);
+
 INSTANTIATE_TEST_SUITE_P(smoke_QuantizedInterp_HW, QuantizedSEInterpSubGraphTest_NPU5020_HW, basicCases,
                          QuantizedSEInterpSubGraphTest_NPU5020_HW::getTestCaseName);
-
-// TODO: E156484 - investigate accuracy issue
 
 }  // namespace

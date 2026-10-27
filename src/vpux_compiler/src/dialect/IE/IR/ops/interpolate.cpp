@@ -295,9 +295,9 @@ mlir::LogicalResult ConvertInputToFP16::matchAndRewrite(IE::InterpolateOp op, ml
 
     if (inputType.isUnsignedInteger(8)) {
         auto convertOpBefore =
-                rewriter.create<IE::ConvertOp>(op.getLoc(), op.getInput(), mlir::Float16Type::get(getContext()));
-        auto interpolateOp = rewriter.create<IE::InterpolateOp>(
-                op.getLoc(), convertOpBefore.getOutput(), op.getSizes(), op.getScales(), op.getAxes(),
+                IE::ConvertOp::create(rewriter, op.getLoc(), op.getInput(), mlir::Float16Type::get(getContext()));
+        auto interpolateOp = IE::InterpolateOp::create(
+                rewriter, op.getLoc(), convertOpBefore.getOutput(), op.getSizes(), op.getScales(), op.getAxes(),
                 op.getSizesAttrAttr(), op.getScalesAttrAttr(), op.getAxesAttrAttr(), op.getTileOffsetAttrAttr(),
                 op.getInitialInputDimsAttrAttr(), op.getInitialOutputDimsAttrAttr(), op.getAttr(),
                 op.getOutputPaddingAttr(), op.getInputPaddingAttr());

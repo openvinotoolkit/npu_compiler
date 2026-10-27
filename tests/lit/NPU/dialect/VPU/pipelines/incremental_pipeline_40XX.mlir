@@ -631,7 +631,7 @@ func.func @CumSumIncrementalPipelineCheck(%arg0: tensor<1x9x16x13500xf16>) -> te
     //CHECK-SAME{LITERAL}:        compute_offsets = [[0, 0, 0, 0], [0, 0, 3, 0], [0, 0, 6, 0], [0, 0, 9, 0], [0, 0, 12, 0], [0, 0, 14, 0]]
     //CHECK-SAME{LITERAL}:        memory_shapes = [[1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 2, 6750], [1, 9, 2, 6750]]
     //CHECK-SAME{LITERAL}:        memory_offsets = [[0, 0, 0, 0], [0, 0, 3, 0], [0, 0, 6, 0], [0, 0, 9, 0], [0, 0, 12, 0], [0, 0, 14, 0]]}>
-    //CHECK: [[CUMSUM_0:%.+]] = VPU.CumSum([[COPY_IN_0]]) {axis_value = 1 : i64, tiling_loop_index = 0 : i64} : !VPU.DistributedTensor<1x9x16x6750xf16, #NCHW, @CMX_NN
+    //CHECK: [[CUMSUM_0:%.+]] = VPU.CumSum([[COPY_IN_0]]) {axis_value = 1 : i64, loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : !VPU.DistributedTensor<1x9x16x6750xf16, #NCHW, @CMX_NN
     //CHECK-SAME{LITERAL}:        compute_shapes = [[1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 2, 6750], [1, 9, 2, 6750]]
     //CHECK-SAME{LITERAL}:        compute_offsets = [[0, 0, 0, 0], [0, 0, 3, 0], [0, 0, 6, 0], [0, 0, 9, 0], [0, 0, 12, 0], [0, 0, 14, 0]]
     //CHECK-SAME{LITERAL}:        memory_shapes = [[1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 2, 6750], [1, 9, 2, 6750]]
@@ -645,7 +645,7 @@ func.func @CumSumIncrementalPipelineCheck(%arg0: tensor<1x9x16x13500xf16>) -> te
     //CHECK-SAME{LITERAL}:        compute_offsets = [[0, 0, 0, 0], [0, 0, 3, 0], [0, 0, 6, 0], [0, 0, 9, 0], [0, 0, 12, 0], [0, 0, 14, 0]]
     //CHECK-SAME{LITERAL}:        memory_shapes = [[1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 2, 6750], [1, 9, 2, 6750]]
     //CHECK-SAME{LITERAL}:        memory_offsets = [[0, 0, 0, 0], [0, 0, 3, 0], [0, 0, 6, 0], [0, 0, 9, 0], [0, 0, 12, 0], [0, 0, 14, 0]]}>
-    //CHECK: [[CUMSUM_1:%.+]] = VPU.CumSum([[COPY_IN_1]]) {axis_value = 1 : i64, tiling_loop_index = 0 : i64} : !VPU.DistributedTensor<1x9x16x6750xf16, #NCHW, @CMX_NN
+    //CHECK: [[CUMSUM_1:%.+]] = VPU.CumSum([[COPY_IN_1]]) {axis_value = 1 : i64, loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : !VPU.DistributedTensor<1x9x16x6750xf16, #NCHW, @CMX_NN
     //CHECK-SAME:                 {mode = "SEGMENTED", num_tiles = [1, 1, 6, 1], num_clusters = 6 : i64, uniform_distributed_segments
     //CHECK-SAME{LITERAL}:        compute_shapes = [[1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 3, 6750], [1, 9, 2, 6750], [1, 9, 2, 6750]]
     //CHECK-SAME{LITERAL}:        compute_offsets = [[0, 0, 0, 0], [0, 0, 3, 0], [0, 0, 6, 0], [0, 0, 9, 0], [0, 0, 12, 0], [0, 0, 14, 0]]

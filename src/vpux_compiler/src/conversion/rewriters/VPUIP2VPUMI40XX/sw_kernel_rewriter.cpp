@@ -172,23 +172,20 @@ void addLLVMMemrefArgToVector(SmallVector<uint8_t>& vec, mlir::Value value,
     uint32_t alignedPointer = tileMask;  // Currently use only alignedPointer.
     int32_t offset = 0;
 
-    auto sizeVec = std::vector<int32_t>(rankMemref);
-    auto strideVec = std::vector<int32_t>(rankMemref);
-
-    for (auto size : sizeVec | indexed) {
-        vpux::Dim aDim(size.index());
-        size.value() = shape[aDim];
-    }
-
     const auto elemTypeSize = vpux::getElemTypeSize(ndType.getElementType());
     const auto dimsOrder = ndType.getDimsOrder();
     const auto memShape = dimsOrder.toMemoryOrder(Shape(ndType.getShape()));
     const auto memStrides = StrideReqs::compact(dimsOrder.numDims()).calcStrides(elemTypeSize, memShape);
-    const auto computedStrides = dimsOrder.toLogicalOrder(memStrides);
-    VPUX_THROW_WHEN(computedStrides.size() > strideVec.size(), "Number of computed strides is larger than expected");
+    VPUX_THROW_WHEN(memStrides.size() != rankMemref, "Unexpected number of computed strides");
 
-    for (auto stride : computedStrides | indexed) {
-        strideVec[stride.index()] = stride.value().count() / elemTypeSize.count();
+    auto sizeVec = std::vector<int32_t>(rankMemref);
+    for (auto dim : memShape | indexed) {
+        sizeVec[dim.index()] = checked_cast<int32_t>(dim.value());
+    }
+
+    auto strideVec = std::vector<int32_t>(rankMemref);
+    for (auto stride : memStrides | indexed) {
+        strideVec[stride.index()] = checked_cast<int32_t>(stride.value().count() / elemTypeSize.count());
     }
 
     // We can't represent in C/C++ a struct with compile-time-unknown-size arrays (arrays size and stride) with
@@ -232,8 +229,8 @@ SmallVector<uint8_t> createKernelParams(VPUIP::SwKernelOp swKernelOp, bool isJit
                 auto ioType = blockId < insSize ? swKernelOp.getInputs()[blockId].getType()
                                                 : swKernelOp.getOutputBuffs()[blockId - insSize].getType();
                 auto ioNdTypeIf = mlir::cast<vpux::NDTypeInterface>(ioType);
-                VPUX_THROW_UNLESS(blockArgNdTypeIf != nullptr || ioNdTypeIf != nullptr,
-                                  "createKernelParams: sw kernel I/O does not implement NDTypeInterface");
+                VPUX_THROW_WHEN(blockArgNdTypeIf == nullptr && ioNdTypeIf == nullptr,
+                                "createKernelParams: sw kernel I/O does not implement NDTypeInterface");
                 if (!vpux::areTypesCompatible(blockArgType, ioType, vpux::IE::TypeComparisonMode::STRICT_EQUAL, true,
                                               true)) {
                     VPUX_THROW("createKernelParams: types of sw kernel I/O do not match, op: {0}, loc: {1}",
@@ -287,13 +284,14 @@ void createComputeOpSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::OpBuilder build
                              VPURegMapped::IndexType indexType, bool isJitCompiled = false) {
     auto ctx = builder.getContext();
 
-    auto swKernelTextOp = builder.create<VPUMI40XX::DeclareKernelTextOp>(swKernelOp.getLoc(), indexType, swKernelELF);
-    auto swKernelArgsOp = builder.create<VPUMI40XX::DeclareKernelArgsOp>(swKernelOp.getLoc(), indexType, swKernelELF);
-    auto swKernelEntryOp = builder.create<VPUMI40XX::DeclareKernelEntryOp>(swKernelOp.getLoc(), indexType, swKernelELF);
+    auto swKernelTextOp = VPUMI40XX::DeclareKernelTextOp::create(builder, swKernelOp.getLoc(), indexType, swKernelELF);
+    auto swKernelArgsOp = VPUMI40XX::DeclareKernelArgsOp::create(builder, swKernelOp.getLoc(), indexType, swKernelELF);
+    auto swKernelEntryOp =
+            VPUMI40XX::DeclareKernelEntryOp::create(builder, swKernelOp.getLoc(), indexType, swKernelELF);
     auto parentTaskOp = swKernelOp->getParentOfType<VPURT::TaskOp>();
 
-    auto kernelRangeOp = builder.create<VPUMI40XX::ActKernelRangeOp>(
-            swKernelOp.getLoc(), indexType,
+    auto kernelRangeOp = VPUMI40XX::ActKernelRangeOp::create(
+            builder, swKernelOp.getLoc(), indexType,
             nullptr,  // taskLocation
             nullptr,  // previousTask
             swKernelTextOp, swKernelArgsOp, swKernelEntryOp,
@@ -348,22 +346,22 @@ void createComputeOpSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::OpBuilder build
 
     bool usesDma = VPUIP::isIoDmaSwKernel(swKernelOp);
 
-    auto kernelParamsOp = builder.create<VPUMI40XX::KernelParamsOp>(
-            swKernelOp.getLoc(), indexType, swKernelOp.getInputs(), actKernalParamResults, dynInputShapesRange,
+    auto kernelParamsOp = VPUMI40XX::KernelParamsOp::create(
+            builder, swKernelOp.getLoc(), indexType, swKernelOp.getInputs(), actKernalParamResults, dynInputShapesRange,
             dynOutputShapesRange, swKernelELF, paramsData, isOutputBroadcasted, isJitCompiled, usesDma, skipDescIds);
 
-    builder.create<VPUMI40XX::ActKernelInvocationOp>(swKernelOp.getLoc(), indexType,
-                                                     nullptr,             // taskLocation
-                                                     nullptr,             // previousTask
-                                                     mlir::ValueRange(),  // waitBarriers
-                                                     mlir::ValueRange(),  // updateBarriers
-                                                     kernelRangeOp.getResult(), kernelParamsOp.getResult(),
-                                                     swKernelOp.getProfilingData(), indexType.getTileIdx(),
-                                                     parentTaskOp.getStartAfter().value_or(0),  // start_after
-                                                     parentTaskOp.getCleanAfter().value_or(0),  // clean_after
-                                                     swKernelOp.getProfilingMetadataAttr(),
-                                                     nullptr,                       // enqueueBarrier
-                                                     parentTaskOp.getWlmPageAttr()  // wlmPageAttr
+    VPUMI40XX::ActKernelInvocationOp::create(builder, swKernelOp.getLoc(), indexType,
+                                             nullptr,             // taskLocation
+                                             nullptr,             // previousTask
+                                             mlir::ValueRange(),  // waitBarriers
+                                             mlir::ValueRange(),  // updateBarriers
+                                             kernelRangeOp.getResult(), kernelParamsOp.getResult(),
+                                             swKernelOp.getProfilingData(), indexType.getTileIdx(),
+                                             parentTaskOp.getStartAfter().value_or(0),  // start_after
+                                             parentTaskOp.getCleanAfter().value_or(0),  // clean_after
+                                             swKernelOp.getProfilingMetadataAttr(),
+                                             nullptr,                       // enqueueBarrier
+                                             parentTaskOp.getWlmPageAttr()  // wlmPageAttr
     );
     if (swKernelOp->hasAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME)) {
         auto logicalIndex = swKernelOp->getAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME);
@@ -403,16 +401,16 @@ void createCacheOpSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::OpBuilder builder
     mlir::Value swKernelEntryOp = nullptr;
     if (taskType == VPU::ActShaveTaskType::CACHE_PREFETCH) {
         const auto swKernelELF = mlir::cast<mlir::StringAttr>(swKernelOp->getAttr("kernelElfName"));
-        swKernelTextOp = builder.create<VPUMI40XX::DeclareKernelTextOp>(swKernelOp.getLoc(), indexType, swKernelELF);
-        swKernelArgsOp = builder.create<VPUMI40XX::DeclareKernelArgsOp>(swKernelOp.getLoc(), indexType, swKernelELF);
-        swKernelEntryOp = builder.create<VPUMI40XX::DeclareKernelEntryOp>(swKernelOp.getLoc(), indexType, swKernelELF);
+        swKernelTextOp = VPUMI40XX::DeclareKernelTextOp::create(builder, swKernelOp.getLoc(), indexType, swKernelELF);
+        swKernelArgsOp = VPUMI40XX::DeclareKernelArgsOp::create(builder, swKernelOp.getLoc(), indexType, swKernelELF);
+        swKernelEntryOp = VPUMI40XX::DeclareKernelEntryOp::create(builder, swKernelOp.getLoc(), indexType, swKernelELF);
     }
 
     auto ctx = swKernelOp.getContext();
     auto parentTaskOp = swKernelOp->getParentOfType<VPURT::TaskOp>();
 
-    auto kernelRangeOp = builder.create<VPUMI40XX::ActKernelRangeOp>(
-            swKernelOp.getLoc(), indexType,
+    auto kernelRangeOp = VPUMI40XX::ActKernelRangeOp::create(
+            builder, swKernelOp.getLoc(), indexType,
             nullptr,  // taskLocation
             nullptr,  // previousTask
             swKernelTextOp, swKernelArgsOp, swKernelEntryOp,
@@ -421,28 +419,28 @@ void createCacheOpSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::OpBuilder builder
     auto kernelParamsData = getIntArrayAttr(ctx, SmallVector<uint8_t>{0xFF});
     auto skipDescIds = swKernelOp.getSkipDescIds().value_or(nullptr);
 
-    auto kernelParamsOp = builder.create<VPUMI40XX::KernelParamsOp>(
-            swKernelOp.getLoc(), indexType,
-            mlir::ValueRange(),                // inputs
-            mlir::ValueRange(),                // results
-            SmallVector<mlir::ValueRange>(0),  // dynInputShapes
-            SmallVector<mlir::ValueRange>(0),  // dynOutputShapes
-            mlir::StringAttr::get(ctx, swKernelType), kernelParamsData, /*isOutputBroadcasted*/ false,
-            /*isJitCompiled*/ false, /*usesDma*/ false, skipDescIds);
+    auto kernelParamsOp = VPUMI40XX::KernelParamsOp::create(builder, swKernelOp.getLoc(), indexType,
+                                                            mlir::ValueRange(),                // inputs
+                                                            mlir::ValueRange(),                // results
+                                                            SmallVector<mlir::ValueRange>(0),  // dynInputShapes
+                                                            SmallVector<mlir::ValueRange>(0),  // dynOutputShapes
+                                                            mlir::StringAttr::get(ctx, swKernelType), kernelParamsData,
+                                                            /*isOutputBroadcasted*/ false,
+                                                            /*isJitCompiled*/ false, /*usesDma*/ false, skipDescIds);
 
-    builder.create<VPUMI40XX::ActKernelInvocationOp>(swKernelOp.getLoc(), indexType,
-                                                     nullptr,             // taskLocation
-                                                     nullptr,             // previousTask
-                                                     mlir::ValueRange(),  // waitBarriers
-                                                     mlir::ValueRange(),  // updateBarriers
-                                                     kernelRangeOp.getResult(), kernelParamsOp.getResult(),
-                                                     nullptr,  // profiling_data
-                                                     indexType.getTileIdx(),
-                                                     parentTaskOp.getStartAfter().value_or(0),  // start_after
-                                                     parentTaskOp.getCleanAfter().value_or(0),  // clean_after
-                                                     nullptr,                                   // profilingMetadata
-                                                     nullptr,                                   // enqueueBarrier
-                                                     parentTaskOp.getWlmPageAttr()              // wlmPageAttr
+    VPUMI40XX::ActKernelInvocationOp::create(builder, swKernelOp.getLoc(), indexType,
+                                             nullptr,             // taskLocation
+                                             nullptr,             // previousTask
+                                             mlir::ValueRange(),  // waitBarriers
+                                             mlir::ValueRange(),  // updateBarriers
+                                             kernelRangeOp.getResult(), kernelParamsOp.getResult(),
+                                             nullptr,  // profiling_data
+                                             indexType.getTileIdx(),
+                                             parentTaskOp.getStartAfter().value_or(0),  // start_after
+                                             parentTaskOp.getCleanAfter().value_or(0),  // clean_after
+                                             nullptr,                                   // profilingMetadata
+                                             nullptr,                                   // enqueueBarrier
+                                             parentTaskOp.getWlmPageAttr()              // wlmPageAttr
     );
 }
 

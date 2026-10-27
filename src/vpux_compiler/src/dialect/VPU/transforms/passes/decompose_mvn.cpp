@@ -216,22 +216,22 @@ mlir::LogicalResult DecomposeMVNPass::MVNConverter::matchAndRewrite(VPU::MVNOp o
 
         auto newShape = Shape{inputBatch, inputChannel, inputHeight, 1};
 
-        lastOp = rewriter.createOrFold<VPU::ShapeCastOp>(origOp.getLoc(), inputType.changeShape(newShape),
-                                                         origOp.getInput(), getIntArrayAttr(ctx, newShape));
+        lastOp = VPU::ShapeCastOp::create(rewriter, origOp.getLoc(), inputType.changeShape(newShape), origOp.getInput(),
+                                          getIntArrayAttr(ctx, newShape));
     }
 
-    auto tileMVN1SumOp = rewriter.create<VPU::MVN1SumOp>(appendLoc(origOp.getLoc(), "mvn1Sum"), lastOp, accrossChannels,
-                                                         origOp.getNormalizeVariance(), numClusters);
+    auto tileMVN1SumOp = VPU::MVN1SumOp::create(rewriter, appendLoc(origOp.getLoc(), "mvn1Sum"), lastOp,
+                                                accrossChannels, origOp.getNormalizeVariance(), numClusters);
 
     const auto internalReshape =
             origOp.getInternalReshape().has_value() ? origOp.getInternalReshape().value() : nullptr;
-    auto tileMVN1MeanVarOp = rewriter.create<VPU::MVN1MeanVarOp>(
-            appendLoc(origOp.getLoc(), "mvn1MeanVar"), tileMVN1SumOp->getResult(0),
+    auto tileMVN1MeanVarOp = VPU::MVN1MeanVarOp::create(
+            rewriter, appendLoc(origOp.getLoc(), "mvn1MeanVar"), tileMVN1SumOp->getResult(0),
             getIntArrayAttr(rewriter, inputType.getShape().raw()), accrossChannels, origOp.getNormalizeVariance(),
             origOp.getEps(), inputType.getElementType(), internalReshape);
 
-    auto tileMVN1NormalizeOp = rewriter.create<VPU::MVN1NormalizeOp>(
-            appendLoc(origOp.getLoc(), "mvn1Normalize"), lastOp, tileMVN1MeanVarOp.getResult(),
+    auto tileMVN1NormalizeOp = VPU::MVN1NormalizeOp::create(
+            rewriter, appendLoc(origOp.getLoc(), "mvn1Normalize"), lastOp, tileMVN1MeanVarOp.getResult(),
             origOp.getAcrossChannelsAttr(), origOp.getNormalizeVarianceAttr(), origOp.getHighPrecisionNormalizeAttr(),
             rewriter.getBoolAttr(fitsInCMX));
 

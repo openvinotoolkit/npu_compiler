@@ -187,26 +187,47 @@ mlir::FailureOr<VPU::MultiClusterStrategy> ConvPostEltwiseMergeTilingPolicy::ali
     for (const auto& strategy : potentialStrategies) {
         auto numClusters = getOptimalNumClusters(userOp, outType.getShape(), strategy);
         if (!userOp.checkStrategyCompatibility(strategy, checked_cast<size_t>(numClusters))) {
+            _log.trace("Skip strategy {0} for VF conv-post-eltwise user {1}: strategy compatibility check failed",
+                       strategy, userOp->getLoc());
+            continue;
+        }
+
+        if (strategy == VPU::MultiClusterStrategy::SplitOverHeight &&
+            !userOp.isOperationSplitOverHeightCompatible(TileInfo(ShapeRef()))) {
+            _log.trace("Skip strategy {0} for VF conv-post-eltwise user {1}: SOH is not compatible", strategy,
+                       userOp->getLoc());
+            continue;
+        }
+        if (strategy == VPU::MultiClusterStrategy::SplitOverKernel &&
+            !userOp.isOperationSplitOverKernelCompatible(ShapeRef(), ShapeRef(), ShapeRef())) {
+            _log.trace("Skip strategy {0} for VF conv-post-eltwise user {1}: SOK is not compatible", strategy,
+                       userOp->getLoc());
             continue;
         }
 
         auto userInType = getDistributedInputType(userOp, userOp->getOperand(parentOpInfo.operandIdx), strategy);
         if (userInType == nullptr) {
+            _log.trace("Skip strategy {0} for VF conv-post-eltwise user {1}: cannot get distributed input type",
+                       strategy, userOp->getLoc());
             continue;
         }
         auto userInDataType = mlir::cast<VPU::DistributedTensorType>(userInType.getDistributedTypes().front());
         if (areDistributionAttrsCompatible(inferredInputType, userInDataType, true).failed()) {
+            _log.trace("Skip strategy {0} for VF conv-post-eltwise user {1}: input distribution is incompatible",
+                       strategy, userOp->getLoc());
             continue;
         }
+        _log.trace("Use strategy {0} for VF conv-post-eltwise user {1}", strategy, userOp->getLoc());
         return strategy;
     }
 
     return mlir::failure();
 }
 
-int64_t ConvPostEltwiseMergeTilingPolicy::getMinimumNumber(Dim, const VFSplit&, ArrayRef<int64_t>, ArrayRef<int64_t>,
-                                                           VFConfig&, VFConfig&, size_t) const {
-    return MINIMUM_LENGTH_TILING;
+int64_t ConvPostEltwiseMergeTilingPolicy::getMinimumNumber(Dim dim, const VFSplit&, ArrayRef<int64_t>,
+                                                           ArrayRef<int64_t> prevTiling, VFConfig&, VFConfig&,
+                                                           size_t) const {
+    return prevTiling[dim.ind()];
 }
 
 int64_t ConvPostEltwiseMergeTilingPolicy::getMaximalNumber(Dim dim, const VFSplit&, VFConfig& vfConfig) const {
@@ -249,7 +270,9 @@ bool ConvPostEltwiseMergeTilingPolicy::matchPattern(VFConfig& prevConfig, VFConf
     }
 
     auto* eltwiseOp = currentOps.front();
-    return mlir::isa<VPU::SWOpInterface>(eltwiseOp) && eltwiseOp->hasTrait<VPU::EltwiseOp>();
+    // For inplace eltwise, it's usually DMA bound op, which cost is mainly determined by the DMA. Fall back to general
+    // merge tiling policy to see if there is any other VF split can be applied to reduce the DMA cost.
+    return eltwiseOp->hasTrait<VPU::EltwiseOp>() && !eltwiseOp->hasAttr(VPU::isInPlace);
 }
 
 }  // namespace vpux::VPU::VF::v2

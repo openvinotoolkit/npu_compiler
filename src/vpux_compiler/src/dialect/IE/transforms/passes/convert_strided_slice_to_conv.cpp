@@ -55,8 +55,8 @@ IE::ConvolutionOp createStridedSliceConv(mlir::Value input, mlir::ArrayRef<int64
     const auto origOutType = mlir::cast<vpux::NDTypeInterface>(input.getType());
     const DimsOrder weightOrder = DimsOrder::OIYX;
 
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(input.getType()), "{0} doesn't support dynamic shapes",
-                      IE::ConvolutionOp::getOperationName());
+    VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(input.getType()), "{0} doesn't support dynamic shapes",
+                    IE::ConvolutionOp::getOperationName());
     const auto weightType = mlir::RankedTensorType::get(weightShape.raw(), origOutType.getElementType(),
                                                         getTensorAttr(rewriter.getContext(), weightOrder, nullptr));
     auto weights = Const::buildWeightsConst(rewriter, input.getLoc(), weightType, ArrayRef(weightsVals));
@@ -73,8 +73,8 @@ IE::ConvolutionOp createStridedSliceConv(mlir::Value input, mlir::ArrayRef<int64
         auto fqInHighVal = Const::createFloatConst(rewriter, loc, fqArgType, 254.0f);
         auto fqOutHighVal = Const::createFloatConst(rewriter, loc, fqArgType, 254.0f);
 
-        auto quantizationForWeights = rewriter.create<IE::FakeQuantizeOp>(
-                loc, dataStorageType, weights, fqLowVal, fqInHighVal, fqLowVal, fqOutHighVal, fqLevelsVal,
+        auto quantizationForWeights = IE::FakeQuantizeOp::create(
+                rewriter, loc, dataStorageType, weights, fqLowVal, fqInHighVal, fqLowVal, fqOutHighVal, fqLevelsVal,
                 inputFQ.getLowFpTypeAttr(), inputFQ.getAutoBroadcastAttr());
         weights = quantizationForWeights.getOutput();
     }
@@ -85,8 +85,8 @@ IE::ConvolutionOp createStridedSliceConv(mlir::Value input, mlir::ArrayRef<int64
     const auto grpConvOutType = origOutType.changeShape(outShape);
 
     auto newLoc = appendLoc(loc, "strided_slice_Conv_1_1");
-    return rewriter.create<IE::ConvolutionOp>(newLoc, grpConvOutType, input, weights, stridesAttr, padBeginAttr,
-                                              padEndAttr, dilationsAttr);
+    return IE::ConvolutionOp::create(rewriter, newLoc, grpConvOutType, input, weights, stridesAttr, padBeginAttr,
+                                     padEndAttr, dilationsAttr);
 }
 
 IE::ConvolutionOp createParallelStridedSliceToConv(mlir::Value input, mlir::ArrayRef<int64_t> strides,
@@ -113,8 +113,8 @@ IE::ConvolutionOp createParallelStridedSliceToConv(mlir::Value input, mlir::Arra
     const auto elemType = mlir::cast<vpux::NDTypeInterface>(input.getType()).getElementType();
     const DimsOrder weightOrder = DimsOrder::OIYX;
 
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(input.getType()), "{0} doesn't support dynamic shapes",
-                      IE::ConvolutionOp::getOperationName());
+    VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(input.getType()), "{0} doesn't support dynamic shapes",
+                    IE::ConvolutionOp::getOperationName());
     const auto weightType = mlir::RankedTensorType::get(weightShape.raw(), elemType,
                                                         getTensorAttr(rewriter.getContext(), weightOrder, nullptr));
     auto weights = Const::buildWeightsConst(rewriter, input.getLoc(), weightType, ArrayRef(weightsVal));
@@ -132,8 +132,8 @@ IE::ConvolutionOp createParallelStridedSliceToConv(mlir::Value input, mlir::Arra
         auto fqInHighVal = Const::createFloatConst(rewriter, loc, fqArgType, 254.0f);
         auto fqOutHighVal = Const::createFloatConst(rewriter, loc, fqArgType, 254.0f);
 
-        auto quantizationForWeights = rewriter.create<IE::FakeQuantizeOp>(
-                loc, dataStorageType, weights, fqLowVal, fqInHighVal, fqLowVal, fqOutHighVal, fqLevelsVal,
+        auto quantizationForWeights = IE::FakeQuantizeOp::create(
+                rewriter, loc, dataStorageType, weights, fqLowVal, fqInHighVal, fqLowVal, fqOutHighVal, fqLevelsVal,
                 inputFQ.getLowFpTypeAttr(), inputFQ.getAutoBroadcastAttr());
 
         weights = quantizationForWeights.getOutput();
@@ -143,8 +143,8 @@ IE::ConvolutionOp createParallelStridedSliceToConv(mlir::Value input, mlir::Arra
     const auto origOutType = mlir::cast<vpux::NDTypeInterface>(input.getType());
     const auto convOutType = origOutType.changeShape(outShape);
     auto newLoc = appendLoc(loc, "parallel_strided_slice_Conv");
-    return rewriter.create<IE::ConvolutionOp>(newLoc, convOutType, input, weights, stridesAttr, padBeginAttr,
-                                              padEndAttr, dilationsAttr);
+    return IE::ConvolutionOp::create(rewriter, newLoc, convOutType, input, weights, stridesAttr, padBeginAttr,
+                                     padEndAttr, dilationsAttr);
 }
 
 //

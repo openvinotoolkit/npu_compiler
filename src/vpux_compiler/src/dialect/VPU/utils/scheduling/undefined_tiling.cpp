@@ -113,6 +113,21 @@ CollectResult collectComputeOpBuffers(const SchedulingLoop& schedulingLoop, cons
     // Collect buffers for each compute op.
     for (const auto& iterationIdx : irange(schedulingLoop.loopBodies.size())) {
         const auto& loopBody = schedulingLoop.loopBodies[iterationIdx];
+        std::vector<BufferId> dataOpBuffers;
+        for (const auto& allocInfo : loopBody) {
+            // Save the data op buffers to complete the buffer list when they are not consumed by any compute op
+            if (allocInfo.allocationType == AllocationType::COMPUTE) {
+                continue;
+            }
+            for (const auto buffer : llvm::concat<const mlir::Value>(allocInfo.inBuffers, allocInfo.outBuffers)) {
+                const auto bufferIt = bufferInfoCache.bufferIds.find(buffer);
+                VPUX_THROW_WHEN(bufferIt == bufferInfoCache.bufferIds.end(), "Buffer is missing in bufferInfoCache");
+                if (llvm::find(dataOpBuffers, bufferIt->second) == dataOpBuffers.end()) {
+                    dataOpBuffers.push_back(bufferIt->second);
+                }
+            }
+        }
+
         ComputeOpIndex computeOpIdx = 0;
 
         for (const auto& allocInfo : loopBody) {
@@ -123,14 +138,14 @@ CollectResult collectComputeOpBuffers(const SchedulingLoop& schedulingLoop, cons
             std::vector<size_t> used;
             for (auto input : allocInfo.inBuffers) {
                 const auto inputIt = bufferInfoCache.bufferIds.find(input);
-                VPUX_THROW_UNLESS(inputIt != bufferInfoCache.bufferIds.end(), "Buffer is missing in bufferInfoCache");
+                VPUX_THROW_WHEN(inputIt == bufferInfoCache.bufferIds.end(), "Buffer is missing in bufferInfoCache");
                 const auto id = inputIt->second;
                 used.push_back(id);
             }
 
             for (auto output : allocInfo.outBuffers) {
                 const auto outputIt = bufferInfoCache.bufferIds.find(output);
-                VPUX_THROW_UNLESS(outputIt != bufferInfoCache.bufferIds.end(), "Buffer is missing in bufferInfoCache");
+                VPUX_THROW_WHEN(outputIt == bufferInfoCache.bufferIds.end(), "Buffer is missing in bufferInfoCache");
                 const auto id = outputIt->second;
 
                 auto existing = std::find_if(used.begin(), used.end(), [&](size_t itemId) {
@@ -141,6 +156,14 @@ CollectResult collectComputeOpBuffers(const SchedulingLoop& schedulingLoop, cons
                     continue;
                 }
                 used.push_back(id);
+            }
+
+            // DATA_IN chains may use CMX temporaries that are not direct COMPUTE operands, such as the indices
+            // buffer in NNDMA -> GatherDMA -> NCE. Keep those buffers in the same per-iteration allocation map.
+            for (const auto bufferId : dataOpBuffers) {
+                if (llvm::find(used, bufferId) == used.end()) {
+                    used.push_back(bufferId);
+                }
             }
 
             computeOpBuffers.emplace_back(ComputeOpKey{iterationIdx, computeOpIdx}, std::move(used));
@@ -232,6 +255,28 @@ std::pair<vpux::AddressType, SharedBufferIds> reserveGloballySharedBuffers(const
     return {availableMemory, sharedBuffers};
 }
 
+void reserveDataUpdateInputBuffers(const ValueOrderedSet& dataUpdateInputBuffers,
+                                   const BufferInfoCache& bufferInfoCache, vpux::AddressType& availableMemory,
+                                   SharedBufferIds& sharedBuffers) {
+    for (const auto& buffer : dataUpdateInputBuffers) {
+        const auto bufferIdIt = bufferInfoCache.bufferIds.find(buffer);
+        VPUX_THROW_UNLESS(bufferIdIt != bufferInfoCache.bufferIds.end(),
+                          "No buffer id found for value {0} in bufferInfoCache", buffer);
+        const auto bufferId = bufferIdIt->second;
+        if (!sharedBuffers.insert(bufferId).second) {
+            continue;
+        }
+
+        const auto rawSize = bufferInfoCache.buffers[bufferId].rawSize;
+        const auto rawAlignment = bufferInfoCache.buffers[bufferId].rawAlignment;
+        VPUX_THROW_UNLESS(rawSize <= availableMemory,
+                          "Insufficient CMX for DATA_UPDATE input {0}: requested={1}, available={2}", bufferId, rawSize,
+                          availableMemory);
+        availableMemory -= rawSize;
+        availableMemory = alignValDown(availableMemory, rawAlignment);
+    }
+}
+
 OperandAllocationOrder getOperandAllocationOrder(const FrequencyTable& frequencyTable) {
     OperandAllocationOrder operandReloads;
     operandReloads.reserve(frequencyTable.size());
@@ -321,8 +366,8 @@ ComputeOpAllocationMap getMemoryAllocations(const ComputeOpBuffers& computeOpBuf
                 if (end > availableMemory) {
                     reachedMemoryLimit = true;
                 }
-                VPUX_THROW_UNLESS(!operandAllocations[operandIdx].empty(),
-                                  "No previous allocation to overwrite for operand {0}", operandIdx);
+                VPUX_THROW_WHEN(operandAllocations[operandIdx].empty(),
+                                "No previous allocation to overwrite for operand {0}", operandIdx);
                 const auto [oldBufferId, oldAddress] = operandAllocations[operandIdx].front();
                 operandAllocations[operandIdx].erase(operandAllocations[operandIdx].begin());
                 begin = oldAddress.first;
@@ -353,7 +398,7 @@ void addAllocationForBuffer(mlir::Value buffer, const std::map<BufferId, Address
                             std::map<BufferId, AddressRange>& aliveBuffers, SmallVector<mlir::Value>& deallocations,
                             SmallVector<std::pair<mlir::Value, vpux::AddressType>>& allocations) {
     const auto idIt = bufferInfoCache.bufferIds.find(buffer);
-    VPUX_THROW_UNLESS(idIt != bufferInfoCache.bufferIds.end(), "No buffer id found for value");
+    VPUX_THROW_WHEN(idIt == bufferInfoCache.bufferIds.end(), "No buffer id found for value");
     const auto bufferId = idIt->second;
 
     if (sharedBuffers.count(bufferId) > 0) {
@@ -364,14 +409,16 @@ void addAllocationForBuffer(mlir::Value buffer, const std::map<BufferId, Address
     const auto targetRange = allocationMap.at(bufferId);
 
     if (aliveBuffers.count(bufferId) > 0) {
+        // Same address: Do nothing if the address is unchanged
         if (aliveBuffers[bufferId].first == targetRange.first) {
             return;
         }
-
+        // Different address: Need to reallocate to the new buffer, deallocate it first
         deallocations.push_back(buffer);
         aliveBuffers.erase(bufferId);
     } else {
         for (const auto& [aliveId, aliveRange] : llvm::make_early_inc_range(aliveBuffers)) {
+            // If alive buffer overlaps the targetRange, deallocate the alive buffer first
             if (aliveRange.first < targetRange.second && targetRange.first < aliveRange.second) {
                 deallocations.push_back(bufferInfoCache.buffers[aliveId].value);
                 aliveBuffers.erase(aliveId);
@@ -381,6 +428,48 @@ void addAllocationForBuffer(mlir::Value buffer, const std::map<BufferId, Address
 
     aliveBuffers[bufferId] = targetRange;
     allocations.push_back({buffer, targetRange.first});
+}
+
+ComputeExplicitSchedule buildExplicitScheduleEntry(const OpAllocationInfo& allocInfo,
+                                                   const std::map<BufferId, AddressRange>& allocationMap,
+                                                   const BufferInfoCache& bufferInfoCache,
+                                                   const SharedBufferIds& sharedBuffers,
+                                                   std::map<BufferId, AddressRange>& aliveBuffers) {
+    SmallVector<std::pair<mlir::Value, vpux::AddressType>> allocations;
+    SmallVector<mlir::Value> deallocations;
+
+    // For CMX-CMX input DMA, only allocate output buffer since the input buffer is produced by dependency op
+    // outside of this loop, or other DATA_IN ops inside of the loop
+    if (allocInfo.allocationType != AllocationType::DATA_UPDATE) {
+        for (auto input : allocInfo.inBuffers) {
+            addAllocationForBuffer(input, allocationMap, bufferInfoCache, sharedBuffers, aliveBuffers, deallocations,
+                                   allocations);
+        }
+    }
+    for (auto output : allocInfo.outBuffers) {
+        addAllocationForBuffer(output, allocationMap, bufferInfoCache, sharedBuffers, aliveBuffers, deallocations,
+                               allocations);
+    }
+
+    VPUX_THROW_WHEN(!deallocations.empty() && allocations.empty(),
+                    "Deallocation buffers are non-empty while allocation buffers are empty");
+    return ComputeExplicitSchedule(allocInfo, std::move(deallocations), std::move(allocations));
+}
+
+const std::map<BufferId, AddressRange>& getAllocationMap(
+        const OpAllocationInfo& allocInfo, IterationIndex iterationIdx, ComputeOpIndex computeOpIdx,
+        const ComputeOpAllocationMap& memoryAllocations,
+        const std::unordered_map<IterationIndex, std::map<BufferId, AddressRange>>& iterationFallbackAllocationMap) {
+    if (allocInfo.allocationType == AllocationType::COMPUTE) {
+        const auto computeOpKey = ComputeOpKey{iterationIdx, computeOpIdx};
+        VPUX_THROW_UNLESS(memoryAllocations.count(computeOpKey) > 0,
+                          "No allocation map found for compute op ({0}, {1})", iterationIdx, computeOpIdx);
+        return memoryAllocations.at(computeOpKey);
+    }
+
+    VPUX_THROW_UNLESS(iterationFallbackAllocationMap.count(iterationIdx) > 0,
+                      "No fallback allocation map found for iteration {0}", iterationIdx);
+    return iterationFallbackAllocationMap.at(iterationIdx);
 }
 
 PredefinedSchedule buildPredefinedSchedule(const SchedulingLoop& schedulingLoop,
@@ -399,6 +488,7 @@ PredefinedSchedule buildPredefinedSchedule(const SchedulingLoop& schedulingLoop,
             fallbackMap.try_emplace(bufferId, range);
         }
     }
+    std::unordered_map<size_t, std::pair<OpAllocationInfo, IterationIndex>> prefetchedDataUpdateOrigins;
 
     for (const auto& iterationIdx : irange(schedulingLoop.loopBodies.size())) {
         const auto& iterationOps = schedulingLoop.loopBodies[iterationIdx];
@@ -407,71 +497,125 @@ PredefinedSchedule buildPredefinedSchedule(const SchedulingLoop& schedulingLoop,
         IterationSchedule explicitSchedule;
 
         for (const auto& allocInfo : iterationOps) {
-            SmallVector<std::pair<mlir::Value, vpux::AddressType>> allocations;
-            SmallVector<mlir::Value> deallocations;
-
-            const std::map<BufferId, AddressRange>* allocationMapPtr = nullptr;
+            const auto& allocationMap = getAllocationMap(allocInfo, iterationIdx, computeOpIdx, memoryAllocations,
+                                                         iterationFallbackAllocationMap);
             if (allocInfo.allocationType == AllocationType::COMPUTE) {
-                const auto computeOpKey = ComputeOpKey{iterationIdx, computeOpIdx};
-                VPUX_THROW_UNLESS(memoryAllocations.count(computeOpKey) > 0,
-                                  "No allocation map found for compute op ({0}, {1})", iterationIdx, computeOpIdx);
-                allocationMapPtr = &memoryAllocations.at(computeOpKey);
                 ++computeOpIdx;
-            } else {
-                VPUX_THROW_UNLESS(iterationFallbackAllocationMap.count(iterationIdx) > 0,
-                                  "No fallback allocation map found for iteration {0}", iterationIdx);
-                allocationMapPtr = &iterationFallbackAllocationMap.at(iterationIdx);
             }
 
-            const auto& allocationMap = *allocationMapPtr;
-
-            for (auto input : allocInfo.inBuffers) {
-                addAllocationForBuffer(input, allocationMap, bufferInfoCache, sharedBuffers, aliveBuffers,
-                                       deallocations, allocations);
-            }
-            for (auto output : allocInfo.outBuffers) {
-                addAllocationForBuffer(output, allocationMap, bufferInfoCache, sharedBuffers, aliveBuffers,
-                                       deallocations, allocations);
-            }
-
-            VPUX_THROW_WHEN(!deallocations.empty() && allocations.empty(),
-                            "Deallocation buffers are non-empty while allocation buffers are empty");
-            if (allocInfo.allocationType == AllocationType::DATA_IN && allocations.empty()) {
+            auto explicitEntry =
+                    buildExplicitScheduleEntry(allocInfo, allocationMap, bufferInfoCache, sharedBuffers, aliveBuffers);
+            if (allocInfo.allocationType == AllocationType::DATA_IN && explicitEntry.allocations.empty()) {
                 continue;
             }
 
-            explicitSchedule.push_back(
-                    ComputeExplicitSchedule(allocInfo, std::move(deallocations), std::move(allocations)));
+            explicitSchedule.push_back(std::move(explicitEntry));
         }
 
-        IterationSchedule orderedSchedule;
-        std::unordered_set<size_t> orderedIndices;
-        // Order DATA_IN DMAs first when no deallocation is required.
-        for (const auto& index : irange(explicitSchedule.size())) {
-            const auto& [allocInfo, deallocations, _allocations, _templatePos] = explicitSchedule[index];
-            if (allocInfo.allocationType != AllocationType::DATA_IN || !deallocations.empty()) {
-                continue;
+        // Explicit schedule is sorted in order by sortDataOpsAroundComputeOp.
+
+        // For iteration > 0, prefetch DATA_UPDATE ops from the next iteration by inserting them into the previous
+        // iteration's schedule. Unlike DATA_IN, a DATA_UPDATE uses the same DMA port as DATA_OUT, so it must be
+        // placed before the previous iteration's DATA_OUT to enable DMA/DPU pipelining.
+        // A prefetched DATA_UPDATE must not depend on any op that stays after its new insertion point.
+        if (!predefinedSchedule.empty()) {
+            IterationSchedule currentIterationSchedule;
+            IterationSchedule prefetchedDataUpdates;
+            auto& previousIterationSchedule = predefinedSchedule.back();
+            auto insertionPoint = llvm::find_if(previousIterationSchedule, [](const auto& entry) {
+                return entry.allocInfo.allocationType == AllocationType::DATA_OUT;
+            });
+            mlir::DenseSet<mlir::Value> producedAfterInsertion;
+            for (const auto& entry : llvm::make_range(insertionPoint, previousIterationSchedule.end())) {
+                producedAfterInsertion.insert(entry.allocInfo.outBuffers.begin(), entry.allocInfo.outBuffers.end());
             }
-            orderedSchedule.push_back(std::move(explicitSchedule[index]));
-            orderedIndices.insert(index);
-        }
-        for (const auto& index : irange(explicitSchedule.size())) {
-            if (orderedIndices.count(index) > 0) {
-                continue;
+            mlir::DenseSet<mlir::Value> producedInCurrentIteration;
+            for (const auto& index : irange(explicitSchedule.size())) {
+                auto& entry = explicitSchedule[index];
+                // Check dependency conflict
+                // If the DATA_UPDATE DMA has input dependencies after DATA_OUT of the previous iteration
+                // it cannot be prefetched to the previous iteration.
+                // unprefetchable case:
+                //  iteration 0 {DATA_IN_0, DATA_UPDATE_0, COMPUTE_0, DATA_OUT_0}
+                //  iteration 1 {DATA_IN_1, DATA_UPDATE_1, COMPUTE_1, DATA_OUT_1}
+                // prefetching DATA_UPDATE_1 to iteration 0 would violate the dependency if it depends on DATA_IN_1
+                // hasInputDependencyInRange checks if the current DATA_UPDATE entry has input dependencies within the
+                // specified range of entries which includes the range of the current iteration and the range of the
+                // previous iteration after the DATA_OUT entry. prefetchable case:
+                //  iteration 0 {DATA_UPDATE_0, COMPUTE_0, DATA_UPDATE_1, DATA_OUT_0}
+                //  iteration 1 {               COMPUTE_1, DATA_OUT_1}
+                const auto hasInputDependency = [&](const auto& producedBuffers) {
+                    return llvm::any_of(entry.allocInfo.inBuffers, [&](mlir::Value input) {
+                        return producedBuffers.contains(input);
+                    });
+                };
+                const auto hasInputDependencyAfterInsertion = hasInputDependency(producedAfterInsertion);
+                const auto hasInputDependencyBeforeDataUpdate = hasInputDependency(producedInCurrentIteration);
+                const auto canPrefetchDataUpdate = entry.allocInfo.allocationType == AllocationType::DATA_UPDATE &&
+                                                   !hasInputDependencyAfterInsertion &&
+                                                   !hasInputDependencyBeforeDataUpdate;
+                if (canPrefetchDataUpdate) {
+                    prefetchedDataUpdateOrigins.emplace(entry.allocInfo.opIdx,
+                                                        std::make_pair(entry.allocInfo, iterationIdx));
+                    prefetchedDataUpdates.push_back(std::move(entry));
+                } else {
+                    producedInCurrentIteration.insert(entry.allocInfo.outBuffers.begin(),
+                                                      entry.allocInfo.outBuffers.end());
+                    currentIterationSchedule.push_back(std::move(entry));
+                }
             }
-            orderedSchedule.push_back(std::move(explicitSchedule[index]));
+
+            for (auto& entry : prefetchedDataUpdates) {
+                insertionPoint = previousIterationSchedule.insert(insertionPoint, std::move(entry));
+                ++insertionPoint;
+            }
+            explicitSchedule = std::move(currentIterationSchedule);
         }
 
-        predefinedSchedule.push_back(std::move(orderedSchedule));
+        predefinedSchedule.push_back(std::move(explicitSchedule));
+    }
+
+    if (prefetchedDataUpdateOrigins.empty()) {
+        return predefinedSchedule;
+    }
+
+    // Reschedule after prefetching DATA_UPDATE
+    // refresh the buffer aliveness, allocation and deallocation of each entry
+    aliveBuffers.clear();
+    for (const auto& iterationIdx : irange(predefinedSchedule.size())) {
+        auto& iterationSchedule = predefinedSchedule[iterationIdx];
+        ComputeOpIndex computeOpIdx = 0;
+        IterationSchedule rebuiltSchedule;
+        rebuiltSchedule.reserve(iterationSchedule.size());
+        for (auto& entry : iterationSchedule) {
+            const auto prefetchedDataUpdateIt = prefetchedDataUpdateOrigins.find(entry.allocInfo.opIdx);
+            const auto allocationIterationIdx = prefetchedDataUpdateIt != prefetchedDataUpdateOrigins.end()
+                                                        ? prefetchedDataUpdateIt->second.second
+                                                        : iterationIdx;
+            const auto& allocationAllocInfo = prefetchedDataUpdateIt != prefetchedDataUpdateOrigins.end()
+                                                      ? prefetchedDataUpdateIt->second.first
+                                                      : entry.allocInfo;
+            const auto& allocationMap = getAllocationMap(allocationAllocInfo, allocationIterationIdx, computeOpIdx,
+                                                         memoryAllocations, iterationFallbackAllocationMap);
+            if (entry.allocInfo.allocationType == AllocationType::COMPUTE) {
+                ++computeOpIdx;
+            }
+            auto rebuiltEntry = buildExplicitScheduleEntry(entry.allocInfo, allocationMap, bufferInfoCache,
+                                                           sharedBuffers, aliveBuffers);
+
+            rebuiltSchedule.push_back(std::move(rebuiltEntry));
+        }
+        iterationSchedule = std::move(rebuiltSchedule);
     }
 
     return predefinedSchedule;
 }
 
-// Verify that all buffers used by non-COMPUTE ops (e.g. DATA_IN) are also tracked by at least one COMPUTE op.
+// Verify that buffers allocated by non-COMPUTE ops are also tracked by at least one COMPUTE op.
 // The loop allocator only assigns CMX addresses for buffers referenced by COMPUTE ops. If a non-COMPUTE op
-// uses a buffer that no COMPUTE op references (e.g. GatherDMA indices buffers), the allocator cannot
-// produce a valid address and the region must fall back to standard scheduling.
+// allocates a buffer that no COMPUTE op references (e.g. GatherDMA indices buffers), the allocator cannot
+// produce a valid address and the region must fall back to standard scheduling. DATA_UPDATE inputs are external
+// update sources, so only their outputs are loop-allocated.
 bool verifyComputeOpBuffers(const SchedulingLoop& schedulingLoop, const ComputeOpBuffers& computeOpBuffers,
                             const BufferInfoCache& bufferInfoCache, Logger log) {
     std::set<BufferId> computeBufferIds;
@@ -497,7 +641,10 @@ bool verifyComputeOpBuffers(const SchedulingLoop& schedulingLoop, const ComputeO
                 return true;
             };
 
-            if (!checkBuffers(allocInfo.inBuffers) || !checkBuffers(allocInfo.outBuffers)) {
+            if (allocInfo.allocationType != AllocationType::DATA_UPDATE && !checkBuffers(allocInfo.inBuffers)) {
+                return false;
+            }
+            if (!checkBuffers(allocInfo.outBuffers)) {
                 return false;
             }
         }
@@ -525,9 +672,35 @@ bool verifyOperandSlotRequirements(const OperandAllocationOrder& operandAllocati
     return true;
 }
 
+ValueOrderedSet collectDataUpdateInputBuffers(const SchedulingLoop& schedulingLoop) {
+    ValueOrderedSet loopProducedBuffers;
+    ValueOrderedSet dataUpdateInputBuffers;
+    for (const auto& loopBody : schedulingLoop.loopBodies) {
+        for (const auto& allocInfo : loopBody) {
+            loopProducedBuffers.insert(allocInfo.outBuffers.begin(), allocInfo.outBuffers.end());
+        }
+    }
+
+    for (const auto& loopBody : schedulingLoop.loopBodies) {
+        for (const auto& allocInfo : loopBody) {
+            if (allocInfo.allocationType != AllocationType::DATA_UPDATE) {
+                continue;
+            }
+            for (const auto& inputBuffer : allocInfo.inBuffers) {
+                // Check if the input buffer is allocated inside of loop
+                // to avoid duplicate allocation of the same buffer
+                if (loopProducedBuffers.count(inputBuffer) == 0) {
+                    dataUpdateInputBuffers.insert(inputBuffer);
+                }
+            }
+        }
+    }
+    return dataUpdateInputBuffers;
+}
+
 LoopScheduleResult UndefinedTiling::getScheduleStrategy(const ComputeRegion& loopRegion,
                                                         vpux::AddressType memorySize) const {
-    VPUX_THROW_UNLESS(loopRegion.schedulingLoop != nullptr, "ComputeRegion has no scheduling loop");
+    VPUX_THROW_WHEN(loopRegion.schedulingLoop == nullptr, "ComputeRegion has no scheduling loop");
 
     const auto& schedulingLoop = *loopRegion.schedulingLoop;
     _log.trace("Scheduling loop: type={0}, iterations={1}", toString(schedulingLoop.type),
@@ -556,8 +729,10 @@ LoopScheduleResult UndefinedTiling::getScheduleStrategy(const ComputeRegion& loo
     // Shared criterion is compute-op based:
     // a buffer is treated as globally shared only if it appears in every compute op.
     const auto computeOpCount = computeOpBuffers.size();
-    const auto [availableMemory, sharedBuffers] =
+    auto [availableMemory, sharedBuffers] =
             reserveGloballySharedBuffers(frequencyTable, computeOpCount, memorySize, bufferInfoCache);
+    const auto dataUpdateInputBuffers = collectDataUpdateInputBuffers(schedulingLoop);
+    reserveDataUpdateInputBuffers(dataUpdateInputBuffers, bufferInfoCache, availableMemory, sharedBuffers);
     _log.trace("Reserved shared buffers: sharedCount={0}, availableMemory={1}", sharedBuffers.size(), availableMemory);
 
     // Allocate operands in ascending reload count.

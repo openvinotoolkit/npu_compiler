@@ -355,7 +355,7 @@ private:
         VirtualDependencyTracker vdt_;
 
         auto mappedInferenceOps = funcOp.getOps<VPUMI37XX::MappedInferenceOp>();
-        VPUX_THROW_UNLESS(!mappedInferenceOps.empty(), "MappedInferenceOp could not be located.");
+        VPUX_THROW_WHEN(mappedInferenceOps.empty(), "MappedInferenceOp could not be located.");
         auto mappedInferenceOp = *(mappedInferenceOps.begin());
         auto dmaTasks = mappedInferenceOp.getDmaTasks();
         auto dmaCount = parseIntArrayAttr<int64_t>(mappedInferenceOp.getDmaCount());

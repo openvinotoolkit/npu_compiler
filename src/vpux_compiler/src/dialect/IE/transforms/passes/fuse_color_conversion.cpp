@@ -113,18 +113,21 @@ mlir::Operation* skipConvertIfPresent(mlir::Operation* op) {
     return op;
 }
 
-// Skip FakeQuantize operation if present
-mlir::Operation* skipFakeQuantizeIfPresent(mlir::Operation* op) {
+// Skip FakeQuantize or DynamicDequantize operation if present
+mlir::Operation* skipDequantOpIfPresent(mlir::Operation* op) {
     if (auto fqOp = mlir::dyn_cast_or_null<IE::FakeQuantizeOp>(op)) {
         return fqOp.getInput().getDefiningOp();
+    }
+    if (auto dynDeqOp = mlir::dyn_cast_or_null<IE::DynamicDequantizeOp>(op)) {
+        return dynDeqOp.getInput().getDefiningOp();
     }
     return op;
 }
 
 // Skip both Convert and FakeQuantize operations if present
-mlir::Operation* skipConvertAndFakeQuantizeIfPresent(mlir::Operation* op) {
+mlir::Operation* skipConvertAndDequantOpIfPresent(mlir::Operation* op) {
     op = skipConvertIfPresent(op);
-    op = skipFakeQuantizeIfPresent(op);
+    op = skipDequantOpIfPresent(op);
     return op;
 }
 
@@ -169,8 +172,8 @@ Const::DeclareOp findUnderlyingConstant(mlir::Operation* op) {
 // Detect RGB or BGR format based on convolution weights
 std::optional<IE::ColorFmt> detectOutputColorFormat(mlir::Value convWeights) {
     mlir::Value weightsValue = convWeights;
-    if (auto fqOp = convWeights.getDefiningOp<IE::FakeQuantizeOp>()) {
-        weightsValue = fqOp.getInput();
+    if (auto dynDeqOp = convWeights.getDefiningOp<IE::DynamicDequantizeOp>()) {
+        weightsValue = dynDeqOp.getInput();
     }
 
     auto weightsConst = findUnderlyingConstant(weightsValue.getDefiningOp());
@@ -212,14 +215,14 @@ bool matchYuvToRgbPattern(IE::AddOp addOp, mlir::Value& yInput, mlir::Value& uvI
     convWeights = convOp.getFilter();
     convBias = addOp.getInput2();
 
-    auto convInput = skipFakeQuantizeIfPresent(convOp.getInput().getDefiningOp());
+    auto convInput = skipDequantOpIfPresent(convOp.getInput().getDefiningOp());
 
     auto concatOp = mlir::dyn_cast_or_null<IE::ConcatOp>(convInput);
     if (concatOp == nullptr || concatOp.getInputs().size() != 2) {
         return false;
     }
 
-    auto yPath = skipConvertAndFakeQuantizeIfPresent(concatOp.getInputs()[0].getDefiningOp());
+    auto yPath = skipConvertAndDequantOpIfPresent(concatOp.getInputs()[0].getDefiningOp());
 
     auto optionalYInput = skipReshape(yPath);
     if (!optionalYInput.has_value()) {
@@ -227,7 +230,7 @@ bool matchYuvToRgbPattern(IE::AddOp addOp, mlir::Value& yInput, mlir::Value& uvI
     }
     yInput = optionalYInput.value();
 
-    auto uvPath = skipFakeQuantizeIfPresent(concatOp.getInputs()[1].getDefiningOp());
+    auto uvPath = skipDequantOpIfPresent(concatOp.getInputs()[1].getDefiningOp());
     auto interpolateOp = mlir::dyn_cast_or_null<IE::InterpolateOp>(uvPath);
     if (interpolateOp == nullptr) {
         return false;
@@ -329,11 +332,11 @@ mlir::LogicalResult fuseColorConversionPattern(mlir::Operation* op, mlir::Patter
     const float yuvToRgbScale = enableYuvToRgbShaveScale ? static_cast<float>(scaleFactor) : 1.0f;
 
     // Create YuvToRgb operation with detected color format
-    auto yuvToRgbOp = builder.create<IE::YuvToRgbOp>(appendLoc(addOp->getLoc(), "nv12_to_rgb"), yInput, uvInput,
-                                                     nullptr,                 // input3 (optional V channel)
-                                                     IE::ColorFmt::NV12,      // inFmt
-                                                     outputColorFmt.value(),  // outFmt (RGB or BGR)
-                                                     builder.getF32FloatAttr(yuvToRgbScale));
+    auto yuvToRgbOp = IE::YuvToRgbOp::create(builder, appendLoc(addOp->getLoc(), "nv12_to_rgb"), yInput, uvInput,
+                                             nullptr,                 // input3 (optional V channel)
+                                             IE::ColorFmt::NV12,      // inFmt
+                                             outputColorFmt.value(),  // outFmt (RGB or BGR)
+                                             builder.getF32FloatAttr(yuvToRgbScale));
 
     auto outputType = mlir::cast<vpux::NDTypeInterface>(addOp.getType());
     auto yuvOutputType = mlir::cast<vpux::NDTypeInterface>(yuvToRgbOp.getType());
@@ -351,8 +354,8 @@ mlir::LogicalResult fuseColorConversionPattern(mlir::Operation* op, mlir::Patter
         const auto orderAttr =
                 mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(permuteOrder, builder.getContext()));
 
-        auto transposeOp = builder.create<IE::TransposeOp>(appendLoc(addOp->getLoc(), "transpose"), finalOutput,
-                                                           nullptr, orderAttr);
+        auto transposeOp = IE::TransposeOp::create(builder, appendLoc(addOp->getLoc(), "transpose"), finalOutput,
+                                                   nullptr, orderAttr);
 
         finalOutput = transposeOp.getOutput();
     }
@@ -368,12 +371,12 @@ mlir::LogicalResult fuseColorConversionPattern(mlir::Operation* op, mlir::Patter
 
             // Create Multiply operation
             auto multiplyOp =
-                    builder.create<IE::MultiplyOp>(appendLoc(addOp->getLoc(), "scale_multiply"), finalOutput.getType(),
-                                                   finalOutput, scaleFactorConst, IE::AutoBroadcastType::NUMPY,
-                                                   /*post_op=*/nullptr,
-                                                   /*clamp=*/nullptr,
-                                                   /*output_channels=*/nullptr,
-                                                   /*input_channels=*/nullptr);
+                    IE::MultiplyOp::create(builder, appendLoc(addOp->getLoc(), "scale_multiply"), finalOutput.getType(),
+                                           finalOutput, scaleFactorConst, IE::AutoBroadcastType::NUMPY,
+                                           /*post_op=*/nullptr,
+                                           /*clamp=*/nullptr,
+                                           /*output_channels=*/nullptr,
+                                           /*input_channels=*/nullptr);
             finalOutput = multiplyOp.getOutput();
         }
 
@@ -381,15 +384,14 @@ mlir::LogicalResult fuseColorConversionPattern(mlir::Operation* op, mlir::Patter
         // the original output domain.
         if (scaleFactor > 1.0) {
             if (auto clampOp = mlir::dyn_cast<IE::ClampOp>(op)) {
-                auto restoredClampOp =
-                        builder.create<IE::ClampOp>(appendLoc(addOp->getLoc(), "scale_clamp"), finalOutput,
-                                                    clampOp.getMinAttr(), clampOp.getMaxAttr());
+                auto restoredClampOp = IE::ClampOp::create(builder, appendLoc(addOp->getLoc(), "scale_clamp"),
+                                                           finalOutput, clampOp.getMinAttr(), clampOp.getMaxAttr());
                 finalOutput = restoredClampOp.getOutput();
             } else if (auto fqOp = mlir::dyn_cast<IE::FakeQuantizeOp>(op)) {
-                auto restoredFqOp = builder.create<IE::FakeQuantizeOp>(
-                        appendLoc(addOp->getLoc(), "scale_fq"), finalOutput.getType(), finalOutput, fqOp.getInputLow(),
-                        fqOp.getInputHigh(), fqOp.getOutputLow(), fqOp.getOutputHigh(), fqOp.getLevelsAttr(),
-                        fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
+                auto restoredFqOp = IE::FakeQuantizeOp::create(
+                        builder, appendLoc(addOp->getLoc(), "scale_fq"), finalOutput.getType(), finalOutput,
+                        fqOp.getInputLow(), fqOp.getInputHigh(), fqOp.getOutputLow(), fqOp.getOutputHigh(),
+                        fqOp.getLevelsAttr(), fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
                 finalOutput = restoredFqOp.getOutput();
             }
         }

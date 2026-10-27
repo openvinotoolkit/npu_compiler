@@ -262,7 +262,7 @@ mlir::LogicalResult MoveMultiplyDividePostConcat::matchAndRewrite(IE::ConcatOp o
     if (origOp.getStaticOffsetsAttr() != nullptr) {
         auto axis = IE::getConcatAxes(origOp);
         if (axis.size() > 1) {
-            return matchFailed(rewriter, origOp, "concat has multi axis");
+            return matchFailed(_log, rewriter, origOp, "concat has multi axis");
         }
     }
 
@@ -284,14 +284,14 @@ mlir::LogicalResult MoveMultiplyDividePostConcat::matchAndRewrite(IE::ConcatOp o
     }
 
     if (multiplyOps.size() != inputNums || (reshapeOps.size() != 0 && reshapeOps.size() != inputNums)) {
-        return matchFailed(rewriter, origOp, "not all of concat parent is multiply");
+        return matchFailed(_log, rewriter, origOp, "not all of concat parent is multiply");
     }
 
     SmallVector<mlir::Value> multiplyLeftInputs;
     SmallVector<mlir::Value> multiplyRightInputs;
     for (auto multiplyOp : multiplyOps) {
         if (!isOptimizableMultiplyOp(multiplyOp)) {
-            return matchFailed(rewriter, origOp, "not optimizable multiply");
+            return matchFailed(_log, rewriter, origOp, "not optimizable multiply");
         }
         multiplyLeftInputs.push_back(multiplyOp.getInput1());
         multiplyRightInputs.push_back(multiplyOp.getInput2());
@@ -303,30 +303,30 @@ mlir::LogicalResult MoveMultiplyDividePostConcat::matchAndRewrite(IE::ConcatOp o
         for (auto p : multiplyOps | indexed) {
             auto multiplyOp = p.value();
             auto reshapeOp = reshapeOps[p.index()];
-            auto leftReshape = rewriter.create<IE::ReshapeOp>(
-                                               appendLoc(reshapeOp->getLoc(), "left_reshape"), multiplyOp.getInput1(),
-                                               getIntArrayAttr(ctx, getShape(reshapeOp.getOutput()).raw()))
+            auto leftReshape = IE::ReshapeOp::create(rewriter, appendLoc(reshapeOp->getLoc(), "left_reshape"),
+                                                     multiplyOp.getInput1(),
+                                                     getIntArrayAttr(ctx, getShape(reshapeOp.getOutput()).raw()))
                                        .getOutput();
             multiplyLeftInputs.push_back(leftReshape);
 
-            auto rightReshape = rewriter.create<IE::ReshapeOp>(
-                                                appendLoc(reshapeOp->getLoc(), "right_reshape"), multiplyOp.getInput2(),
-                                                getIntArrayAttr(ctx, getShape(reshapeOp.getOutput()).raw()))
+            auto rightReshape = IE::ReshapeOp::create(rewriter, appendLoc(reshapeOp->getLoc(), "right_reshape"),
+                                                      multiplyOp.getInput2(),
+                                                      getIntArrayAttr(ctx, getShape(reshapeOp.getOutput()).raw()))
                                         .getOutput();
             multiplyRightInputs.push_back(rightReshape);
         }
     }
 
-    auto multiplyRightConcat = rewriter.create<IE::ConcatOp>(appendLoc(origOp->getLoc(), "right_concat"),
-                                                             mlir::ValueRange(multiplyRightInputs),
-                                                             origOp.getPerAxisAttr(), origOp.getStaticOffsetsAttr());
-    auto multiplyLeftConcat = rewriter.create<IE::ConcatOp>(appendLoc(origOp->getLoc(), "left_concat"),
-                                                            mlir::ValueRange(multiplyLeftInputs),
-                                                            origOp.getPerAxisAttr(), origOp.getStaticOffsetsAttr());
-    auto multiply = rewriter.create<IE::MultiplyOp>(appendLoc(multiplyOps.front()->getLoc(), "multiply_after_concat"),
-                                                    multiplyLeftConcat.getOutput(), multiplyRightConcat.getOutput(),
-                                                    multiplyOps.front().getAutoBroadcastAttr(), nullptr, nullptr,
-                                                    nullptr, nullptr);
+    auto multiplyRightConcat = IE::ConcatOp::create(rewriter, appendLoc(origOp->getLoc(), "right_concat"),
+                                                    mlir::ValueRange(multiplyRightInputs), origOp.getPerAxisAttr(),
+                                                    origOp.getStaticOffsetsAttr());
+    auto multiplyLeftConcat = IE::ConcatOp::create(rewriter, appendLoc(origOp->getLoc(), "left_concat"),
+                                                   mlir::ValueRange(multiplyLeftInputs), origOp.getPerAxisAttr(),
+                                                   origOp.getStaticOffsetsAttr());
+    auto multiply =
+            IE::MultiplyOp::create(rewriter, appendLoc(multiplyOps.front()->getLoc(), "multiply_after_concat"),
+                                   multiplyLeftConcat.getOutput(), multiplyRightConcat.getOutput(),
+                                   multiplyOps.front().getAutoBroadcastAttr(), nullptr, nullptr, nullptr, nullptr);
     rewriter.replaceOp(origOp, multiply.getOutput());
 
     _log.trace("Successfully move multiply post Concat");

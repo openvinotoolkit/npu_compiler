@@ -109,11 +109,6 @@ module @Convolution attributes {config.compilationMode = #config.compilation_mod
 
 // CHECK-LABEL: @SoftMax
 module @SoftMax {
-    // CHECK-DAG: {{  }}config.Resources
-    // CHECK-DAG: {{      }}module @DummySWKernelsForInstructionPrefetchReservedMemory
-    // CHECK-NEXT: {{        }}config.MemoryResource 16 bytes of @CMX_NN offset 1571312
-    // CHECK-DAG: {{      }}module @DmaProfilingReservedMemory
-    // CHECK-NEXT: {{        }}config.MemoryResource 512 bytes of @CMX_NN offset 1571328
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input" : tensor<1x1000xf16>
     } outputsInfo : {

@@ -209,8 +209,8 @@ mlir::LogicalResult ExpandIndices::matchAndRewrite(VPU::GatherOp origOp, mlir::P
     }
 
     const int32_t idxScale = (dimsBeforeAxis == 1) ? checked_cast<int32_t>(chunksPerRow) : int32_t(1);
-    auto scaled = rewriter.create<VPU::MultiplyOp>(takeOpLoc(origOp, "idx_scale"), idx4D,
-                                                   idxConst({1, 1, 1, 1}, {idxScale}), broadcast, /*post_op=*/nullptr)
+    auto scaled = VPU::MultiplyOp::create(rewriter, takeOpLoc(origOp, "idx_scale"), idx4D,
+                                          idxConst({1, 1, 1, 1}, {idxScale}), broadcast, /*post_op=*/nullptr)
                           .getOutput();
     SmallVector<int32_t> iotaValues(chunksPerRow);
     const auto iotaShape = dimsBeforeAxis == 1 ? SmallVector<int64_t>{1, 1, 1, chunksPerRow}
@@ -222,16 +222,16 @@ mlir::LogicalResult ExpandIndices::matchAndRewrite(VPU::GatherOp origOp, mlir::P
             iotaValues[n] = checked_cast<int32_t>(n * numRows);
         }
     }
-    auto expanded = rewriter.create<VPU::AddOp>(takeOpLoc(origOp, "idx_offset"), scaled,
-                                                idxConst(iotaShape, iotaValues), broadcast,
-                                                /*post_op=*/nullptr)
+    auto expanded = VPU::AddOp::create(rewriter, takeOpLoc(origOp, "idx_offset"), scaled,
+                                       idxConst(iotaShape, iotaValues), broadcast,
+                                       /*post_op=*/nullptr)
                             .getOutput();
     auto flatIndices = reshape(expanded, {numIndices * chunksPerRow}, "reshape_idx_flat");
 
-    auto newGather = rewriter.create<VPU::GatherOp>(takeOpLoc(origOp, "chunked"), reshapedInput, flatIndices,
-                                                    getIntAttr(ctx, /*axis_value=*/int64_t(0)),
-                                                    getIntAttr(ctx, /*batch_dims=*/int64_t(0)),
-                                                    /*indices_rank=*/nullptr);
+    auto newGather = VPU::GatherOp::create(rewriter, takeOpLoc(origOp, "chunked"), reshapedInput, flatIndices,
+                                           getIntAttr(ctx, /*axis_value=*/int64_t(0)),
+                                           getIntAttr(ctx, /*batch_dims=*/int64_t(0)),
+                                           /*indices_rank=*/nullptr);
 
     rewriter.replaceOp(origOp, reshape(newGather.getOutput(), to_small_vector(outType.getShape()), "reshape_out"));
 
@@ -383,6 +383,95 @@ mlir::LogicalResult TileGatherIndices::matchAndRewrite(VPU::GatherOp origOp, mli
 }
 
 //
+// ConvertGatherDMATo4D
+//
+// Reshapes a non-4D GatherDMAOp (axis==0, batch_dims==0) to 4D so that the
+// strategy manager can assign SplitOverBatch.  The conversion is only applied to
+// the outermost low-bit gather (see isOutermostGatherDMAWithLowBit) because SOB
+// is currently enabled only for that sub-class.
+//
+// Shape mapping (input rank R, axis == 0):
+//   input   [N, d1, ..., d_{R-1}] → [N, 1, d1*…*d_{R-1}, 1]
+//   indices [m1, ..., m_K]        → [m1*…*m_K, 1, 1, 1]
+//   output  [M, d1, ..., d_{R-1}] → [M, 1, d1*…*d_{R-1}, 1]   (M = total indices)
+// After the GatherDMA both input and output are reshaped back to their original shapes.
+
+class ConvertGatherDMATo4D final : public mlir::OpRewritePattern<VPU::GatherDMAOp> {
+public:
+    ConvertGatherDMATo4D(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<VPU::GatherDMAOp>(ctx), _log(log) {
+        setDebugName("ConvertGatherDMATo4D");
+    }
+
+    mlir::LogicalResult matchAndRewrite(VPU::GatherDMAOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult ConvertGatherDMATo4D::matchAndRewrite(VPU::GatherDMAOp origOp,
+                                                          mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp.getLoc());
+
+    // Restrict to the outermost low-bit gather (axis==0, batch_dims==0, elem<=8b) —
+    // the only sub-class currently eligible for SplitOverBatch.
+    if (!VPU::isOutermostGatherDMAWithLowBit(origOp)) {
+        return mlir::failure();
+    }
+
+    const auto inputType = mlir::cast<NDTypeInterface>(origOp.getInput().getType());
+    if (inputType.getRank() == 4) {
+        return mlir::failure();  // already 4D
+    }
+
+    const auto inputShape = inputType.getShape();
+    const auto indicesType = mlir::cast<NDTypeInterface>(origOp.getIndices().getType());
+    const auto outputType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType());
+    const auto outputShape = outputType.getShape();
+
+    if (inputShape.isDynamic() || indicesType.getShape().isDynamic() || outputShape.isDynamic()) {
+        return mlir::failure();
+    }
+
+    // Fold all after-axis dimensions into one (axis is always 0 here).
+    int64_t afterAxisElems = 1;
+    for (int64_t i = 1; i < inputType.getRank(); ++i) {
+        afterAxisElems *= inputShape[Dim(i)];
+    }
+    const int64_t axisSize = inputShape[Dim(0)];
+    const int64_t totalIndices = indicesType.getShape().totalSize();
+
+    if (totalIndices != outputShape[Dim(0)]) {
+        return mlir::failure();
+    }
+
+    // 4D shapes for input, indices, and GatherDMA output.
+    const Shape newInputShape = {axisSize, 1, afterAxisElems, 1};
+    const Shape newIndicesShape = {totalIndices, 1, 1, 1};
+
+    auto reshapeOp = [&](mlir::Value val, ShapeRef shape, StringRef suffix) -> mlir::Value {
+        return rewriter.createOrFold<VPU::ReshapeOp>(takeOpLoc(origOp, suffix), val,
+                                                     getIntArrayAttr(val.getContext(), shape));
+    };
+
+    auto newInput = reshapeOp(origOp.getInput(), newInputShape, "reshape_input_to_4d");
+    auto newIndices = reshapeOp(origOp.getIndices(), newIndicesShape, "reshape_indices_to_4d");
+
+    auto newGatherDMA = VPU::GatherDMAOp::create(rewriter, origOp.getLoc(), newInput, newIndices,
+                                                 /*axis_value=*/origOp.getAxisValue(),
+                                                 /*batch_dims=*/origOp.getBatchDims(),
+                                                 /*multiClusterStrategy=*/nullptr, /*addressingMode=*/nullptr);
+
+    // Propagate addressing mode from the original op if set.
+    if (origOp.getAddressingModeAttr()) {
+        newGatherDMA.setAddressingMode(origOp.getAddressingMode());
+    }
+
+    auto reshapedOut = reshapeOp(newGatherDMA.getOutput(), outputShape, "reshape_output_from_4d");
+    rewriter.replaceOp(origOp, reshapedOut);
+    return mlir::success();
+}
+
+//
 // MoveToDMAGather
 //
 
@@ -422,9 +511,8 @@ mlir::Value handleNegativeIndices(mlir::Value indices, ShapeRef dataShape, const
                     indicesType.changeElemType(mlir::IntegerType::get(indicesCst.getContext(), 64)));
             auto indicesStorageAttr = Const::createConstContent(indicesStorageType, ArrayRef(indicesVals));
 
-            return rewriter
-                    .create<Const::DeclareOp>(indicesCst.getLoc(), indicesStorageType,
-                                              Const::ContentAttr::get(indicesStorageAttr))
+            return Const::DeclareOp::create(rewriter, indicesCst.getLoc(), indicesStorageType,
+                                            Const::ContentAttr::get(indicesStorageAttr))
                     .getOutput();
         }
     }
@@ -507,7 +595,8 @@ mlir::LogicalResult MoveToDMAGather::matchAndRewrite(VPU::GatherOp origOp, mlir:
     const auto reshapeIndicesShape = reshapeIndicesType.getShape();
 
     const bool shouldConvertTo4D =
-            (reshapeIndicesShape.size() != 4) && VPU::shouldConvertUseMultiShaves(reshapeIndicesType);
+            (reshapeIndicesShape.size() != 4) &&
+            VPU::shouldConvertUseMultiShaves(reshapeIndicesType, reshapeIndicesType.changeElemType(requiredType64));
 
     mlir::Value convertIndicesOp = [&]() -> mlir::Value {
         if (shouldConvertTo4D) {
@@ -527,9 +616,9 @@ mlir::LogicalResult MoveToDMAGather::matchAndRewrite(VPU::GatherOp origOp, mlir:
         }
     }();
 
-    auto gatherDMAOp = rewriter.create<VPU::GatherDMAOp>(origOp.getLoc(), origOp.getInput(), convertIndicesOp,
-                                                         origOp.getAxisValue(), origOp.getBatchDims(),
-                                                         /*multiClusterStrategy*/ nullptr, /*addressingMode*/ nullptr);
+    auto gatherDMAOp = VPU::GatherDMAOp::create(rewriter, origOp.getLoc(), origOp.getInput(), convertIndicesOp,
+                                                origOp.getAxisValue(), origOp.getBatchDims(),
+                                                /*multiClusterStrategy*/ nullptr, /*addressingMode*/ nullptr);
 
     // TODO (E#175972) Set ABSOLUTE Addressing mode when feature is enabled.
     // Until then will set default value as INDEXED addressing mode.
@@ -579,6 +668,10 @@ void ConvertOpToDMAForPerformantExecutionPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.insert<MoveToDMAGather>(&ctx, _log);
     walkAndApplyPatterns(func, std::move(patterns));
+
+    mlir::RewritePatternSet to4DPatterns(&ctx);
+    to4DPatterns.add<ConvertGatherDMATo4D>(&ctx, _log);
+    walkAndApplyPatterns(func, std::move(to4DPatterns));
 }
 
 }  // namespace

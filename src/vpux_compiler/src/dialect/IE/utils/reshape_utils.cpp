@@ -186,7 +186,7 @@ IE::ShapeCastOp buildShapeCast(mlir::Location loc, mlir::Value input, ArrayRef<i
     const auto srcType = mlir::cast<vpux::NDTypeInterface>(input.getType());
     const auto dstType = srcType.changeShape(ShapeRef(targetShape));
     const auto targetShapeAttr = getIntArrayAttr(ctx, targetShape);
-    return rewriter.create<IE::ShapeCastOp>(loc, dstType, input, targetShapeAttr);
+    return IE::ShapeCastOp::create(rewriter, loc, dstType, input, targetShapeAttr);
 }
 
 bool isEligibleToFoldStrideKernel(vpux::NDTypeInterface inputType, vpux::NDTypeInterface outputType, int64_t kernelX,

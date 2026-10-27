@@ -131,7 +131,7 @@ mlir::func::FuncOp OutlineDimOperationsPass::createNewFuncOp(mlir::OpBuilder& bu
                                                              mlir::ArrayRef<mlir::Type> inputTypes,
                                                              mlir::ArrayRef<mlir::Type> outputTypes) const {
     const auto funcType = mlir::FunctionType::get(ctx, inputTypes, outputTypes);
-    return builder.create<mlir::func::FuncOp>(loc, funcName, funcType);
+    return mlir::func::FuncOp::create(builder, loc, funcName, funcType);
 }
 
 void OutlineDimOperationsPass::removeFuncOutputs(mlir::func::FuncOp funcOp,
@@ -241,7 +241,7 @@ void OutlineDimOperationsPass::safeRunOnModule() {
     // Set a block to the new func and create a ReturnOp
     auto outlineBodyBlock = outlineFunc.addEntryBlock();
     auto outlineBlockBuilder = mlir::OpBuilder::atBlockEnd(outlineBodyBlock);
-    auto outlineReturnOp = outlineBlockBuilder.create<mlir::func::ReturnOp>(appendLoc(outlineFunc.getLoc(), "return"));
+    auto outlineReturnOp = mlir::func::ReturnOp::create(outlineBlockBuilder, appendLoc(outlineFunc.getLoc(), "return"));
 
     // Remove tensor shape ops from the main func return type, update ReturnOp and NetworkInfo
     removeFuncOutputs(mainFunc, bitVectorOfOpsToRemove, mainReturnOp, netInfo);

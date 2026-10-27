@@ -208,7 +208,7 @@ func.func @ConvertQuantizeUniformQuantU4ToI4(%arg0: tensor<16x3x1x1xf16>) -> ten
 // -----
 
 // We don't convert u4 storageElement in quant.quantile types
-!qElemType = !quant.uniform<!QuantileType.quantile<ui4:ui8, {0.0,16.0,32.0,48.0,64.0,80.0,96.0,112.0,128.0,144.0,160.0,176.0,192.0,208.0,224.0,240.0}>:f16, 2.000000e+00:128>
+!qElemType = !quant.uniform<!quant.quantile<ui4:ui8, {0.0,16.0,32.0,48.0,64.0,80.0,96.0,112.0,128.0,144.0,160.0,176.0,192.0,208.0,224.0,240.0}>:f16, 2.000000e+00:128>
 
 // CHECK-LABEL: @NotConvertQuantileU4StorageElement
 // CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x3x16x16x!qElemType>)

@@ -56,7 +56,7 @@ func.func @SETableInterpolateNearestSingleCluster(%input_data: !Input_DDR, %inpu
     %in_data, %in_sm, %in_se = VPUIP.UngroupSparseBuffer(%input) {resultSegmentSizes = array<i32: 1, 1, 1>}
         -> !Input_CMX, !InputSM_CMX, !InputSE_CMX
     %out_cmx = memref.alloc() : !Output_CMX
-    %conv_out = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+    %conv_out = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in_data : !Input_CMX)
         input_storage_element_table(%in_se : !InputSE_CMX)
         weights(%weights_data : !Weights_CMX)
@@ -199,7 +199,7 @@ func.func @SETableInterpolateNearest(%input_data: !Input_DDR, %input_sm: !InputS
     %in_data, %in_sm, %in_se = VPUIP.UngroupSparseBuffer(%input) {resultSegmentSizes = array<i32: 1, 1, 1>}
         -> !InputDistributed, !InputSMDistributed, !InputSEDistributed
     %out_cmx = VPURT.AllocDistributed -> !OutputDistributed
-    %conv_out = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+    %conv_out = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in_data : !InputDistributed)
         input_storage_element_table(%in_se : !InputSEDistributed)
         weights(%weights_data : !WeightsDistributed)
@@ -351,7 +351,7 @@ func.func @SETableInterpolateBilinear(%input_data: !Input_DDR, %input_sm: !Input
     %in_data, %in_sm, %in_se = VPUIP.UngroupSparseBuffer(%input) {resultSegmentSizes = array<i32: 1, 1, 1>}
         -> !InputDistributed, !InputSMDistributed, !InputSEDistributed
     %out_cmx = VPURT.AllocDistributed -> !OutputDistributed
-    %conv_out = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [2, 2], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+    %conv_out = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [2, 2], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in_data : !InputDistributed)
         input_storage_element_table(%in_se : !InputSEDistributed)
         weights(%weights_data : !WeightsDistributed)
@@ -557,7 +557,7 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
     %w_data_0, %w_sm_0 = VPUIP.UngroupSparseBuffer(%weights_0)  {resultSegmentSizes = array<i32: 1, 1, 0>}
         -> !WeightsDistributed, !WeightsSMDistributed
     %out_cmx_0 = VPURT.AllocDistributed -> !OutputDistributed
-    %conv_out_0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+    %conv_out_0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in_data_0 : !InputDistributed)
         input_storage_element_table(%in_se_0 : !InputSEDistributed)
         weights(%w_data_0 : !WeightsDistributed)
@@ -609,7 +609,7 @@ func.func @InterpolateTileAndMultiCluster(%input_data: !Input_DDR, %input_sm_0: 
     %w_data_1, %w_sm_1 = VPUIP.UngroupSparseBuffer(%weights_1)  {resultSegmentSizes = array<i32: 1, 1, 0>}
         -> !WeightsDistributed, !WeightsSMDistributed
     %out_cmx_1 = VPURT.AllocDistributed -> !OutputDistributed
-    %conv_out_1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+    %conv_out_1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in_data_1 : !InputDistributed)
         input_storage_element_table(%in_se_1 : !InputSEDistributed)
         weights(%w_data_1 : !WeightsDistributed)
@@ -842,7 +842,7 @@ func.func @DWConvInterpSOKInput(
     %data_cmx, %sparsity_map_cmx, %storage_element_table_cmx = VPUIP.UngroupSparseBuffer(%2) {resultSegmentSizes = array<i32: 1, 1, 1>}
         -> !DataDistributedBuff, !SmapDistributedBuff, !SeDistributedBuff
 
-    %3 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 267 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %3 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 267 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
         is_small_kernel_optimized, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         kernel_size = [1, 3], kernel_strides = [1, 1],
         mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<DWCONV>

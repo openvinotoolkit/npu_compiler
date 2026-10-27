@@ -39,8 +39,6 @@ TaskInfo::ExecType convertToTaskExec(ExecutorType exec) {
         return TaskInfo::ExecType::DPU;
     case ExecutorType::ACTSHAVE:
         return TaskInfo::ExecType::SW;
-    case ExecutorType::M2I:
-        return TaskInfo::ExecType::M2I;
     default:
         VPUX_THROW("Unknown ExecutorType value");
     }
@@ -501,7 +499,14 @@ RawProfilingACTRecord::RawProfilingACTRecord(ActShaveData_t data, const Profilin
 }
 
 void RawProfilingACTRecord::checkData(bool failOnError, Logger& log) const {
-    warnOrFail(failOnError, log, _data.begin == 0 && _data.duration == 0, "Can't process ACT profiling data.");
+    const auto condition = _data.begin == 0 && _data.duration == 0;
+    if (condition) {
+        log.error("ACT profiling data: begin={0}, duration={1}, stallCycles={2}, executedInstructions={3}, "
+                  "clockCycles={4}, branchTaken={5}",
+                  _data.begin, _data.duration, _data.stallCycles, _data.executedInstructions, _data.clockCycles,
+                  _data.branchTaken);
+    }
+    warnOrFail(failOnError, log, condition, "Can't process ACT profiling data.");
 }
 
 TaskInfo RawProfilingACTRecord::getTaskInfo(const FrequenciesSetup& frequenciesSetup) const {
@@ -579,7 +584,14 @@ RawProfilingACTExRecord::RawProfilingACTExRecord(ActShaveDataEx_t data, const Pr
 }
 
 void RawProfilingACTExRecord::checkData(bool failOnError, Logger& log) const {
-    warnOrFail(failOnError, log, _data.begin == 0 && _data.duration == 0, "Can't process ACT profiling data.");
+    const auto condition = _data.begin == 0 && _data.duration == 0;
+    if (condition) {
+        log.error("ACTx profiling data: begin={0}, duration={1}, stallCycles={2}, executedInstructions={3}, "
+                  "clockCycles={4}, lsu0Stalls={5}, lsu1Stalls={6}, instStalls={7}",
+                  _data.begin, _data.duration, _data.clockCycles - _data.executedInstructions,
+                  _data.executedInstructions, _data.clockCycles, _data.lsu0Stalls, _data.lsu1Stalls, _data.instStalls);
+    }
+    warnOrFail(failOnError, log, condition, "Can't process ACTx profiling data.");
 }
 
 TaskInfo RawProfilingACTExRecord::getTaskInfo(const FrequenciesSetup& frequenciesSetup) const {
@@ -644,54 +656,6 @@ DebugFormattableRecordMixin::ColDesc RawProfilingACTExRecord::getColDesc() const
             {"Begin", COL_WIDTH_64},       {"Duration", COL_WIDTH_32},    {"Executed", COL_WIDTH_32},
             {"Clock", COL_WIDTH_32},       {"LSU0 Stalls", COL_WIDTH_64}, {"LSU1 Stalls", COL_WIDTH_64},
             {"Instr Stalls", COL_WIDTH_64}};
-}
-
-//
-// RawProfilingM2IRecord
-//
-RawProfilingM2IRecord::RawProfilingM2IRecord(M2IData_t data, const ProfilingFB::M2ITask* metadata,
-                                             size_t inMemoryOffset)
-        : RawProfilingRecord(metadata), DebugFormattableRecordMixin(inMemoryOffset), _data(data) {
-}
-
-void RawProfilingM2IRecord::checkData(bool failOnError, Logger& log) const {
-    warnOrFail(failOnError, log, _data.startTime == 0 && _data.finishTime == 0, "Can't process M2I profiling data.");
-}
-
-ExecutorType RawProfilingM2IRecord::getExecutorType() const {
-    return ExecutorType::M2I;
-}
-
-TimeType RawProfilingM2IRecord::getStartTime(const FrequenciesSetup& frequenciesSetup) const {
-    return convertTicksToNs(_data.startTime, frequenciesSetup.profClk);
-}
-
-TimeType RawProfilingM2IRecord::getFinishTime(const FrequenciesSetup& frequenciesSetup) const {
-    return convertTicksToNs(_data.finishTime, frequenciesSetup.profClk);
-}
-
-size_t RawProfilingM2IRecord::getDebugDataSize() const {
-    return sizeof(M2IData_t);
-}
-
-void RawProfilingM2IRecord::printDebugInfo(std::ostream& outStream) const {
-    const auto cols = getColDesc();
-
-    outStream << std::setw(cols[0].second) << _data.fetchTime << std::setw(cols[1].second) << _data.readyTime
-              << std::setw(cols[2].second) << _data.startTime << std::setw(cols[3].second) << _data.doneTime
-              << std::setw(cols[4].second) << _data.finishTime << std::setw(cols[5].second) << _data.linkAgentID
-              << std::setw(cols[6].second) << _data.parentID << std::setw(cols[7].second) << _data.RStallCount
-              << std::setw(cols[8].second) << _data.WStallCount << std::setw(cols[9].second) << _data.WRCycleCount
-              << std::setw(cols[10].second) << _data.RDCycleCount;
-}
-
-DebugFormattableRecordMixin::ColDesc RawProfilingM2IRecord::getColDesc() const {
-    return {
-            {"Fetch tstamp", COL_WIDTH_64}, {"Ready tstamp", COL_WIDTH_64},  {"Start tstamp", COL_WIDTH_64},
-            {"Done tstamp", COL_WIDTH_64},  {"Finish tstamp", COL_WIDTH_64}, {"LA", COL_WIDTH_32},
-            {"Parent id", COL_WIDTH_32},    {"RStall cnt", COL_WIDTH_32},    {"WStall cnt", COL_WIDTH_32},
-            {"WRCycle cnt", COL_WIDTH_32},  {"RDCycle cnt", COL_WIDTH_32},
-    };
 }
 
 //

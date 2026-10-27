@@ -151,8 +151,8 @@ module @BufferizeReinterpretCast {
 // CHECK-SAME: -> memref<1x100x100x16xf16, strided<[?, ?, ?, ?], offset: ?>>
 // CHECK:   [[REINTERPRET:%.+]] = Core.ReinterpretCast([[ARG0]])
 // CHECK:                       : memref<1x100x100x16xf16, strided<[?, ?, ?, ?], offset: ?>> -> memref<1x100x100x16xf16>
-// CHECK:   [[CAST:%.+]] = memref.cast [[REINTERPRET]]
-// CHECK:                : memref<1x100x100x16xf16> to memref<1x100x100x16xf16, strided<[?, ?, ?, ?], offset: ?>>
+// CHECK:   [[CAST:%.+]] = Core.ReinterpretCast([[REINTERPRET]])
+// CHECK:                : memref<1x100x100x16xf16> -> memref<1x100x100x16xf16, strided<[?, ?, ?, ?], offset: ?>>
 // CHECK:   return [[CAST]] : memref<1x100x100x16xf16, strided<[?, ?, ?, ?], offset: ?>>
 
 // CHECK: func.func @main([[ARG0:%.+]]: memref<1x?x?x16xf16>) -> memref<1x?x?x16xf16>

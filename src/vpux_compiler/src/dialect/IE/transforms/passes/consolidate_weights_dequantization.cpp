@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
@@ -93,7 +93,7 @@ template <typename ConcreteOp>
 bool WeightsDequantizeRewriter<ConcreteOp>::isSupportedInputElemType(mlir::Type elemType) const {
     return isSignedOrUnsignedIntOfWidth(elemType, 2) || isSignedOrUnsignedIntOfWidth(elemType, 4) ||
            isSignedOrUnsignedIntOfWidth(elemType, 8) || isSignedOrUnsignedIntOfWidth(elemType, 16) ||
-           isLowFpType(elemType) || mlir::isa_and_nonnull<vpux::type::QuantileType>(elemType);
+           isLowFpType(elemType) || mlir::isa_and_nonnull<mlir::quant::QuantileType>(elemType);
 }
 
 template <typename ConcreteOp>
@@ -125,7 +125,7 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::staticMatchAndRewrite
     }
     mlir::Type storageType;
     std::tie(std::ignore, std::ignore, storageType) = *storageParamsResult;
-    if (auto quantileStorageType = mlir::dyn_cast_if_present<vpux::type::QuantileType>(storageType)) {
+    if (auto quantileStorageType = mlir::dyn_cast_if_present<mlir::quant::QuantileType>(storageType)) {
         // getStorageParams() returns QuantileType itself as the storage type.
         // For ZP tensor construction and bit-width calculations, use the underlying integer storage type.
         storageType = quantileStorageType.getStorageType();
@@ -148,7 +148,7 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::staticMatchAndRewrite
     if (shiftAttr != nullptr && !shiftAttr.fold().isSplat() && shiftValue != nullptr) {
         auto shiftElemType = IE::getTrueElemType(shiftValue.getDefiningOp<Const::DeclareOp>());
         auto expectedShiftElemType = inputElemType;
-        if (auto quantileType = mlir::dyn_cast_if_present<vpux::type::QuantileType>(inputElemType)) {
+        if (auto quantileType = mlir::dyn_cast_if_present<mlir::quant::QuantileType>(inputElemType)) {
             expectedShiftElemType = quantileType.getQuantileType();
         }
         if (!isSupportedShiftElemType(shiftElemType) || shiftElemType != expectedShiftElemType) {
@@ -163,8 +163,8 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::staticMatchAndRewrite
 
     auto inputValue = IE::getTrueInputValue(origOp, rewriter);
     if (auto transposeOp = mlir::dyn_cast_if_present<IE::TransposeOp>(wdInfo.getInput().getDefiningOp())) {
-        inputValue = rewriter.create<IE::TransposeOp>(appendLoc(loc, "transpose_in"), inputValue, nullptr,
-                                                      transposeOp.getOrderValueAttr())
+        inputValue = IE::TransposeOp::create(rewriter, appendLoc(loc, "transpose_in"), inputValue, nullptr,
+                                             transposeOp.getOrderValueAttr())
                              .getOutput();
     }
 
@@ -178,8 +178,8 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::staticMatchAndRewrite
         const auto scaleTensorType = mlir::RankedTensorType::get(scaleShape, dstType);
         const auto unitScaleValueAttr = mlir::FloatAttr::get(mlir::cast<mlir::FloatType>(dstType), 1.0);
         const auto unitScaleAttr = mlir::DenseElementsAttr::get(scaleTensorType, unitScaleValueAttr);
-        scaleValue = rewriter.create<Const::DeclareOp>(appendLoc(loc, "unit_scale"), scaleTensorType,
-                                                       Const::ContentAttr::get(unitScaleAttr))
+        scaleValue = Const::DeclareOp::create(rewriter, appendLoc(loc, "unit_scale"), scaleTensorType,
+                                              Const::ContentAttr::get(unitScaleAttr))
                              .getOutput();
     }
 
@@ -200,8 +200,8 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::staticMatchAndRewrite
                     const auto zpTensorType = mlir::RankedTensorType::get(zpShape, zpType);
                     const auto zpDenseAttr =
                             mlir::DenseElementsAttr::get(zpTensorType, mlir::IntegerAttr::get(zpType, zpVal));
-                    zpValue = rewriter.create<Const::DeclareOp>(appendLoc(loc, "zp"), zpTensorType,
-                                                                Const::ContentAttr::get(zpDenseAttr))
+                    zpValue = Const::DeclareOp::create(rewriter, appendLoc(loc, "zp"), zpTensorType,
+                                                       Const::ContentAttr::get(zpDenseAttr))
                                       .getOutput();
                 }
             } else {
@@ -217,8 +217,8 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::staticMatchAndRewrite
                     const auto zpTensorType = mlir::RankedTensorType::get(zpShape, storageType);
                     const auto zpDenseAttr =
                             mlir::DenseElementsAttr::get(zpTensorType, mlir::FloatAttr::get(storageType, zpVal));
-                    zpValue = rewriter.create<Const::DeclareOp>(appendLoc(loc, "zp"), zpTensorType,
-                                                                Const::ContentAttr::get(zpDenseAttr))
+                    zpValue = Const::DeclareOp::create(rewriter, appendLoc(loc, "zp"), zpTensorType,
+                                                       Const::ContentAttr::get(zpDenseAttr))
                                       .getOutput();
                 }
             } else {
@@ -227,8 +227,8 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::staticMatchAndRewrite
         }
     }
 
-    auto dequantizeOp = rewriter.create<IE::DynamicDequantizeOp>(appendLoc(loc, "artificial_dequant"), inputValue,
-                                                                 scaleValue, zpValue, dstType);
+    auto dequantizeOp = IE::DynamicDequantizeOp::create(rewriter, appendLoc(loc, "artificial_dequant"), inputValue,
+                                                        scaleValue, zpValue, dstType);
 
     // Only mark with the synthetic attribute when the original develop-branch logic would have
     // used a static IE.Dequantize (i.e., canUseDequantize was true). The bridge pass
@@ -287,7 +287,7 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::dynamicMatchAndRewrit
     }
     if (shiftElemType != nullptr) {
         auto expectedShiftElemType = inputElemType;
-        if (auto quantileType = mlir::dyn_cast_if_present<vpux::type::QuantileType>(inputElemType)) {
+        if (auto quantileType = mlir::dyn_cast_if_present<mlir::quant::QuantileType>(inputElemType)) {
             expectedShiftElemType = quantileType.getQuantileType();
         }
         if (!isSupportedShiftElemType(shiftElemType) || shiftElemType != expectedShiftElemType) {
@@ -305,9 +305,11 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::dynamicMatchAndRewrit
 
     mlir::Value scale = wdInfo.getDynamicScale();
     if (scale != nullptr) {
-        if (auto convertOp = mlir::dyn_cast_if_present<ConcreteOp>(*scale.user_begin())) {
-            scale = convertOp.getOutput();
-            rewriter.setInsertionPointAfter(convertOp);
+        if (auto scaleUser = mlir::dyn_cast_if_present<ConcreteOp>(*scale.user_begin())) {
+            scale = scaleUser.getOutput();
+            rewriter.setInsertionPointAfter(scaleUser);
+        } else if (auto scaleConvertOp = mlir::dyn_cast_if_present<IE::ConvertOp>(scale.getDefiningOp())) {
+            rewriter.setInsertionPointAfter(scaleConvertOp);
         } else if (auto stridedSliceOp = mlir::dyn_cast_if_present<IE::StridedSliceOp>(scale.getDefiningOp())) {
             rewriter.setInsertionPointAfter(stridedSliceOp);
         } else if (auto gatherOp = mlir::dyn_cast_if_present<IE::GatherOp>(scale.getDefiningOp())) {
@@ -324,8 +326,8 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::dynamicMatchAndRewrit
 
     auto inputValue = IE::getTrueInputValue(origOp, rewriter);
     if (auto transposeOp = mlir::dyn_cast_if_present<IE::TransposeOp>(wdInfo.getInput().getDefiningOp())) {
-        inputValue = rewriter.create<IE::TransposeOp>(appendLoc(loc, "transpose_in"), inputValue, nullptr,
-                                                      transposeOp.getOrderValueAttr())
+        inputValue = IE::TransposeOp::create(rewriter, appendLoc(loc, "transpose_in"), inputValue, nullptr,
+                                             transposeOp.getOrderValueAttr())
                              .getOutput();
     }
 
@@ -337,8 +339,8 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::dynamicMatchAndRewrit
             shift = IE::getTrueInputValue(staticShift.getDefiningOp<Const::DeclareOp>(), rewriter);
         }
     }
-    auto dynamicDequantizeOp = rewriter.create<IE::DynamicDequantizeOp>(appendLoc(loc, "artificial_dyn_dequant"),
-                                                                        inputValue, scale, shift, dstType);
+    auto dynamicDequantizeOp = IE::DynamicDequantizeOp::create(rewriter, appendLoc(loc, "artificial_dyn_dequant"),
+                                                               inputValue, scale, shift, dstType);
     wdInfo.getLastOp()->replaceAllUsesWith(dynamicDequantizeOp);
     wdInfo.cleanUpCurrentWdChain(rewriter);
     return mlir::success();

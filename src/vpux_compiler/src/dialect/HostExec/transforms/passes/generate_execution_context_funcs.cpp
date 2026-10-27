@@ -78,11 +78,11 @@ mlir::LogicalResult generateFuncWithCall(mlir::ModuleOp module, mlir::StringRef 
                                          mlir::Type callRetType) {
     mlir::OpBuilder builder(module.getBodyRegion());
     auto funcType = mlir::LLVM::LLVMFunctionType::get(retType, llvmTypes, /*isVarArg=*/false);
-    auto funcOp = builder.create<mlir::LLVM::LLVMFuncOp>(builder.getUnknownLoc(), funcName, funcType, linkage);
+    auto funcOp = mlir::LLVM::LLVMFuncOp::create(builder, builder.getUnknownLoc(), funcName, funcType, linkage);
     funcOp.addEntryBlock(builder);
     builder.setInsertionPointToStart(&(*funcOp.getBlocks().begin()));
     createLLVMFuncCallOp(builder, module, calleeName, getCallArgs(funcOp), callRetType);
-    builder.create<mlir::LLVM::ReturnOp>(builder.getUnknownLoc(), mlir::ValueRange{});
+    mlir::LLVM::ReturnOp::create(builder, builder.getUnknownLoc(), mlir::ValueRange{});
     return mlir::success();
 }
 

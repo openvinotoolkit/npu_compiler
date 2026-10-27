@@ -50,6 +50,10 @@ mlir::Location getFusedLoc(mlir::ArrayRef<std::string> parts) {
     return getFusedLoc(parts, nullptr);
 }
 
+mlir::Location getCallSiteLoc(mlir::Location callee, mlir::Location caller) {
+    return mlir::CallSiteLoc::get(callee, caller);
+}
+
 TEST(MLIR_ProfilingUtils, stringifyPrimaryLocation) {
     mlir::SmallVector<std::pair<mlir::Location, std::string>> cases = {
             // without fusedLoc metadata
@@ -92,6 +96,20 @@ TEST(MLIR_ProfilingUtils, stringifyPrimaryLocation) {
                      },
                      getMetadataWithType("Type3")),
              "Layer1?t_Type3/suffix1"},
+
+            // with CallSiteLoc, produced e.g. by the inliner pass when merging an outlined function back into its
+            // caller: the Callee (the original op, carrying the real layer name/type) must stay primary, with the
+            // Caller (the call site, e.g. main func loc with a 'partN_call' suffix) appended after
+            {getCallSiteLoc(getFusedLoc({"Layer"}, getMetadataWithType("Type")), getFusedLoc({"main", "part1_call"})),
+             "Layer?t_Type/main/part1_call"},
+            {getFusedLoc(
+                     {
+                             getCallSiteLoc(getFusedLoc({"Layer"}, getMetadataWithType("Type")),
+                                            getFusedLoc({"main", "part1_call"})),
+                             getLoc("expanded"),
+                     },
+                     nullptr),
+             "Layer?t_Type/main/part1_call/expanded"},
 
     };
 

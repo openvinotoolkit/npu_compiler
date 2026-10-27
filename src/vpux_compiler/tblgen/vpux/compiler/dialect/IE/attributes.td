@@ -75,6 +75,7 @@ def IE_EpsMode :
             [
                 I64EnumAttrCase<"ADD", 0>,
                 I64EnumAttrCase<"MAX", 1>,
+                I64EnumAttrCase<"CONDITIONAL_EPS", 2>
             ]
         > {
 }

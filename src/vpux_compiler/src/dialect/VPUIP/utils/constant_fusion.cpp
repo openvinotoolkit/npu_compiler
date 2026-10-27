@@ -91,10 +91,10 @@ Const::DeclareOp ConstantFusing::getConstAndDma(mlir::Value constant, mlir::Oper
     }
 
     viewOp = constant.getDefiningOp<VPUIP::ViewOp>();
-    VPUX_THROW_UNLESS(viewOp != nullptr, "Constant found without a ViewOp");
+    VPUX_THROW_WHEN(viewOp == nullptr, "Constant found without a ViewOp");
 
     auto subViewOp = viewOp.getSource().getDefiningOp<VPUIP::SubViewOp>();
-    VPUX_THROW_UNLESS(subViewOp != nullptr, "SubViewOp expected as source for ViewOp for tensor fusion");
+    VPUX_THROW_WHEN(subViewOp == nullptr, "SubViewOp expected as source for ViewOp for tensor fusion");
     mlir::Value source = subViewOp.getSource();
 
     if (mlir::BlockArgument arg = mlir::dyn_cast<mlir::BlockArgument>(source)) {
@@ -130,7 +130,7 @@ Const::DeclareOp ConstantFusing::getConstAndDma(mlir::Value constant, mlir::Oper
             constDeclareOp = layerOp.getInputs()[0].getDefiningOp<Const::DeclareOp>();
             while (constDeclareOp == nullptr) {
                 op = layerOp.getInputs()[0].getDefiningOp();
-                VPUX_THROW_UNLESS(op != nullptr, "Next CopyOp or NNDMAOp as source operation expected");
+                VPUX_THROW_WHEN(op == nullptr, "Next CopyOp or NNDMAOp as source operation expected");
                 layerOp = mlir::dyn_cast<VPUIP::LayerOpInterface>(op);
                 if (layerOp == nullptr) {
                     break;

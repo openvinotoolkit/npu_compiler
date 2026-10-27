@@ -17,8 +17,8 @@ void swapExpandWithReorder(mlir::PatternRewriter& rewriter, IE::ExpandOp expandO
     mlir::OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPoint(expandOp);
 
-    auto newExpandOp = rewriter.create<IE::ExpandOp>(expandOp->getLoc(), origReorderOp->getOperand(0),
-                                                     expandOp.getPadsBeginAttr(), expandOp.getPadsEndAttr());
+    auto newExpandOp = IE::ExpandOp::create(rewriter, expandOp->getLoc(), origReorderOp->getOperand(0),
+                                            expandOp.getPadsBeginAttr(), expandOp.getPadsEndAttr());
 
     mlir::IRMapping mapper;
     mapper.map(origReorderOp->getOperand(0), newExpandOp.getOutput());

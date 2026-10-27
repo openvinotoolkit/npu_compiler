@@ -4,8 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
-
-#include <npu_40xx_nnrt.hpp>
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
 namespace {
 const size_t bits64 = sizeof(uint64_t) * CHAR_BIT;
@@ -211,19 +210,28 @@ void reindexTaskLinkAttrForDMA(VPURegMapped::TaskOpInterface head) {
 //
 
 namespace {
-const std::unordered_map<VPURegMapped::TaskType, size_t> taskBinarySize40XX = {
-        {VPURegMapped::TaskType::DPUInvariant, sizeof(npu40xx::nn_public::VpuDPUInvariant)},
-        {VPURegMapped::TaskType::DPUVariant, sizeof(npu40xx::nn_public::VpuDPUVariant)},
-        {VPURegMapped::TaskType::ActKernelRange, sizeof(npu40xx::nn_public::VpuActKernelRange)},
-        {VPURegMapped::TaskType::ActKernelInvocation, sizeof(npu40xx::nn_public::VpuActKernelInvocation)},
-        {VPURegMapped::TaskType::M2I, sizeof(npu40xx::nn_public::VpuMediaTask)},
-        {VPURegMapped::TaskType::DMA, sizeof(npu40xx::nn_public::VpuDMATask)}};
+mlir::StringRef getTaskBinarySizeKey(VPURegMapped::TaskType taskType) {
+    switch (taskType) {
+    case VPURegMapped::TaskType::DPUInvariant:
+        return TASK_BINARY_SIZE_DPU_INVARIANT_ATTR;
+    case VPURegMapped::TaskType::DPUVariant:
+        return TASK_BINARY_SIZE_DPU_VARIANT_ATTR;
+    case VPURegMapped::TaskType::ActKernelRange:
+        return TASK_BINARY_SIZE_ACT_KERNEL_RANGE_ATTR;
+    case VPURegMapped::TaskType::ActKernelInvocation:
+        return TASK_BINARY_SIZE_ACT_KERNEL_INVOCATION_ATTR;
+    case VPURegMapped::TaskType::M2I:
+        return TASK_BINARY_SIZE_M2I_ATTR;
+    case VPURegMapped::TaskType::DMA:
+        return TASK_BINARY_SIZE_DMA_ATTR;
+    default:
+        VPUX_THROW("Unknown Task Type {0}", taskType);
+    }
+}
 }  // namespace
 
-// TODO: E#121934 Add method for VPURegMapped TaskType to be able to directly return its binary size in an
-// arch-specific way
-size_t getTaskBinarySize(VPURegMapped::TaskType taskType, [[maybe_unused]] config::ArchKind arch) {
-    return taskBinarySize40XX.at(taskType);
+size_t getTaskBinarySizeConstraint(mlir::func::FuncOp netFunc, VPURegMapped::TaskType taskType) {
+    return checked_cast<size_t>(config::getConstraint<int64_t>(netFunc, getTaskBinarySizeKey(taskType)));
 }
 
 VPURegMapped::TaskType convertExecutorKindToExecutableTaskType(config::ExecutorKind kind) {

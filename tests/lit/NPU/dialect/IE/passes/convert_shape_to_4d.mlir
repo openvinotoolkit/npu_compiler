@@ -2849,6 +2849,30 @@ func.func @DynamicQuantize(%arg0: tensor<1x6000x400xf32>, %arg1: tensor<1xf32>, 
 
 // -----
 
+// CHECK-LABEL: @DynamicQuantizeInternalReduction
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x6000x400xf32>
+func.func @DynamicQuantizeInternalReduction(%arg0: tensor<1x6000x400xf32>)
+        -> (tensor<1x6000x400xui8>, tensor<1x1x1xf32>, tensor<1x1x1xui8>) {
+    %output, %scale, %zero_point = IE.DynamicQuantize(%arg0) {axes_value = [1, 2], dstElemType = ui8, operandSegmentSizes = array<i32: 1, 0, 0>} : tensor<1x6000x400xf32> -> tensor<1x6000x400xui8>, tensor<1x1x1xf32>, tensor<1x1x1xui8>
+    return %output, %scale, %zero_point : tensor<1x6000x400xui8>, tensor<1x1x1xf32>, tensor<1x1x1xui8>
+
+    // Internal-reduction mode keeps a single input; axes_value is remapped when the rank is expanded to 4D.
+    // CHECK: [[RESHAPE0:%.+]] = IE.AffineReshape([[INPUT]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 1, 6000, 400]}
+    // CHECK:               tensor<1x6000x400xf32> -> tensor<1x1x6000x400xf32>
+
+    // CHECK: [[OUTPUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = IE.DynamicQuantize([[RESHAPE0]])
+    // CHECK-SAME: {axes_value = [2, 3], dstElemType = ui8, operandSegmentSizes = array<i32: 1, 0, 0>}
+    // CHECK-SAME: tensor<1x1x6000x400xf32> -> tensor<1x1x6000x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+
+    // CHECK: [[OUTRESHAPE0:%.+]] = IE.AffineReshape([[OUTPUT]])
+    // CHECK: [[OUTRESHAPE1:%.+]] = IE.AffineReshape([[SCALE]])
+    // CHECK: [[OUTRESHAPE2:%.+]] = IE.AffineReshape([[ZP]])
+    // CHECK: return [[OUTRESHAPE0]], [[OUTRESHAPE1]], [[OUTRESHAPE2]] : tensor<1x6000x400xui8>, tensor<1x1x1xf32>, tensor<1x1x1xui8>
+}
+
+// -----
+
 // CHECK-LABEL: @SDPA
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<32x1x96xf16>, [[ARG1:%.+]]: tensor<32x1024x96xf16>, [[ARG2:%.+]]: tensor<32x96x1024xf16>, [[ARG3:%.+]]: tensor<1x1x1024xf16>)
 func.func @SDPA(%arg0: tensor<32x1x96xf16>, %arg1: tensor<32x1024x96xf16>, %arg2: tensor<32x96x1024xf16>, %arg3: tensor<1x1x1024xf16>) -> (tensor<32x1x96xf16>){
@@ -3517,7 +3541,7 @@ func.func @ConvertPReluDynamicShape1DTo4D(%arg0: !PReluInput1D, %arg1: !PReluSlo
   // CHECK:      [[RESHAPE_IN:%.+]] = IE.DynamicReshape([[INPUT]], [[IN_RESHAPE_CONST]]) {output_bounds = [1, 1, 1, 100], output_shape = [1, 1, 1, -9223372036854775808]} : tensor<1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 100]> : tensor<2xsi64>, order = #NC}>, tensor<4xsi32> -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 100]> : tensor<4xsi64>, order = #NCHW}>
   // CHECK:      [[RESHAPE_BEGIN:%.+]] = IE.AffineReshape([[PAD_BEGIN]])
   // CHECK-SAME{LITERAL}:     dim_mapping = [[0, 1, 2, 3]], shape_value = [1, 1, 1, 2]} : tensor<2xsi32> -> tensor<1x1x1x2xsi32>
-  // CHECK:      [[PAD:%.+]] = IE.Pad([[RESHAPE_IN]]) [[[RESHAPE_BEGIN]], ] {mode = #IE.pad_mode<CONSTANT>, output_bounds = [1, 1, 1024, 1024], output_shape = [1, 1, -9223372036854775808, -9223372036854775808], pad_value_attr = 0.000000e+00 : f64, pads_end_attr = [3, 0, 0, 0]} : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 100]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x2xsi32> -> tensor<1x1x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1024, 1024]> : tensor<4xsi64>, order = #NCHW}>
+  // CHECK:      [[PAD:%.+]] = IE.Pad([[RESHAPE_IN]]) [[[RESHAPE_BEGIN]], ] {mode = #IE.pad_mode<CONSTANT>, output_bounds = [1, 1, 1024, 1024], output_shape = [1, 1, -9223372036854775808, -9223372036854775808], pad_value_attr = 0.000000e+00 : f64, pads_end_attr = [0, 0, 0, 3]} : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 100]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x2xsi32> -> tensor<1x1x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1024, 1024]> : tensor<4xsi64>, order = #NCHW}>
   // CHECK:      [[SHAPEOF:%.+]] = IE.ShapeOf([[PAD]]) {dstElemType = si32} : tensor<1x1x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1024, 1024]> : tensor<4xsi64>, order = #NCHW}> -> tensor<4xsi32>
   // CHECK:      [[SLICE:%.+]] = IE.Slice [[SHAPEOF]] [2] [2] : tensor<4xsi32> to tensor<2xsi32>
   // CHECK:      [[RESHAPE_BACK_OUT:%.+]] = IE.DynamicReshape([[PAD]], [[SLICE]])  {output_bounds = [1024, 1024], output_shape = [-9223372036854775808, -9223372036854775808]} : tensor<1x1x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1024, 1024]> : tensor<4xsi64>, order = #NCHW}>, tensor<2xsi32> -> tensor<?x?xf32, {bounds = #const.OpaqueI64Elements<[1024, 1024]> : tensor<2xsi64>, order = #NC}>

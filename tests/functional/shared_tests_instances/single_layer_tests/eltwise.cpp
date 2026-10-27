@@ -527,6 +527,25 @@ INSTANTIATE_TEST_SUITE_P(smoke_EltwiseDynamic, EltwiseLayerTestDynamic, eltwise_
                          EltwiseLayerTestDynamic::getTestCaseName);
 
 //
+// Test Eltwise dynamic-batch broadcast: input0 [N,1,1,1] (gate) x input1 [N,128,1,1] (feat) -> [N,128,1,1].
+// Regression for a bug where propagateOutputShape() copied the gate's dims verbatim instead of
+// broadcasting, collapsing the output shape to [N,1,1,1] and leaving most of the buffer unwritten.
+//
+std::vector<std::vector<ov::test::InputShape>> in_shapes_dynamic_batch_broadcast = {
+        {{{ov::Dimension(1, 14), 1, 1, 1}, {{14, 1, 1, 1}, {7, 1, 1, 1}}},
+         {{ov::Dimension(1, 14), 128, 1, 1}, {{14, 128, 1, 1}, {7, 128, 1, 1}}}},
+};
+
+const auto eltwise_params_dynamic_batch_broadcast = ::testing::Combine(
+        ::testing::ValuesIn(in_shapes_dynamic_batch_broadcast), ::testing::Values(EltwiseTypes::MULTIPLY),
+        ::testing::Values(InputLayerType::PARAMETER), ::testing::ValuesIn(opTypes), ::testing::ValuesIn(precision),
+        ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
+
+INSTANTIATE_TEST_SUITE_P(smoke_EltwiseDynamicBatchBroadcastMultiply, EltwiseLayerTestDynamic,
+                         eltwise_params_dynamic_batch_broadcast, EltwiseLayerTestDynamic::getTestCaseName);
+
+//
 // Test Eltwise input broadcast
 //
 

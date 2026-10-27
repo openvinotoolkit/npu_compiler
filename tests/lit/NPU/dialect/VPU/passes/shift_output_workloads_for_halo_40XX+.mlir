@@ -618,3 +618,62 @@ func.func @D2SMaxPoolSOHOverlappedODUScaling(%arg0: !InputDistributed) -> !Outpu
     // Cluster 1 offset shifted: [0,0,2,0] - invertODUScaling([0,0,4,0]) = [0,0,2,0] - [0,0,2,0] = [0,0,0,0].
     // CHECK:           DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 2, 4] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 1 : i64}
 }
+
+// -----
+
+// For NCE.Convolution with D2S ODU configuration and OVERLAPPED output distribution,
+// the pass must invert post-ODU clustering offsets before shifting DPU workload offsets.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!InputDistributedConv = !VPU.DistributedTensor<
+    1x32x4x4xf16, #NHWC, @CMX_NN, {
+    mode = "SEGMENTED",
+    num_tiles = [1, 1, 2, 1],
+    num_clusters = 2,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 32, 2, 4], [1, 32, 2, 4]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 2, 0]],
+    memory_shapes = [[1, 32, 2, 4], [1, 32, 2, 4]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0]]
+}>
+
+!OutputDistributedConv = !VPU.DistributedTensor<
+    1x8x8x8xf16, #NHWC, @CMX_NN, {
+    mode = "OVERLAPPED",
+    num_tiles = [1, 1, 2, 1],
+    num_clusters = 2,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 8, 4, 8], [1, 8, 4, 8]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 4, 0]],
+    memory_shapes = [[1, 8, 4, 8], [1, 8, 4, 8]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 4, 0]]
+}>
+
+!WeightsDistributedConv = !VPU.DistributedTensor<
+    32x32x1x1xf16, #NHWC, @CMX_NN, {
+    mode = "DUPLICATED",
+    num_clusters = 2,
+    uniform_distributed_segments
+}>
+
+// CHECK-LABEL: @D2SConvolutionSOHOverlappedODUScaling
+func.func @D2SConvolutionSOHOverlappedODUScaling(%arg0: !InputDistributedConv, %arg1: !WeightsDistributedConv) -> !OutputDistributedConv {
+    %output_cmx = VPU.NCE.Convolution(%arg0, %arg1) rawFilterShape [32, 32, 1, 1] {
+        resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEStub<>,
+        s2dd2s_config = #VPU.S2DD2SConfig<enable = <D2S>, variant = <BLOCK_FIRST>, blk_size = 2 : i64>,
+        strides = [1, 1]
+    } : !InputDistributedConv, !WeightsDistributedConv -> !OutputDistributedConv {
+        VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 2, 4] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
+        VPU.DPU.Workload outOffsets [0, 0, 2, 0] outSizes [1, 32, 2, 4] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 1 : i64}
+    }
+
+    return %output_cmx : !OutputDistributedConv
+
+    // CHECK:       [[RES:%.+]] = VPU.NCE.Convolution
+    // CHECK-SAME:      s2dd2s_config = #VPU.S2DD2SConfig<enable = <D2S>, variant = <BLOCK_FIRST>, blk_size = 2 : i64>
+    // CHECK:           DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 2, 4] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 0 : i64}
+    // CHECK:           DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 2, 4] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 1 : i64}
+}

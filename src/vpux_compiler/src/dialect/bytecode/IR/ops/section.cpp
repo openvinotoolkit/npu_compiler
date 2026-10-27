@@ -124,7 +124,18 @@ size_t bytecode::ConstantSectionOp::getBinarySize() {
 void bytecode::ConstantOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     auto value = mlir::cast<mlir::DenseElementsAttr>(getValue());
     auto rawdata = value.getRawData();
-    writer.appendRawData(reinterpret_cast<const uint8_t*>(rawdata.data()), rawdata.size());
+    if (!value.isSplat()) {
+        writer.appendRawData(reinterpret_cast<const uint8_t*>(rawdata.data()), rawdata.size());
+        return;
+    }
+    // A splat attribute keeps a single element regardless of how many the type holds, so repeat it to
+    // fill the constant. Writing the raw data as is would leave the section shorter than getBinarySize().
+    const auto numElements = value.getNumElements();
+    VPUX_THROW_UNLESS(rawdata.size() * checked_cast<size_t>(numElements) == getBinarySize(),
+                      "Splat constant of {0} elements does not fill its binary size {1}", numElements, getBinarySize());
+    for (int64_t idx = 0; idx < numElements; ++idx) {
+        writer.appendRawData(reinterpret_cast<const uint8_t*>(rawdata.data()), rawdata.size());
+    }
 }
 
 size_t bytecode::ConstantOp::getBinarySize() {

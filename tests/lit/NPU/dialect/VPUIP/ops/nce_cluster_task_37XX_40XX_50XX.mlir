@@ -20,7 +20,7 @@ func.func @ParsePrintClusterTask(%arg0: memref<1x32x16x16xf16, {order = #NHWC}, 
     %t1, %r1 = async.execute
                 -> !async.value<memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>>
                     attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64, "async-deps-index" = 0 : i64} {
-        %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -139,7 +139,7 @@ func.func @ParsePrintDistributedBuffer(%input: !Input_DDR) -> !Output_DDR {
 
     %t3 = async.execute [%t0, %t1, %t2]
                 attributes {VPUIP.executor = @DPU, VPUIP.num_units = 4 : i64, "async-deps-index" = 3 : i64} {
-            %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+            %0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                     kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                     kernel_size = [1, 1],
                     kernel_strides = [1, 1],
@@ -233,8 +233,7 @@ func.func @EltwiseSameInputTwoDeclareBuffersSameLocation() -> memref<1x16x224x10
     %weights = VPURT.DeclareBuffer <CMX_NN> [0] <0>      -> memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>
     %output  = VPURT.DeclareBuffer <CMX_NN> [0] <716800> -> memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>
 
-    %out = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-            <{task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %out = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%input : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)
         weights(%weights : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)
         parent_input(%input : memref<1x16x224x100xf16, #NHWC, [@CMX_NN, 0]>)

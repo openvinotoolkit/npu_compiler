@@ -30,7 +30,7 @@ func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x149x150xf16, 
             outputs(%buf0 : memref<1x16x149x150xf16, {order = #NHWC}, @CMX_NN>)
              -> memref<1x16x149x150xf16, {order = #NHWC}, @CMX_NN>
 
-    %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -55,7 +55,7 @@ func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x149x150xf16, 
         {
         }
 
-    %2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [3, 3],
             kernel_strides = [1, 1],
@@ -81,7 +81,7 @@ func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x149x150xf16, 
         }
 
 
-    %3 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %3 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -192,7 +192,7 @@ func.func @SetSwizzlingForConstantButNotActivationDueToCmxSizeLimit(%input : !In
 
     %3 = VPUIP.Copy { out_mem_space = @CMX_NN } inputs(%weights: !Weights_DDR) outputs(%weights_cmx: !WeightsDistributed) -> !WeightsDistributed
 
-    %4 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %4 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -217,7 +217,7 @@ func.func @SetSwizzlingForConstantButNotActivationDueToCmxSizeLimit(%input : !In
         {
         }
 
-    %5 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -317,7 +317,7 @@ func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled(%arg0 : memref<1x128x
             outputs(%buf1 : memref<1x128x7x40xf16, {order = #NHWC}, @CMX_NN>)
              -> memref<1x128x7x40xf16, {order = #NHWC}, @CMX_NN>
 
-    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 99787 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 99787 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             is_superdense,
             kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [3, 3],
@@ -353,7 +353,7 @@ func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled(%arg0 : memref<1x128x
             }
         }
 
-    %3 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 99787 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %3 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 99787 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             is_superdense,
             kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [3, 3], kernel_strides = [2, 2],
@@ -506,7 +506,7 @@ func.func @DoNotSwizzle5dTensors(
     // CHECK-SAME:  inputs([[WEIGHT_TABLE_CST]]
     // CHECK-SAME:  outputs([[ALLOC_WEIGHT_TABLE]]
 
-    %MATMUL = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %MATMUL = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
         kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         kernel_size = [1, 1],
         kernel_strides = [1, 1],
@@ -698,7 +698,7 @@ func.func @DoNotSwizzleWeightsDueToAlignmentMemCannotFitIntoCMX() -> !OutputDist
     %WEIGHTS_SM_COPY = VPUIP.Copy inputs(%WEIGHTS_SM_CST : memref<512x1x1x512xi1>) outputs(%WEIGHTS_SM_CMX : !WeightsSparsityMapDistributed) -> !WeightsSparsityMapDistributed
     %WEIGHTS_TABLE_COPY = VPUIP.Copy inputs(%WEIGHTS_TABLE_CST : memref<512x1x1x4xsi32>) outputs(%WEIGHTS_TABLE_CMX : !WeightsTableDistributed) -> !WeightsTableDistributed
 
-    %NCE = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 13896, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %NCE = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 13896} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
         kernel_padding = #VPU.Padding<left = 0, right = 0, top = 0, bottom = 0>,
         kernel_size = [1, 1],
         kernel_strides = [1, 1],
@@ -883,7 +883,7 @@ func.func @SwizzleOutputWithFusedWeightsConstant() -> !OutputDistributed {
     %OUT_0_CMX = VPURT.AllocDistributed -> !OutputDistributed
     %OUT_0_SM_CMX = VPURT.AllocDistributed -> !OutputSparsityMapDistributed
 
-    %CONV_0:2 = VPUIP.NCEClusterTask {constantsFused = true, minimumHardwareExecutionCost = 14570, resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>} <{
+    %CONV_0:2 = VPUIP.NCEClusterTask {constantsFused = true, minimumHardwareExecutionCost = 14570} <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
         kernel_padding = #VPU.Padding<left = 0, right = 0, top = 0, bottom = 0>,
         kernel_size = [1, 1],
         kernel_strides = [1, 1],
@@ -916,7 +916,7 @@ func.func @SwizzleOutputWithFusedWeightsConstant() -> !OutputDistributed {
     %OUT_1_CMX = VPURT.AllocDistributed -> !OutputDistributed
     %OUT_1_SM_CMX = VPURT.AllocDistributed -> !OutputSparsityMapDistributed
 
-    %CONV_1:2 = VPUIP.NCEClusterTask {constantsFused = true, minimumHardwareExecutionCost = 14570, resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>} <{
+    %CONV_1:2 = VPUIP.NCEClusterTask {constantsFused = true, minimumHardwareExecutionCost = 14570} <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
         kernel_padding = #VPU.Padding<left = 0, right = 0, top = 0, bottom = 0>,
         kernel_size = [1, 1],
         kernel_strides = [1, 1],

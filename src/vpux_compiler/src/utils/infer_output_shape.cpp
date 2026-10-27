@@ -268,6 +268,7 @@ ShapeInfo vpux::inferMaxPool8OutputShape(const ShapeInfo& inDataShapeInfo, Array
     return createShapeInfoFromPartialShape(ovOp.get_output_partial_shape(0));
 }
 
+namespace {
 ov::PartialShape getConvBackpropOutputShape(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> filterShape,
                                             ArrayRef<int64_t> windowStrides, ArrayRef<int64_t> dataPaddingBelow,
                                             ArrayRef<int64_t> dataPaddingAbove, ArrayRef<int64_t> windowDilations,
@@ -301,6 +302,7 @@ ov::PartialShape getGroupConvBackpropOutputShape(ArrayRef<int64_t> inputShape, A
                    ov::CoordinateDiff(outputPadding.begin(), outputPadding.end()))
             .get_output_partial_shape(0);
 }
+}  // namespace
 
 SmallVector<int64_t> vpux::inferConvBackpropOutputShape(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> filterShape,
                                                         ArrayRef<int64_t> windowStrides,
@@ -556,7 +558,7 @@ mlir::OpFoldResult vpux::reifyDim(mlir::OpBuilder builder, mlir::Value value, ml
     if (type.isDynamicDim(idx)) {
         const auto actualLoc = loc.value_or(value.getLoc());
         auto dimLoc = appendLoc(actualLoc, "dim_{0}", idx);
-        auto index = builder.create<mlir::arith::ConstantIndexOp>(appendLoc(dimLoc, "const_index"), idx);
+        auto index = mlir::arith::ConstantIndexOp::create(builder, appendLoc(dimLoc, "const_index"), idx);
         auto dimOp = builder.createOrFold<mlir::tensor::DimOp>(dimLoc, value, index);
         return mlir::getValueOrCreateConstantIndexOp(builder, appendLoc(actualLoc, "const_index"), dimOp);
     }
@@ -602,7 +604,7 @@ mlir::LogicalResult vpux::reifyInterpolateResultShape(mlir::OpBuilder& builder, 
             return mlir::failure();
         }
 
-        const auto scalesValues = scalesResult.value();
+        const auto& scalesValues = scalesResult.value();
         for (auto [i, axis] : llvm::enumerate(axesVal)) {
             if (i < scalesValues.size()) {
                 staticScaleForAxis[axis] = scalesValues[i];
@@ -832,8 +834,8 @@ mlir::FailureOr<SmallVector<mlir::OpFoldResult>> vpux::reifyEltwiseTensors(mlir:
             if (in1ShapeIter == shape1.rend() || (in2ShapeIter != shape2.rend() && (*in1ShapeIter == 1))) {
                 outDims[outRank - i - 1] = reifyDim(builder, input2, type2, in2Rank - i - 1, loc);
             } else {
-                VPUX_THROW_UNLESS(in1ShapeIter != shape1.rend(), "Failed to broadcast shapes: {0}, {1} at {2}", shape1,
-                                  shape2, loc);
+                VPUX_THROW_WHEN(in1ShapeIter == shape1.rend(), "Failed to broadcast shapes: {0}, {1} at {2}", shape1,
+                                shape2, loc);
                 outDims[outRank - i - 1] = reifyDim(builder, input1, type1, in1Rank - i - 1, loc);
             }
 

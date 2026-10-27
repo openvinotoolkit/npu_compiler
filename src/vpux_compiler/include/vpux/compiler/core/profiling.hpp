@@ -21,18 +21,15 @@ class DMATypeOpInterface;
 namespace vpux {
 
 VPUIP::DpuProfilingMetadataAttr getDpuProfilingMetaAttr(mlir::MLIRContext* ctx, unsigned bufferId, unsigned taskId,
-                                                        unsigned maxVariants, std::optional<unsigned> numVariants,
-                                                        std::optional<unsigned> clusterId);
+                                                        unsigned maxVariants, unsigned numVariants, unsigned clusterId);
 
 VPUIP::DmaProfilingMetadataAttr getDmaProfilingMetaAttrBegin(mlir::MLIRContext* ctx);
 
 VPUIP::DmaProfilingMetadataAttr getDmaProfilingMetaAttr(mlir::MLIRContext* ctx, unsigned index);
 
 VPUIP::SwProfilingMetadataAttr getSwProfilingMetaAttr(mlir::MLIRContext* ctx, size_t bufferId, size_t bufferOffset,
-                                                      size_t clusterSize, size_t dataIndex,
-                                                      std::optional<size_t> tileId, std::optional<size_t> clusterId);
-
-VPUIP::M2IProfilingMetadataAttr getM2IProfilingMetaAttr(mlir::MLIRContext* ctx, size_t bufferId, size_t bufferOffset);
+                                                      size_t clusterSize, size_t dataIndex, size_t tileId,
+                                                      size_t clusterId);
 
 enum class DMAProfilingMode { DISABLED, SCRATCH, SW, STATIC_HWP, DYNAMIC_HWP };
 
@@ -68,17 +65,6 @@ struct TaskSignature {
     InnerTask _task;
     unsigned _maxSubTasks;
     SmallVector<unsigned> _subTasksAtCluster;
-
-    VPUIP::DpuProfilingMetadataAttr dpuSignature(mlir::MLIRContext* ctx, unsigned bufferId, unsigned taskId) const {
-        std::optional<unsigned> numVariants;
-        std::optional<unsigned> clusterId;
-        // Setting clusterId for single-cluster case. Unroll-Nce-Tiling pass won't handle this case, so doing this now
-        if (_subTasksAtCluster.size() == 1) {
-            numVariants = _subTasksAtCluster.front();
-            clusterId = 0;
-        }
-        return getDpuProfilingMetaAttr(ctx, bufferId, taskId, _maxSubTasks, numVariants, clusterId);
-    }
 };
 
 mlir::BlockArgument addNewProfilingOutput(mlir::MLIRContext* ctx, mlir::func::FuncOp& netFunc,

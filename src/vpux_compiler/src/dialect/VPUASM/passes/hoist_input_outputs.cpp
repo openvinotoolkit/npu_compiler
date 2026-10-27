@@ -50,9 +50,9 @@ void HoistInputOutputsPass::safeRunOnModule() {
     auto [netInfo, netFunc] = net::getFromModule(moduleOp);
 
     auto moduleBuilder = mlir::OpBuilder(netFunc.getOperation());
-    auto inputBindingsOp = moduleBuilder.create<VPUASM::InputBindingsOp>(netFunc.getLoc());
-    auto outputBindingsOp = moduleBuilder.create<VPUASM::OutputBindingsOp>(netFunc.getLoc());
-    auto profilingBindingsOp = moduleBuilder.create<VPUASM::ProfilingBindingsOp>(netFunc.getLoc());
+    auto inputBindingsOp = VPUASM::InputBindingsOp::create(moduleBuilder, netFunc.getLoc());
+    auto outputBindingsOp = VPUASM::OutputBindingsOp::create(moduleBuilder, netFunc.getLoc());
+    auto profilingBindingsOp = VPUASM::ProfilingBindingsOp::create(moduleBuilder, netFunc.getLoc());
 
     auto netInputBuilder = mlir::OpBuilder::atBlockBegin(&inputBindingsOp.getInputDeclarations().front());
     auto netOutputBuilder = mlir::OpBuilder::atBlockBegin(&outputBindingsOp.getOutputDeclarations().front());
@@ -102,15 +102,15 @@ void HoistInputOutputsPass::safeRunOnModule() {
         auto io_name = symbolizeIO(diVec, ioIdx);
 
         if (isInput) {
-            netInputBuilder.create<VPUASM::DeclareBufferOp>(netFunc.getLoc(), io_name, buffType);
+            VPUASM::DeclareBufferOp::create(netInputBuilder, netFunc.getLoc(), io_name, buffType);
         } else if (isOutput) {
-            netOutputBuilder.create<VPUASM::DeclareBufferOp>(netFunc.getLoc(), io_name, buffType);
+            VPUASM::DeclareBufferOp::create(netOutputBuilder, netFunc.getLoc(), io_name, buffType);
         } else if (isProfOutput) {
-            netProfOutputBuilder.create<VPUASM::DeclareBufferOp>(netFunc.getLoc(), io_name, buffType);
+            VPUASM::DeclareBufferOp::create(netProfOutputBuilder, netFunc.getLoc(), io_name, buffType);
         }
 
         // for IO assume baseOffset and swizzlingKeys to be 0
-        auto io = funcBuilder.create<VPURT::DeclareBufferOp>(netFunc.getLoc(), memref, ioSec, ioIdx, 0, 0);
+        auto io = VPURT::DeclareBufferOp::create(funcBuilder, netFunc.getLoc(), memref, ioSec, ioIdx, 0, 0);
 
         argVal.replaceAllUsesWith(io);
     }

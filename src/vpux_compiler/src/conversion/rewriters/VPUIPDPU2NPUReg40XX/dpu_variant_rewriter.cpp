@@ -70,11 +70,11 @@ mlir::LogicalResult DPUVariantRewriter::matchAndRewrite(VPUIPDPU::DPUVariantOp o
         descriptor.write<Fields::next_sram_job_valid>(1);
     }
 
-    rewriter.create<NPUReg40XX::DPUVariantOp>(origOp->getLoc(), origOp.getSymNameAttr(), origOp.getNextLinkAttr(),
-                                              origOp.getTaskIndexAttr(), std::move(descriptor),
-                                              origOp.getTaskLocationAttr(), origOp.getInvariantTaskLocationAttr(),
-                                              origOp.getWeightsAttr(), origOp.getWeightTableAttr(),
-                                              origOp.getNceTaskTypeAttr(), origOp.getWorkloadIdAttr());
+    NPUReg40XX::DPUVariantOp::create(rewriter, origOp->getLoc(), origOp.getSymNameAttr(), origOp.getNextLinkAttr(),
+                                     origOp.getTaskIndexAttr(), std::move(descriptor), origOp.getTaskLocationAttr(),
+                                     origOp.getInvariantTaskLocationAttr(), origOp.getWeightsAttr(),
+                                     origOp.getWeightTableAttr(), origOp.getNceTaskTypeAttr(),
+                                     origOp.getWorkloadIdAttr());
 
     rewriter.eraseOp(origOp);
 

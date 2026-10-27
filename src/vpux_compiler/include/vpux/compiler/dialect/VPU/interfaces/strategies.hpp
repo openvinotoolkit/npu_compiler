@@ -59,7 +59,21 @@ public:
      */
     virtual bool isNCEPermuteOffsetsCorrectionNeeded(VPU::NCEOpInterface nceOp) = 0;
 
-    virtual bool isConvertTileWithEltwiseToNCEPoolSupported() = 0;
+    /**
+     * @brief Returns whether the operation uses the new data-pointer/scale/bias table format.
+     *
+     * @param op Operation whose NCE lowering is queried.
+     * @param isCompressConv Whether the convolution uses compressed weights, which require the legacy format.
+     */
+    virtual bool useNewWeightTableFormat(mlir::Operation* op, bool isCompressConv) = 0;
+
+    /**
+     * @brief Returns the platform-specific strategy for the ConvertTileWithEltwiseToNCEPool pass.
+     *
+     * @param ctx MLIR context the returned patterns are attached to.
+     */
+    virtual std::unique_ptr<IIterativeWalkPassStrategy> getConvertTileWithEltwiseToNCEPoolStrategy(
+            mlir::MLIRContext* ctx) = 0;
 
     // IE to VPU conversion
     virtual std::unique_ptr<IConvertIEToVPUNCEStrategy> getConvertIEToVPUNCEStrategy(const Logger& log) = 0;

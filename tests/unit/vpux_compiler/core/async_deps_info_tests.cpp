@@ -327,13 +327,13 @@ TEST_F(MLIR_AsyncDepsInfo, InsertNewExecOp) {
     auto tokenType = builder.getType<mlir::async::TokenType>();
 
     auto newExecOp =
-            builder.create<mlir::async::ExecuteOp>(builder.getUnknownLoc(), mlir::TypeRange{tokenType, asyncValueType},
-                                                   mlir::ValueRange{}, mlir::ValueRange{});
+            mlir::async::ExecuteOp::create(builder, builder.getUnknownLoc(), mlir::TypeRange{tokenType, asyncValueType},
+                                           mlir::ValueRange{}, mlir::ValueRange{});
 
     auto& bodyBlock = newExecOp.getBodyRegion().emplaceBlock();
     builder.setInsertionPointToStart(&bodyBlock);
-    auto allocOp = builder.create<mlir::memref::AllocOp>(builder.getUnknownLoc(), memrefType);
-    builder.create<mlir::async::YieldOp>(builder.getUnknownLoc(), mlir::ValueRange{allocOp});
+    auto allocOp = mlir::memref::AllocOp::create(builder, builder.getUnknownLoc(), memrefType);
+    mlir::async::YieldOp::create(builder, builder.getUnknownLoc(), mlir::ValueRange{allocOp});
 
     // Insert new exec op to deps map
     size_t newIdx = info.insertNewExecOpToDepsMap(newExecOp);

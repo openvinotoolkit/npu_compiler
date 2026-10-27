@@ -21,8 +21,8 @@ mlir::LogicalResult IE::InverseOp::inferReturnTypeComponents(
     }
 
     const auto inType = mlir::cast<vpux::NDTypeInterface>(inverse.getInput().getType());
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
-                      IE::InverseOp::getOperationName());
+    VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
+                    IE::InverseOp::getOperationName());
     const auto outDesc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace());
     inferredReturnShapes.emplace_back(inType.getShape(), inType.getElementType(), outDesc);
 

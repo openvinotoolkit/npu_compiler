@@ -134,13 +134,13 @@ mlir::LogicalResult ConvertDepth2SpaceLayerPass::Depth2SpaceLayerConverter::matc
             outShape.size() == shapeEnd.size() && std::equal(shapeEnd.begin(), shapeEnd.end(), outShape.begin()),
             "Replacing failed: output shape mismatched");
 
-    auto reshapeBegin = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
-                                                       getIntArrayAttr(ctx, shapeBegin));
+    auto reshapeBegin = IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
+                                              getIntArrayAttr(ctx, shapeBegin));
     auto transpose =
-            rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"), reshapeBegin.getOutput(), nullptr,
-                                             mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(order, ctx)));
-    auto reshapeEnd = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_out"), transpose.getOutput(),
-                                                     getIntArrayAttr(ctx, shapeEnd));
+            IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_in"), reshapeBegin.getOutput(), nullptr,
+                                    mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(order, ctx)));
+    auto reshapeEnd = IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_out"), transpose.getOutput(),
+                                            getIntArrayAttr(ctx, shapeEnd));
     rewriter.replaceOp(origOp, reshapeEnd.getOutput());
 
     return mlir::success();

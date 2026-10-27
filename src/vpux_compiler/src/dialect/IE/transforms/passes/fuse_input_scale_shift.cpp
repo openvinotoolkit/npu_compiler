@@ -33,7 +33,7 @@ using namespace vpux;
 namespace {
 
 double calculateScale(double low, double high, int levels) {
-    VPUX_THROW_UNLESS(low != high, "Low and high values must be different");
+    VPUX_THROW_WHEN(low == high, "Low and high values must be different");
     VPUX_THROW_UNLESS(levels <= 256, "Levels must be less or equal to 256");
 
     return static_cast<double>((high - low) / static_cast<float>(levels - 1));
@@ -107,8 +107,8 @@ IE::DynamicDequantizeOp createNewDynDeqOp(mlir::OpBuilder& builder, IE::DynamicD
     auto newZpConst =
             Const::createConst<llvm::APInt>(builder, appendLoc(origDynDeqOp.getLoc(), "new_zp"), zpType, newZpInts);
 
-    auto newDynDeqOp = builder.create<IE::DynamicDequantizeOp>(opLoc, newRawWeightsConst, newScaleConst, newZpConst,
-                                                               origDynDeqOp.getDstElemType());
+    auto newDynDeqOp = IE::DynamicDequantizeOp::create(builder, opLoc, newRawWeightsConst, newScaleConst, newZpConst,
+                                                       origDynDeqOp.getDstElemType());
     newDynDeqOp->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR, mlir::UnitAttr::get(builder.getContext()));
 
     return newDynDeqOp;

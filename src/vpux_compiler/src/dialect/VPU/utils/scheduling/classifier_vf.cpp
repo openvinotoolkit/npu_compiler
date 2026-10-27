@@ -243,7 +243,92 @@ void computeLivenessSpan(const LoopBody& templateBody, ClassifierVFResult& resul
 //
 // When iteration-identity is broken we cannot rely on cross-iteration semantics, so
 // every record stays TEMPORARY.
-void classifyBuffers(const vpux::SchedulingLoop& loop, ClassifierVFResult& result, const Logger& log) {
+// `explicitExternalBuffers` is the set of buffer values the schedule builder has already
+// confirmed are live outside this VF region (e.g. they are consumed by a non-loop op that
+std::tuple<SmallVector<bool>, SmallVector<bool>, SmallVector<ClassifierVFResult::ExternalBufferGroup>>
+buildExplicitExternalTemplateInfo(const vpux::SchedulingLoop& loop, const ClassifierVFResult& result,
+                                  const ValueOrderedSet& explicitExternalBuffers) {
+    SmallVector<bool> explicitExternalTemplateBuffer(result.buffers.size(), false);
+    SmallVector<bool> partialExplicitExternalTemplateBuffer(result.buffers.size(), false);
+    SmallVector<ClassifierVFResult::ExternalBufferGroup> explicitExternalGroups;
+    llvm::DenseMap<size_t, size_t> groupByTemplateIdx;
+
+    if (loop.loopBodies.empty() || result.buffers.empty() || explicitExternalBuffers.empty()) {
+        return {std::move(explicitExternalTemplateBuffer), std::move(partialExplicitExternalTemplateBuffer),
+                std::move(explicitExternalGroups)};
+    }
+
+    const auto& templateBody = loop.loopBodies.front();
+
+    auto markIfExplicitExternal = [&](mlir::Value templateValue, ArrayRef<mlir::Value> iterationValues) {
+        const auto it = result.valueToRecord.find(templateValue);
+        if (it == result.valueToRecord.end()) {
+            return;
+        }
+
+        const auto templateIdx = it->second;
+        const bool anyExternal = llvm::any_of(iterationValues, [&](mlir::Value v) {
+            return explicitExternalBuffers.count(v) > 0;
+        });
+        if (!anyExternal) {
+            return;
+        }
+
+        const bool allExternal = llvm::all_of(iterationValues, [&](mlir::Value v) {
+            return explicitExternalBuffers.count(v) > 0;
+        });
+        if (!allExternal) {
+            partialExplicitExternalTemplateBuffer[templateIdx] = true;
+            return;
+        }
+
+        explicitExternalTemplateBuffer[templateIdx] = true;
+
+        auto groupIt = groupByTemplateIdx.find(templateIdx);
+        if (groupIt == groupByTemplateIdx.end()) {
+            groupIt = groupByTemplateIdx.insert({templateIdx, explicitExternalGroups.size()}).first;
+            ClassifierVFResult::ExternalBufferGroup group;
+            group.templateBufferIdx = templateIdx;
+            explicitExternalGroups.push_back(std::move(group));
+        }
+
+        auto& group = explicitExternalGroups[groupIt->second];
+        for (auto v : iterationValues) {
+            if (std::find(group.iterationValues.begin(), group.iterationValues.end(), v) ==
+                group.iterationValues.end()) {
+                group.iterationValues.push_back(v);
+            }
+        }
+    };
+
+    for (size_t opPos = 0; opPos < templateBody.size(); ++opPos) {
+        const auto& templOp = templateBody[opPos];
+
+        for (size_t slot = 0; slot < templOp.inBuffers.size(); ++slot) {
+            SmallVector<mlir::Value> iterationValues;
+            iterationValues.reserve(loop.loopBodies.size());
+            for (const auto& body : loop.loopBodies) {
+                iterationValues.push_back(body[opPos].inBuffers[slot]);
+            }
+            markIfExplicitExternal(templOp.inBuffers[slot], iterationValues);
+        }
+
+        for (size_t slot = 0; slot < templOp.outBuffers.size(); ++slot) {
+            SmallVector<mlir::Value> iterationValues;
+            iterationValues.reserve(loop.loopBodies.size());
+            for (const auto& body : loop.loopBodies) {
+                iterationValues.push_back(body[opPos].outBuffers[slot]);
+            }
+            markIfExplicitExternal(templOp.outBuffers[slot], iterationValues);
+        }
+    }
+
+    return {std::move(explicitExternalTemplateBuffer), std::move(partialExplicitExternalTemplateBuffer),
+            std::move(explicitExternalGroups)};
+}
+void classifyBuffers(const vpux::SchedulingLoop& loop, ClassifierVFResult& result,
+                     ArrayRef<bool> explicitExternalTemplateBuffer,
+                     ArrayRef<bool> partialExplicitExternalTemplateBuffer, const Logger& log) {
     if (!result.iterationIdentityHolds) {
         log.trace("classifyBuffers: iteration-identity broken - leaving all {0} buffers as TEMPORARY",
                   result.buffers.size());
@@ -301,18 +386,42 @@ void classifyBuffers(const vpux::SchedulingLoop& loop, ClassifierVFResult& resul
         //   - External input, partial:  no in-loop producer AND 0 < consumerIterCount < N
         //   - External output, partial: has producer(s) AND 0 == consumerIterCount AND
         //                               0 < producerIterCount < N
+        // A buffer is explicitly external when the schedule builder has determined every
+        // iteration-equivalent SSA value for that slot is consumed outside this region.
+        // Such buffers must be treated as PERSISTENT_CANDIDATE regardless of
+        // producer/consumer iteration counts tracked on template SSA identity.
+        const bool explicitExternal = i < explicitExternalTemplateBuffer.size() && explicitExternalTemplateBuffer[i];
+        const bool partialExplicitExternal =
+                i < partialExplicitExternalTemplateBuffer.size() && partialExplicitExternalTemplateBuffer[i];
+
+        if (partialExplicitExternal) {
+            result.classifierSupportedRegion = false;
+            result.fallbackReason = hasAnyProducer[i] ? ClassifierVFFallbackReason::PARTIAL_EXTERNAL_OUTPUT
+                                                      : ClassifierVFFallbackReason::PARTIAL_EXTERNAL_INPUT;
+            log.trace("classifyBuffers: unsupported mixed explicit-external slot for buf[{0}] "
+                      "(producers={1}/{2}, consumers={3}/{2}, explicitExternal={4}, size={5}, root value={6}). "
+                      "Marking region as classifier-unsupported.",
+                      i, producerIterCount[i], numIterations, consumerIterCount[i], explicitExternal,
+                      result.buffers[i].size, result.buffers[i].rootValue);
+            continue;
+        }
+
         if (numIterations >= 2) {
             const bool partialExternalInput =
                     !hasAnyProducer[i] && consumerIterCount[i] > 0 && consumerIterCount[i] < numIterations;
             const bool partialExternalOutput = hasAnyProducer[i] && consumerIterCount[i] == 0 &&
                                                producerIterCount[i] > 0 && producerIterCount[i] < numIterations;
-            if (partialExternalInput || partialExternalOutput) {
+            if (!explicitExternal && (partialExternalInput || partialExternalOutput)) {
                 result.classifierSupportedRegion = false;
+                result.fallbackReason = (!hasAnyProducer[i] || partialExternalInput)
+                                                ? ClassifierVFFallbackReason::PARTIAL_EXTERNAL_INPUT
+                                                : ClassifierVFFallbackReason::PARTIAL_EXTERNAL_OUTPUT;
                 log.trace("classifyBuffers: unsupported partial-external buffer buf[{0}] "
-                          "(kind={1}, producers={2}/{3}, consumers={4}/{5}, size={6}, root value={7}). "
+                          "(kind={1}, producers={2}/{3}, consumers={4}/{5}, explicitExternal={6}, "
+                          "size={7}, root value={8}). "
                           "Marking region as classifier-unsupported.",
                           i, partialExternalInput ? "external-input" : "external-output", producerIterCount[i],
-                          numIterations, consumerIterCount[i], numIterations, result.buffers[i].size,
+                          numIterations, consumerIterCount[i], numIterations, explicitExternal, result.buffers[i].size,
                           result.buffers[i].rootValue);
             }
         }
@@ -331,12 +440,18 @@ void classifyBuffers(const vpux::SchedulingLoop& loop, ClassifierVFResult& resul
         // DMA (no in-loop producer at all). Truly shared external input with no
         // per-iteration reload path — must stay persistent for the whole loop.
         const bool externalConsumed = numIterations >= 2 && !hasAnyProducer[i] && consumerIterCount[i] == numIterations;
-        if (producedNeverConsumed || externalConsumed) {
+        if (producedNeverConsumed || externalConsumed || explicitExternal) {
             result.buffers[i].category = BufferCategory::PERSISTENT_CANDIDATE;
             // Prefetchable when externally produced (no in-loop producer) or every in-loop
             // producer is DATA_IN.
             result.buffers[i].isPrefetchableWeight = !hasAnyProducer[i] || producerOnlyDataIn[i];
-            if (producedNeverConsumed) {
+            if (explicitExternal && !producedNeverConsumed && !externalConsumed) {
+                log.trace("buf[{0}] PERSISTENT_CANDIDATE: explicitly marked as externally live by schedule "
+                          "builder (producers={1}/{2}, consumers={3}/{2}, size={4}, "
+                          "prefetchableWeight={5}), root value={6})",
+                          i, producerIterCount[i], numIterations, consumerIterCount[i], result.buffers[i].size,
+                          result.buffers[i].isPrefetchableWeight, result.buffers[i].rootValue);
+            } else if (producedNeverConsumed) {
                 log.trace("buf[{0}] PERSISTENT_CANDIDATE: produced by all {1} iters and never consumed "
                           "(shared loop output; size={2}, prefetchableWeight={3}), root value={4})",
                           i, numIterations, result.buffers[i].size, result.buffers[i].isPrefetchableWeight,
@@ -386,7 +501,7 @@ vpux::AddressType computeLargestComputeOpPeakAndWeights(const LoopBody& template
     vpux::AddressType largestComputeOpWeights = 0;
     for (size_t opPos = 0; opPos < templateBody.size(); ++opPos) {
         const auto& info = templateBody[opPos];
-        if (info.allocationType != AllocationType::COMPUTE) {
+        if (info.allocationType != AllocationType::COMPUTE && info.allocationType != AllocationType::DATA_UPDATE) {
             continue;
         }
 
@@ -575,12 +690,10 @@ void addPersistentCandidatesInFittingOrder(const LoopBody& templateBody, vpux::A
                       alignedBufferSizes[idx], result.persistentFitReservedBytes, result.persistentFitBudgetBytes,
                       bufferRecord.rootValue);
         } else {
+            // Not admitted candidates stay in persistentFitOrder but are absent from
+            // persistentFitInitial. The allocator treats them as TEMPORARY
             log.trace("  buf[{0}] REJECTED: aligned={1} would push reserved to {2} > budget {3}, root value={4}", idx,
                       alignedBufferSizes[idx], candidateEnd, result.persistentFitBudgetBytes, bufferRecord.rootValue);
-            // Early return as currently there is no support for not accepting PERSISTENT buffer as is.
-            // Support will be extended as part of E#222690
-            result.classifierSupportedRegion = false;
-            return;
         }
     }
 }
@@ -590,7 +703,7 @@ void addPersistentCandidatesInFittingOrder(const LoopBody& templateBody, vpux::A
 namespace vpux {
 
 ClassifierVFResult classifyVFRegion(const ComputeRegion& region, vpux::AddressType memoryLimit, Logger& log) {
-    VPUX_THROW_UNLESS(region.schedulingLoop != nullptr, "ComputeRegion has no scheduling loop");
+    VPUX_THROW_WHEN(region.schedulingLoop == nullptr, "ComputeRegion has no scheduling loop");
     VPUX_THROW_UNLESS(region.schedulingLoop->type == LoopType::VF, "classifyVFRegion invoked on non-VF loop type: {0}",
                       toString(region.schedulingLoop->type));
 
@@ -605,6 +718,7 @@ ClassifierVFResult classifyVFRegion(const ComputeRegion& region, vpux::AddressTy
     if (loop.loopBodies.empty() || result.numIterations < 2) {
         log.trace("VF region has no iteration bodies or less than 2 iterations - returning empty classification");
         result.classifierSupportedRegion = false;
+        result.fallbackReason = ClassifierVFFallbackReason::EMPTY_OR_SINGLE_ITERATION;
         return result;
     }
 
@@ -613,6 +727,7 @@ ClassifierVFResult classifyVFRegion(const ComputeRegion& region, vpux::AddressTy
     if (result.opsPerIteration == 0) {
         log.trace("VF region has no ops in the template iteration - returning empty classification");
         result.classifierSupportedRegion = false;
+        result.fallbackReason = ClassifierVFFallbackReason::EMPTY_TEMPLATE_BODY;
         return result;
     }
 
@@ -627,6 +742,7 @@ ClassifierVFResult classifyVFRegion(const ComputeRegion& region, vpux::AddressTy
     // Non identity VF loops fall fast instead of silently disabling persistent
     if (!result.iterationIdentityHolds) {
         result.classifierSupportedRegion = false;
+        result.fallbackReason = ClassifierVFFallbackReason::ITERATION_IDENTITY_MISMATCH;
         log.trace("VF region: iteration-identity invariant violated, unsupported non-isomorphic iteration "
                   "bodies");
         return result;
@@ -635,9 +751,15 @@ ClassifierVFResult classifyVFRegion(const ComputeRegion& region, vpux::AddressTy
     collectBuffers(loop, result);
     log.trace("collectBuffers: collected {0} unique template-buffer records", result.buffers.size());
 
+    auto [explicitExternalTemplateBuffer, partialExplicitExternalTemplateBuffer, explicitExternalGroups] =
+            buildExplicitExternalTemplateInfo(loop, result, region.externalBuffers);
+    result.explicitExternalTemplateBuffer = explicitExternalTemplateBuffer;
+    result.partialExplicitExternalTemplateBuffer = partialExplicitExternalTemplateBuffer;
+    result.explicitExternalGroups = std::move(explicitExternalGroups);
+
     computeLivenessSpan(templateBody, result);
 
-    classifyBuffers(loop, result, log);
+    classifyBuffers(loop, result, explicitExternalTemplateBuffer, partialExplicitExternalTemplateBuffer, log);
 
     // Early return if classifier detected an unsupported structural pattern (see
     // classifierSupportedRegion). Downstream stages depend on the classifier being
@@ -649,10 +771,6 @@ ClassifierVFResult classifyVFRegion(const ComputeRegion& region, vpux::AddressTy
     }
 
     addPersistentCandidatesInFittingOrder(templateBody, memoryLimit, result, log);
-    if (!result.classifierSupportedRegion) {
-        log.trace("Not able to fit persistent candidates in the budget");
-        return result;
-    }
 
     result.prefetchHint = getBestPrefetchHint(result);
 
@@ -690,6 +808,26 @@ llvm::StringRef stringifyPrefetchHint(VFPrefetchHint hint) {
     return "UNKNOWN";
 }
 
+llvm::StringRef stringifyClassifierVFFallbackReason(ClassifierVFFallbackReason reason) {
+    switch (reason) {
+    case ClassifierVFFallbackReason::NONE:
+        return "NONE";
+    case ClassifierVFFallbackReason::EMPTY_OR_SINGLE_ITERATION:
+        return "EMPTY_OR_SINGLE_ITERATION";
+    case ClassifierVFFallbackReason::EMPTY_TEMPLATE_BODY:
+        return "EMPTY_TEMPLATE_BODY";
+    case ClassifierVFFallbackReason::ITERATION_IDENTITY_MISMATCH:
+        return "ITERATION_IDENTITY_MISMATCH";
+    case ClassifierVFFallbackReason::PARTIAL_EXTERNAL_INPUT:
+        return "PARTIAL_EXTERNAL_INPUT";
+    case ClassifierVFFallbackReason::PARTIAL_EXTERNAL_OUTPUT:
+        return "PARTIAL_EXTERNAL_OUTPUT";
+    case ClassifierVFFallbackReason::PERSISTENT_FIT_REJECTED:
+        return "PERSISTENT_FIT_REJECTED";
+    }
+    return "UNKNOWN";
+}
+
 void ClassifierVFResult::print(llvm::raw_ostream& os) const {
     const auto persistentCount = llvm::count_if(buffers, [](const auto& b) {
         return b.category == BufferCategory::PERSISTENT_CANDIDATE;
@@ -698,6 +836,8 @@ void ClassifierVFResult::print(llvm::raw_ostream& os) const {
     os << "ClassifierVFResult summary:\n";
     os << "  iterations=" << numIterations << ", opsPerIteration=" << opsPerIteration
        << ", identity=" << (iterationIdentityHolds ? "true" : "false") << "\n";
+    os << "  supported=" << (classifierSupportedRegion ? "true" : "false")
+       << ", fallbackReason=" << stringifyClassifierVFFallbackReason(fallbackReason) << "\n";
     os << "  buffers=" << buffers.size() << " (persistents=" << persistentCount
        << ", temporaries=" << (buffers.size() - persistentCount) << ")\n";
     os << "  peakBaselineBytes=" << peakBaselineBytes << ", temporaryPeakBytes=" << temporaryPeakBytes
@@ -719,13 +859,14 @@ void ClassifierVFResult::print(llvm::raw_ostream& os) const {
 
 std::string ClassifierVFResult::summarize() const {
     return llvm::formatv("ops/iter={0} iters={1} buffers={2} (persistents={3}/{4}) "
-                         "tempPeak={5} persistTotal={6} peakBaseline={7} "
-                         "loopNoSpillPeak={8} inBytes={9} outBytes={10} "
-                         "persistFitBudget={11} hint={12}",
+                         "supported={5} fallbackReason={6} tempPeak={7} persistTotal={8} peakBaseline={9} "
+                         "loopNoSpillPeak={10} inBytes={11} outBytes={12} "
+                         "persistFitBudget={13} hint={14}",
                          opsPerIteration, numIterations, buffers.size(), persistentFitInitial.size(),
-                         persistentFitOrder.size(), temporaryPeakBytes, persistentCandidateTotalBytes,
-                         peakBaselineBytes, loopBodyNoSpillPeakBytes, inputBytes, outputBytes, persistentFitBudgetBytes,
-                         stringifyPrefetchHint(prefetchHint))
+                         persistentFitOrder.size(), classifierSupportedRegion,
+                         stringifyClassifierVFFallbackReason(fallbackReason), temporaryPeakBytes,
+                         persistentCandidateTotalBytes, peakBaselineBytes, loopBodyNoSpillPeakBytes, inputBytes,
+                         outputBytes, persistentFitBudgetBytes, stringifyPrefetchHint(prefetchHint))
             .str();
 }
 

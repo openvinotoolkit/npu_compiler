@@ -51,8 +51,8 @@ mlir::LogicalResult mergeNCAndRewrite(mlir::PatternRewriter& rewriter, mlir::MLI
     auto activationReshapeOp =
             rewriter.createOrFold<IE::ReshapeOp>(loc, activation, getIntArrayAttr(ctx, activationReshapeShape));
     auto scaleShiftOp =
-            rewriter.create<IE::ScaleShiftOp>(loc, activationReshapeOp, getNewValue(origScaleShiftOp.getWeights()),
-                                              getNewValue(origScaleShiftOp.getBiases()));
+            IE::ScaleShiftOp::create(rewriter, loc, activationReshapeOp, getNewValue(origScaleShiftOp.getWeights()),
+                                     getNewValue(origScaleShiftOp.getBiases()));
 
     rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origScaleShiftOp, scaleShiftOp.getOutput(),
                                                getIntArrayAttr(ctx, origOutShape));

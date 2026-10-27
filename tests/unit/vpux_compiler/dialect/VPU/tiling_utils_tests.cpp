@@ -745,3 +745,207 @@ module @test {
     });
     EXPECT_TRUE(found);
 }
+
+// ---------------------------------------------------------------------------
+// getUniqueShapeTilingCandidates
+//
+// Both NCEEltwiseOp and ConvertOp carry the EltwiseOp trait, so both go through
+// the same `.Default` branch which deduplicates tiles by shape only (via
+// TileShapeCompare), regardless of offsets.
+// ---------------------------------------------------------------------------
+
+using MLIR_VPU_GetUniqueShapeTilingCandidates = vpux::VPU::arch40xx::UnitTest;
+
+namespace {
+
+// 1-axis tiling: H=10 split into tiles of size 4, 4, 2 (offsets 0, 4, 8), each
+// duplicated at a different offset to exercise shape-only deduplication.
+// Tiles with shape [1,16,4,16]: offsets 0, 4, 8 (3 tiles, 1 unique shape)
+// Tiles with shape [1,16,2,16]: offsets 0, 2 (2 tiles, 1 unique shape)
+// Expected: 2 unique shapes out of 5 input tiles.
+OutputTiling makeSingleAxisTiles() {
+    auto makeH = [](int64_t h, int64_t off) {
+        TileInfo t(ShapeRef({1, 16, h, 16}));
+        t.offsets[Dims4D::Act::H] = off;
+        t.axis[Dims4D::Act::H] = 5;
+        return t;
+    };
+    return OutputTiling{
+            makeH(4, 0),  // shape A
+            makeH(4, 4),  // shape A (dup)
+            makeH(4, 8),  // shape A (dup)
+            makeH(2, 0),  // shape B
+            makeH(2, 2),  // shape B (dup)
+    };
+}
+
+// 2-axis tiling: H=10 split by divisor 3 into sizes [4, 3, 3] (offsets 0, 4, 7),
+// W=15 split by divisor 2 into sizes [8, 7] (offsets 0, 8).
+// Combining both axes gives 6 tiles, but the two H-tiles of size 3 (offsets 4
+// and 7) produce identical (H, W) shape pairs, yielding duplicates:
+//   (H=4,W=8), (H=4,W=7)                     -> unique
+//   (H=3,W=8), (H=3,W=7)  at H offset 4      -> unique
+//   (H=3,W=8), (H=3,W=7)  at H offset 7      -> duplicates of the previous pair
+// Expected: 4 unique shapes out of 6 input tiles.
+OutputTiling makeTwoAxisTiles() {
+    auto makeHW = [](int64_t h, int64_t hOff, int64_t w, int64_t wOff) {
+        TileInfo t(ShapeRef({1, 16, h, w}));
+        t.offsets[Dims4D::Act::H] = hOff;
+        t.offsets[Dims4D::Act::W] = wOff;
+        t.axis[Dims4D::Act::H] = 3;
+        t.axis[Dims4D::Act::W] = 2;
+        return t;
+    };
+    return OutputTiling{
+            makeHW(4, 0, 8, 0),  // shape (4,8)
+            makeHW(4, 0, 7, 8),  // shape (4,7)
+            makeHW(3, 4, 8, 0),  // shape (3,8)
+            makeHW(3, 4, 7, 8),  // shape (3,7)
+            makeHW(3, 7, 8, 0),  // shape (3,8) dup
+            makeHW(3, 7, 7, 8),  // shape (3,7) dup
+    };
+}
+
+// Verify that `result` contains exactly the expected set of (H, W) shape pairs,
+// irrespective of the order returned by the underlying std::set.
+void expectUniqueHWShapes(const OutputTiling& result, const std::set<std::pair<int64_t, int64_t>>& expectedHW) {
+    ASSERT_EQ(result.size(), expectedHW.size());
+    std::set<std::pair<int64_t, int64_t>> actualHW;
+    for (const auto& tile : result) {
+        actualHW.insert({tile.shape[Dims4D::Act::H], tile.shape[Dims4D::Act::W]});
+    }
+    EXPECT_EQ(actualHW, expectedHW);
+}
+
+}  // namespace
+
+// NCEEltwiseOp, 1-axis tiling: 5 input tiles collapse to 2 unique shapes.
+TEST_F(MLIR_VPU_GetUniqueShapeTilingCandidates, NCEEltwiseSingleAxisDeduplicatesByShape) {
+    mlir::MLIRContext ctx(registry);
+    constexpr StringLiteral inputIR = R"(
+        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+        module @test {
+            func.func @main(%arg0: tensor<1x16x10x16xf16, {order = #NHWC}>) -> tensor<1x16x10x16xf16, {order = #NHWC}> {
+                %0 = VPU.NCE.Eltwise(%arg0, %arg0) {
+                    resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+                    op_type = #VPU.eltwise_type<ADD>,
+                    ppe = #VPU.PPEStub<>
+                } -> tensor<1x16x10x16xf16, {order = #NHWC}>
+                return %0 : tensor<1x16x10x16xf16, {order = #NHWC}>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU4000, config::CompilationMode::DefaultHW);
+    VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
+    ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    func->walk([&](VPU::NCEEltwiseOp eltwiseOp) {
+        const auto origTiles = makeSingleAxisTiles();
+        const auto result = VPU::getUniqueShapeTilingCandidates(eltwiseOp.getOperation(), origTiles, Logger::global());
+        expectUniqueHWShapes(result, {{4, 16}, {2, 16}});
+    });
+}
+
+// NCEEltwiseOp, 2-axis tiling: 6 input tiles collapse to 4 unique shapes.
+TEST_F(MLIR_VPU_GetUniqueShapeTilingCandidates, NCEEltwiseTwoAxisDeduplicatesByShape) {
+    mlir::MLIRContext ctx(registry);
+    constexpr StringLiteral inputIR = R"(
+        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+        module @test {
+            func.func @main(%arg0: tensor<1x16x10x15xf16, {order = #NHWC}>) -> tensor<1x16x10x15xf16, {order = #NHWC}> {
+                %0 = VPU.NCE.Eltwise(%arg0, %arg0) {
+                    resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+                    op_type = #VPU.eltwise_type<ADD>,
+                    ppe = #VPU.PPEStub<>
+                } -> tensor<1x16x10x15xf16, {order = #NHWC}>
+                return %0 : tensor<1x16x10x15xf16, {order = #NHWC}>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU4000, config::CompilationMode::DefaultHW);
+    VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
+    ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    func->walk([&](VPU::NCEEltwiseOp eltwiseOp) {
+        const auto origTiles = makeTwoAxisTiles();
+        const auto result = VPU::getUniqueShapeTilingCandidates(eltwiseOp.getOperation(), origTiles, Logger::global());
+        expectUniqueHWShapes(result, {{4, 8}, {4, 7}, {3, 8}, {3, 7}});
+    });
+}
+
+// ConvertOp, 1-axis tiling: same deduplication as NCEEltwiseOp, since ConvertOp
+// also carries the EltwiseOp trait and is not matched by any NCE-specific case.
+TEST_F(MLIR_VPU_GetUniqueShapeTilingCandidates, ConvertSingleAxisDeduplicatesByShape) {
+    mlir::MLIRContext ctx(registry);
+    constexpr StringLiteral inputIR = R"(
+        module @test {
+            func.func @main(%arg0: tensor<1x16x10x16xf16>) -> tensor<1x16x10x16xf32> {
+                %0 = VPU.Convert(%arg0) {dstElemType = f32} : tensor<1x16x10x16xf16> -> tensor<1x16x10x16xf32>
+                return %0 : tensor<1x16x10x16xf32>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU4000, config::CompilationMode::DefaultHW);
+    VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
+    ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    func->walk([&](VPU::ConvertOp convertOp) {
+        const auto origTiles = makeSingleAxisTiles();
+        const auto result = VPU::getUniqueShapeTilingCandidates(convertOp.getOperation(), origTiles, Logger::global());
+        expectUniqueHWShapes(result, {{4, 16}, {2, 16}});
+    });
+}
+
+// ConvertOp, 2-axis tiling: same deduplication as NCEEltwiseOp.
+TEST_F(MLIR_VPU_GetUniqueShapeTilingCandidates, ConvertTwoAxisDeduplicatesByShape) {
+    mlir::MLIRContext ctx(registry);
+    constexpr StringLiteral inputIR = R"(
+        module @test {
+            func.func @main(%arg0: tensor<1x16x10x15xf16>) -> tensor<1x16x10x15xf32> {
+                %0 = VPU.Convert(%arg0) {dstElemType = f32} : tensor<1x16x10x15xf16> -> tensor<1x16x10x15xf32>
+                return %0 : tensor<1x16x10x15xf32>
+            }
+        }
+    )";
+
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
+    auto initCompilerOptions = VPU::InitCompilerOptions(Platform::NPU4000, config::CompilationMode::DefaultHW);
+    VPU::buildInitCompilerPipeline(pm, initCompilerOptions, vpux::Logger::global());
+    ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    func->walk([&](VPU::ConvertOp convertOp) {
+        const auto origTiles = makeTwoAxisTiles();
+        const auto result = VPU::getUniqueShapeTilingCandidates(convertOp.getOperation(), origTiles, Logger::global());
+        expectUniqueHWShapes(result, {{4, 8}, {4, 7}, {3, 8}, {3, 7}});
+    });
+}

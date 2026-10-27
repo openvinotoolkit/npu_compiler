@@ -4,11 +4,15 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/IE/utils/type_padding.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
 mlir::LogicalResult vpux::IE::inferReduceReturnTypeComponents(
@@ -35,25 +39,90 @@ mlir::LogicalResult vpux::IE::inferReduceReturnTypeComponents(
         return errorAt(loc, "Input padding {0} incompatible with input shape {1}", inputPadding, inShape);
     }
 
-    // Add to outShape the values with indices not found in axes_set.
-    SmallVector<int64_t> outShape;
-    for (size_t i = 0; i < inShape.size(); i++) {
-        if (std::find(axes.begin(), axes.end(), i) == axes.end()) {
-            outShape.push_back(inShape[i]);
-        } else if (keepDims) {
-            outShape.push_back(1);
+    // Add to the result the values with indices not found in axes_set.
+    const auto reduceDims = [&](ArrayRef<int64_t> shape) {
+        SmallVector<int64_t> result;
+        for (size_t i = 0; i < shape.size(); i++) {
+            if (std::find(axes.begin(), axes.end(), i) == axes.end()) {
+                result.push_back(shape[i]);
+            } else if (keepDims) {
+                result.push_back(1);
+            }
         }
-    }
 
-    if (outShape.size() == 0) {
-        outShape.push_back(1);
-    }
+        if (result.size() == 0) {
+            result.push_back(1);
+        }
+
+        return result;
+    };
+
+    SmallVector<int64_t> outShape = reduceDims(inShape);
 
     if (mlir::failed(IE::padOutputShape(outShape, outputPadding, loc))) {
         return errorAt(loc, "Output padding {0} incompatible with output shape {1}", outputPadding, outShape);
     }
 
-    inferredReturnShapes.emplace_back(outShape, inType.getElementType());
+    // Attach bounds only when the output shape is still dynamic. Test the output shape and not the
+    // input type: reducing tensor<1x16x?x?xf16> with bounds [1, 16, 48, 400] over axes 2 and 3 gives
+    // the static tensor<1x16x1x1xf16>, which needs no bounds. Reducing over axis 1 instead leaves
+    // height and width dynamic, so the bounds are carried over.
+    //
+    // Nothing behind this check would catch a mistake. Core::BoundedTensorType::get rejects a static
+    // shape, but this function never calls get: it builds the encoding with getTensorAttr below and
+    // lets MLIR assemble a plain RankedTensorType. Core::BoundedTensorType::classof only asks whether
+    // the bounds vector is non-empty, so isa<Core::BoundedTensorType> keeps answering true for a
+    // static shape that carries bounds, and no verifier compares the bounds against the shape. Every
+    // pass that branches on that isa then takes the dynamic path for a value whose shape is a
+    // compile-time constant, and sizes its work from the bounds. No error is reported anywhere.
+    //
+    // A fully static Reduce gets no encoding at all, because getTensorAttr returns null for an
+    // identity order with no bounds and no memory space.
+    //
+    // VPU::inferReduceReturnTypes in type_infer.cpp applies the same rule after lowering.
+    const auto bounds = [&]() -> mlir::FailureOr<Bounds> {
+        if (!vpux::details::isDynamicDimValues(outShape)) {
+            return Bounds();
+        }
+
+        const auto boundedInType = mlir::dyn_cast<Core::BoundedTensorType>(inType);
+        if (boundedInType == nullptr) {
+            return Bounds();
+        }
+
+        auto inBounds = SmallVector<int64_t>(boundedInType.getBounds().raw());
+        if (mlir::failed(IE::unpadInputShape(inBounds, inputPadding, loc))) {
+            return errorAt(loc, "Input padding {0} incompatible with input bounds {1}", inputPadding, inBounds);
+        }
+
+        auto outBounds = reduceDims(inBounds);
+        if (mlir::failed(IE::padOutputShape(outBounds, outputPadding, loc))) {
+            return errorAt(loc, "Output padding {0} incompatible with output bounds {1}", outputPadding, outBounds);
+        }
+
+        return Bounds(ArrayRef<int64_t>(outBounds));
+    }();
+
+    if (mlir::failed(bounds)) {
+        return mlir::failure();
+    }
+
+    // Keep the layout the input came in with, instead of the identity order this function used to
+    // write out. With keep_dims the rank does not move, so the order carries over unchanged. Without
+    // keep_dims the reduced axes leave the shape, and calculateReducedOutputLayout gives the order
+    // for the dimensions that are left. VPU::inferReduceReturnTypes and VPU::verifyReduceLayoutInfo
+    // apply the same two rules, so the order no longer moves when a Reduce lowers to VPU.
+    //
+    // A rank-0 input is the one shape where neither order fits the result, because reducing over no
+    // axis still gives a rank-1 result through the empty-result fallback above.
+    const auto inOrder = mlir::cast<vpux::NDTypeInterface>(input.getType()).getDimsOrder();
+    const auto reducedOrder = keepDims ? inOrder : IE::calculateReducedOutputLayout(inOrder, axes);
+    const auto outOrder =
+            reducedOrder.numDims() == outShape.size() ? reducedOrder : DimsOrder::fromNumDims(outShape.size());
+
+    const auto outDesc = vpux::getTensorAttr(inType.getContext(), outOrder, /*memSpace=*/nullptr, *bounds);
+
+    inferredReturnShapes.emplace_back(outShape, inType.getElementType(), outDesc);
 
     return mlir::success();
 }

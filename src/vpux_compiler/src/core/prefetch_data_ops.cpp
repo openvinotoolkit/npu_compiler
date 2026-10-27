@@ -46,12 +46,13 @@ bool PrefetchDataOps::isScheduled(size_t opIdx) {
 }
 
 bool PrefetchDataOps::hasDependencies(size_t opIdx) {
-    return !_depsInfo.getOpDeps(opIdx).empty();
+    // order-independent: emptiness check only
+    return !_depsInfo.getOpDepsUnordered(opIdx).empty();
 }
 
 size_t PrefetchDataOps::getOperationCycleCost(size_t opIdx) {
     auto opCycleCostItr = _operationCycleCost.find(opIdx);
-    VPUX_THROW_UNLESS(opCycleCostItr != _operationCycleCost.end(), "No cycle cost for '{0}'", opIdx);
+    VPUX_THROW_WHEN(opCycleCostItr == _operationCycleCost.end(), "No cycle cost for '{0}'", opIdx);
     return opCycleCostItr->second;
 }
 
@@ -77,7 +78,8 @@ PrefetchDataOps::CycleInfo PrefetchDataOps::scheduleOp(size_t opIdx, size_t cycl
 }
 
 bool PrefetchDataOps::dependenciesScheduled(size_t opIdx) {
-    for (const auto depIdx : _depsInfo.getOpDeps(opIdx)) {
+    // order-independent: all-of predicate over the dependency set
+    for (const auto depIdx : _depsInfo.getOpDepsUnordered(opIdx)) {
         if (!isScheduled(depIdx)) {
             return false;
         }
@@ -87,7 +89,8 @@ bool PrefetchDataOps::dependenciesScheduled(size_t opIdx) {
 
 size_t PrefetchDataOps::getDependencyCycleEnd(size_t opIdx) {
     size_t cycleEnd = std::numeric_limits<size_t>::min();
-    for (const auto depIdx : _depsInfo.getOpDeps(opIdx)) {
+    // order-independent: max over the dependency set
+    for (const auto depIdx : _depsInfo.getOpDepsUnordered(opIdx)) {
         VPUX_THROW_UNLESS(isScheduled(depIdx), "Dependency '{0}' was not scheduled for '{1}'", depIdx, opIdx);
         cycleEnd = std::max(cycleEnd, _operationCycles[depIdx].getCycleEnd());
     }
@@ -234,7 +237,7 @@ void PrefetchDataOps::prefetchDataOps(size_t dmaTargetEndCycle) {
 size_t PrefetchDataOps::scheduleDependenciesForCompute(size_t opIdx, config::ExecutorKind executorKind) {
     // find earliest possible cycle for compute op, it will be the optimal end cycle for data ops
     auto dataOpTargetCycleEnd = getNextFreePipelineCycle(executorKind);
-    for (const auto dep : _depsInfo.getOpDeps(opIdx)) {
+    for (const auto dep : _depsInfo.getOpDepsUnordered(opIdx)) {
         if (!isScheduled(dep)) {
             continue;
         }
@@ -403,7 +406,7 @@ SmallVector<PrefetchDataOps::CycleInfo> PrefetchDataOps::getNewOrder() {
 
     std::set<size_t> scheduledOps;
     const auto dependenciesScheduled = [&](size_t opIdx) {
-        for (const auto depIdx : _depsInfo.getOpDeps(opIdx)) {
+        for (const auto depIdx : _depsInfo.getOpDepsUnordered(opIdx)) {
             if (scheduledOps.find(depIdx) == scheduledOps.end()) {
                 return false;
             }
@@ -486,7 +489,7 @@ void PrefetchDataOps::reorderToPrefetch(ArrayRef<CycleInfo> sortedOpCycles) {
                    opCycles.getCycleEnd(), opCycles.getExecutorKind());
 
         mlir::Operation* asyncOp = _depsInfo.getExecuteOpAtIndex(opCycles.opIdx_);
-        VPUX_THROW_UNLESS(asyncOp != nullptr, "AsyncOp not located based on index");
+        VPUX_THROW_WHEN(asyncOp == nullptr, "AsyncOp not located based on index");
         if (prevAsyncOp != nullptr) {
             asyncOp->moveAfter(prevAsyncOp);
         } else {

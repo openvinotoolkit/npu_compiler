@@ -101,7 +101,7 @@ mlir::LogicalResult ConvertMatMulToConvPass::MatMulOpConverter::matchAndRewrite(
         auto perm = SmallVector<uint32_t>{0, 2, 1};
         const auto orderAttr =
                 mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(perm, matmulOp->getContext()));
-        input1 = rewriter.create<IE::TransposeOp>(takeOpLoc(matmulOp, "input_a_transpose"), input1, nullptr, orderAttr)
+        input1 = IE::TransposeOp::create(rewriter, takeOpLoc(matmulOp, "input_a_transpose"), input1, nullptr, orderAttr)
                          .getOutput();
     }
 
@@ -109,7 +109,7 @@ mlir::LogicalResult ConvertMatMulToConvPass::MatMulOpConverter::matchAndRewrite(
         auto perm = SmallVector<uint32_t>{1, 0};
         const auto orderAttr =
                 mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(perm, matmulOp->getContext()));
-        input2 = rewriter.create<IE::TransposeOp>(takeOpLoc(matmulOp, "input_b_transpose"), input2, nullptr, orderAttr)
+        input2 = IE::TransposeOp::create(rewriter, takeOpLoc(matmulOp, "input_b_transpose"), input2, nullptr, orderAttr)
                          .getOutput();
     }
 
@@ -119,7 +119,7 @@ mlir::LogicalResult ConvertMatMulToConvPass::MatMulOpConverter::matchAndRewrite(
 
     const auto filterShapeAttr = getIntArrayAttr(ctx, newWeightsShape);
     auto weight =
-            rewriter.create<IE::ReshapeOp>(takeOpLoc(matmulOp, "filter_reshape"), input2, filterShapeAttr).getOutput();
+            IE::ReshapeOp::create(rewriter, takeOpLoc(matmulOp, "filter_reshape"), input2, filterShapeAttr).getOutput();
 
     auto inputShape = to_small_vector(getShape(input1));
     if (inputShape.size() == 3) {
@@ -128,12 +128,12 @@ mlir::LogicalResult ConvertMatMulToConvPass::MatMulOpConverter::matchAndRewrite(
     }
     const auto inputShapeAttr = getIntArrayAttr(ctx, inputShape);
 
-    auto convInput = rewriter.create<IE::ReshapeOp>(takeOpLoc(matmulOp, "before_conv_reshape"), input1, inputShapeAttr)
+    auto convInput = IE::ReshapeOp::create(rewriter, takeOpLoc(matmulOp, "before_conv_reshape"), input1, inputShapeAttr)
                              .getOutput();
 
     auto dstOrder = mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(ctx));
     const auto memPerm = mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx));
-    convInput = rewriter.create<IE::PermuteCastOp>(takeOpLoc(matmulOp, "input_permute"), convInput, dstOrder, memPerm);
+    convInput = IE::PermuteCastOp::create(rewriter, takeOpLoc(matmulOp, "input_permute"), convInput, dstOrder, memPerm);
 
     _log.trace("Insert PermuteCast {0} for activation", convInput);
 
@@ -141,15 +141,15 @@ mlir::LogicalResult ConvertMatMulToConvPass::MatMulOpConverter::matchAndRewrite(
     auto padsBegin = getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0});
     auto padsEnd = getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0});
     auto dilations = getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
-    auto convOp = rewriter.create<IE::ConvolutionOp>(takeOpLoc(matmulOp, "as_convolution"), convInput, weight, strides,
-                                                     padsBegin, padsEnd, dilations)
+    auto convOp = IE::ConvolutionOp::create(rewriter, takeOpLoc(matmulOp, "as_convolution"), convInput, weight, strides,
+                                            padsBegin, padsEnd, dilations)
                           .getOutput();
 
     _log.trace("Insert ConvolutionOp {0} ", convOp);
 
     changeDimsOrder(convOp, DimsOrder::NHWC, _log.nest());
     dstOrder = mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx));
-    convOp = rewriter.create<IE::PermuteCastOp>(takeOpLoc(matmulOp, "output_permute"), convOp, dstOrder, memPerm);
+    convOp = IE::PermuteCastOp::create(rewriter, takeOpLoc(matmulOp, "output_permute"), convOp, dstOrder, memPerm);
 
     const auto outShape = getShape(matmulOp.getOutput());
     const auto outShapeAttr = getIntArrayAttr(ctx, outShape);

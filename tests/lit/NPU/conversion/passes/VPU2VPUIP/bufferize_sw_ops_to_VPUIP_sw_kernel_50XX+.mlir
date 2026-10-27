@@ -114,3 +114,48 @@ func.func @FlashSDPAInOutQueryBuffer(%arg0: tensor<1x2x1024x32xf16>, %arg1: tens
 
     // CHECK:       return [[RESULT_COPY]] : memref<1x2x1024x64xf16>
 }
+
+// -----
+// CHECK: func.func nested @builtin_Convert(memref<*xsi16>, memref<*xf16>)
+// CHECK-SAME: attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"
+// CHECK-LABEL:  func.func @ConvertSI16ToFP16UsingSW
+func.func @ConvertSI16ToFP16UsingSW(%arg0: tensor<1x3x4x4xsi16>) -> tensor<1x3x4x4xf16> {
+    %0 = VPU.Convert(%arg0) {dstElemType = f16} : tensor<1x3x4x4xsi16> -> tensor<1x3x4x4xf16>
+    return %0 : tensor<1x3x4x4xf16>
+
+    // CHECK-NOT: VPU.Convert
+    // CHECK: [[ALLOC_OUT:%.+]] = memref.alloc() : memref<1x3x4x4xf16>
+    // CHECK: [[SW:%.+]] = VPUIP.SW.Kernel
+    // CHECK-SAME: @VPU.SW::@builtin_Convert
+    // CHECK: return [[SW]]
+}
+
+// -----
+// CHECK: func.func nested @builtin_Convert(memref<*xui16>, memref<*xf16>)
+// CHECK-SAME: attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"
+// CHECK-LABEL:  func.func @ConvertUI16ToFP16UsingSW
+func.func @ConvertUI16ToFP16UsingSW(%arg0: tensor<1x3x4x4xui16>) -> tensor<1x3x4x4xf16> {
+    %0 = VPU.Convert(%arg0) {dstElemType = f16} : tensor<1x3x4x4xui16> -> tensor<1x3x4x4xf16>
+    return %0 : tensor<1x3x4x4xf16>
+
+    // CHECK-NOT: VPU.Convert
+    // CHECK: [[ALLOC_OUT:%.+]] = memref.alloc() : memref<1x3x4x4xf16>
+    // CHECK: [[SW:%.+]] = VPUIP.SW.Kernel
+    // CHECK-SAME: @VPU.SW::@builtin_Convert
+    // CHECK: return [[SW]]
+}
+
+// -----
+// CHECK: func.func nested @builtin_Convert(memref<*xf16>, memref<*xsi16>)
+// CHECK-SAME: attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"
+// CHECK-LABEL:  func.func @ConvertFP16ToSI16UsingSW
+func.func @ConvertFP16ToSI16UsingSW(%arg0: tensor<1x3x4x4xf16>) -> tensor<1x3x4x4xsi16> {
+    %0 = VPU.Convert(%arg0) {dstElemType = si16} : tensor<1x3x4x4xf16> -> tensor<1x3x4x4xsi16>
+    return %0 : tensor<1x3x4x4xsi16>
+
+    // CHECK-NOT: VPU.Convert
+    // CHECK: [[ALLOC_OUT:%.+]] = memref.alloc() : memref<1x3x4x4xsi16>
+    // CHECK: [[SW:%.+]] = VPUIP.SW.Kernel
+    // CHECK-SAME: @VPU.SW::@builtin_Convert
+    // CHECK: return [[SW]]
+}

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "npu_interpreter_runtime/virtual_machine.h"
+#include "vm_runtime/virtual_machine.h"
 #include "bytecode_builder.hpp"
 #include "npu_bytecode_utils/instructions.hpp"
 #include "npu_bytecode_utils/type_section.hpp"
@@ -195,8 +195,8 @@ TEST_F(VirtualMachineApiTest, LoadModuleReturnsInvalidNullPointerForNullEngineOr
     ASSERT_EQ(npu_vm_parse_module(bytecode.data(), bytecode.size(), &module), NPU_VM_SUCCESS);
     ASSERT_EQ(npu_vm_new_engine(&engine), NPU_VM_SUCCESS);
 
-    EXPECT_EQ(npu_vm_load_module(nullptr, module), NPU_VM_ERROR_INVALID_NULL_POINTER);
-    EXPECT_EQ(npu_vm_load_module(engine, nullptr), NPU_VM_ERROR_INVALID_NULL_POINTER);
+    EXPECT_EQ(npu_vm_load_module(nullptr, /*moduleParams*/ nullptr, module), NPU_VM_ERROR_INVALID_NULL_POINTER);
+    EXPECT_EQ(npu_vm_load_module(engine, /*moduleParams*/ nullptr, nullptr), NPU_VM_ERROR_INVALID_NULL_POINTER);
 }
 
 TEST_F(VirtualMachineApiTest, LoadModuleSucceedsForValidEngineAndModule) {
@@ -206,7 +206,7 @@ TEST_F(VirtualMachineApiTest, LoadModuleSucceedsForValidEngineAndModule) {
 
     ASSERT_EQ(npu_vm_parse_module(bytecode.data(), bytecode.size(), &localModule), NPU_VM_SUCCESS);
     ASSERT_EQ(npu_vm_new_engine(&localEngine), NPU_VM_SUCCESS);
-    ASSERT_EQ(npu_vm_load_module(localEngine, localModule), NPU_VM_SUCCESS);
+    ASSERT_EQ(npu_vm_load_module(localEngine, /*moduleParams*/ nullptr, localModule), NPU_VM_SUCCESS);
 
     EXPECT_EQ(npu_vm_destroy_engine(localEngine), NPU_VM_SUCCESS);
     EXPECT_EQ(npu_vm_destroy_module(localModule), NPU_VM_SUCCESS);
@@ -220,7 +220,7 @@ TEST_F(VirtualMachineApiTest, ResetStateSucceedsForValidEngine) {
     const auto bytecode = makeValidBytecode();
     ASSERT_EQ(npu_vm_parse_module(bytecode.data(), bytecode.size(), &module), NPU_VM_SUCCESS);
     ASSERT_EQ(npu_vm_new_engine(&engine), NPU_VM_SUCCESS);
-    ASSERT_EQ(npu_vm_load_module(engine, module), NPU_VM_SUCCESS);
+    ASSERT_EQ(npu_vm_load_module(engine, /*moduleParams*/ nullptr, module), NPU_VM_SUCCESS);
     EXPECT_EQ(npu_vm_reset_state(engine, /*resetExecutionContext=*/false), NPU_VM_SUCCESS);
     EXPECT_EQ(npu_vm_reset_state(engine, /*resetExecutionContext=*/true), NPU_VM_SUCCESS);
 }
@@ -236,7 +236,7 @@ TEST_F(VirtualMachineApiTest, CallReturnsFunctionNotFoundForMissingFunction) {
     const auto bytecode = makeValidBytecode();
     ASSERT_EQ(npu_vm_parse_module(bytecode.data(), bytecode.size(), &module), NPU_VM_SUCCESS);
     ASSERT_EQ(npu_vm_new_engine(&engine), NPU_VM_SUCCESS);
-    ASSERT_EQ(npu_vm_load_module(engine, module), NPU_VM_SUCCESS);
+    ASSERT_EQ(npu_vm_load_module(engine, /*moduleParams*/ nullptr, module), NPU_VM_SUCCESS);
     EXPECT_EQ(npu_vm_call(engine, MISSING_FUNC_NAME, 0, nullptr), NPU_VM_ERROR_FUNCTION_NOT_FOUND);
 }
 
@@ -244,7 +244,7 @@ TEST_F(VirtualMachineApiTest, CallExecutesFunctionWithoutResults) {
     const auto bytecode = makeValidBytecode();
     ASSERT_EQ(npu_vm_parse_module(bytecode.data(), bytecode.size(), &module), NPU_VM_SUCCESS);
     ASSERT_EQ(npu_vm_new_engine(&engine), NPU_VM_SUCCESS);
-    ASSERT_EQ(npu_vm_load_module(engine, module), NPU_VM_SUCCESS);
+    ASSERT_EQ(npu_vm_load_module(engine, /*moduleParams*/ nullptr, module), NPU_VM_SUCCESS);
     EXPECT_EQ(npu_vm_call(engine, ENTRY_FUNC_NAME, 0, nullptr), NPU_VM_SUCCESS);
 }
 
@@ -262,7 +262,7 @@ TEST_F(VirtualMachineApiTest, CallWithResultsReturnsFunctionCallFailedForSignatu
     const auto bytecode = makeValidBytecode();
     ASSERT_EQ(npu_vm_parse_module(bytecode.data(), bytecode.size(), &module), NPU_VM_SUCCESS);
     ASSERT_EQ(npu_vm_new_engine(&engine), NPU_VM_SUCCESS);
-    ASSERT_EQ(npu_vm_load_module(engine, module), NPU_VM_SUCCESS);
+    ASSERT_EQ(npu_vm_load_module(engine, /*moduleParams*/ nullptr, module), NPU_VM_SUCCESS);
     // Note: Function expects two arguments, but only one is provided
     const std::array<npu_vm_value, 1> args = {intel_npu::vm::makeI64(1)};
     npu_vm_value result = intel_npu::vm::makeI64(0);
@@ -274,7 +274,7 @@ TEST_F(VirtualMachineApiTest, CallWithResultsExecutesFunctionAndWritesResults) {
     const auto bytecode = makeValidBytecode();
     ASSERT_EQ(npu_vm_parse_module(bytecode.data(), bytecode.size(), &module), NPU_VM_SUCCESS);
     ASSERT_EQ(npu_vm_new_engine(&engine), NPU_VM_SUCCESS);
-    ASSERT_EQ(npu_vm_load_module(engine, module), NPU_VM_SUCCESS);
+    ASSERT_EQ(npu_vm_load_module(engine, /*moduleParams*/ nullptr, module), NPU_VM_SUCCESS);
 
     constexpr int64_t firstArg = 10;
     constexpr int64_t secondArg = 11;
@@ -288,7 +288,7 @@ TEST_F(VirtualMachineApiTest, CallWithResultsSucceedsForTwoConsecutiveCallsWithD
     const auto bytecode = makeValidBytecode();
     ASSERT_EQ(npu_vm_parse_module(bytecode.data(), bytecode.size(), &module), NPU_VM_SUCCESS);
     ASSERT_EQ(npu_vm_new_engine(&engine), NPU_VM_SUCCESS);
-    ASSERT_EQ(npu_vm_load_module(engine, module), NPU_VM_SUCCESS);
+    ASSERT_EQ(npu_vm_load_module(engine, /*moduleParams*/ nullptr, module), NPU_VM_SUCCESS);
 
     {
         const std::array<npu_vm_value, 2> args = {intel_npu::vm::makeI64(2), intel_npu::vm::makeI64(3)};
@@ -311,7 +311,7 @@ TEST_F(VirtualMachineApiTest, CallWithResultsRoundTripsUnsignedValuesIncludingAb
     const auto bytecode = makeValidBytecode();
     ASSERT_EQ(npu_vm_parse_module(bytecode.data(), bytecode.size(), &module), NPU_VM_SUCCESS);
     ASSERT_EQ(npu_vm_new_engine(&engine), NPU_VM_SUCCESS);
-    ASSERT_EQ(npu_vm_load_module(engine, module), NPU_VM_SUCCESS);
+    ASSERT_EQ(npu_vm_load_module(engine, /*moduleParams*/ nullptr, module), NPU_VM_SUCCESS);
 
     const std::array<uint32_t, 5> values = {
             0U, 1U, static_cast<uint32_t>(INT32_MAX), static_cast<uint32_t>(INT32_MAX) + 1U, UINT32_MAX,
@@ -332,7 +332,7 @@ TEST_F(VirtualMachineApiTest, CallWithResultsSupportsBufferArgumentAndResult) {
     const auto bytecode = makeValidBytecode();
     ASSERT_EQ(npu_vm_parse_module(bytecode.data(), bytecode.size(), &module), NPU_VM_SUCCESS);
     ASSERT_EQ(npu_vm_new_engine(&engine), NPU_VM_SUCCESS);
-    ASSERT_EQ(npu_vm_load_module(engine, module), NPU_VM_SUCCESS);
+    ASSERT_EQ(npu_vm_load_module(engine, /*moduleParams*/ nullptr, module), NPU_VM_SUCCESS);
 
     std::array<uint8_t, 16> inputBuffer{};
     std::iota(inputBuffer.begin(), inputBuffer.end(), 0);  // Fill with sample data {0, 1, 2, ..., 15}
@@ -349,7 +349,7 @@ TEST_F(VirtualMachineApiTest, CallWithResultsSupportsBufferArgumentAndInternally
     const auto bytecode = makeValidBytecode();
     ASSERT_EQ(npu_vm_parse_module(bytecode.data(), bytecode.size(), &module), NPU_VM_SUCCESS);
     ASSERT_EQ(npu_vm_new_engine(&engine), NPU_VM_SUCCESS);
-    ASSERT_EQ(npu_vm_load_module(engine, module), NPU_VM_SUCCESS);
+    ASSERT_EQ(npu_vm_load_module(engine, /*moduleParams*/ nullptr, module), NPU_VM_SUCCESS);
 
     std::array<uint8_t, 16> inputBuffer{};
     std::iota(inputBuffer.begin(), inputBuffer.end(), 0);  // Fill with sample data {0, 1, 2, ..., 15}
@@ -367,7 +367,7 @@ TEST_F(VirtualMachineApiTest, CallWithResultsFailsIfPreAllocatedBufferResultIsTo
     const auto bytecode = makeValidBytecode();
     ASSERT_EQ(npu_vm_parse_module(bytecode.data(), bytecode.size(), &module), NPU_VM_SUCCESS);
     ASSERT_EQ(npu_vm_new_engine(&engine), NPU_VM_SUCCESS);
-    ASSERT_EQ(npu_vm_load_module(engine, module), NPU_VM_SUCCESS);
+    ASSERT_EQ(npu_vm_load_module(engine, /*moduleParams*/ nullptr, module), NPU_VM_SUCCESS);
 
     std::array<uint8_t, 16> inputBuffer{};
     std::iota(inputBuffer.begin(), inputBuffer.end(), 0);  // Fill with sample data {0, 1, 2, ..., 15}
@@ -382,7 +382,7 @@ TEST_F(VirtualMachineApiTest, CallWithResultsFailsIfBufferResultIsNullAndSizeIsN
     const auto bytecode = makeValidBytecode();
     ASSERT_EQ(npu_vm_parse_module(bytecode.data(), bytecode.size(), &module), NPU_VM_SUCCESS);
     ASSERT_EQ(npu_vm_new_engine(&engine), NPU_VM_SUCCESS);
-    ASSERT_EQ(npu_vm_load_module(engine, module), NPU_VM_SUCCESS);
+    ASSERT_EQ(npu_vm_load_module(engine, /*moduleParams*/ nullptr, module), NPU_VM_SUCCESS);
 
     std::array<uint8_t, 16> inputBuffer{};
     std::iota(inputBuffer.begin(), inputBuffer.end(), 0);  // Fill with sample data {0, 1, 2, ..., 15}

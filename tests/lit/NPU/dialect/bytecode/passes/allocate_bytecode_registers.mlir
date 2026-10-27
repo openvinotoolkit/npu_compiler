@@ -41,7 +41,7 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @single_use @string_section::@fn_name @type_section::@fn_type {
-        %0 = bytecode.virtual_general_register
+        %0 = bytecode.virtual_value_register
         bytecode.set_imm %0, 42
         bytecode.ret
     }
@@ -67,7 +67,7 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @multi_use @string_section::@fn_name @type_section::@fn_type {
-        %0 = bytecode.virtual_general_register
+        %0 = bytecode.virtual_value_register
         bytecode.set_imm %0, 1
         bytecode.set_imm %0, 2
         bytecode.set_imm %0, 3
@@ -97,14 +97,14 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @dead_virtual @string_section::@fn_name @type_section::@fn_type {
-        %0 = bytecode.virtual_general_register
+        %0 = bytecode.virtual_value_register
         bytecode.ret
     }
 }
 }
 
 // CHECK-LABEL: bytecode.func @dead_virtual
-// CHECK-NOT:     bytecode.virtual_general_register
+// CHECK-NOT:     bytecode.virtual_value_register
 // CHECK-NOT:     bytecode.general_register
 // CHECK:         bytecode.ret
 
@@ -122,9 +122,9 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @reuse_after_free @string_section::@fn_name @type_section::@fn_type {
-        %0 = bytecode.virtual_general_register
+        %0 = bytecode.virtual_value_register
         bytecode.set_imm %0, 1
-        %1 = bytecode.virtual_general_register
+        %1 = bytecode.virtual_value_register
         bytecode.set_imm %1, 2
         bytecode.ret
     }
@@ -152,8 +152,8 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @overlap_two @string_section::@fn_name @type_section::@fn_type {
-        %0 = bytecode.virtual_general_register
-        %1 = bytecode.virtual_general_register
+        %0 = bytecode.virtual_value_register
+        %1 = bytecode.virtual_value_register
         bytecode.set %0, %1
         bytecode.ret
     }
@@ -180,9 +180,9 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @nested_ranges @string_section::@fn_name @type_section::@fn_type {
-        %outer = bytecode.virtual_general_register
+        %outer = bytecode.virtual_value_register
         bytecode.set_imm %outer, 10
-        %inner = bytecode.virtual_general_register
+        %inner = bytecode.virtual_value_register
         bytecode.set_imm %inner, 20
         bytecode.set %outer, %inner
         bytecode.set_imm %outer, 30
@@ -214,11 +214,11 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @chain_reuse @string_section::@fn_name @type_section::@fn_type {
-        %0 = bytecode.virtual_general_register
+        %0 = bytecode.virtual_value_register
         bytecode.set_imm %0, 1
-        %1 = bytecode.virtual_general_register
+        %1 = bytecode.virtual_value_register
         bytecode.set_imm %1, 2
-        %2 = bytecode.virtual_general_register
+        %2 = bytecode.virtual_value_register
         bytecode.set_imm %2, 3
         bytecode.ret
     }
@@ -253,11 +253,11 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @free_pool_order @string_section::@fn_name @type_section::@fn_type {
-        %0 = bytecode.virtual_general_register
-        %1 = bytecode.virtual_general_register
+        %0 = bytecode.virtual_value_register
+        %1 = bytecode.virtual_value_register
         bytecode.set %0, %1
-        %2 = bytecode.virtual_general_register
-        %3 = bytecode.virtual_general_register
+        %2 = bytecode.virtual_value_register
+        %3 = bytecode.virtual_value_register
         bytecode.set %2, %3
         bytecode.ret
     }
@@ -287,9 +287,9 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @three_live @string_section::@fn_name @type_section::@fn_type {
-        %dst = bytecode.virtual_general_register
-        %lhs = bytecode.virtual_general_register
-        %rhs = bytecode.virtual_general_register
+        %dst = bytecode.virtual_value_register
+        %lhs = bytecode.virtual_value_register
+        %rhs = bytecode.virtual_value_register
         bytecode.add.i64 %dst, %lhs, %rhs
         bytecode.ret
     }
@@ -321,8 +321,8 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @def_vs_use_order @string_section::@fn_name @type_section::@fn_type {
-        %v0 = bytecode.virtual_general_register
-        %v1 = bytecode.virtual_general_register
+        %v0 = bytecode.virtual_value_register
+        %v1 = bytecode.virtual_value_register
         bytecode.set_imm %v1, 1
         bytecode.set %v1, %v0
         bytecode.ret
@@ -351,9 +351,9 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @single_point @string_section::@fn_name @type_section::@fn_type {
-        %0 = bytecode.virtual_general_register
+        %0 = bytecode.virtual_value_register
         bytecode.set_imm %0, 7
-        %1 = bytecode.virtual_general_register
+        %1 = bytecode.virtual_value_register
         bytecode.set_imm %1, 8
         bytecode.ret
     }
@@ -475,8 +475,8 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @mixed @string_section::@fn_name @type_section::@fn_type {
-        %a = bytecode.virtual_general_register
-        %b = bytecode.virtual_general_register
+        %a = bytecode.virtual_value_register
+        %b = bytecode.virtual_value_register
         %p0 = bytecode.virtual_parameter_register 0
         %p1 = bytecode.virtual_parameter_register 1
         bytecode.set %a, %p0
@@ -513,11 +513,11 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @interleaved @string_section::@fn_name @type_section::@fn_type {
-        %a = bytecode.virtual_general_register
+        %a = bytecode.virtual_value_register
         bytecode.set_imm %a, 1
         %p0 = bytecode.virtual_parameter_register 0
         bytecode.set %a, %p0
-        %b = bytecode.virtual_general_register
+        %b = bytecode.virtual_value_register
         bytecode.set %b, %p0
         bytecode.ret
     }
@@ -548,13 +548,13 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @func_a @string_section::@fna_name @type_section::@fn_type {
-        %0 = bytecode.virtual_general_register
-        %1 = bytecode.virtual_general_register
+        %0 = bytecode.virtual_value_register
+        %1 = bytecode.virtual_value_register
         bytecode.set %0, %1
         bytecode.ret
     }
     bytecode.func @func_b @string_section::@fnb_name @type_section::@fn_type {
-        %0 = bytecode.virtual_general_register
+        %0 = bytecode.virtual_value_register
         bytecode.set_imm %0, 5
         bytecode.ret
     }
@@ -592,7 +592,7 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @unused_params @string_section::@fn_name @type_section::@fn_type {
-        %0 = bytecode.virtual_general_register
+        %0 = bytecode.virtual_value_register
         bytecode.set_imm %0, 7
         bytecode.ret
     }
@@ -666,8 +666,8 @@ bytecode.func_section @func_section {
 // -----
 
 // ===--------------------------------------------------------------------=== //
-// Case 22: Intra-block VGR in a non-entry block is allocated. G = 1.
-// The entry block has no VGRs; the successor defines and uses one locally.
+// Case 22: Intra-block VVR in a non-entry block is allocated. G = 1.
+// The entry block has no VVRs; the successor defines and uses one locally.
 // ===--------------------------------------------------------------------=== //
 module {
 bytecode.string_section @string_section {
@@ -680,8 +680,8 @@ bytecode.func_section @func_section {
     bytecode.func @intra_nonentry @string_section::@fn_name @type_section::@fn_type {
         bytecode.jmp ^bb1
     ^bb1:
-        %vgr = bytecode.virtual_general_register
-        bytecode.set_imm %vgr, 1
+        %vvr = bytecode.virtual_value_register
+        bytecode.set_imm %vvr, 1
         bytecode.ret
     }
 }
@@ -697,8 +697,8 @@ bytecode.func_section @func_section {
 // -----
 
 // ===--------------------------------------------------------------------=== //
-// Case 23: Cross-block VGR (entry → bb1) and intra-block VGR both in bb1.
-// Cross-block VGR interval covers all of bb1, so both use different registers.
+// Case 23: Cross-block VVR (entry → bb1) and intra-block VVR both in bb1.
+// Cross-block VVR interval covers all of bb1, so both use different registers.
 // G = 2.
 // ===--------------------------------------------------------------------=== //
 module {
@@ -710,11 +710,11 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @cross_and_intra @string_section::@fn_name @type_section::@fn_type {
-        %cross = bytecode.virtual_general_register
+        %cross = bytecode.virtual_value_register
         bytecode.jmp ^bb1
     ^bb1:
         bytecode.set_imm %cross, 1
-        %intra = bytecode.virtual_general_register
+        %intra = bytecode.virtual_value_register
         bytecode.set_imm %intra, 2
         bytecode.ret
     }
@@ -733,7 +733,7 @@ bytecode.func_section @func_section {
 // -----
 
 // ===--------------------------------------------------------------------=== //
-// Case 24: Two cross-block VGRs with non-overlapping live ranges reuse reg 0.
+// Case 24: Two cross-block VVRs with non-overlapping live ranges reuse reg 0.
 // %a lives in {entry, bb1}: interval ends at first op of bb2.
 // %b lives in {bb2, bb3}: interval starts at first op of bb2.
 // end(%a) <= start(%b) → %a expires → %b reuses reg 0. G = 1.
@@ -747,13 +747,13 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @cross_reuse @string_section::@fn_name @type_section::@fn_type {
-        %a = bytecode.virtual_general_register
+        %a = bytecode.virtual_value_register
         bytecode.jmp ^bb1
     ^bb1:
         bytecode.set_imm %a, 1
         bytecode.jmp ^bb2
     ^bb2:
-        %b = bytecode.virtual_general_register
+        %b = bytecode.virtual_value_register
         bytecode.jmp ^bb3
     ^bb3:
         bytecode.set_imm %b, 2
@@ -793,16 +793,16 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
     bytecode.func @loop_backedge @string_section::@fn_name @type_section::@fn_type {
-        %a = bytecode.virtual_general_register
+        %a = bytecode.virtual_value_register
         bytecode.set_imm %a, 42
         bytecode.jmp ^loop_hdr
     ^loop_hdr:
-        %cond = bytecode.virtual_general_register
+        %cond = bytecode.virtual_value_register
         bytecode.set_imm %cond, 0
         bytecode.je %cond, %cond, ^exit, ^loop_body
     ^loop_body:
         bytecode.set_imm %a, 99
-        %b = bytecode.virtual_general_register
+        %b = bytecode.virtual_value_register
         bytecode.set_imm %b, 1
         bytecode.jmp ^loop_hdr
     ^exit:

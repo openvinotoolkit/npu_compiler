@@ -56,7 +56,7 @@ void ungroupOperation(Logger log, mlir::PatternRewriter& rewriter, mlir::Operati
     SmallVector<mlir::Value> smOperands;
     SmallVector<mlir::Value> seTableOperands;
     for (auto operand : sparseOperands) {
-        auto ungroupOp = rewriter.create<VPUIP::UngroupSparseBufferOp>(op->getLoc(), operand);
+        auto ungroupOp = VPUIP::UngroupSparseBufferOp::create(rewriter, op->getLoc(), operand);
         dataOperands.push_back(ungroupOp.getData());
         if (ungroupOp.getSparsityMap() != nullptr) {
             smOperands.push_back(ungroupOp.getSparsityMap());

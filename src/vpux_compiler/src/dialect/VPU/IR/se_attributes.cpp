@@ -82,7 +82,7 @@ mlir::LogicalResult VPU::SEInterpolateAttr::verify(llvm::function_ref<mlir::InFl
 namespace {
 
 SmallVector<double> extractInterpScales(mlir::ArrayAttr scalesAttr) {
-    VPUX_THROW_UNLESS(scalesAttr != nullptr, "SEInterpolateAttr: Missing scales attribute");
+    VPUX_THROW_WHEN(scalesAttr == nullptr, "SEInterpolateAttr: Missing scales attribute");
     const auto scales = parseFPArrayAttr<double>(scalesAttr);
     VPUX_THROW_UNLESS(scales.size() == 4, "SEInterpolateAttr: scales should have rank 4, but got rank {0}",
                       scales.size());
@@ -756,7 +756,7 @@ mlir::LogicalResult VPU::SEUpsamplingAttr::verify(llvm::function_ref<mlir::InFli
 namespace {
 
 std::tuple<int64_t, int64_t> extractFactors(mlir::ArrayAttr factorsAttr) {
-    VPUX_THROW_UNLESS(factorsAttr != nullptr, "Missing factors attribute");
+    VPUX_THROW_WHEN(factorsAttr == nullptr, "Missing factors attribute");
     const auto factors = parseIntArrayAttr<int64_t>(factorsAttr);
     const auto factorH = factors[VPU::SE_UPSAMPLING_FACTOR_H];
     const auto factorW = factors[VPU::SE_UPSAMPLING_FACTOR_W];
@@ -764,7 +764,7 @@ std::tuple<int64_t, int64_t> extractFactors(mlir::ArrayAttr factorsAttr) {
 }
 
 std::tuple<int64_t, int64_t, int64_t, int64_t> extractPadding(mlir::ArrayAttr paddingAttr) {
-    VPUX_THROW_UNLESS(paddingAttr != nullptr, "Missing padding attribute");
+    VPUX_THROW_WHEN(paddingAttr == nullptr, "Missing padding attribute");
     const auto padding = parseIntArrayAttr<int64_t>(paddingAttr);
     const auto padLeft = padding[VPU::SE_PAD_LEFT];
     const auto padTop = padding[VPU::SE_PAD_TOP];

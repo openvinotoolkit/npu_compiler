@@ -12,6 +12,8 @@ This document describes the bytecode format used by the NPU compiler for represe
 | Version | Details |
 | -- | -- |
 | 1.0.0 | Initial release |
+| 1.1.0 | Added `buffer.load` |
+| 1.2.0 | Added `buffer.from_const` and `buffer.copy` |
 
 ## Table of Contents
 * [High-Level Overview](#1-high-level-overview)
@@ -118,7 +120,7 @@ info {
 function_info {
     name_index: uint64_t,             // The unique name of the function, specified using an index inside the string section
     function_type_index: uint64_t,    // The signature type of the function, specified using an index inside the type section
-    num_general_registers: uint64_t,  // The total number of register slots used by the function, including the parameter register slots (i.e. G + P). The number of parameter registers (P) is derived from the referenced function type; the VM subtracts P from this value to obtain the number of scratch general registers (G)
+    num_general_registers: uint64_t,  // The total number of register slots used by the function, including the parameter register slots (i.e. G + P). The number of parameter registers (P) is derived from the referenced function type; the VM subtracts P from this value to obtain the number of scratch value registers (G)
     body_offset: uint64_t,            // The starting offset of the function's body within the section
     body_size: uint64_t               // The size in bytes of the function's body
 }
@@ -540,9 +542,11 @@ The buffer instructions are described in the table below. In every buffer instru
 Instruction | Signature | Effect | Traps
 -- | -- | -- | --
 buffer.create | `buffer.create rd, #etype, #rank, rshape…, rstride…` | Allocates a buffer in `rd` with element type `#etype`, rank `#rank`, shape `rshape…` and strides `rstride…`. The buffer owns its memory and has read+write permission | negative rank; invalid element type; invalid shape / strides; allocation failure
+buffer.from_const | `buffer.from_const rd, #cidx, #etype, #rank, rshape…, rstride…` | Creates an unowned read-only buffer in `rd` over constant entry `#cidx`, with the descriptor supplied by `#etype`, `rshape…`, and `rstride…` | invalid constant or element-type index; invalid shape / strides; descriptor size differs from constant size
 buffer.get_dim | `buffer.get_dim rd, rbuf, rdim` | Extracts the dimension `x[rdim]` from the shape of buffer `x[rbuf]` | unknown handle; dimension index out of range
 buffer.subview | `buffer.subview rd, rsrc, #rank, roff…, rsize…, rstride…` | Creates in `rd` a subview of buffer `x[rsrc]` described by offsets `roff…`, sizes `rsize…` and strides `rstride…` (each of length `#rank`) | invalid handle; negative / mismatched rank; subview exceeds the source buffer
 buffer.view | `buffer.view rd, rsrc, roff, #etype, #rank, rshape…, rstride…` | Creates in `rd` a re-typed and re-shaped view of buffer `x[rsrc]` at byte offset `x[roff]`, with new element type `#etype`, rank `#rank`, shape `rshape…` and strides `rstride…` | invalid handle; negative rank; invalid element type; invalid shape / strides; view range exceeds the source buffer
+buffer.copy | `buffer.copy rdst, rsrc` | Copies the complete physical range from `x[rsrc]` to `x[rdst]`. The descriptors must have equal element types, rank, shape, and strides | unknown handle; unreadable source; unwritable destination; descriptor or physical-size mismatch
 buffer.store | `buffer.store rbuf, rval, #rank, ridx…` | Stores `x[rval]` into buffer `x[rbuf]` at indices `ridx…` (length `#rank`) | mismatched rank; dimension indices out of range; computed byte offset outside the buffer's range; memory not writable
 
 #### Working with Buffers
@@ -607,7 +611,7 @@ The Virtual Machine (VM) is able to parse the bytecode format and interpret its 
 
 1. Parse the file header, to ensure compatibility with the file version and identify the sections using the section header table.
 2. Identify the entrypoint function from the function section, parse the function type associated with it, and initialize its call frame.
-3. Allocate the general and parameter registers used by the function. Create external buffers for the input and output data, and set their handles into the frame's parameter registers. The permissions for each external buffer are configured based on the function signature (e.g. read-only for inputs, read-write for outputs).
+3. Allocate the value and parameter registers used by the function. Create external buffers for the input and output data, and set their handles into the frame's parameter registers. The permissions for each external buffer are configured based on the function signature (e.g. read-only for inputs, read-write for outputs).
 4. Add the "exit" return address to the call frame. As this is the entrypoint function, the return address that is set has a special meaning to stop execution. The VM implementation can decide what this special return address should be (e.g. the return address could be an optional which has no value).
 5. Set the `pc` register to the starting address of the entrypoint function's body.
 6. Begin the fetch-decode-execute cycle.
@@ -635,7 +639,15 @@ The general registers are function-specific, such that every function has its ow
 
 It is also not necessary to have registers shared across function calls, as the chosen [calling convention](#63-calling-convention) transfers data between calls via the call frames that have their own set of registers.
 
-Every function specifies the number of general registers it utilizes.
+Every function specifies the number of general registers it utilizes, via the `num_general_registers` field of its function info entry.
+
+The general registers of a call frame are split into two disjoint groups by the [calling convention](#63-calling-convention): the *value registers*, which are the scratch registers holding intermediate values, and the *parameter registers*, which carry the function's arguments. In other words:
+
+```
+general_registers = value_registers + parameter_registers
+```
+
+Note that "general register" always refers to the whole set, never to the scratch subset alone; the scratch subset is always called a *value register*. This distinction matters because `num_general_registers` counts both groups (`G + P`), while the compiler emits one `bytecode.virtual_value_register` per scratch register (`G`) only.
 
 ### 6.2. Memory Sandboxing
 
@@ -663,6 +675,8 @@ External buffers | `unowned` | `R` / `RW` | Buffers passed to the entrypoint fun
 Derived buffers | `unowned` | Inherited | Buffers created via `buffer.subview` or `buffer.view`. These share the underlying memory with the source buffer and inherit the source buffer's permissions. Deletion is not permitted since the memory is not owned.
 Meta buffers | `unowned` | `R` | Buffers that reference data inside the bytecode file sections (e.g. large constants from the constant section). These are read-only and cannot be deleted.
 
+The VM retains constant-section storage for the lifetime of the loaded bytecode module. A `buffer.from_const` meta buffer may therefore reference a constant entry without copying its payload. Meta-buffer handles follow the normal VM buffer-state lifetime: they are invalidated when the buffer state is reset or a different module is loaded, and must be recreated by executing `buffer.from_const` again.
+
 #### Memory Access Validation
 
 When a buffer-access is executed, the VM performs the following validation steps:
@@ -678,21 +692,21 @@ To prevent exhaustion of host memory, the VM enforces a configurable maximum tot
 ### 6.3. Calling Convention
 
 The calling convention used by the bytecode format makes use of the concept of a **call frame**. Each function invocation has its own call frame, which contains the following:
-- general registers (scratch), whose number (`G`) is derived by subtracting the parameter count (`P`) from the `num_general_registers` value stored in the section header
+- value registers (scratch), whose number (`G`) is derived by subtracting the parameter count (`P`) from the `num_general_registers` value stored in the section header
 - parameter registers, determined by the number of parameters passed to the `call` instruction (`P`, which matches the referenced function type's argument count)
 - the return address, which contains the address of the next instruction after the `call` instruction; it is inaccessible to instructions
 
-When a function is called, a call frame is created. Internally, the return address is set and enough registers are allocated to store both the general and parameter registers needed by the function. These registers are zero-initialized, to prevent leaking information between call frames (e.g. if the VM implementation reuses call frame allocations). The registers are identified by unique numbers. If a function has `G` general registers and `P` parameter registers, the call frame will contain `G+P` registers (which equals `num_general_registers` from the function header), each identified by the following numbers:
+When a function is called, a call frame is created. Internally, the return address is set and enough registers are allocated to store both the value and parameter registers needed by the function. These registers are zero-initialized, to prevent leaking information between call frames (e.g. if the VM implementation reuses call frame allocations). The registers are identified by unique numbers. If a function has `G` value registers and `P` parameter registers, the call frame will contain `G+P` registers (which equals `num_general_registers` from the function header), each identified by the following numbers:
 
 ```
-                     general registers         parameter registers
+                      value registers          parameter registers
                    |                    |  |                        |
 Register numbers: [0, 1, 2, ..., G-2, G-1, G+0, G+1, G+2, ... , G+P-1]
 
 Example:
-- 10 general registers
+- 10 value registers
 - 5 parameter registers
-                   general registers   parameter registers
+                    value registers    parameter registers
                    |                |  |                 |
 Register numbers: [0, 1, 2, ..., 8, 9, 10, 11, 12, ..., 14]
 ```
@@ -702,7 +716,7 @@ The order of the parameter registers corresponds with the order of parameters pa
 Beside parameters, the `call` instruction can also receive zero or more destination registers, in which the return values will be stored. When the `retv` instruction is called, the VM will set the return values to the specified destination registers. The order of the destination register operands for the `call` instruction corresponds with the order of operands for the `retv` instruction.
 
 Before executing the entrypoint function, the VM performs the following steps:
-1. Initialize a call frame for the entrypoint function, where the requested number of general and parameter registers are allocated.
+1. Initialize a call frame for the entrypoint function, where the requested number of value and parameter registers are allocated.
 2. Set the "exit" return address in the call frame.
 3. Set the values inside the parameter registers to the entrypoint function's arguments. If these arguments are input and output buffers, the VM will create buffer objects that point to these external addresses, and place the buffer handles in the parameter registers.
 
@@ -711,7 +725,7 @@ The following is an example which shows the calling convention in practice, star
 ```mlir
 function_section: [
     // The entrypoint function's call frame is created with the following configuration:
-    //   - general registers:   r0, r1 (register numbers 0, 1)
+    //   - value registers:     r0, r1 (register numbers 0, 1)
     //   - parameter registers: rp0    (register number 2)
     //   - return address: END
     0: @main, num_args=1, num_results=0, {
@@ -739,7 +753,7 @@ function_section: [
     }
 
     // The inner function's call frame is created with the following configuration:
-    //   - general registers:   r0  (register number 0)
+    //   - value registers:     r0  (register number 0)
     //   - parameter registers: rp0 (register numbers 1)
     //   - return address: address of next instruction after `call` from @main
     1: @inner_fn, num_args=1, num_results=1, {
@@ -758,7 +772,7 @@ function_section: [
 
 #### Call Frame Limits
 
-To prevent memory overflow in case of infinite recursions, a limit has been set to the maximum number of call frames that can exist. This limit has been set to 1000. This means that there can be at most 1000 nested function calls at a given time. Additionally, instructions use 16 bits to address register numbers, which is interpreted as a signed integer where the positive numbers correspond to general registers; this means that there is a total of 2^15 addressable registers. As a call frame can also contain parameter registers alongside the general registers, this addressable register space is shared between the two register types. As a result, the total number of registers allocated per call frame (general + parameter) is 2^15.
+To prevent memory overflow in case of infinite recursions, a limit has been set to the maximum number of call frames that can exist. This limit has been set to 1000. This means that there can be at most 1000 nested function calls at a given time. Additionally, instructions use 16 bits to address register numbers, which is interpreted as a signed integer where the positive numbers correspond to general registers; this means that there is a total of 2^15 addressable registers. As a call frame can also contain parameter registers alongside the value registers, this addressable register space is shared between the two register types. As a result, the total number of general registers allocated per call frame (value + parameter) is 2^15.
 
 This results in the following theoretical maximum memory utilization for call frames:
 

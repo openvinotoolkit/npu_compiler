@@ -52,7 +52,7 @@ void AddCompatibilityStringPass::safeRunOnFunc() {
 
     auto builder = mlir::OpBuilder::atBlockEnd(elfMain.getBody());
     auto compatibilityStringOp =
-            builder.create<ELF::CompatibilityStringOp>(elfMain.getLoc(), builder.getStringAttr(compatibilityString));
+            ELF::CompatibilityStringOp::create(builder, elfMain.getLoc(), builder.getStringAttr(compatibilityString));
     ELF::moveOpToSection(compatibilityStringOp.getOperation(), builder);
 }
 

@@ -124,8 +124,8 @@ mlir::LogicalResult SplitRDFTToComponents::matchAndRewrite(VPU::RDFTOp origOp, m
     auto signalSize = parseIntArrayAttr<int64_t>(origOp.getSignalSizeAttr());
     auto twiddleConstantOp = fftGetTwiddleFactorsByType(origOp, axes, signalSize, rewriter);
 
-    auto rdft = rewriter.create<VPU::RDFTUncutOp>(origOp->getLoc(), origOp.getInput(), twiddleConstantOp,
-                                                  origOp.getAxesAttr(), origOp.getSignalSizeAttr());
+    auto rdft = VPU::RDFTUncutOp::create(rewriter, origOp->getLoc(), origOp.getInput(), twiddleConstantOp,
+                                         origOp.getAxesAttr(), origOp.getSignalSizeAttr());
     SmallVector<int64_t> offsets(outputShape.size(), 0);
     SmallVector<int64_t> sizes(outputShape.begin(), outputShape.end());
     rewriter.replaceOpWithNewOp<VPU::SliceOp>(origOp, rdft.getOutput(), getIntArrayAttr(ctx, offsets),
@@ -195,8 +195,8 @@ mlir::LogicalResult SplitIRDFTToComponents::matchAndRewrite(VPU::IRDFTOp origOp,
     auto irdftInput = origOp.getInput();
     if (!axes.empty()) {
         auto twiddleConstantOp = fftGetTwiddleFactorsByType(origOp, axes, signalSize, rewriter);
-        irdftInput = rewriter.create<VPU::IDFTOp>(origOp->getLoc(), origOp.getInput(), twiddleConstantOp,
-                                                  getIntArrayAttr(ctx, axes), getIntArrayAttr(ctx, signalSize));
+        irdftInput = VPU::IDFTOp::create(rewriter, origOp->getLoc(), origOp.getInput(), twiddleConstantOp,
+                                         getIntArrayAttr(ctx, axes), getIntArrayAttr(ctx, signalSize));
     }
     auto twiddleConstantLastAxisOp = fftGetTwiddleFactorsByType(origOp, lastAxis, lastSignalSize, rewriter);
     rewriter.replaceOpWithNewOp<VPU::IRDFTLastAxisOp>(origOp, irdftInput, twiddleConstantLastAxisOp,

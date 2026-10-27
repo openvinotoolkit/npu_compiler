@@ -143,7 +143,8 @@ const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_TILING = {"mvn1",
                                                                  "flash_sdpa",
                                                                  "nv12_to_rgb",
                                                                  "i420_to_rgb",
-                                                                 "activation_relu"};
+                                                                 "activation_relu",
+                                                                 "group_quant_correction"};
 
 const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_STRIDE = {"mvn1",    "lstm_cell", "lstm_sequence", "lstm_dpu",
                                                                  "reorder", "attention", "flash_sdpa"};
@@ -246,18 +247,14 @@ const SmallVector<StringLiteral> SW_KERNELS_NEED_TILING_ALIGNMENT = {"mvn1",
 
 const SmallVector<StringLiteral> SW_KERNELS_USE_DPU = {"lstm_dpu", "attention", "flash_sdpa", "attention_dma",
                                                        "gated_delta_net"};
-const SmallVector<StringLiteral> SW_KERNELS_IO_DMA = {"activation_atan_dma", "interpolate_dma", "scatter_update_dma",
-                                                      "topk_dma", "attention_dma"};
+const SmallVector<StringLiteral> SW_KERNELS_IO_DMA = {
+        "activation_atan_dma", "interpolate_dma", "scatter_update_dma", "topk_dma", "attention_dma", "pad_dma"};
 
 constexpr StringLiteral vpuTaskTypeAttrName = "VPU.task_type";
 
 /// Identifies the logical task index for the SW operation. This is used to legalize schedule for SW operations which
 /// can submit DMAs on the fly
 constexpr StringLiteral LOGICAL_TASK_INDEX_ATTR_NAME = "logical_task";
-
-/// Marks a SyncDMA as the release anchor for the SHV submit DMA flow. Present only on release sync DMAs (not on
-/// guard/skip-position sync DMAs). Use together with LOGICAL_TASK_INDEX_ATTR_NAME to distinguish release from guard.
-constexpr StringLiteral SHV_RELEASE_DMA_ATTR_NAME = "shv_release_dma";
 
 SmallVector<mlir::Attribute> kernelArgsRange(VPUIP::SwKernelOp swKernelOp);
 
@@ -290,8 +287,6 @@ bool isActivationSwKernelOp(VPUIP::SwKernelOp swKernelOp);
 bool isSwKernelTilingSupported(VPUIP::SwKernelOp swKernelOp);
 bool isSwKernelUseDpu(VPUIP::SwKernelOp swKernelOp);
 bool isIoDmaSwKernel(VPUIP::SwKernelOp swKernelOp);
-bool isShvGuardSyncDmaTask(VPURT::TaskOp taskOp);
-bool isShvReleaseSyncDmaTask(VPURT::TaskOp taskOp);
 bool isDpuShaveKernelType(VPURT::TaskOp taskOp);
 bool isStridedDataAccessSupported(VPUIP::SwKernelOp swKernelOp);
 

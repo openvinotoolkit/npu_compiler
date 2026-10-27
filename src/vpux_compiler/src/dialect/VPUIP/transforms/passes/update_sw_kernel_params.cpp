@@ -44,7 +44,8 @@ uint64_t packAsI32intoU64(int64_t val1, int64_t val2) {
 }
 
 static SmallVector<uint64_t> generateVpuipSoftmaxAttr(mlir::Value input, mlir::Value output, int64_t axis,
-                                                      int64_t padSize, bool hasDynamicShape) {
+                                                      int64_t padSize, bool hasDynamicShape,
+                                                      bool needsDedicatedMaxStrides = false) {
     SmallVector<uint64_t> storage;
     const auto inShape = getShape(input);
     const auto inOrder = DimsOrder::fromValue(input);
@@ -156,9 +157,25 @@ static SmallVector<uint64_t> generateVpuipSoftmaxAttr(mlir::Value input, mlir::V
     storage.push_back(packAsI32intoU64(axis, padSize));
     storage.push_back(packAsI32intoU64(mode, ndims));
 
+    SmallVector<int64_t> maxStrides;
+    if (needsDedicatedMaxStrides) {
+        maxStrides.assign(inStrides.size(), 0);
+        maxStrides[0] = 1;
+        int64_t stride = 1;
+        for (int64_t i = 1; i < ndims; i++) {
+            maxStrides[i] = stride;
+            stride *= inDims[i];
+        }
+    }
+
     for (int64_t i = 0; i < ndims; i++) {
-        storage.push_back(packAsI32intoU64(inDims[i], inDims[i]));
-        storage.push_back(packAsI32intoU64(inStrides[i], outStrides[i]));
+        if (needsDedicatedMaxStrides) {
+            storage.push_back(packAsI32intoU64(inDims[i], inStrides[i]));
+            storage.push_back(packAsI32intoU64(maxStrides[i], outStrides[i]));
+        } else {
+            storage.push_back(packAsI32intoU64(inDims[i], inDims[i]));
+            storage.push_back(packAsI32intoU64(inStrides[i], outStrides[i]));
+        }
     }
     return storage;
 }
@@ -189,11 +206,13 @@ mlir::LogicalResult UpdateSwKernelParamsRewriter::matchAndRewrite(VPUIP::SwKerne
         return mlir::failure();
     }
 
-    if (kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry") == nullptr) {
+    auto kernelEntryAttr = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry");
+    if (kernelEntryAttr == nullptr) {
         return mlir::failure();
     }
 
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
+    const bool needsDedicatedMaxStrides = kernelEntryAttr.getValue() == "exp_stabilized_precalc_max";
 
     // Only SoftMax and LogSoftMax variations need params updated as of now
     if (kernelEntryName != "softmax" && kernelEntryName != "log_softmax" && kernelEntryName != "log_softmax_topk" &&
@@ -220,8 +239,8 @@ mlir::LogicalResult UpdateSwKernelParamsRewriter::matchAndRewrite(VPUIP::SwKerne
         const auto outputValue = (kernelEntryName == "log_softmax_peak") ? kernelRun.getOperand(0)  // Use input shape
                                                                          : swKernelOp.getResult(0);
 
-        const auto params =
-                generateVpuipSoftmaxAttr(kernelRun.getOperand(0), outputValue, axis, padSize, hasDynamicShape);
+        const auto params = generateVpuipSoftmaxAttr(kernelRun.getOperand(0), outputValue, axis, padSize,
+                                                     hasDynamicShape, needsDedicatedMaxStrides);
         const auto paramsAttr = getIntArrayAttr(kernelRun->getContext(), params);
 
         const auto newAttrs = SmallVector<mlir::Attribute>{paramsAttr};

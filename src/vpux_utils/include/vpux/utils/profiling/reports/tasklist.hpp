@@ -26,7 +26,6 @@ public:
     TaskList selectDMAtasks() const;
     TaskList selectDPUtasks() const;
     TaskList selectSWtasks() const;
-    TaskList selectM2Itasks() const;
     TaskList getSortedByStartTime() const;
     /**
      * @brief Infer the Cluster Count from tasks names

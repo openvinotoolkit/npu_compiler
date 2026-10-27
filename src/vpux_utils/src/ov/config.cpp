@@ -172,8 +172,8 @@ details::OptionConcept OptionsDesc::get(std::string_view key) const {
     }
 
     const auto itMain = _impl.find(searchKey);
-    VPUX_THROW_UNLESS(itMain != _impl.end(), "[ NOT_FOUND ] Option '{0}' is not supported for current configuration",
-                      key.data());
+    VPUX_THROW_WHEN(itMain == _impl.end(), "[ NOT_FOUND ] Option '{0}' is not supported for current configuration",
+                    key.data());
 
     return itMain->second;
 }
@@ -249,7 +249,7 @@ void OptionsDesc::walk(std::function<void(const details::OptionConcept&)> cb) co
 //
 
 Config::Config(const std::shared_ptr<const OptionsDesc>& desc): _desc(desc) {
-    VPUX_THROW_UNLESS(_desc != nullptr, "Got NULL OptionsDesc");
+    VPUX_THROW_WHEN(_desc == nullptr, "Got NULL OptionsDesc");
 }
 
 void Config::parseEnvVars() {
@@ -328,7 +328,7 @@ void Config::fromString(const std::string& str) {
             return;
         }
         const auto pos_eq = token.find('=');
-        VPUX_THROW_UNLESS(pos_eq != std::string::npos, "Invalid config token '{0}'", token);
+        VPUX_THROW_WHEN(pos_eq == std::string::npos, "Invalid config token '{0}'", token);
         VPUX_THROW_UNLESS(pos_eq + 3 <= token.size() && token[pos_eq + 1] == '"' && token.back() == '"',
                           "Invalid config token '{0}'", token);
         auto key = token.substr(0, pos_eq);

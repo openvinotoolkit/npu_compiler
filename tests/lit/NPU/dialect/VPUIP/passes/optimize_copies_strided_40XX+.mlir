@@ -19,8 +19,7 @@
 func.func @RemoveCMXToCMXClusteringCopyAndInsertNewCopy(%arg0 : !distributeType, %arg1 : !distributeType)
                                     -> (!distributeType1, !distributeType2) {
     %0 = VPURT.AllocDistributed -> !distributeType
-    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1081 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1081 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%arg0 : !distributeType)
         weights(%arg0 : !distributeType)
         parent_input(%arg0 : !distributeType)
@@ -34,8 +33,7 @@ func.func @RemoveCMXToCMXClusteringCopyAndInsertNewCopy(%arg0 : !distributeType,
 
     %2 = VPUIP.QuantizeCast inputs(%1 : !distributeType) -> !distributeType1
     %3 = VPURT.AllocDistributed -> !distributeType1
-    %4 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1081 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %4 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1081 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%2 : !distributeType1)
         weights(%2 : !distributeType1)
         parent_input(%2 : !distributeType1)
@@ -48,8 +46,7 @@ func.func @RemoveCMXToCMXClusteringCopyAndInsertNewCopy(%arg0 : !distributeType,
     }
 
     %5 = VPURT.AllocDistributed -> !distributeType
-    %6 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1081 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-    <{task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %6 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1081 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%arg1 : !distributeType)
         weights(%arg1 : !distributeType)
         parent_input(%arg1 : !distributeType)
@@ -130,8 +127,7 @@ func.func @RemoveCMXToCMXClusteringCopyAndInsertNewCopy(%arg0 : !distributeType,
 func.func @RemoveCMXToCMXTilingCopyAndInsertNewCopyWithReshapeCopyUser(%arg0 : !distributeType, %arg1 : !distributeType)
                                     -> (memref<1x32x48x176x!qElemType, {order = #NHWC}, @DDR>, !distributeType2) {
     %0 = VPURT.AllocDistributed -> !distributeType
-    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1081 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-      <{task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1081 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%arg0 : !distributeType)
         weights(%arg0 : !distributeType)
         parent_input(%arg0 : !distributeType)
@@ -150,7 +146,7 @@ func.func @RemoveCMXToCMXTilingCopyAndInsertNewCopyWithReshapeCopyUser(%arg0 : !
         outputs(%3 : memref<1x32x48x176x!qElemType, {order = #NHWC}, @DDR>)  ->  memref<1x32x48x176x!qElemType, {order = #NHWC}, @DDR>
 
     %5 = VPURT.AllocDistributed -> !distributeType
-    %6 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1081 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %6 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1081 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%arg1 : !distributeType)
         weights(%arg1 : !distributeType)
         parent_input(%arg1 : !distributeType)

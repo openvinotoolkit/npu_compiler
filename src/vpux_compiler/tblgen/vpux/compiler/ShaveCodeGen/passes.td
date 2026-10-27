@@ -208,13 +208,13 @@ def EarlyCodeGenCapsuleFusion : PassBase<"early-codegen-capsule-fusion", "vpux::
     ];
 }
 
-def ShaveKernelSimplify : PassBase<"shave-kernel-simplify", "vpux::ModulePass"> {
-    let summary = "Applies peephole optimizations to the software module";
+def ShaveKernelSimplify : PassBase<"shave-kernel-simplify", "vpux::FunctionPass"> {
+    let summary = "Applies peephole optimizations to codegen capsules";
 
     let description = [{
         AI-generated summary
 
-        Simplifies SHAVE kernel function bodies through canonical pattern application:
+        Simplifies codegen capsules through canonical pattern application:
         - Bubbles extract_slice ops upward through linalg operations
           (linalg::populateBubbleUpExtractSliceOpPatterns)
         - Swaps extract_slice with fill patterns

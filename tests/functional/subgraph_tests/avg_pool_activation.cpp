@@ -113,6 +113,7 @@ TEST_P(AvgPoolWithActivationTest, NPU5010_HW_1Tile) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(AvgPoolWithActivationTest, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

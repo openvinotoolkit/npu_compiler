@@ -125,9 +125,9 @@ mlir::LogicalResult FusePermuteQuantizeExpandBase::matchAndRewrite(IE::ReorderOp
             if (opReshape.getResult().hasOneUse() && opConvert.getResult().hasOneUse() &&
                 mlir::cast<vpux::NDTypeInterface>(opConvert.getInput().getType()).getElementType().isF32()) {
                 const auto newReshapeOpLoc = appendLoc(origOp->getLoc(), "AffineReshape");
-                auto newReshapeOp = rewriter.create<IE::AffineReshapeOp>(newReshapeOpLoc, opConvert.getInput(),
-                                                                         opReshape.getDimMappingAttr(),
-                                                                         opReshape.getShapeValueAttr());
+                auto newReshapeOp =
+                        IE::AffineReshapeOp::create(rewriter, newReshapeOpLoc, opConvert.getInput(),
+                                                    opReshape.getDimMappingAttr(), opReshape.getShapeValueAttr());
                 paternInput = newReshapeOp.getOutput();
             }
         }
@@ -328,8 +328,8 @@ mlir::LogicalResult FuseQuantizeCastExpandIntoPermuteQuantizeQuantizeCastRewrite
         return mlir::failure();
     }
 
-    auto permuteQuantizeOp = rewriter.create<IE::PermuteQuantizeOp>(
-            origOp->getLoc(), opPermuteQuantize.getInput(), opPermuteQuantize.getDstOrderAttr(),
+    auto permuteQuantizeOp = IE::PermuteQuantizeOp::create(
+            rewriter, origOp->getLoc(), opPermuteQuantize.getInput(), opPermuteQuantize.getDstOrderAttr(),
             opPermuteQuantize.getMemPermAttr(), opPermuteQuantize.getDstElemTypeAttr(), origOp.getPadsBeginAttr(),
             origOp.getPadsEndAttr());
     auto quantizeCastOpResult = rewriter.createOrFold<IE::QuantizeCastOp>(

@@ -127,12 +127,12 @@ mlir::LogicalResult SplitGRUSequencePass::GRUSequenceConverter::matchAndRewrite(
         return mlir::failure();
     }
 
-    auto gruSequenceFirstPartOp = rewriter.create<VPU::GRUSequenceFirstPartOp>(
-            origOp.getLoc(), origOp.getInputData(), origOp.getWeights(), origOp.getHiddenSizeAttr(),
-            origOp.getSeqLengthAttr(), origOp.getClipAttr());
+    auto gruSequenceFirstPartOp = VPU::GRUSequenceFirstPartOp::create(rewriter, origOp.getLoc(), origOp.getInputData(),
+                                                                      origOp.getWeights(), origOp.getHiddenSizeAttr(),
+                                                                      origOp.getSeqLengthAttr(), origOp.getClipAttr());
 
-    auto gruSequenceLastPartOp = rewriter.create<VPU::GRUSequenceLastPartOp>(
-            origOp.getLoc(), gruSequenceFirstPartOp.getOutput(), origOp.getInitialHiddenState(),
+    auto gruSequenceLastPartOp = VPU::GRUSequenceLastPartOp::create(
+            rewriter, origOp.getLoc(), gruSequenceFirstPartOp.getOutput(), origOp.getInitialHiddenState(),
             origOp.getRecurrenceWeights(), origOp.getBiases(), origOp.getHiddenSizeAttr(), origOp.getSeqLengthAttr(),
             origOp.getDirectionAttr(), origOp.getShouldLinearBeforeResetAttr(), origOp.getClipAttr());
 

@@ -366,8 +366,8 @@ private:
         mlir::Operation* newInputUserOp = nullptr;
         const auto shape = mlir::cast<NDTypeInterface>(fqOp->getOperand(0).getType()).getShape();
         if (shape != mlir::cast<NDTypeInterface>(input.getType()).getShape()) {
-            auto reshapeOp = builder.create<IE::ReshapeOp>(appendLoc(fqOp->getLoc(), "reshape"), input,
-                                                           getIntArrayAttr(builder, shape.raw()));
+            auto reshapeOp = IE::ReshapeOp::create(builder, appendLoc(fqOp->getLoc(), "reshape"), input,
+                                                   getIntArrayAttr(builder, shape.raw()));
             reshapeOp->setLoc(appendLoc(reshapeOp->getLoc(), "duplicate{0}", _cloneInstanceIdx));
             inputValue = reshapeOp->getResult(0);
             newInputUserOp = reshapeOp;

@@ -52,8 +52,8 @@ mlir::LogicalResult UnrollEnqueuePattern::matchAndRewrite(VPURegMapped::EnqueueO
     mlir::Value last = enqueueOp.getPreviousTaskIdx();
     mlir::Value first;
     for (auto taskOp = start; taskOp != iterEnd; taskOp = VPUMI40XX::getNextOp(taskOp)) {
-        auto newEnqueue = rewriter.create<VPURegMapped::EnqueueOp>(
-                taskOp.getLoc(), enqueueOp.getType(), last, enqueueOp.getBarrier(),
+        auto newEnqueue = VPURegMapped::EnqueueOp::create(
+                rewriter, taskOp.getLoc(), enqueueOp.getType(), last, enqueueOp.getBarrier(),
                 /*previousTaskIdxOnSameBarrier*/ nullptr, enqueueOp.getTaskType(), taskOp.getResult(),
                 taskOp.getResult());
         last = newEnqueue.getResult();

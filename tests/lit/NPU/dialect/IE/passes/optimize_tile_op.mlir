@@ -215,19 +215,19 @@ func.func @FoldSpatialBroadcastTileBeforeMultiply(%feat: tensor<1x128x64x64xf16>
 
 // -----
 
-// CHECK-LABEL: @FoldSpatialBroadcastTileBeforeAddWithPostOp
+// CHECK-LABEL: @NotFoldSpatialBroadcastTileBeforeAddWithPostOp
 // CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x64x64xf16>
-func.func @FoldSpatialBroadcastTileBeforeAddWithPostOp(%feat: tensor<1x128x64x64xf16>) -> tensor<1x128x64x64xf16> {
+// Add has a fused post-op (PPE): the hasPPE() guard blocks the fold unconditionally.
+// The Tile and Add+LeakyRelu are preserved so NCE.Eltwise can apply the activation via PPE.
+func.func @NotFoldSpatialBroadcastTileBeforeAddWithPostOp(%feat: tensor<1x128x64x64xf16>) -> tensor<1x128x64x64xf16> {
     %bias = const.Declare tensor<1x128x1x1xf16> = dense<1.0> : tensor<1x128x1x1xf16>
     %0 = IE.Tile(%bias) {repeats_values = [1, 1, 64, 64]} : tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
     %1 = IE.Add(%feat, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, post_op = #IE.LeakyRelu<negative_slope = 1.000000e-01 : f64>} : tensor<1x128x64x64xf16>, tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
     return %1 : tensor<1x128x64x64xf16>
 
     // CHECK-DAG:   [[BIAS:%.+]] = const.Declare tensor<1x128x1x1xf16>
-    // CHECK-NOT:   IE.Tile
-    // CHECK:       [[ADD:%.+]] = IE.Add([[FEAT]], [[BIAS]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, post_op = #IE.LeakyRelu<negative_slope = 1.000000e-01 : f64>}
-    // CHECK-SAME:                   : tensor<1x128x64x64xf16>, tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       return [[ADD]] : tensor<1x128x64x64xf16>
+    // CHECK:       [[TILE:%.+]] = IE.Tile([[BIAS]]) {repeats_values = [1, 1, 64, 64]}
+    // CHECK:       IE.Add([[FEAT]], [[TILE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, post_op = #IE.LeakyRelu<negative_slope = 1.000000e-01 : f64>}
 }
 
 // -----
@@ -617,230 +617,113 @@ func.func @FoldSpatialBroadcastTileBeforeAdd_NonConstantFilterGroupConv(
 
 // -----
 
-// CHECK-LABEL: @FoldSpatialBroadcastTileNonConstantBiasWithPostOpStripped
-// CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x64x64xf16>, [[SCALE:%.+]]: tensor<128x1x1x1xf16>, [[PROJ:%.+]]: tensor<1x128x1x1xf16>
-// AdaIN pattern: dynamic-filter GroupConv → Tile(non-constant bias) → Add(post_op=LeakyRelu).
-// The Tile must be folded for performance (avoids large HxW DMA), but the post_op is stripped
-// from the Add and replaced with a standalone IE.LeakyRelu so that RunAddBroadcastOnDPU can
-// convert the clean broadcast Add to NCEMaxPool (per-channel weight-table bias) without
-// silently dropping the activation.
-func.func @FoldSpatialBroadcastTileNonConstantBiasWithPostOpStripped(
-        %feat: tensor<1x128x64x64xf16>, %scale: tensor<128x1x1x1xf16>,
-        %proj: tensor<1x128x1x1xf16>) -> tensor<1x128x64x64xf16> {
-    %gc = IE.GroupConvolution(%feat, %scale) {
-            dilations = [1, 1], groups = 128 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
-        } : tensor<1x128x64x64xf16>, tensor<128x1x1x1xf16> -> tensor<1x128x64x64xf16>
+// CHECK-LABEL: @NotFoldSpatialBroadcastTileNonConstantBiasWithPostOp
+// CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x64x64xf16>, [[PROJ:%.+]]: tensor<1x128x1x1xf16>
+// hasPPE() guard blocks the fold: Tile and Add+LeakyRelu are preserved unchanged.
+func.func @NotFoldSpatialBroadcastTileNonConstantBiasWithPostOp(
+        %feat: tensor<1x128x64x64xf16>, %proj: tensor<1x128x1x1xf16>) -> tensor<1x128x64x64xf16> {
     %0 = IE.Tile(%proj) {repeats_values = [1, 1, 64, 64]} : tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    %1 = IE.Add(%gc, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-                          post_op = #IE.LeakyRelu<negative_slope = 1.000000e-02 : f64>}
+    %1 = IE.Add(%feat, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
+                            post_op = #IE.LeakyRelu<negative_slope = 1.000000e-02 : f64>}
              : tensor<1x128x64x64xf16>, tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
     return %1 : tensor<1x128x64x64xf16>
 
-    // Tile is folded; Add has post_op stripped; standalone LeakyRelu inserted after Add.
-    // CHECK:       [[GC_OUT:%.+]] = IE.GroupConvolution([[FEAT]], [[SCALE]])
-    // CHECK-NOT:   IE.Tile
-    // CHECK:       [[ADD:%.+]] = IE.Add([[GC_OUT]], [[PROJ]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
-    // CHECK-SAME:      tensor<1x128x64x64xf16>, tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       [[LRELU:%.+]] = IE.LeakyRelu([[ADD]]) {negative_slope = 1.000000e-02 : f64}
-    // CHECK-SAME:      tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       return [[LRELU]] : tensor<1x128x64x64xf16>
+    // CHECK:       [[TILE:%.+]] = IE.Tile([[PROJ]]) {repeats_values = [1, 1, 64, 64]}
+    // CHECK:       IE.Add([[FEAT]], [[TILE]])
+    // CHECK-SAME:      post_op = #IE.LeakyRelu<negative_slope = 1.000000e-02 : f64>
 }
 
 // -----
 
-// CHECK-LABEL: @FoldSpatialBroadcastTileNonConstantBiasWithPostOpStripped_TileOnLhs
-// CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x64x64xf16>, [[SCALE:%.+]]: tensor<128x1x1x1xf16>, [[PROJ:%.+]]: tensor<1x128x1x1xf16>
-// AdaIN: same as FoldSpatialBroadcastTileNonConstantBiasWithPostOpStripped but Tile is input1
-// (lhsIsTileOp=true). Verifies that newAdd uses proj as input1 and gc as input2.
-func.func @FoldSpatialBroadcastTileNonConstantBiasWithPostOpStripped_TileOnLhs(
-        %feat: tensor<1x128x64x64xf16>, %scale: tensor<128x1x1x1xf16>,
-        %proj: tensor<1x128x1x1xf16>) -> tensor<1x128x64x64xf16> {
-    %gc = IE.GroupConvolution(%feat, %scale) {
-            dilations = [1, 1], groups = 128 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
-        } : tensor<1x128x64x64xf16>, tensor<128x1x1x1xf16> -> tensor<1x128x64x64xf16>
+// CHECK-LABEL: @NotFoldSpatialBroadcastTileNonConstantBiasWithPostOp_TileOnLhs
+// CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x64x64xf16>, [[PROJ:%.+]]: tensor<1x128x1x1xf16>
+// Same as above but Tile is input1 (lhs). hasPPE() guard blocks the fold regardless of operand order.
+func.func @NotFoldSpatialBroadcastTileNonConstantBiasWithPostOp_TileOnLhs(
+        %feat: tensor<1x128x64x64xf16>, %proj: tensor<1x128x1x1xf16>) -> tensor<1x128x64x64xf16> {
     %0 = IE.Tile(%proj) {repeats_values = [1, 1, 64, 64]} : tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    %1 = IE.Add(%0, %gc) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-                          post_op = #IE.LeakyRelu<negative_slope = 1.000000e-02 : f64>}
+    %1 = IE.Add(%0, %feat) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
+                            post_op = #IE.LeakyRelu<negative_slope = 1.000000e-02 : f64>}
              : tensor<1x128x64x64xf16>, tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
     return %1 : tensor<1x128x64x64xf16>
 
-    // CHECK:       [[GC_OUT:%.+]] = IE.GroupConvolution([[FEAT]], [[SCALE]])
-    // CHECK-NOT:   IE.Tile
-    // CHECK:       [[ADD:%.+]] = IE.Add([[PROJ]], [[GC_OUT]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
-    // CHECK-SAME:      tensor<1x128x1x1xf16>, tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       [[LRELU:%.+]] = IE.LeakyRelu([[ADD]]) {negative_slope = 1.000000e-02 : f64}
-    // CHECK-SAME:      tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       return [[LRELU]] : tensor<1x128x64x64xf16>
+    // CHECK:       [[TILE:%.+]] = IE.Tile([[PROJ]]) {repeats_values = [1, 1, 64, 64]}
+    // CHECK:       IE.Add([[TILE]], [[FEAT]])
+    // CHECK-SAME:      post_op = #IE.LeakyRelu<negative_slope = 1.000000e-02 : f64>
 }
 
 // -----
 
-// CHECK-LABEL: @FoldSpatialBroadcastTileNonConstantBiasWithReLUPostOpStripped
-// CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x64x64xf16>, [[SCALE:%.+]]: tensor<128x1x1x1xf16>, [[PROJ:%.+]]: tensor<1x128x1x1xf16>
-// AdaIN pattern with post_op = IE.Relu (not LeakyRelu). Verifies the IE.Relu branch of the
-// strip-post_op block: a standalone IE.ReLU is inserted after the clean broadcast Add.
-func.func @FoldSpatialBroadcastTileNonConstantBiasWithReLUPostOpStripped(
-        %feat: tensor<1x128x64x64xf16>, %scale: tensor<128x1x1x1xf16>,
-        %proj: tensor<1x128x1x1xf16>) -> tensor<1x128x64x64xf16> {
-    %gc = IE.GroupConvolution(%feat, %scale) {
-            dilations = [1, 1], groups = 128 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
-        } : tensor<1x128x64x64xf16>, tensor<128x1x1x1xf16> -> tensor<1x128x64x64xf16>
+// CHECK-LABEL: @NotFoldSpatialBroadcastTileNonConstantBiasWithReLUPostOp
+// CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x64x64xf16>, [[PROJ:%.+]]: tensor<1x128x1x1xf16>
+// post_op = IE.Relu. hasPPE() guard blocks the fold.
+func.func @NotFoldSpatialBroadcastTileNonConstantBiasWithReLUPostOp(
+        %feat: tensor<1x128x64x64xf16>, %proj: tensor<1x128x1x1xf16>) -> tensor<1x128x64x64xf16> {
     %0 = IE.Tile(%proj) {repeats_values = [1, 1, 64, 64]} : tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    %1 = IE.Add(%gc, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-                          post_op = #IE.Relu<>}
+    %1 = IE.Add(%feat, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
+                            post_op = #IE.Relu<>}
              : tensor<1x128x64x64xf16>, tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
     return %1 : tensor<1x128x64x64xf16>
 
-    // CHECK:       [[GC_OUT:%.+]] = IE.GroupConvolution([[FEAT]], [[SCALE]])
-    // CHECK-NOT:   IE.Tile
-    // CHECK:       [[ADD:%.+]] = IE.Add([[GC_OUT]], [[PROJ]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
-    // CHECK-SAME:      tensor<1x128x64x64xf16>, tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       [[RELU:%.+]] = IE.ReLU([[ADD]])
-    // CHECK-SAME:      tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       return [[RELU]] : tensor<1x128x64x64xf16>
+    // CHECK:       [[TILE:%.+]] = IE.Tile([[PROJ]]) {repeats_values = [1, 1, 64, 64]}
+    // CHECK:       IE.Add([[FEAT]], [[TILE]])
+    // CHECK-SAME:      post_op = #IE.Relu<>
 }
 
 // -----
 
 // CHECK-LABEL: @NotFoldSpatialBroadcastTileNonConstantBiasBelowSizeThreshold
-// CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x16x16xf16>, [[SCALE:%.+]]: tensor<128x1x1x1xf16>, [[PROJ:%.+]]: tensor<1x128x1x1xf16>
-// Small tensor: 1x128x16x16xf16 = 65,536 bytes. Below isLargeEnoughForDPUOverSHAVE threshold on
-// all supported platforms (most restrictive: NPU4000 threshold = ceil(1,571,840 / 6) = 261,974 B).
-// isFoldBeneficial=false => hasSpatiallyBroadcastedInput=false. Tile and Add with its LeakyRelu
-// post_op must be preserved so the equal-shape NCE Eltwise can apply the activation via PPE.
+// CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x16x16xf16>, [[PROJ:%.+]]: tensor<1x128x1x1xf16>
+// Small tensor (1x128x16x16xf16 = 65,536 bytes) below the isLargeEnoughForDPUOverSHAVE threshold:
+// isFoldBeneficial=false so hasSpatiallyBroadcastedInput=false and the fold is skipped early.
 func.func @NotFoldSpatialBroadcastTileNonConstantBiasBelowSizeThreshold(
-        %feat: tensor<1x128x16x16xf16>, %scale: tensor<128x1x1x1xf16>,
-        %proj: tensor<1x128x1x1xf16>) -> tensor<1x128x16x16xf16> {
-    %gc = IE.GroupConvolution(%feat, %scale) {
-            dilations = [1, 1], groups = 128 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
-        } : tensor<1x128x16x16xf16>, tensor<128x1x1x1xf16> -> tensor<1x128x16x16xf16>
+        %feat: tensor<1x128x16x16xf16>, %proj: tensor<1x128x1x1xf16>) -> tensor<1x128x16x16xf16> {
     %0 = IE.Tile(%proj) {repeats_values = [1, 1, 16, 16]} : tensor<1x128x1x1xf16> -> tensor<1x128x16x16xf16>
-    %1 = IE.Add(%gc, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-                          post_op = #IE.LeakyRelu<negative_slope = 1.000000e-02 : f64>}
+    %1 = IE.Add(%feat, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
+                            post_op = #IE.LeakyRelu<negative_slope = 1.000000e-02 : f64>}
              : tensor<1x128x16x16xf16>, tensor<1x128x16x16xf16> -> tensor<1x128x16x16xf16>
     return %1 : tensor<1x128x16x16xf16>
 
-    // CHECK:       [[GC_OUT:%.+]] = IE.GroupConvolution([[FEAT]], [[SCALE]])
     // CHECK:       [[TILE:%.+]] = IE.Tile([[PROJ]]) {repeats_values = [1, 1, 16, 16]}
-    // CHECK-SAME:      tensor<1x128x1x1xf16> -> tensor<1x128x16x16xf16>
-    // CHECK:       IE.Add([[GC_OUT]], [[TILE]])
+    // CHECK:       IE.Add([[FEAT]], [[TILE]])
     // CHECK-SAME:      post_op = #IE.LeakyRelu<negative_slope = 1.000000e-02 : f64>
-    // CHECK-SAME:      tensor<1x128x16x16xf16>, tensor<1x128x16x16xf16> -> tensor<1x128x16x16xf16>
 }
 
 // -----
 
-// CHECK-LABEL: @FoldSpatialBroadcastTileNonConstantBiasWithClampPostOpStripped
-// CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x64x64xf16>, [[SCALE:%.+]]: tensor<128x1x1x1xf16>, [[PROJ:%.+]]: tensor<1x128x1x1xf16>
-// AdaIN pattern with clamp-only (no post_op). Verifies the clamp-only branch of the
-// strip-post_op block: a standalone IE.Clamp is inserted after the clean broadcast Add.
-// Also guards against the previous bug where an unrecognized post_op would fall through to
-// the clamp branch instead of aborting the fold.
-func.func @FoldSpatialBroadcastTileNonConstantBiasWithClampPostOpStripped(
-        %feat: tensor<1x128x64x64xf16>, %scale: tensor<128x1x1x1xf16>,
-        %proj: tensor<1x128x1x1xf16>) -> tensor<1x128x64x64xf16> {
-    %gc = IE.GroupConvolution(%feat, %scale) {
-            dilations = [1, 1], groups = 128 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
-        } : tensor<1x128x64x64xf16>, tensor<128x1x1x1xf16> -> tensor<1x128x64x64xf16>
+// CHECK-LABEL: @NotFoldSpatialBroadcastTileNonConstantBiasWithClamp
+// CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x64x64xf16>, [[PROJ:%.+]]: tensor<1x128x1x1xf16>
+// clamp attribute. hasPPE() guard blocks the fold.
+func.func @NotFoldSpatialBroadcastTileNonConstantBiasWithClamp(
+        %feat: tensor<1x128x64x64xf16>, %proj: tensor<1x128x1x1xf16>) -> tensor<1x128x64x64xf16> {
     %0 = IE.Tile(%proj) {repeats_values = [1, 1, 64, 64]} : tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    %1 = IE.Add(%gc, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-                          clamp = {max = 6.000000e+00 : f64, min = 0.000000e+00 : f64}}
+    %1 = IE.Add(%feat, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
+                            clamp = {max = 6.000000e+00 : f64, min = 0.000000e+00 : f64}}
              : tensor<1x128x64x64xf16>, tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
     return %1 : tensor<1x128x64x64xf16>
 
-    // Tile is folded; Add has clamp stripped; standalone IE.Clamp inserted after Add.
-    // CHECK:       [[GC_OUT:%.+]] = IE.GroupConvolution([[FEAT]], [[SCALE]])
-    // CHECK-NOT:   IE.Tile
-    // CHECK:       [[ADD:%.+]] = IE.Add([[GC_OUT]], [[PROJ]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
-    // CHECK-SAME:      tensor<1x128x64x64xf16>, tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       [[CLAMP:%.+]] = IE.Clamp([[ADD]]) {max = 6.000000e+00 : f64, min = 0.000000e+00 : f64}
-    // CHECK-SAME:      tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       return [[CLAMP]] : tensor<1x128x64x64xf16>
-}
-
-// -----
-
-// CHECK-LABEL: @FoldSpatialBroadcastTileNonConstantBiasWithReluAndClampStripped
-// CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x64x64xf16>, [[SCALE:%.+]]: tensor<128x1x1x1xf16>, [[PROJ:%.+]]: tensor<1x128x1x1xf16>
-// post_op and clamp co-exist (ReLU6 pattern: post_op=Relu + clamp={min=0,max=6}).
-// Both must be preserved: the fold strips both from the Add, inserts a standalone IE.ReLU
-// first, then chains a standalone IE.Clamp after it (the new postOpAttr+clampAttr code path).
-func.func @FoldSpatialBroadcastTileNonConstantBiasWithReluAndClampStripped(
-        %feat: tensor<1x128x64x64xf16>, %scale: tensor<128x1x1x1xf16>,
-        %proj: tensor<1x128x1x1xf16>) -> tensor<1x128x64x64xf16> {
-    %gc = IE.GroupConvolution(%feat, %scale) {
-            dilations = [1, 1], groups = 128 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
-        } : tensor<1x128x64x64xf16>, tensor<128x1x1x1xf16> -> tensor<1x128x64x64xf16>
-    %0 = IE.Tile(%proj) {repeats_values = [1, 1, 64, 64]} : tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    %1 = IE.Add(%gc, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-                          post_op = #IE.Relu<>,
-                          clamp = {max = 6.000000e+00 : f64, min = 0.000000e+00 : f64}}
-             : tensor<1x128x64x64xf16>, tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
-    return %1 : tensor<1x128x64x64xf16>
-
-    // Tile folded; Add stripped of both post_op and clamp; ReLU then Clamp inserted in sequence.
-    // CHECK:       [[GC_OUT:%.+]] = IE.GroupConvolution([[FEAT]], [[SCALE]])
-    // CHECK-NOT:   IE.Tile
-    // CHECK:       [[ADD:%.+]] = IE.Add([[GC_OUT]], [[PROJ]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
-    // CHECK-SAME:      tensor<1x128x64x64xf16>, tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       [[RELU:%.+]] = IE.ReLU([[ADD]])
-    // CHECK-SAME:      tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       [[CLAMP:%.+]] = IE.Clamp([[RELU]]) {max = 6.000000e+00 : f64, min = 0.000000e+00 : f64}
-    // CHECK-SAME:      tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       return [[CLAMP]] : tensor<1x128x64x64xf16>
-}
-
-// -----
-
-// CHECK-LABEL: @NotFoldSpatialBroadcastTileNonConstantBiasUnrecognizedPostOp
-// CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x64x64xf16>, [[SCALE:%.+]]: tensor<128x1x1x1xf16>, [[PROJ:%.+]]: tensor<1x128x1x1xf16>
-// Unrecognized post_op (#IE.Sigmoid<>) on the Add: the fold must abort and leave the
-// original Tile and Add+postOp untouched to avoid silently dropping the activation.
-func.func @NotFoldSpatialBroadcastTileNonConstantBiasUnrecognizedPostOp(
-        %feat: tensor<1x128x64x64xf16>, %scale: tensor<128x1x1x1xf16>,
-        %proj: tensor<1x128x1x1xf16>) -> tensor<1x128x64x64xf16> {
-    %gc = IE.GroupConvolution(%feat, %scale) {
-            dilations = [1, 1], groups = 128 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
-        } : tensor<1x128x64x64xf16>, tensor<128x1x1x1xf16> -> tensor<1x128x64x64xf16>
-    %0 = IE.Tile(%proj) {repeats_values = [1, 1, 64, 64]} : tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    %1 = IE.Add(%gc, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-                          post_op = #IE.Sigmoid<>}
-             : tensor<1x128x64x64xf16>, tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
-    return %1 : tensor<1x128x64x64xf16>
-
-    // Unrecognized post_op: fold aborts; Tile and Add+Sigmoid are preserved unchanged.
-    // CHECK:       IE.GroupConvolution([[FEAT]], [[SCALE]])
     // CHECK:       [[TILE:%.+]] = IE.Tile([[PROJ]]) {repeats_values = [1, 1, 64, 64]}
-    // CHECK-SAME:      tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       IE.Add({{%.+}}, [[TILE]])
-    // CHECK-SAME:      post_op = #IE.Sigmoid<>
-}
-
-// -----
-
-// CHECK-LABEL: @NotFoldSpatialBroadcastTileNonConstantBiasUnrecognizedPostOpWithClamp
-// CHECK-SAME:  [[FEAT:%.+]]: tensor<1x128x64x64xf16>, [[SCALE:%.+]]: tensor<128x1x1x1xf16>, [[PROJ:%.+]]: tensor<1x128x1x1xf16>
-// Unrecognized post_op with clamp both set: fold must abort. Previously the unrecognized
-// post_op would be silently dropped and only the clamp applied — a correctness bug. Fixed:
-// any unrecognized post_op (regardless of clamp) now aborts to preserve the original semantics.
-func.func @NotFoldSpatialBroadcastTileNonConstantBiasUnrecognizedPostOpWithClamp(
-        %feat: tensor<1x128x64x64xf16>, %scale: tensor<128x1x1x1xf16>,
-        %proj: tensor<1x128x1x1xf16>) -> tensor<1x128x64x64xf16> {
-    %gc = IE.GroupConvolution(%feat, %scale) {
-            dilations = [1, 1], groups = 128 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
-        } : tensor<1x128x64x64xf16>, tensor<128x1x1x1xf16> -> tensor<1x128x64x64xf16>
-    %0 = IE.Tile(%proj) {repeats_values = [1, 1, 64, 64]} : tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    %1 = IE.Add(%gc, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
-                          post_op = #IE.Sigmoid<>,
-                          clamp = {max = 6.000000e+00 : f64, min = 0.000000e+00 : f64}}
-             : tensor<1x128x64x64xf16>, tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
-    return %1 : tensor<1x128x64x64xf16>
-
-    // Unrecognized post_op with clamp: fold aborts; Tile and Add+Sigmoid+clamp preserved.
-    // CHECK:       IE.GroupConvolution([[FEAT]], [[SCALE]])
-    // CHECK:       [[TILE:%.+]] = IE.Tile([[PROJ]]) {repeats_values = [1, 1, 64, 64]}
-    // CHECK-SAME:      tensor<1x128x1x1xf16> -> tensor<1x128x64x64xf16>
-    // CHECK:       IE.Add({{%.+}}, [[TILE]])
+    // CHECK:       IE.Add([[FEAT]], [[TILE]])
     // CHECK-SAME:      clamp = {max = 6.000000e+00 : f64, min = 0.000000e+00 : f64}
-    // CHECK-SAME:      post_op = #IE.Sigmoid<>
+}
+
+// -----
+
+// CHECK-LABEL: @NotFuseGroupConvWithBiasAddPromotedOutputPrecision
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x4x4x4xf16>
+func.func @NotFuseGroupConvWithBiasAddPromotedOutputPrecision(%arg0: tensor<1x4x4x4xf16>) -> tensor<1x4x4x4xf32> {
+    %filter = const.Declare tensor<4x1x1x1xf16> = dense<1.000000e+00> : tensor<4x1x1x1xf16>
+    %bias   = const.Declare tensor<1x4x1x1xf32> = dense<5.000000e-01> : tensor<1x4x1x1xf32>
+    %tiled  = IE.Tile(%bias) {repeats_values = [1, 1, 4, 4]} : tensor<1x4x1x1xf32> -> tensor<1x4x4x4xf32>
+    %gconv  = IE.GroupConvolution(%arg0, %filter) {dilations = [1, 1], groups = 4 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+              : tensor<1x4x4x4xf16>, tensor<4x1x1x1xf16> -> tensor<1x4x4x4xf32>
+    %add    = IE.Add(%gconv, %tiled) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+              : tensor<1x4x4x4xf32>, tensor<1x4x4x4xf32> -> tensor<1x4x4x4xf32>
+    return %add : tensor<1x4x4x4xf32>
+
+    // CHECK-DAG: [[FILTER:%.+]] = const.Declare tensor<4x1x1x1xf16> = dense<1.000000e+00>
+    // CHECK-DAG: [[BIAS:%.+]]   = const.Declare tensor<1x4x1x1xf32> = dense<5.000000e-01>
+    // CHECK:     [[GCONV:%.+]] = IE.GroupConvolution([[INPUT]], [[FILTER]])
+    // CHECK-SAME:    : tensor<1x4x4x4xf16>, tensor<4x1x1x1xf16> -> tensor<1x4x4x4xf32>
+    // CHECK:     [[ADD:%.+]] = IE.Add([[GCONV]], [[BIAS]])
+    // CHECK:     return [[ADD]] : tensor<1x4x4x4xf32>
 }

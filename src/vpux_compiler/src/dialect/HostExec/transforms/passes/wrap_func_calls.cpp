@@ -93,10 +93,10 @@ NameToFuncOpMap WrapFuncCallPass::findFunctionWrappersForWrappedFunctions(const 
     for (auto [f, attr] : wrappedFunctions) {
         auto funcWrapperName = attr.getFuncData().getWrapperFunctionNameValue();
         auto funcWrapperIt = allFuncs.find(funcWrapperName);
-        VPUX_THROW_UNLESS(funcWrapperIt != allFuncs.end(),
-                          "Function wrapper: \"{0}\" must exist in module. Required by the wrapped function: \"{1}\", "
-                          "attr: \"{2}\"",
-                          funcWrapperName, f.getName(), attr.getFuncData().to_string());
+        VPUX_THROW_WHEN(funcWrapperIt == allFuncs.end(),
+                        "Function wrapper: \"{0}\" must exist in module. Required by the wrapped function: \"{1}\", "
+                        "attr: \"{2}\"",
+                        funcWrapperName, f.getName(), attr.getFuncData().to_string());
         auto funcWrapperCandidate = funcWrapperIt->second;
         // MLIR doesn't support function overloading, so it's why these next sanity checks are enough
         VPUX_THROW_UNLESS(
@@ -128,28 +128,28 @@ size_t WrapFuncCallPass::resolveWrappedFunctionCalls(const FuncOpToAttrMap& wrap
     _log.debug("Searching wrapped calls in all functions of the module: {0}", allFuncs.size());
     for (auto [callerName, callerFunc] : allFuncs) {
         _log.trace("Analyze content of the caller: \"{0}\"", callerName);
-        callerFunc->walk([this, &moduleOp, &wrappedFunctions, &functionWrappers,
-                          &callOpsToErase](mlir::func::CallOp callOp) {
-            auto callee = moduleOp.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
-            VPUX_THROW_WHEN(callee == nullptr, "Callee must exist: \"{0}\"", callOp.getCallee());
-            if (auto wrappedFuncIt = wrappedFunctions.find(callee); wrappedFuncIt != wrappedFunctions.end()) {
-                auto wrappedFunc = wrappedFuncIt->first;
-                StringRef wrapperName = wrappedFuncIt->second.getFuncData().getWrapperFunctionNameValue();
-                _log.trace("Has found a call of the wrapped function: \"{0}\"", wrappedFunc.getName());
+        callerFunc->walk(
+                [this, &moduleOp, &wrappedFunctions, &functionWrappers, &callOpsToErase](mlir::func::CallOp callOp) {
+                    auto callee = moduleOp.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
+                    VPUX_THROW_WHEN(callee == nullptr, "Callee must exist: \"{0}\"", callOp.getCallee());
+                    if (auto wrappedFuncIt = wrappedFunctions.find(callee); wrappedFuncIt != wrappedFunctions.end()) {
+                        auto wrappedFunc = wrappedFuncIt->first;
+                        StringRef wrapperName = wrappedFuncIt->second.getFuncData().getWrapperFunctionNameValue();
+                        _log.trace("Has found a call of the wrapped function: \"{0}\"", wrappedFunc.getName());
 
-                auto functionWrapperIt = functionWrappers.find(wrapperName);
-                VPUX_THROW_WHEN(functionWrapperIt == functionWrappers.end(),
-                                "A wrapper function: \"{0}\" for the function: \"{1}\" must exist", wrapperName,
-                                wrappedFunc.getName());
-                auto builder = mlir::OpBuilder(callOp);
-                auto realCall = builder.create<mlir::func::CallOp>(appendLoc(callOp.getLoc(), "_realcall"),
+                        auto functionWrapperIt = functionWrappers.find(wrapperName);
+                        VPUX_THROW_WHEN(functionWrapperIt == functionWrappers.end(),
+                                        "A wrapper function: \"{0}\" for the function: \"{1}\" must exist", wrapperName,
+                                        wrappedFunc.getName());
+                        auto builder = mlir::OpBuilder(callOp);
+                        auto realCall = mlir::func::CallOp::create(builder, appendLoc(callOp.getLoc(), "_realcall"),
                                                                    functionWrapperIt->second, callOp.getOperands());
-                _log.debug("Substitute a callOp of the function: \"{0}\" by the new one: \"{1}\"",
-                           wrappedFunc.getName(), wrapperName);
-                callOp->replaceAllUsesWith(realCall->getResults());
-                callOpsToErase.push_back(callOp);
-            }
-        });
+                        _log.debug("Substitute a callOp of the function: \"{0}\" by the new one: \"{1}\"",
+                                   wrappedFunc.getName(), wrapperName);
+                        callOp->replaceAllUsesWith(realCall->getResults());
+                        callOpsToErase.push_back(callOp);
+                    }
+                });
     }
 
     for (auto callOp : callOpsToErase) {

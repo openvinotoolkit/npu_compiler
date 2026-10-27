@@ -115,4 +115,29 @@ public:
     }
 };
 
+// Shared test cases.
+// Uniform ZP (same value for all OC) → compiler folds ZP into PPE bias, no ZP table created.
+// Per-OC scales exercise the scale table.
+const auto sharedCases = ::testing::ValuesIn(std::vector<WeightPackingCase>{
+        {/*inputChannels=*/16, /*outputChannels=*/32,
+         /*zp=*/1, /*scaleMin=*/1.0f, /*scaleMax=*/1.0f,
+         /*weightLo=*/0, /*weightHi=*/3},
+        {/*inputChannels=*/48, /*outputChannels=*/32,
+         /*zp=*/1, /*scaleMin=*/1.0f, /*scaleMax=*/2.0f,
+         /*weightLo=*/0, /*weightHi=*/3},
+});
+
+// u2 packing path: per-OC weight set = IC * 9 * 2 / 8 bytes (NOT a multiple of 16).
+const auto u2Cases =
+        ::testing::Combine(sharedCases, ::testing::Values(ov::element::u2), ::testing::Values(ov::element::f16),
+                           ::testing::Values(test_utils::TARGET_DEVICE));
+
+// i4 packing path: per-OC weight set = IC * 9 * 4 / 8 bytes (NOT a multiple of 16).
+const auto i4Cases =
+        ::testing::Combine(sharedCases, ::testing::Values(ov::element::i4), ::testing::Values(ov::element::f16),
+                           ::testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(convWeightPacking_u2, ConvWeightPackingTest, u2Cases, ConvWeightPackingTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(convWeightPacking_i4, ConvWeightPackingTest, i4Cases, ConvWeightPackingTest::getTestCaseName);
+
 }  // namespace

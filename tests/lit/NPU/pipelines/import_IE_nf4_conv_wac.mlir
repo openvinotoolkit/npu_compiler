@@ -17,13 +17,13 @@
 // CHECK:   }
 // CHECK:   func.func @main([[ARG0:[^:]+]]: tensor<1x16x16x16xf16>) -> tensor<1x16x16x16xf16> {
 
-// CHECK:       [[CONST_WEIGHTS:%.+]] = const.Declare tensor<16x16x1x1x!QuantileType.quantile<ui4:f16
+// CHECK:       [[CONST_WEIGHTS:%.+]] = const.Declare tensor<16x16x1x1x!quantileType>
 // CHECK-SAME:       = dense_resource<vpux_ow_0> : tensor<16x16x1x1xui4>
-// CHECK-SAME:       [#const.ConvertElemType<ui8>, #const.CastElemType<!QuantileType.quantile<ui4:f16,
+// CHECK-SAME:       [#const.ConvertElemType<ui8>, #const.CastElemType<!quantileType>]
 
 // CHECK:       [[CONVERT:%.+]] = IE.Convert([[CONST_WEIGHTS]])
 // CHECK-SAME:      {dstElemType = f16}
-// CHECK-SAME:      : tensor<16x16x1x1x!QuantileType.quantile<ui4:f16
+// CHECK-SAME:      : tensor<16x16x1x1x!quantileType>
 // CHECK-SAME:      -> tensor<16x16x1x1xf16>
 
 // CHECK:       [[CST:%.+]] = const.Declare tensor<16x1x1x1xf16> = dense<7.873530e-02> : tensor<16x1x1x1xf16>

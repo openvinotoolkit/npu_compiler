@@ -48,28 +48,28 @@ mlir::LogicalResult GenericConverter<ConcreteOp>::matchAndRewrite(ConcreteOp ori
                                                                   mlir::PatternRewriter& rewriter) const {
     _log.trace("Got '{0}' at '{1}'", originOp->getName(), originOp->getLoc());
     if (!originOp.getInput().hasOneUse()) {
-        return matchFailed(rewriter, originOp, "Operation {0} is not the only user of its operand",
+        return matchFailed(_log, rewriter, originOp, "Operation {0} is not the only user of its operand",
                            originOp->getName());
     }
 
     auto maxPool = originOp.getInput().template getDefiningOp<IE::MaxPoolOp>();
     if (maxPool == nullptr) {
-        return matchFailed(rewriter, originOp, "Producer is not a MaxPool operation");
+        return matchFailed(_log, rewriter, originOp, "Producer is not a MaxPool operation");
     }
 
     const auto staticScale = maxPool.getStaticScaleAttr();
     if (staticScale != nullptr && !isDoubleEqual(staticScale.getValueAsDouble(), 1.0)) {
-        return matchFailed(rewriter, originOp, "MaxPool has non-one static scale attribute");
+        return matchFailed(_log, rewriter, originOp, "MaxPool has non-one static scale attribute");
     }
 
     auto producerOp = maxPool.getInput().template getDefiningOp<IE::LayerWithPostOpInterface>();
     if (producerOp == nullptr) {
-        return matchFailed(rewriter, originOp, "Producer of MaxPool does not support post-processing");
+        return matchFailed(_log, rewriter, originOp, "Producer of MaxPool does not support post-processing");
     }
 
     _log.trace("Swap MaxPool with '{0}'", originOp->getName());
     const auto activationOutType = maxPool.getInput().getType();
-    auto newActivationOp = rewriter.create<ConcreteOp>(maxPool.getLoc(), activationOutType, maxPool.getInput());
+    auto newActivationOp = ConcreteOp::create(rewriter, maxPool.getLoc(), activationOutType, maxPool.getInput());
 
     rewriter.replaceOpWithNewOp<IE::MaxPoolOp>(
             originOp, maxPool.getType(), newActivationOp.getOutput(), maxPool.getScale(), maxPool.getKernelSize(),

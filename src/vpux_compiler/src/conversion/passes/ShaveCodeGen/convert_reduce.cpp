@@ -38,12 +38,12 @@ mlir::Value emitLinalgRegion<IE::ReduceMaxOp>(IE::ReduceMaxOp op, mlir::ValueRan
         // so it should be okay to have nnan/nsz.
         auto attr = mlir::arith::FastMathFlagsAttr::get(
                 rewriter.getContext(), mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
-        return rewriter.create<mlir::arith::MaximumFOp>(loc, resultTypes, args[0], args[1], attr);
+        return mlir::arith::MaximumFOp::create(rewriter, loc, resultTypes, args[0], args[1], attr);
     }
     if (elTy.isSignedInteger()) {
-        return rewriter.create<mlir::arith::MaxSIOp>(loc, resultTypes, args);
+        return mlir::arith::MaxSIOp::create(rewriter, loc, resultTypes, args);
     }
-    return rewriter.create<mlir::arith::MaxUIOp>(loc, resultTypes, args);
+    return mlir::arith::MaxUIOp::create(rewriter, loc, resultTypes, args);
 }
 
 template <>
@@ -56,12 +56,12 @@ mlir::Value emitLinalgRegion<IE::ReduceMinOp>(IE::ReduceMinOp op, mlir::ValueRan
         // so it should be okay to have nnan/nsz.
         auto attr = mlir::arith::FastMathFlagsAttr::get(
                 rewriter.getContext(), mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
-        return rewriter.create<mlir::arith::MinimumFOp>(loc, resultTypes, args[0], args[1], attr);
+        return mlir::arith::MinimumFOp::create(rewriter, loc, resultTypes, args[0], args[1], attr);
     }
     if (elTy.isSignedInteger()) {
-        return rewriter.create<mlir::arith::MinSIOp>(loc, resultTypes, args);
+        return mlir::arith::MinSIOp::create(rewriter, loc, resultTypes, args);
     }
-    return rewriter.create<mlir::arith::MinUIOp>(loc, resultTypes, args);
+    return mlir::arith::MinUIOp::create(rewriter, loc, resultTypes, args);
 }
 
 template <>
@@ -74,15 +74,15 @@ mlir::Value emitLinalgRegion<IE::ReduceL2Op>(IE::ReduceL2Op op, mlir::ValueRange
     auto inTy = in.getType();
     if (mlir::isa<mlir::FloatType>(inTy)) {
         if (inTy != accum.getType()) {
-            in = rewriter.create<mlir::arith::ExtFOp>(loc, accum.getType(), in);
+            in = mlir::arith::ExtFOp::create(rewriter, loc, accum.getType(), in);
         }
-        in = rewriter.create<mlir::arith::MulFOp>(loc, accum.getType(), in, in);
+        in = mlir::arith::MulFOp::create(rewriter, loc, accum.getType(), in, in);
         // We need the reassoc flag for auto-vectorization.
-        return rewriter.create<mlir::arith::AddFOp>(loc, accum.getType(), accum, in,
-                                                    mlir::arith::FastMathFlags::reassoc);
+        return mlir::arith::AddFOp::create(rewriter, loc, accum.getType(), accum, in,
+                                           mlir::arith::FastMathFlags::reassoc);
     }
-    in = rewriter.create<mlir::arith::MulIOp>(loc, accum.getType(), in, in);
-    return rewriter.create<mlir::arith::AddIOp>(loc, accum.getType(), accum, in);
+    in = mlir::arith::MulIOp::create(rewriter, loc, accum.getType(), in, in);
+    return mlir::arith::AddIOp::create(rewriter, loc, accum.getType(), accum, in);
 }
 
 template <>
@@ -94,23 +94,23 @@ mlir::Value emitLinalgRegion<IE::ReduceL1Op>(IE::ReduceL1Op op, mlir::ValueRange
     auto loc = op.getLoc();
     auto inTy = in.getType();
     if (mlir::isa<mlir::FloatType>(inTy)) {
-        in = rewriter.create<mlir::math::AbsFOp>(loc, in.getType(), in);
+        in = mlir::math::AbsFOp::create(rewriter, loc, in.getType(), in);
         if (inTy != accum.getType()) {
-            in = rewriter.create<mlir::arith::ExtFOp>(loc, accum.getType(), in);
+            in = mlir::arith::ExtFOp::create(rewriter, loc, accum.getType(), in);
         }
         // We need the reassoc flag for auto-vectorization.
-        return rewriter.create<mlir::arith::AddFOp>(loc, accum.getType(), accum, in,
-                                                    mlir::arith::FastMathFlags::reassoc);
+        return mlir::arith::AddFOp::create(rewriter, loc, accum.getType(), accum, in,
+                                           mlir::arith::FastMathFlags::reassoc);
     }
 
     auto elTy = mlir::cast<NDTypeInterface>(op->getOperand(0).getType()).getElementType();
     if (elTy.isSignedInteger()) {
-        in = rewriter.create<mlir::math::AbsIOp>(loc, in.getType(), in);
+        in = mlir::math::AbsIOp::create(rewriter, loc, in.getType(), in);
     }
     if (inTy != accum.getType()) {
-        in = rewriter.create<mlir::arith::ExtUIOp>(loc, accum.getType(), in);
+        in = mlir::arith::ExtUIOp::create(rewriter, loc, accum.getType(), in);
     }
-    return rewriter.create<mlir::arith::AddIOp>(loc, accum.getType(), accum, in);
+    return mlir::arith::AddIOp::create(rewriter, loc, accum.getType(), accum, in);
 }
 
 template <>
@@ -123,22 +123,22 @@ mlir::Value emitLinalgRegion<IE::ReduceSumOp>(IE::ReduceSumOp op, mlir::ValueRan
     auto inTy = in.getType();
     if (mlir::isa<mlir::FloatType>(inTy)) {
         if (inTy != accum.getType()) {
-            in = rewriter.create<mlir::arith::ExtFOp>(loc, accum.getType(), in);
+            in = mlir::arith::ExtFOp::create(rewriter, loc, accum.getType(), in);
         }
         // We need the reassoc flag for auto-vectorization.
-        return rewriter.create<mlir::arith::AddFOp>(loc, accum.getType(), accum, in,
-                                                    mlir::arith::FastMathFlags::reassoc);
+        return mlir::arith::AddFOp::create(rewriter, loc, accum.getType(), accum, in,
+                                           mlir::arith::FastMathFlags::reassoc);
     }
 
     auto elTy = mlir::cast<NDTypeInterface>(op->getOperand(0).getType()).getElementType();
     if (inTy != accum.getType()) {
         if (elTy.isSignedInteger()) {
-            in = rewriter.create<mlir::arith::ExtSIOp>(loc, accum.getType(), in);
+            in = mlir::arith::ExtSIOp::create(rewriter, loc, accum.getType(), in);
         } else {
-            in = rewriter.create<mlir::arith::ExtUIOp>(loc, accum.getType(), in);
+            in = mlir::arith::ExtUIOp::create(rewriter, loc, accum.getType(), in);
         }
     }
-    return rewriter.create<mlir::arith::AddIOp>(loc, accum.getType(), accum, in);
+    return mlir::arith::AddIOp::create(rewriter, loc, accum.getType(), accum, in);
 }
 
 // Infrastructure for reduce ops.
@@ -181,7 +181,7 @@ static mlir::Value getNullScalar(mlir::Operation* op, mlir::Type resultTy, mlir:
     } else {
         VPUX_THROW("unknown null value for reduce op");
     }
-    return rewriter.create<mlir::arith::ConstantOp>(op->getLoc(), constAttr);
+    return mlir::arith::ConstantOp::create(rewriter, op->getLoc(), constAttr);
 }
 
 static mlir::AffineMap dropZeroResults(mlir::AffineMap& map) {
@@ -233,11 +233,12 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, mlir::Val
     //    reduction.
     // 2. The actual reduction linalg operation. The operation will use the input memory
     //    order, so the output affine map and loop iterators need to be adjusted accordingly.
-    //    The output shape will *not* keep the reduced dimensions, since otherwise the
-    //    resulting linalg operation wouldn't be tilable.
+    //    When the reduced dimensions are kept, they become unit dimensions in the output,
+    //    by mapping to extra parallel iterators appended to the iteration space.
+    //    This allows the output affine map to be a projected permutation (a requirement for
+    //    tiling).
     // 3. An element-wise normalization stage, which will perform the required post-reduction
-    //    adjustments (e.g. sqrt for L2, or a div for mean). This stage will also add back
-    //    any of the dropped reduced dimensions if necessary.
+    //    adjustments (e.g. sqrt for L2, or a div for mean).
     auto input = op->getOperands().front();
     auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto inputRank = inputType.getRank();
@@ -265,7 +266,7 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, mlir::Val
             mlir::cast<vpux::NDTypeInterface>(result.getType()).getDimsOrder().toAffineMap(rewriter.getContext());
     auto inputLogicalShape = mlir::cast<vpux::NDTypeInterface>(inputType).getShape();
 
-    bool hasNorm = normalizeCallback != nullptr || postNormElTy != reduceResultElTy || keepDims;
+    bool hasNorm = normalizeCallback != nullptr || postNormElTy != reduceResultElTy;
 
     // Reject the dynamic input type, at least for now.
     if (inputLogicalShape.isDynamic()) {
@@ -277,7 +278,7 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, mlir::Val
     auto finalMemoryShape = resultDimsOrder.toMemoryOrder(ndResultTy.getShape()).raw();
 
     // Compute the logical operation affine map for the reduce. This always has a constant zero
-    // expression on the reduced dimensions. We can drop the zeros when needed.
+    // expression on the reduced dimensions. We can drop or replace the zeros when needed.
     SmallVector<mlir::AffineExpr> logicalAffineExprs;
     for (auto it : llvm::enumerate(inputLogicalShape)) {
         auto isReduce = llvm::any_of(axes, [&](auto dim) {
@@ -294,14 +295,9 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, mlir::Val
     // Phase 1, initialize the reduce operation output.
 
     // Compute the reduction stage's output shape. This is the same shape we need to use when emitting
-    // and initializing our empty tensor.
+    // and initializing our empty tensor. The reduction stage always produces the shape of the result,
+    // the reduced dimensions being unit dimensions in the keep_dims case.
     SmallVector<int64_t> reduceShape = finalMemoryShape;
-    if (keepDims) {
-        auto logicalShape = ndResultTy.getShape().raw();
-        auto outMap = outputMemMap.compose(operationLogicalMap);
-        outMap = dropZeroResults(outMap);
-        reduceShape = outMap.compose(logicalShape);
-    }
 
     mlir::Value outputEmptyTensor = nullptr;
     mlir::Value padded = nullptr;
@@ -309,11 +305,11 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, mlir::Val
         std::tie(outputEmptyTensor, padded) =
                 ShaveCodeGen::emitTensorSlice(op->getLoc(), reduceShape, resultPaddedType, rewriter);
     } else {
-        outputEmptyTensor = rewriter.create<mlir::tensor::EmptyOp>(op->getLoc(), reduceShape, reduceResultElTy);
+        outputEmptyTensor = mlir::tensor::EmptyOp::create(rewriter, op->getLoc(), reduceShape, reduceResultElTy);
     }
     auto nullScalar = getNullScalar(op, reduceResultElTy, rewriter);
-    auto outputTensor = rewriter.create<mlir::linalg::FillOp>(op->getLoc(), mlir::ValueRange{nullScalar},
-                                                              mlir::ValueRange{outputEmptyTensor})
+    auto outputTensor = mlir::linalg::FillOp::create(rewriter, op->getLoc(), mlir::ValueRange{nullScalar},
+                                                     mlir::ValueRange{outputEmptyTensor})
                                 .result();
 
     // Phase 2, emit the linalg reduce operation.
@@ -331,10 +327,28 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, mlir::Val
     }
     outputMap = outputMemMap.compose(outputMap);
     if (keepDims) {
-        outputMap = dropZeroResults(outputMap);
+        // Replace the constant zero expressions in the map with newly added dimensions for the
+        // iteration space. These are unit dimension so the resulting affine map is equivalent
+        // and also a projected permutation.
+        auto replaceZeroResultsWithUnitDims = [&](mlir::AffineMap map) {
+            SmallVector<mlir::AffineExpr> newExprs;
+            auto nextDim = map.getNumDims();
+            for (auto expr : map.getResults()) {
+                auto constExpr = mlir::dyn_cast<mlir::AffineConstantExpr>(expr);
+                if (constExpr && constExpr.getValue() == 0) {
+                    newExprs.push_back(mlir::getAffineDimExpr(nextDim++, map.getContext()));
+                    continue;
+                }
+                newExprs.push_back(expr);
+            }
+            return mlir::AffineMap::get(nextDim, map.getNumSymbols(), newExprs, map.getContext());
+        };
+        outputMap = replaceZeroResultsWithUnitDims(outputMap);
     }
 
-    reductionAffineMaps.push_back(rewriter.getMultiDimIdentityMap(inputRank));
+    const auto numIterators = outputMap.getNumDims();
+    reductionAffineMaps.push_back(
+            rewriter.getMultiDimIdentityMap(numIterators).getMajorSubMap(checked_cast<unsigned>(inputRank)));
     reductionAffineMaps.push_back(outputMap);
 
     // Prepare the reduction loop iterators.
@@ -357,55 +371,47 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, mlir::Val
             auto dimExpr = mlir::cast<mlir::AffineDimExpr>(expr);
             reductionLoopAttrs.push_back(logicalLoopAttrs[dimExpr.getPosition()]);
         }
+        // The iterators driving the kept reduced dimensions are parallel.
+        reductionLoopAttrs.append(numIterators - reductionLoopAttrs.size(), mlir::utils::IteratorType::parallel);
     }
 
-    auto linalgOp = rewriter.create<mlir::linalg::GenericOp>(
-            op->getLoc(), outputTensor.getType(), linalgOperands, outputTensor, reductionAffineMaps, reductionLoopAttrs,
-            [&](mlir::OpBuilder& opBuilder, mlir::Location loc, mlir::ValueRange blockArgs) {
+    auto linalgOp = mlir::linalg::GenericOp::create(
+            rewriter, op->getLoc(), outputTensor.getType(), linalgOperands, outputTensor, reductionAffineMaps,
+            reductionLoopAttrs, [&](mlir::OpBuilder& opBuilder, mlir::Location loc, mlir::ValueRange blockArgs) {
                 mlir::Value opResult = callback(op, blockArgs, {reduceResultElTy}, rewriter);
-                opBuilder.create<mlir::linalg::YieldOp>(loc, opResult);
+                mlir::linalg::YieldOp::create(opBuilder, loc, opResult);
             });
 
     // Phase 3, post-reduction element-wise normalization
-
     if (hasNorm) {
         // The normalization stage element-wise so all loop attributes are parallel.
         SmallVector<mlir::utils::IteratorType> normalizeLoopAttrs(resultRank, mlir::utils::IteratorType::parallel);
-        SmallVector<mlir::AffineMap, 2> normalizeAffineMaps;
-        if (keepDims) {
-            // In the keep_dims case we need to remove the reduced dimensions from
-            // our input map to match what the output of the reduction stage.
-            auto map = outputMemMap.compose(operationLogicalMap).compose(mlir::inversePermutation(outputMemMap));
-            normalizeAffineMaps.push_back(dropZeroResults(map));
-        } else {
-            normalizeAffineMaps.push_back(rewriter.getMultiDimIdentityMap(resultRank));
-        }
-        normalizeAffineMaps.push_back(rewriter.getMultiDimIdentityMap(resultRank));
-        // We'll need a new empty tensor if the normalization operation results either
-        // changes shape or has e different element type.
+        SmallVector<mlir::AffineMap, 2> normalizeAffineMaps(2, rewriter.getMultiDimIdentityMap(resultRank));
+        // We'll need a new empty tensor if the normalization operation result has a different
+        // element type.
         bool needsTruncate = (postNormElTy != reduceResultElTy);
         mlir::Value normalizeOutputTensor = nullptr;
         if (outputPad) {
             std::tie(normalizeOutputTensor, padded) =
                     ShaveCodeGen::emitTensorSlice(op->getLoc(), finalMemoryShape, resultPaddedType, rewriter);
-        } else if (needsTruncate || keepDims) {
+        } else if (needsTruncate) {
             normalizeOutputTensor =
-                    rewriter.create<mlir::tensor::EmptyOp>(op->getLoc(), finalMemoryShape, postNormElTy);
+                    mlir::tensor::EmptyOp::create(rewriter, op->getLoc(), finalMemoryShape, postNormElTy);
         } else {
             normalizeOutputTensor = linalgOp.getResult(0);
         }
 
-        linalgOp = rewriter.create<mlir::linalg::GenericOp>(
-                op->getLoc(), normalizeOutputTensor.getType(), mlir::ValueRange{linalgOp.getResult(0)},
+        linalgOp = mlir::linalg::GenericOp::create(
+                rewriter, op->getLoc(), normalizeOutputTensor.getType(), mlir::ValueRange{linalgOp.getResult(0)},
                 normalizeOutputTensor, normalizeAffineMaps, normalizeLoopAttrs,
                 [&](mlir::OpBuilder& opBuilder, mlir::Location loc, mlir::ValueRange blockArgs) {
                     mlir::Value opResult = normalizeCallback ? normalizeCallback(op, blockArgs.take_front(1),
                                                                                  {reduceResultElTy}, rewriter)
                                                              : blockArgs.front();
                     if (needsTruncate) {
-                        opResult = rewriter.create<mlir::arith::TruncFOp>(op->getLoc(), postNormElTy, opResult);
+                        opResult = mlir::arith::TruncFOp::create(rewriter, op->getLoc(), postNormElTy, opResult);
                     }
-                    opBuilder.create<mlir::linalg::YieldOp>(loc, opResult);
+                    mlir::linalg::YieldOp::create(opBuilder, loc, opResult);
                 });
     }
 
@@ -415,8 +421,8 @@ static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, mlir::Val
         SmallVector<mlir::OpFoldResult> sizes =
                 mlir::tensor::getMixedSizes(rewriter, op->getLoc(), linalgOp->getResult(0));
 
-        auto insertSliceOp = rewriter.create<mlir::tensor::InsertSliceOp>(op->getLoc(), linalgOp->getResult(0), padded,
-                                                                          zeros, sizes, ones);
+        auto insertSliceOp = mlir::tensor::InsertSliceOp::create(rewriter, op->getLoc(), linalgOp->getResult(0), padded,
+                                                                 zeros, sizes, ones);
         rewriter.replaceOp(op, insertSliceOp);
         return mlir::success();
     }
@@ -443,14 +449,14 @@ EmitBodyCallback getNormalizationCallback() {
                 }
                 // We don't have to look at the signdness, this should be positive or we'll get a NAN
                 // from the sqrt.
-                argVal = rewriter.create<mlir::arith::UIToFPOp>(op->getLoc(), fpType, argVal);
+                argVal = mlir::arith::UIToFPOp::create(rewriter, op->getLoc(), fpType, argVal);
             }
-            argVal = rewriter.create<mlir::math::SqrtOp>(op->getLoc(), argVal.getType(), argVal,
-                                                         mlir::arith::FastMathFlags::afn);
+            argVal = mlir::math::SqrtOp::create(rewriter, op->getLoc(), argVal.getType(), argVal,
+                                                mlir::arith::FastMathFlags::afn);
             if (isFloat) {
                 return argVal;
             }
-            return rewriter.create<mlir::arith::FPToUIOp>(op->getLoc(), origTy, argVal);
+            return mlir::arith::FPToUIOp::create(rewriter, op->getLoc(), origTy, argVal);
         };
     }
     if (std::is_same<SrcOp, IE::ReduceMeanOp>::value) {

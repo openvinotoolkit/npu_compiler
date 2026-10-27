@@ -18,14 +18,14 @@ void vpux::ELFNPU37XX::CreateRelocationSectionOp::serialize(elf::Writer& writer,
     // Look up dependent sections
     auto symTab =
             llvm::dyn_cast<vpux::ELFNPU37XX::CreateSymbolTableSectionOp>(getSourceSymbolTableSection().getDefiningOp());
-    VPUX_THROW_UNLESS(symTab != nullptr, "Reloc section expected to refer to a symbol table section");
+    VPUX_THROW_WHEN(symTab == nullptr, "Reloc section expected to refer to a symbol table section");
 
     auto target = llvm::dyn_cast_or_null<vpux::ELFNPU37XX::CreateSectionOp>(getTargetSection().getDefiningOp());
-    VPUX_THROW_UNLESS(target != nullptr, "Reloc section expected to refer at a valid target section");
+    VPUX_THROW_WHEN(target == nullptr, "Reloc section expected to refer at a valid target section");
 
     auto targetMapEntry = sectionMap.find(target.getOperation());
-    VPUX_THROW_UNLESS(targetMapEntry != sectionMap.end(),
-                      "Can't serialize a reloc section that doesn't have its dependent target section");
+    VPUX_THROW_WHEN(targetMapEntry == sectionMap.end(),
+                    "Can't serialize a reloc section that doesn't have its dependent target section");
 
     auto targetSection = targetMapEntry->second;
     section->setSectionToPatch(targetSection);
@@ -36,8 +36,8 @@ void vpux::ELFNPU37XX::CreateRelocationSectionOp::serialize(elf::Writer& writer,
         section->setSpecialSymbolTable(symTab_value);
     } else {
         auto symTabMapEntry = sectionMap.find(symTab.getOperation());
-        VPUX_THROW_UNLESS(symTabMapEntry != sectionMap.end(),
-                          "Can't serialize a reloc section that doesn't have its dependent symbol table section");
+        VPUX_THROW_WHEN(symTabMapEntry == sectionMap.end(),
+                        "Can't serialize a reloc section that doesn't have its dependent symbol table section");
 
         auto symTabSection = symTabMapEntry->second;
         section->setSymbolTable(dynamic_cast<elf::writer::SymbolSection*>(symTabSection));

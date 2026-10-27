@@ -51,8 +51,8 @@ public:
 
         const auto funcType = builder.getFunctionType({}, {});
 
-        auto func = builder.create<mlir::func::FuncOp>(
-                builder.getUnknownLoc(), printToString("MLIR_VPURegMapped_CreateDpuVariantRegister"), funcType,
+        auto func = mlir::func::FuncOp::create(
+                builder, builder.getUnknownLoc(), printToString("MLIR_VPURegMapped_CreateDpuVariantRegister"), funcType,
                 builder.getStringAttr("nested"), /*arg_attrs=*/nullptr, /*res_attrs=*/nullptr);
 
         auto funcbuilder = mlir::OpBuilder::atBlockBegin(func.addEntryBlock(), builder.getListener());
@@ -60,7 +60,7 @@ public:
         [[maybe_unused]] auto reg = VPURegMapped::RegisterMappedAttr::get(
                 ctx.get(), registerType::get(funcbuilder, registerType::getResetInitilizationValues()));
 
-        funcbuilder.create<mlir::func::ReturnOp>(builder.getUnknownLoc());
+        mlir::func::ReturnOp::create(funcbuilder, builder.getUnknownLoc());
 
         mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
         auto initCompilerOptions =

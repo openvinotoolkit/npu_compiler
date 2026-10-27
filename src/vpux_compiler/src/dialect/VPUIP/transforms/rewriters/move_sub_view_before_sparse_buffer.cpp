@@ -79,14 +79,14 @@ mlir::LogicalResult MoveViewOpUp::matchAndRewrite(VPUIP::SubViewOp origSubViewOp
             // Recreate constant with subview attribute. Do not split into 2 ops otherwise when constant is
             // fused with subview then type is changed (strides are erased) without further type propagation.
             auto newContentAttr = constOp.transformContentAttr().subview(offsets, sizes).get();
-            auto newConstOp = rewriter.create<Const::DeclareOp>(
-                    constOp.getLoc(),
+            auto newConstOp = Const::DeclareOp::create(
+                    rewriter, constOp.getLoc(),
                     vpux::convertToMemRef(mlir::cast<mlir::RankedTensorType>(newContentAttr.getType())),
                     std::move(newContentAttr));
             return newConstOp.getOutput();
         }
-        auto newSubViewOp = rewriter.create<VPUIP::SubViewOp>(value.getLoc(), value, getIntArrayAttr(ctx, offsets),
-                                                              getIntArrayAttr(ctx, sizes));
+        auto newSubViewOp = VPUIP::SubViewOp::create(rewriter, value.getLoc(), value, getIntArrayAttr(ctx, offsets),
+                                                     getIntArrayAttr(ctx, sizes));
         return newSubViewOp.getResult();
     };
 
@@ -113,9 +113,9 @@ mlir::LogicalResult MoveViewOpUp::matchAndRewrite(VPUIP::SubViewOp origSubViewOp
         const auto seDepth = getShape(seTableOp.getOutput())[Dims4D::Act::C];
         const auto [seTableOffsets, seTableSizes] = VPU::getUpdatedSliceOffsetsAndShapesForSETable(
                 seDepth, seTableOp.getSeSize(), subViewOffsets, subViewSizes);
-        auto seTableSliceOp = rewriter.create<VPUIP::SubViewOp>(origSubViewOp.getLoc(), seTableOp.getOutput(),
-                                                                getIntArrayAttr(ctx, seTableOffsets),
-                                                                getIntArrayAttr(ctx, seTableSizes));
+        auto seTableSliceOp =
+                VPUIP::SubViewOp::create(rewriter, origSubViewOp.getLoc(), seTableOp.getOutput(),
+                                         getIntArrayAttr(ctx, seTableOffsets), getIntArrayAttr(ctx, seTableSizes));
 
         newSETableValue = seTableSliceOp.getResult();
     }

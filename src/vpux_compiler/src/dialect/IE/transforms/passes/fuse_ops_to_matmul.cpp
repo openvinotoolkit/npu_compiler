@@ -1,3 +1,4 @@
+//
 // Copyright (C) 2024-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
@@ -379,11 +380,11 @@ mlir::LogicalResult BroadcastMultiplyReduceSumToMatMulRewriter::matchAndRewrite(
         }
         const auto kToLastPermAttr =
                 mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(kToLastPermUnsigned, ctx));
-        lhsInput = rewriter.create<IE::TransposeOp>(appendLoc(origLoc, "lhs_k_to_last"), lhsInput, nullptr,
-                                                    kToLastPermAttr)
+        lhsInput = IE::TransposeOp::create(rewriter, appendLoc(origLoc, "lhs_k_to_last"), lhsInput, nullptr,
+                                           kToLastPermAttr)
                            .getOutput();
-        rhsInput = rewriter.create<IE::TransposeOp>(appendLoc(origLoc, "rhs_k_to_last"), rhsInput, nullptr,
-                                                    kToLastPermAttr)
+        rhsInput = IE::TransposeOp::create(rewriter, appendLoc(origLoc, "rhs_k_to_last"), rhsInput, nullptr,
+                                           kToLastPermAttr)
                            .getOutput();
     }
 
@@ -408,15 +409,14 @@ mlir::LogicalResult BroadcastMultiplyReduceSumToMatMulRewriter::matchAndRewrite(
         const auto permMap = mlir::AffineMap::getPermutationMap(perm, ctx);
         const auto inMemShape = MemShape(getShape(val).raw());
         if (!isTrivialPermute(inMemShape, permMap)) {
-            val = rewriter.create<IE::TransposeOp>(appendLoc(origLoc, (tag + "_transpose").str()), val, nullptr,
-                                                   mlir::AffineMapAttr::get(permMap))
+            val = IE::TransposeOp::create(rewriter, appendLoc(origLoc, (tag + "_transpose").str()), val, nullptr,
+                                          mlir::AffineMapAttr::get(permMap))
                           .getOutput();
         }
         // Reshape to [batchSize, mOrN, K], squeezing the broadcast-1 dim.
         const auto reshapeShape = SmallVector<int64_t>{batchSize, mOrN, K};
-        return rewriter
-                .create<IE::ReshapeOp>(appendLoc(origLoc, (tag + "_reshape").str()), val,
-                                       getIntArrayAttr(ctx, reshapeShape))
+        return IE::ReshapeOp::create(rewriter, appendLoc(origLoc, (tag + "_reshape").str()), val,
+                                     getIntArrayAttr(ctx, reshapeShape))
                 .getOutput();
     };
 
@@ -426,9 +426,9 @@ mlir::LogicalResult BroadcastMultiplyReduceSumToMatMulRewriter::matchAndRewrite(
     auto rhsReshaped = prepareInput(rhsInput, effectiveLhsBroadcastDim, effectiveRhsBroadcastDim, N, "matmul_rhs");
 
     // MatMul: [batch, M, K] @ [batch, N, K]^T -> [batch, M, N]
-    auto matmulOp = rewriter.create<IE::MatMulOp>(appendLoc(origLoc, "broadcast_mul_reduce_as_matmul"), lhsReshaped,
-                                                  rhsReshaped,
-                                                  /*transpose_a=*/false, /*transpose_b=*/true);
+    auto matmulOp = IE::MatMulOp::create(rewriter, appendLoc(origLoc, "broadcast_mul_reduce_as_matmul"), lhsReshaped,
+                                         rhsReshaped,
+                                         /*transpose_a=*/false, /*transpose_b=*/true);
 
     // 7. Reshape + optional Transpose output to match ReduceSum output shape.
     // The MatMul output [batchSize, M, N] is expanded back to (rank-1) dims in effective space,
@@ -445,8 +445,8 @@ mlir::LogicalResult BroadcastMultiplyReduceSumToMatMulRewriter::matchAndRewrite(
         }
         permutedShape.push_back(M);
         permutedShape.push_back(N);
-        outValue = rewriter.create<IE::ReshapeOp>(appendLoc(origLoc, "matmul_out_expand"), outValue,
-                                                  getIntArrayAttr(ctx, permutedShape))
+        outValue = IE::ReshapeOp::create(rewriter, appendLoc(origLoc, "matmul_out_expand"), outValue,
+                                         getIntArrayAttr(ctx, permutedShape))
                            .getOutput();
 
         SmallVector<unsigned> currentOrder;
@@ -462,16 +462,16 @@ mlir::LogicalResult BroadcastMultiplyReduceSumToMatMulRewriter::matchAndRewrite(
 
         if (!invPermMap.isIdentity()) {
             const auto invPermAttr = mlir::AffineMapAttr::get(invPermMap);
-            outValue = rewriter.create<IE::TransposeOp>(appendLoc(origLoc, "matmul_out_transpose"), outValue, nullptr,
-                                                        invPermAttr)
+            outValue = IE::TransposeOp::create(rewriter, appendLoc(origLoc, "matmul_out_transpose"), outValue, nullptr,
+                                               invPermAttr)
                                .getOutput();
         }
     }
 
     // Final reshape to the exact ReduceSum output shape (restores keep_dims size-1 if needed).
     const auto reducedShape = getShape(origOp.getOutput());
-    auto outReshaped = rewriter.create<IE::ReshapeOp>(appendLoc(origLoc, "matmul_out_reshape"), outValue,
-                                                      getIntArrayAttr(ctx, reducedShape));
+    auto outReshaped = IE::ReshapeOp::create(rewriter, appendLoc(origLoc, "matmul_out_reshape"), outValue,
+                                             getIntArrayAttr(ctx, reducedShape));
 
     rewriter.replaceOp(origOp, outReshaped.getOutput());
 
@@ -566,24 +566,24 @@ mlir::LogicalResult OuterProductMultiplyToMatMulRewriter::matchAndRewrite(IE::Mu
     // increasing, so Reshape alone suffices — no Transpose is needed.
 
     // LHS: reshape to [batchSize, M, 1]
-    auto lhsVal = rewriter.create<IE::ReshapeOp>(appendLoc(origLoc, "outer_lhs_reshape"), mulOp.getInput1(),
-                                                 getIntArrayAttr(ctx, SmallVector<int64_t>{batchSize, M, 1}))
+    auto lhsVal = IE::ReshapeOp::create(rewriter, appendLoc(origLoc, "outer_lhs_reshape"), mulOp.getInput1(),
+                                        getIntArrayAttr(ctx, SmallVector<int64_t>{batchSize, M, 1}))
                           .getOutput();
 
     // RHS: reshape to [batchSize, N, 1]
-    auto rhsVal = rewriter.create<IE::ReshapeOp>(appendLoc(origLoc, "outer_rhs_reshape"), mulOp.getInput2(),
-                                                 getIntArrayAttr(ctx, SmallVector<int64_t>{batchSize, N, 1}))
+    auto rhsVal = IE::ReshapeOp::create(rewriter, appendLoc(origLoc, "outer_rhs_reshape"), mulOp.getInput2(),
+                                        getIntArrayAttr(ctx, SmallVector<int64_t>{batchSize, N, 1}))
                           .getOutput();
 
     // MatMul: [batchSize, M, 1] @ [batchSize, N, 1]^T = [batchSize, M, N]
-    auto matmulOp = rewriter.create<IE::MatMulOp>(appendLoc(origLoc, "outer_product_as_matmul"), lhsVal, rhsVal,
-                                                  /*transpose_a=*/false, /*transpose_b=*/true);
+    auto matmulOp = IE::MatMulOp::create(rewriter, appendLoc(origLoc, "outer_product_as_matmul"), lhsVal, rhsVal,
+                                         /*transpose_a=*/false, /*transpose_b=*/true);
 
     // Reshape MatMul output [batchSize, M, N] back to the original Multiply output shape.
     // The early guard ensures dim ordering is monotonically increasing (not interleaved),
     // so no output Transpose is needed — a single Reshape suffices.
-    auto finalReshape = rewriter.create<IE::ReshapeOp>(appendLoc(origLoc, "outer_out_reshape"), matmulOp.getOutput(),
-                                                       getIntArrayAttr(ctx, mulOutShape.raw()));
+    auto finalReshape = IE::ReshapeOp::create(rewriter, appendLoc(origLoc, "outer_out_reshape"), matmulOp.getOutput(),
+                                              getIntArrayAttr(ctx, mulOutShape.raw()));
     rewriter.replaceOp(mulOp, finalReshape.getOutput());
 
     _log.trace("[{0}] Replaced outer product Multiply with MatMul at '{1}'", getDebugName(), origLoc);
@@ -729,9 +729,8 @@ IE::AffineReshapeOp PropagateTransposeRewriter::createNewReshapeOp(BranchInfo& i
                                                                    mlir::PatternRewriter& rewriter) const {
     const auto newReshapeOutShapeAttr = getIntArrayAttr(rewriter.getContext(), inputBranch.newReshapeOutShape);
     const auto newReshapeMapAttr = getIntArrayOfArray(rewriter.getContext(), inputBranch.newAffineMapping);
-    return rewriter.create<IE::AffineReshapeOp>(appendLoc(inputBranch.reshapeOp->getLoc(), "reshape_input"),
-                                                inputBranch.transposeOp.getInput(), newReshapeMapAttr,
-                                                newReshapeOutShapeAttr);
+    return IE::AffineReshapeOp::create(rewriter, appendLoc(inputBranch.reshapeOp->getLoc(), "reshape_input"),
+                                       inputBranch.transposeOp.getInput(), newReshapeMapAttr, newReshapeOutShapeAttr);
 }
 
 mlir::LogicalResult PropagateTransposeRewriter::matchAndRewrite(IE::ReduceSumOp origOp,
@@ -779,13 +778,14 @@ mlir::LogicalResult PropagateTransposeRewriter::matchAndRewrite(IE::ReduceSumOp 
     auto in1NewReshapeOp = createNewReshapeOp(inputBranch1Info, rewriter);
     auto in2NewReshapeOp = createNewReshapeOp(inputBranch2Info, rewriter);
 
-    auto newMultiply = rewriter.create<IE::MultiplyOp>(
-            appendLoc(mulOp->getLoc(), "multiply_in"), in1NewReshapeOp.getOutput(), in2NewReshapeOp.getOutput(),
-            mulOp.getAutoBroadcastAttr(), mulOp.getPostOpAttr(), mulOp.getClampAttr(), nullptr, nullptr);
+    auto newMultiply =
+            IE::MultiplyOp::create(rewriter, appendLoc(mulOp->getLoc(), "multiply_in"), in1NewReshapeOp.getOutput(),
+                                   in2NewReshapeOp.getOutput(), mulOp.getAutoBroadcastAttr(), mulOp.getPostOpAttr(),
+                                   mulOp.getClampAttr(), nullptr, nullptr);
 
     const auto newAxesAttr = getIntArrayAttr(ctx, ArrayRef<int64_t>{inputBranch1Info.newAxis});
-    auto newReduceSumOp = rewriter.create<IE::ReduceSumOp>(appendLoc(origLoc, "changed"), newMultiply.getOutput(),
-                                                           newAxesAttr, origOp.getKeepDimsAttr(), nullptr, nullptr);
+    auto newReduceSumOp = IE::ReduceSumOp::create(rewriter, appendLoc(origLoc, "changed"), newMultiply.getOutput(),
+                                                  newAxesAttr, origOp.getKeepDimsAttr(), nullptr, nullptr);
 
     rewriter.replaceOp(origOp, newReduceSumOp.getOutput());
 
@@ -945,15 +945,15 @@ mlir::LogicalResult CumSumToMatMulRewriter::matchAndRewrite(IE::CumSumOp origOp,
     const auto toLastPermMap = mlir::AffineMap::getPermutationMap(toLastPerm, ctx);
     mlir::Value transposed = origOp.getInput();
     if (!toLastPermMap.isIdentity()) {
-        transposed = rewriter.create<IE::TransposeOp>(appendLoc(origLoc, "axis_to_last"), origOp.getInput(), nullptr,
-                                                      mlir::AffineMapAttr::get(toLastPermMap))
+        transposed = IE::TransposeOp::create(rewriter, appendLoc(origLoc, "axis_to_last"), origOp.getInput(), nullptr,
+                                             mlir::AffineMapAttr::get(toLastPermMap))
                              .getOutput();
     }
 
     // Step 2: Reshape to [1, batch*trailing, L].
     const SmallVector<int64_t> flatShape = {1, batchSize * trailingSize, L};
-    auto reshapedInput = rewriter.create<IE::ReshapeOp>(appendLoc(origLoc, "input_reshape"), transposed,
-                                                        getIntArrayAttr(ctx, flatShape));
+    auto reshapedInput = IE::ReshapeOp::create(rewriter, appendLoc(origLoc, "input_reshape"), transposed,
+                                               getIntArrayAttr(ctx, flatShape));
 
     // Step 3: Build triangular weight [L, L] and MatMul.
     const bool exclusive = origOp.getExclusive();
@@ -961,8 +961,8 @@ mlir::LogicalResult CumSumToMatMulRewriter::matchAndRewrite(IE::CumSumOp origOp,
     mlir::Value matmulWeight =
             buildTriangularWeights(rewriter, origLoc, L, inputType.getElementType(), exclusive, reverse);
 
-    auto matmulOp = rewriter.create<IE::MatMulOp>(appendLoc(origLoc, "cumsum_as_matmul"), reshapedInput.getOutput(),
-                                                  matmulWeight, /*transposeA=*/false, /*transposeB=*/false);
+    auto matmulOp = IE::MatMulOp::create(rewriter, appendLoc(origLoc, "cumsum_as_matmul"), reshapedInput.getOutput(),
+                                         matmulWeight, /*transposeA=*/false, /*transposeB=*/false);
 
     // Step 4: Reshape back to pre-transpose shape.
     SmallVector<int64_t> preTransposeShape;
@@ -972,15 +972,15 @@ mlir::LogicalResult CumSumToMatMulRewriter::matchAndRewrite(IE::CumSumOp origOp,
         }
     }
     preTransposeShape.push_back(L);
-    auto outReshape = rewriter.create<IE::ReshapeOp>(appendLoc(origLoc, "output_reshape"), matmulOp.getOutput(),
-                                                     getIntArrayAttr(ctx, preTransposeShape));
+    auto outReshape = IE::ReshapeOp::create(rewriter, appendLoc(origLoc, "output_reshape"), matmulOp.getOutput(),
+                                            getIntArrayAttr(ctx, preTransposeShape));
 
     // Step 5: Transpose back to original axis position.
     mlir::Value result = outReshape.getOutput();
     if (!toLastPermMap.isIdentity()) {
         const auto invPermMap = mlir::inversePermutation(toLastPermMap);
-        result = rewriter.create<IE::TransposeOp>(appendLoc(origLoc, "axis_restore"), result, nullptr,
-                                                  mlir::AffineMapAttr::get(invPermMap))
+        result = IE::TransposeOp::create(rewriter, appendLoc(origLoc, "axis_restore"), result, nullptr,
+                                         mlir::AffineMapAttr::get(invPermMap))
                          .getOutput();
     }
 

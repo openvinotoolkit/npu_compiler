@@ -220,17 +220,17 @@ mlir::LogicalResult configureODU(const Logger& log, ODUConfig& config, const NDT
 mlir::LogicalResult buildODUConfig(mlir::OpBuilder& builder, const mlir::Location& loc, const Logger& log,
                                    const ODUConfig& config, mlir::Value outAct, mlir::Value outSparsityMap) {
     // ODUOutTensorSize
-    builder.create<ODUOutTensorSizeOp>(loc, config.outTensorSize.dimX, config.outTensorSize.dimY,
-                                       config.outTensorSize.dimZ);
+    ODUOutTensorSizeOp::create(builder, loc, config.outTensorSize.dimX, config.outTensorSize.dimY,
+                               config.outTensorSize.dimZ);
 
     // ODUDataReuse
     if (config.dataReuse.activationReuse != ODUActivationReuseMode::NTHW_1) {
-        builder.create<ODUDataReuseOp>(loc, config.dataReuse.activationReuse);
+        ODUDataReuseOp::create(builder, loc, config.dataReuse.activationReuse);
     }
 
     // ODUPermuteData
     if (config.permuteData.permuteMode != ODUPermuteDataMode::PERMUTE_ZXY) {
-        builder.create<ODUPermuteDataOp>(loc, config.permuteData.permuteMode);
+        ODUPermuteDataOp::create(builder, loc, config.permuteData.permuteMode);
     }
 
     // ODUSparsity
@@ -243,25 +243,25 @@ mlir::LogicalResult buildODUConfig(mlir::OpBuilder& builder, const mlir::Locatio
         if (config.sparsity.sparseValue.has_value() && config.sparsity.sparseValue.value()) {
             sparseValue = builder.getI64IntegerAttr(config.sparsity.sparseValue.value());
         }
-        builder.create<ODUSparsityOp>(loc, outSparsityMap, nullptr, sparseValue);
+        ODUSparsityOp::create(builder, loc, outSparsityMap, nullptr, sparseValue);
     }
 
     // ODUSwizzleData
     if (config.swizzleData.swizzleKey != DPUSwizzleKey::SWIZZLE_OFF) {
-        builder.create<ODUSwizzleDataOp>(loc, config.swizzleData.swizzleKey);
+        ODUSwizzleDataOp::create(builder, loc, config.swizzleData.swizzleKey);
     }
 
     // ODUOutActivations
     if (config.outActivations.dataWidth.has_value()) {
         auto dataWidthAttr = ODUDataBitWidthAttr::get(builder.getContext(), config.outActivations.dataWidth.value());
-        builder.create<ODUOutActivationsOp>(loc, outAct, nullptr, dataWidthAttr);
+        ODUOutActivationsOp::create(builder, loc, outAct, nullptr, dataWidthAttr);
     } else {
-        builder.create<ODUOutActivationsOp>(loc, outAct, nullptr, nullptr);
+        ODUOutActivationsOp::create(builder, loc, outAct, nullptr, nullptr);
     }
 
     // ODUMemoryMode
     if (config.memoryMode.memMode != ODUMemoryMode::MODE_DENSE) {
-        builder.create<ODUMemoryModeOp>(loc, config.memoryMode.memMode);
+        ODUMemoryModeOp::create(builder, loc, config.memoryMode.memMode);
     }
 
     // ODUCmxPorts

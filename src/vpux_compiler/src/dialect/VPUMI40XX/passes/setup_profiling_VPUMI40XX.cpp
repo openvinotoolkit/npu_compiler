@@ -55,8 +55,8 @@ private:
                 {dmaSection.getSize() / 4}, getUInt32Type(ctx), DimsOrder::C, VPURT::BufferSection::ProfilingOutput));
         const auto profilingOutputType = getMemRefType(outputType.getShape(), outputType.getElementType());
 
-        auto dmaHwpBase = builderFunc.create<VPURT::DeclareBufferOp>(
-                mlir::NameLoc::get(mlir::StringAttr::get(ctx, "dmaHwpBase")), profilingOutputType,
+        auto dmaHwpBase = VPURT::DeclareBufferOp::create(
+                builderFunc, mlir::NameLoc::get(mlir::StringAttr::get(ctx, "dmaHwpBase")), profilingOutputType,
                 VPURT::BufferSection::ProfilingOutput, 0, dmaSection.getOffset());
 
         return dmaHwpBase.getResult();
@@ -76,9 +76,9 @@ private:
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(
                 getMemRefType({dmaProfMem.getByteSize() / 4}, getUInt32Type(ctx), DimsOrder::C, memKind));
 
-        auto dmaHwpBase = builderFunc.create<VPURT::DeclareBufferOp>(
-                mlir::NameLoc::get(mlir::StringAttr::get(ctx, "dmaHwpBase")), outputType, VPURT::BufferSection::DDR,
-                dmaProfMemOffset.value());
+        auto dmaHwpBase = VPURT::DeclareBufferOp::create(
+                builderFunc, mlir::NameLoc::get(mlir::StringAttr::get(ctx, "dmaHwpBase")), outputType,
+                VPURT::BufferSection::DDR, dmaProfMemOffset.value());
 
         return dmaHwpBase.getResult();
     }
@@ -96,8 +96,8 @@ private:
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(getMemRefType(
                 {VPUIP::HW_DMA_PROFILING_SIZE_BYTES_40XX / 4}, getUInt32Type(ctx), DimsOrder::C, memKind));
 
-        auto dmaHwpScratch = builderFunc.create<VPURT::DeclareBufferOp>(
-                mlir::NameLoc::get(mlir::StringAttr::get(ctx, "dmaHwpScratch")), outputType,
+        auto dmaHwpScratch = VPURT::DeclareBufferOp::create(
+                builderFunc, mlir::NameLoc::get(mlir::StringAttr::get(ctx, "dmaHwpScratch")), outputType,
                 VPURT::BufferSection::CMX_NN, 0, dmaProfMemOffset.value());
         return dmaHwpScratch.getResult();
     }
@@ -150,8 +150,8 @@ private:
                 {pllSizeBytes / 4}, getUInt32Type(ctx), DimsOrder::C, VPURT::BufferSection::ProfilingOutput));
         const auto profilingOutputType = getMemRefType(outputType.getShape(), outputType.getElementType());
 
-        auto workpointBase = builderFunc.create<VPURT::DeclareBufferOp>(
-                mlir::NameLoc::get(mlir::StringAttr::get(ctx, "workpointBase")), profilingOutputType,
+        auto workpointBase = VPURT::DeclareBufferOp::create(
+                builderFunc, mlir::NameLoc::get(mlir::StringAttr::get(ctx, "workpointBase")), profilingOutputType,
                 VPURT::BufferSection::ProfilingOutput, 0, captureSection.getOffset());
         auto hwpWorkpointCfg = workpointBase.getResult();
 

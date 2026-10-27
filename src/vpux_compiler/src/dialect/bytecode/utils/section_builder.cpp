@@ -49,7 +49,7 @@ SectionOp getOrCreateSection(mlir::ModuleOp module, mlir::OpBuilder& builder, ml
         }
     }
 
-    return builder.create<SectionOp>(builder.getUnknownLoc(), mlir::StringAttr::get(ctx, sectionName));
+    return SectionOp::create(builder, builder.getUnknownLoc(), mlir::StringAttr::get(ctx, sectionName));
 }
 
 template <typename SectionOp>
@@ -71,14 +71,6 @@ void seedUsedNamesFromSection(SectionOp section, llvm::StringSet<>& used) {
     }
 }
 
-// Printed textual form of an MLIR Type; used as the dedup key for the type section.
-std::string getTypeKey(mlir::Type type) {
-    std::string key;
-    llvm::raw_string_ostream os(key);
-    type.print(os);
-    return key;
-}
-
 }  // namespace
 
 bytecode::StringSectionOp SectionBuilder::getStringSection() {
@@ -96,6 +88,9 @@ bytecode::TypeSectionOp SectionBuilder::getTypeSection() {
         _typeSection = getOrCreateSection<bytecode::TypeSectionOp>(_module, _moduleBuilder, _ctx, TYPE_SECTION_NAME);
         getOrCreateContentBlock(_typeSection);
         seedUsedNamesFromSection<bytecode::TypeOp>(_typeSection, _usedSymNames);
+        for (auto entry : _typeSection.getContent().getOps<bytecode::TypeOp>()) {
+            _typeSymByAttr.try_emplace(entry.getValueAttr(), entry.getSymNameAttr());
+        }
     }
     return _typeSection;
 }
@@ -151,45 +146,44 @@ mlir::StringAttr SectionBuilder::addString(mlir::StringRef value, mlir::StringRe
 
     auto& builder = getStringBuilder();
     auto symName = makeUniqueSymbolName(symBase);
-    builder.create<bytecode::StringOp>(loc, symName, mlir::StringAttr::get(_ctx, value));
+    bytecode::StringOp::create(builder, loc, symName, mlir::StringAttr::get(_ctx, value));
     _stringSymByValue.try_emplace(value, symName);
     return symName;
 }
 
-mlir::StringAttr SectionBuilder::getOrCreateType(mlir::StringRef cacheKey, mlir::StringRef symBase, mlir::Location loc,
-                                                 llvm::function_ref<mlir::Attribute()> makeAttr) {
-    const auto it = _typeSymByKey.find(cacheKey);
-    if (it != _typeSymByKey.end()) {
+mlir::StringAttr SectionBuilder::getOrCreateType(mlir::Attribute typeAttr, mlir::StringRef symBase,
+                                                 mlir::Location loc) {
+    // Seeds _typeSymByAttr from whatever an earlier builder left behind,
+    // so the lookup below sees those entries.
+    getTypeSection();
+
+    if (const auto it = _typeSymByAttr.find(typeAttr); it != _typeSymByAttr.end()) {
         return it->second;
     }
 
     auto& builder = getTypeBuilder();
     auto symName = makeUniqueSymbolName(symBase);
-    builder.create<bytecode::TypeOp>(loc, symName, makeAttr());
-    _typeSymByKey.try_emplace(cacheKey, symName);
+    bytecode::TypeOp::create(builder, loc, symName, typeAttr);
+    _typeSymByAttr.try_emplace(typeAttr, symName);
     return symName;
 }
 
-mlir::StringAttr SectionBuilder::getCachedTypeSymName(mlir::StringRef cacheKey) const {
-    const auto it = _typeSymByKey.find(cacheKey);
-    VPUX_THROW_UNLESS(it != _typeSymByKey.end(), "Type with cache key '{0}' was not registered before it was looked up",
-                      cacheKey);
+mlir::StringAttr SectionBuilder::getCachedTypeSymName(mlir::Type type, mlir::Location loc) {
+    // Seeds _typeSymByAttr from whatever an earlier builder left behind, so an entry already present in the
+    // IR is found even when this builder has not added a type of its own yet.
+    getTypeSection();
+
+    const auto typeAttr = makeTypeAttr(type, loc).first;
+    const auto it = _typeSymByAttr.find(typeAttr);
+    VPUX_THROW_WHEN(it == _typeSymByAttr.end(), "Type '{0}' was not registered before it was looked up", type);
     return it->second;
 }
 
-mlir::StringAttr SectionBuilder::getCachedTypeSymName(mlir::Type type) const {
-    return getCachedTypeSymName(getTypeKey(type));
-}
-
-mlir::StringAttr SectionBuilder::addType(mlir::Type type, mlir::Location loc) {
-    const auto cacheKey = getTypeKey(type);
-
+std::pair<mlir::Attribute, std::string> SectionBuilder::makeTypeAttr(mlir::Type type, mlir::Location loc) {
     if (auto intType = mlir::dyn_cast<mlir::IntegerType>(type)) {
         const auto width = std::to_string(intType.getWidth());
         std::string base = intType.isSigned() ? ("si" + width) : intType.isUnsigned() ? ("ui" + width) : ("i" + width);
-        return getOrCreateType(cacheKey, base, loc, [&]() -> mlir::Attribute {
-            return bytecode::IntegerTypeAttr::get(_ctx, intType.getWidth(), !intType.isUnsigned());
-        });
+        return {bytecode::IntegerTypeAttr::get(_ctx, intType.getWidth(), !intType.isUnsigned()), base};
     }
 
     if (auto floatType = mlir::dyn_cast<mlir::FloatType>(type)) {
@@ -207,13 +201,12 @@ mlir::StringAttr SectionBuilder::addType(mlir::Type type, mlir::Location loc) {
         } else if (format == bytecode::FloatFormat::E2M1) {
             base = "f" + std::to_string(width) + "_e2m1";
         }
-        return getOrCreateType(cacheKey, base, loc, [&]() -> mlir::Attribute {
-            return bytecode::FloatTypeAttr::get(_ctx, floatType.getWidth(), format);
-        });
+        return {bytecode::FloatTypeAttr::get(_ctx, floatType.getWidth(), format), base};
     }
 
     if (auto memrefType = mlir::dyn_cast<mlir::MemRefType>(type)) {
-        // Element type must be registered first so its symbol reference resolves.
+        // The element type's symbol reference has to resolve, and addType is get-or-create, so this returns
+        // the existing entry whenever there is one and only appends for an element type nothing registered yet.
         const auto elementSym = addType(memrefType.getElementType(), loc);
         const auto shape = memrefType.getShape();
         const int64_t rank = memrefType.getRank();
@@ -221,23 +214,22 @@ mlir::StringAttr SectionBuilder::addType(mlir::Type type, mlir::Location loc) {
                           "Bytecode buffer_type rank {0} does not fit in buffer rank type with max {1}", rank,
                           intel_npu::vm::BufferType::MAX_RANK);
         auto strides = getStridesWithStaticZeroOffset(memrefType, "Bytecode buffer_type");
-        return getOrCreateType(cacheKey, "buffer_type", loc, [&]() -> mlir::Attribute {
-            auto elementRef = mlir::FlatSymbolRefAttr::get(elementSym);
-            auto shapeAttr = mlir::DenseI64ArrayAttr::get(_ctx, shape);
-            auto stridesAttr = mlir::DenseI64ArrayAttr::get(_ctx, strides);
-            return bytecode::BufferTypeAttr::get(_ctx, elementRef, rank, shapeAttr, stridesAttr);
-        });
+        auto elementRef = mlir::FlatSymbolRefAttr::get(elementSym);
+        auto shapeAttr = mlir::DenseI64ArrayAttr::get(_ctx, shape);
+        auto stridesAttr = mlir::DenseI64ArrayAttr::get(_ctx, strides);
+        return {bytecode::BufferTypeAttr::get(_ctx, elementRef, rank, shapeAttr, stridesAttr), "buffer_type"};
     }
 
     // Fallback: opaque type with 0 width.
-    return getOrCreateType(cacheKey, "opaque", loc, [&]() -> mlir::Attribute {
-        return bytecode::OpaqueTypeAttr::get(_ctx, 0);
-    });
+    return {bytecode::OpaqueTypeAttr::get(_ctx, 0), "opaque"};
+}
+
+mlir::StringAttr SectionBuilder::addType(mlir::Type type, mlir::Location loc) {
+    const auto [typeAttr, symBase] = makeTypeAttr(type, loc);
+    return getOrCreateType(typeAttr, symBase, loc);
 }
 
 mlir::StringAttr SectionBuilder::addFunctionType(mlir::FunctionType funcType, mlir::Location loc) {
-    const auto cacheKey = getTypeKey(funcType);
-
     SmallVector<mlir::Attribute> argRefs;
     argRefs.reserve(funcType.getNumInputs());
     for (auto argType : funcType.getInputs()) {
@@ -249,10 +241,9 @@ mlir::StringAttr SectionBuilder::addFunctionType(mlir::FunctionType funcType, ml
         resultRefs.push_back(mlir::FlatSymbolRefAttr::get(addType(resultType, loc)));
     }
 
-    return getOrCreateType(cacheKey, "function_type", loc, [&]() -> mlir::Attribute {
-        return bytecode::FunctionTypeAttr::get(_ctx, mlir::ArrayAttr::get(_ctx, argRefs),
-                                               mlir::ArrayAttr::get(_ctx, resultRefs));
-    });
+    auto funcTypeAttr = bytecode::FunctionTypeAttr::get(_ctx, mlir::ArrayAttr::get(_ctx, argRefs),
+                                                        mlir::ArrayAttr::get(_ctx, resultRefs));
+    return getOrCreateType(funcTypeAttr, "function_type", loc);
 }
 
 mlir::StringAttr SectionBuilder::addConstant(mlir::StringRef cacheKey, mlir::StringRef symBase, mlir::Location loc,
@@ -264,7 +255,7 @@ mlir::StringAttr SectionBuilder::addConstant(mlir::StringRef cacheKey, mlir::Str
 
     auto& builder = getConstantBuilder();
     auto symName = makeUniqueSymbolName(symBase);
-    builder.create<bytecode::ConstantOp>(loc, symName, data);
+    bytecode::ConstantOp::create(builder, loc, symName, data);
     _constantSymByKey.try_emplace(cacheKey, symName);
     return symName;
 }
@@ -290,7 +281,7 @@ bool SectionBuilder::isMetadataSectionPopulated() {
 }
 
 mlir::StringAttr SectionBuilder::addType(const ov::element::Type& type, mlir::StringRef symBase, mlir::Location loc) {
-    return getOrCreateType(type.get_type_name(), symBase, loc, [&]() -> mlir::Attribute {
+    const auto typeAttr = [&]() -> mlir::Attribute {
         if (type.is_integral()) {
             return bytecode::IntegerTypeAttr::get(_ctx, type.bitwidth(), type.is_signed());
         }
@@ -299,7 +290,8 @@ mlir::StringAttr SectionBuilder::addType(const ov::element::Type& type, mlir::St
             return bytecode::FloatTypeAttr::get(_ctx, type.bitwidth(), format);
         }
         return bytecode::OpaqueTypeAttr::get(_ctx, 0);
-    });
+    }();
+    return getOrCreateType(typeAttr, symBase, loc);
 }
 
 bytecode::KernelSectionOp SectionBuilder::getKernelSection() {
@@ -325,7 +317,7 @@ mlir::StringAttr SectionBuilder::addKernel(mlir::StringRef symName, mlir::String
     VPUX_THROW_WHEN(mlir::SymbolTable::lookupSymbolIn(kernelSection, symName) != nullptr,
                     "Kernel symbol '{0}' already exists in bytecode.kernel_section", symName);
     auto sym = mlir::StringAttr::get(_ctx, symName);
-    builder.create<bytecode::KernelOp>(loc, sym, mlir::StringAttr::get(_ctx, data));
+    bytecode::KernelOp::create(builder, loc, sym, mlir::StringAttr::get(_ctx, data));
     return sym;
 }
 

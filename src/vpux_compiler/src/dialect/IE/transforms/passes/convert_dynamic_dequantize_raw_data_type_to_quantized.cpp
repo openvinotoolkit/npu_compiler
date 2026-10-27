@@ -4,7 +4,7 @@
 //
 
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -37,7 +37,10 @@ namespace {
 
 class ConvertDQRawDataTypeToQuantized final : public mlir::OpRewritePattern<IE::DynamicDequantizeOp> {
 public:
-    using mlir::OpRewritePattern<IE::DynamicDequantizeOp>::OpRewritePattern;
+    ConvertDQRawDataTypeToQuantized(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::DynamicDequantizeOp>(ctx, benefitLow), _log(log) {
+        this->setDebugName("ConvertDQRawDataTypeToQuantized");
+    }
 
     mlir::LogicalResult matchAndRewrite(IE::DynamicDequantizeOp origOp, mlir::PatternRewriter& rewriter) const final {
         const auto inputElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getElementType();
@@ -50,28 +53,33 @@ public:
 
         const auto storageParams = vpux::getStorageParams(inputElemType);
         if (mlir::failed(storageParams)) {
-            return matchFailed(rewriter, origOp, "unsupported raw element type {0}", inputElemType);
+            return matchFailed(_log, rewriter, origOp, "unsupported raw element type {0}", inputElemType);
         }
 
         const auto [storageMin, storageMax, storageType] = *storageParams;
         if (const auto intType = mlir::dyn_cast<mlir::IntegerType>(storageType)) {
             qFlags = intType.isSigned() ? mlir::quant::QuantizationFlags::Signed : 0;
-        } else if (const auto quantileStorageType = mlir::dyn_cast_if_present<vpux::type::QuantileType>(storageType)) {
+        } else if (const auto quantileStorageType = mlir::dyn_cast_if_present<mlir::quant::QuantileType>(storageType)) {
             qFlags = quantileStorageType.shouldDefaultToSigned() ? mlir::quant::QuantizationFlags::Signed : 0;
-        } else if (!isLowFpType(storageType)) {
-            return matchFailed(rewriter, origOp, "unsupported raw storage type {0}", storageType);
+        } else if (isLowFpType(storageType)) {
+            qFlags = mlir::quant::QuantizationFlags::Signed;
+        } else {
+            return matchFailed(_log, rewriter, origOp, "unsupported raw storage type {0}", storageType);
         }
 
         const auto quantType =
                 mlir::quant::UniformQuantizedType::get(qFlags, storageType, origOp.getDstElemType(),
                                                        /*scale=*/1.0, /*zeroPoint=*/0, storageMin, storageMax);
 
-        auto quantCast = rewriter.create<IE::QuantizeCastOp>(origOp->getLoc(), origOp.getInput(), quantType);
+        auto quantCast = IE::QuantizeCastOp::create(rewriter, origOp->getLoc(), origOp.getInput(), quantType);
         rewriter.modifyOpInPlace(origOp, [&] {
             origOp.getInputMutable().assign(quantCast.getOutput());
         });
         return mlir::success();
     }
+
+private:
+    Logger _log;
 };
 
 //
@@ -93,7 +101,7 @@ void ConvertDQRawDataTypeToQuantizedPass::safeRunOnFunc() {
     auto& ctx = getContext();
 
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<ConvertDQRawDataTypeToQuantized>(&ctx);
+    patterns.add<ConvertDQRawDataTypeToQuantized>(&ctx, _log);
 
     auto func = getOperation();
     collectOpsAndApplyPatterns(func, std::move(patterns));

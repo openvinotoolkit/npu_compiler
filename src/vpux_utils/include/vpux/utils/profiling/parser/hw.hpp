@@ -18,6 +18,7 @@ struct ActShaveData_t {
     uint32_t branchTaken;
     uint32_t reserved32;
 };
+static_assert(sizeof(ActShaveData_t) == 32);
 
 struct ActShaveDataEx_t {
     uint64_t begin;
@@ -28,7 +29,6 @@ struct ActShaveDataEx_t {
     uint32_t lsu1Stalls;
     uint32_t instStalls;
 };
-
 static_assert(sizeof(ActShaveData_t) == sizeof(ActShaveDataEx_t));
 
 // HWP DPU profiling data payload
@@ -41,6 +41,7 @@ struct HwpDpu27Mode0Data_t {
     uint64_t odu_tstamp : 28;
     uint64_t reserved8 : 8;
 };
+static_assert(sizeof(HwpDpu27Mode0Data_t) == 16);
 
 struct HwpDma40Data_t {
     uint64_t desc_addr;
@@ -57,6 +58,7 @@ struct HwpDma40Data_t {
     uint32_t twbytes_cnt;
     uint32_t chcycle_cnt;
 };
+static_assert(sizeof(HwpDma40Data_t) == 64);
 
 struct HwpDpuIduOduData_t {
     uint64_t idu_wl_duration : 32;
@@ -68,6 +70,7 @@ struct HwpDpuIduOduData_t {
     uint64_t odu_dpu_id : 16;
     uint64_t odu_tstamp;
 };
+static_assert(sizeof(HwpDpuIduOduData_t) == 32);
 
 struct DMA27Data_t {
     uint64_t startCycle;
@@ -77,20 +80,4 @@ struct DMA27Data_t {
 struct WorkpointConfiguration_t {
     uint16_t pllMultiplier;
     uint16_t configId;
-};
-
-struct M2IData_t {
-    uint64_t descAddr : 64;
-    uint64_t fetchTime : 64;
-    uint64_t readyTime : 64;
-    uint64_t startTime : 64;
-    uint64_t doneTime : 64;
-    uint64_t finishTime : 64;
-    uint64_t linkAgentID : 8;
-    uint64_t parentID : 8;
-    uint64_t RSVD : 16;
-    uint64_t RStallCount : 16;
-    uint64_t WStallCount : 16;
-    uint64_t WRCycleCount : 32;
-    uint64_t RDCycleCount : 32;
 };

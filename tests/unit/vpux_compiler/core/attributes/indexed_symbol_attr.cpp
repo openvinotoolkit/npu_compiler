@@ -162,7 +162,7 @@ TEST_F(MLIR_IndexedSymbolAttr, CheckExecutorResourceAttr) {
                                         %results_1#0 as %arg4: !async.value<memref<48x1x1x4xsi32, @CMX_NN>>) ->
                                             !async.value<memref<1x48x60x60xf16, {order = #NHWC}, @CMX_NN>>
                                                 attributes { VPUIP.executor = [@NCE, 1, [@DPU]] } {
-                  %5 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+                  %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
                                                 input(%arg2 : memref<1x16x62x62xf16, {order = #NHWC}, @CMX_NN>)
                                                 weights(%arg3 : memref<48x16x3x3xf16, {order = #NHWC}, @CMX_NN>)
                                                 weight_table(%arg4 : memref<48x1x1x4xsi32, @CMX_NN>)

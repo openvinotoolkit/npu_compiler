@@ -2533,16 +2533,16 @@ func.func @AlignInputsLayoutMVN6Op(%inp: tensor<1x1x512x10xf16, {order = #NHWC}>
 
 // CHECK-LABEL: @ReorderWithSwGreaterEqualHasChange
 // CHECK-SAME:  [[INPUT:%.+]]: tensor<1x1x1x1xf32, {order = #NHWC}>
-func.func @ReorderWithSwGreaterEqualHasChange(%arg0: tensor<1x1x1x1xf32, {order = #NHWC}>) -> tensor<1x1x1x1xf32, {order = #NHWC}> {
+func.func @ReorderWithSwGreaterEqualHasChange(%arg0: tensor<1x1x1x1xf32, {order = #NHWC}>) -> tensor<1x1x1x1xi8, {order = #NHWC}> {
     %cst = const.Declare tensor<1x1x1x1xf32> = dense<1.0> : tensor<1xf32>, [#const.Reshape<[1, 1, 1, 1]>]
     %0 = IE.Reorder(%arg0) {dstOrder = #NCHW} : tensor<1x1x1x1xf32, {order = #NHWC}> -> tensor<1x1x1x1xf32>
-    %1 = IE.GreaterEqual(%0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x1x1xf32>
-    %2 = IE.Reorder(%1) {dstOrder = #NHWC} : tensor<1x1x1x1xf32> -> tensor<1x1x1x1xf32, {order = #NHWC}>
-    return %2 : tensor<1x1x1x1xf32, {order = #NHWC}>
+    %1 = IE.GreaterEqual(%0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x1x1xi8>
+    %2 = IE.Reorder(%1) {dstOrder = #NHWC} : tensor<1x1x1x1xi8> -> tensor<1x1x1x1xi8, {order = #NHWC}>
+    return %2 : tensor<1x1x1x1xi8, {order = #NHWC}>
 
     // CHECK-DAG:       [[CST:%.+]]  = const.Declare tensor<1x1x1x1xf32, {order = #NHWC}> = dense<1.000000e+00> : tensor<1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.Reorder<#NHWC>]
-    // CHECK:           [[GREATER_EQUAL:%.+]] = IE.GreaterEqual([[INPUT]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32, {order = #NHWC}>, tensor<1x1x1x1xf32, {order = #NHWC}> -> tensor<1x1x1x1xf32, {order = #NHWC}>
-    // CHECK:           return [[GREATER_EQUAL]] : tensor<1x1x1x1xf32, {order = #NHWC}>
+    // CHECK:           [[GREATER_EQUAL:%.+]] = IE.GreaterEqual([[INPUT]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32, {order = #NHWC}>, tensor<1x1x1x1xf32, {order = #NHWC}> -> tensor<1x1x1x1xi8, {order = #NHWC}>
+    // CHECK:           return [[GREATER_EQUAL]] : tensor<1x1x1x1xi8, {order = #NHWC}>
 }
 
 // -----
@@ -3211,4 +3211,80 @@ func.func @NotOptReorderWithSelectMissingInputReorder(%arg0: tensor<1x16x1x192xf
     // CHECK:     [[REORDER_2:%.+]] = IE.Reorder([[INPUT2]]) {dstOrder = #NCHW} : tensor<1x16x1x192xf16, {order = #NHWC}> -> tensor<1x16x1x192xf16>
     // CHECK:     [[SELECT:%.+]] = IE.Select([[INPUT0]], [[REORDER_1]], [[REORDER_2]])
     // CHECK:     return [[SELECT]] : tensor<1x16x1x192xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @AdjustLayoutForReduceL2WithReorders
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x1x26x4xf16, {order = #NHWC}>
+func.func @AdjustLayoutForReduceL2WithReorders(%arg0: tensor<1x1x26x4xf16, {order = #NHWC}>) -> tensor<1x1x26x1xf16, {order = #NHWC}> {
+    %0 = IE.ReduceL2(%arg0) {axes_value = [3], keep_dims} : tensor<1x1x26x4xf16, {order = #NHWC}> -> tensor<1x1x26x1xf16, {order = #NHWC}>
+    return %0 : tensor<1x1x26x1xf16, {order = #NHWC}>
+
+    // CHECK: [[REORDER_IN:%.+]] = IE.Reorder([[INPUT]]) {dstOrder = #NCHW} : tensor<1x1x26x4xf16, {order = #NHWC}> -> tensor<1x1x26x4xf16>
+    // CHECK: [[REDUCE_OP:%.+]] = IE.ReduceL2([[REORDER_IN]]) {axes_value = [3], keep_dims} : tensor<1x1x26x4xf16> -> tensor<1x1x26x1xf16>
+    // CHECK: [[REORDER_OUT:%.+]] = IE.Reorder([[REDUCE_OP]]) {dstOrder = #NHWC} : tensor<1x1x26x1xf16> -> tensor<1x1x26x1xf16, {order = #NHWC}>
+    // CHECK: return [[REORDER_OUT]] : tensor<1x1x26x1xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NotAdjustLayoutForReduceL2AlreadyInnermost
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x64x32x32xf16, {order = #NHWC}>
+func.func @NotAdjustLayoutForReduceL2AlreadyInnermost(%arg0: tensor<1x64x32x32xf16, {order = #NHWC}>) -> tensor<1x1x32x32xf16, {order = #NHWC}> {
+    %0 = IE.ReduceL2(%arg0) {axes_value = [1], keep_dims} : tensor<1x64x32x32xf16, {order = #NHWC}> -> tensor<1x1x32x32xf16, {order = #NHWC}>
+    return %0 : tensor<1x1x32x32xf16, {order = #NHWC}>
+
+    // CHECK-NOT: IE.Reorder
+    // CHECK: [[REDUCE_OP:%.+]] = IE.ReduceL2([[INPUT]]) {axes_value = [1], keep_dims} : tensor<1x64x32x32xf16, {order = #NHWC}> -> tensor<1x1x32x32xf16, {order = #NHWC}>
+    // CHECK: return [[REDUCE_OP]] : tensor<1x1x32x32xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NotAdjustLayoutForReduceL2SingleNonUnitDim
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x1x1x4xf16, {order = #NHWC}>
+func.func @NotAdjustLayoutForReduceL2SingleNonUnitDim(%arg0: tensor<1x1x1x4xf16, {order = #NHWC}>) -> tensor<1x1x1x1xf16, {order = #NHWC}> {
+    %0 = IE.ReduceL2(%arg0) {axes_value = [3], keep_dims} : tensor<1x1x1x4xf16, {order = #NHWC}> -> tensor<1x1x1x1xf16, {order = #NHWC}>
+    return %0 : tensor<1x1x1x1xf16, {order = #NHWC}>
+
+    // CHECK-NOT: IE.Reorder
+    // CHECK: [[REDUCE_OP:%.+]] = IE.ReduceL2([[INPUT]]) {axes_value = [3], keep_dims} : tensor<1x1x1x4xf16, {order = #NHWC}> -> tensor<1x1x1x1xf16, {order = #NHWC}>
+    // CHECK: return [[REDUCE_OP]] : tensor<1x1x1x1xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#HWC = affine_map<(d0, d1, d2) -> (d1, d2, d0)>
+
+// CHECK-LABEL: @NotAdjustLayoutForReduceL2WithoutKeepDims
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x64x32x32xf16, {order = #NHWC}>
+func.func @NotAdjustLayoutForReduceL2WithoutKeepDims(%arg0: tensor<1x64x32x32xf16, {order = #NHWC}>) -> tensor<1x32x32xf16, {order = #HWC}> {
+    %0 = IE.ReduceL2(%arg0) {axes_value = [1]} : tensor<1x64x32x32xf16, {order = #NHWC}> -> tensor<1x32x32xf16, {order = #HWC}>
+    return %0 : tensor<1x32x32xf16, {order = #HWC}>
+
+    // CHECK-NOT: IE.Reorder
+    // CHECK: [[REDUCE_OP:%.+]] = IE.ReduceL2([[INPUT]]) {axes_value = [1]} : tensor<1x64x32x32xf16, {order = #NHWC}> -> tensor<1x32x32xf16, {order = #HWC}>
+    // CHECK: return [[REDUCE_OP]] : tensor<1x32x32xf16, {order = #HWC}>
+}
+
+// -----
+
+// CHECK-LABEL: @NotAdjustLayoutForReduceL2MultiAxis
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x64x32x32xf16>
+func.func @NotAdjustLayoutForReduceL2MultiAxis(%arg0: tensor<1x64x32x32xf16>) -> tensor<1x1x1x32xf16> {
+    %0 = IE.ReduceL2(%arg0) {axes_value = [1, 2], keep_dims} : tensor<1x64x32x32xf16> -> tensor<1x1x1x32xf16>
+    return %0 : tensor<1x1x1x32xf16>
+
+    // CHECK-NOT: IE.Reorder
+    // CHECK: [[REDUCE_OP:%.+]] = IE.ReduceL2([[INPUT]]) {axes_value = [1, 2], keep_dims} : tensor<1x64x32x32xf16> -> tensor<1x1x1x32xf16>
+    // CHECK: return [[REDUCE_OP]] : tensor<1x1x1x32xf16>
 }

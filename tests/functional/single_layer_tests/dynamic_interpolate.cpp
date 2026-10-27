@@ -201,7 +201,7 @@ TEST_P(InterpolateSAPStaticInputLayerTest, NPU4000_HW) {
 TEST_P(InterpolateSAPStaticInputLayerTest, NPU4000_HC) {
     abs_threshold = 0.0f;
     enableTurbo();
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
@@ -214,7 +214,7 @@ TEST_P(InterpolateSAPStaticInputLayerTest, NPU5010_HW) {
 
 TEST_P(InterpolateSAPStaticInputLayerTest, NPU5010_HC) {
     abs_threshold = 0.0f;
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
@@ -448,7 +448,7 @@ TEST_P(InterpolateSAPDynInputLayerTest, NPU4000_HW) {
 TEST_P(InterpolateSAPDynInputLayerTest, NPU4000_HC) {
     abs_threshold = 0.0f;
     enableTurbo();
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
@@ -461,7 +461,7 @@ TEST_P(InterpolateSAPDynInputLayerTest, NPU5010_HW) {
 
 TEST_P(InterpolateSAPDynInputLayerTest, NPU5010_HC) {
     abs_threshold = 0.0f;
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU5010);
 }

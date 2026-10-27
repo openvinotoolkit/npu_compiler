@@ -106,8 +106,8 @@ VPU::SparsityRemovalFlag VPU::shouldRemoveOutputSparsity(mlir::Operation* op) {
             return SparsityRemovalFlag::SOKMissingFail;
         }
 
-        VPUX_THROW_UNLESS(sparseOutputType.getSparsityMap() != nullptr, "Missing sparsity map from sparse type {0}",
-                          sparseOutputType);
+        VPUX_THROW_WHEN(sparseOutputType.getSparsityMap() == nullptr, "Missing sparsity map from sparse type {0}",
+                        sparseOutputType);
         VPUX_THROW_UNLESS(sparseOutputType.getStorageElementTable() == nullptr,
                           "Dynamically populated storage element table is not supported");
 

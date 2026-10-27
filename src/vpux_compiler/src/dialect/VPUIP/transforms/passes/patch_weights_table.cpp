@@ -102,8 +102,8 @@ void PatchWeightsTablePass::safeRunOnFunc() {
         }
 
         auto [cstOp, wtDecBuffer, cstLoadOp] = getWeightsTableLoadingChainOps(nceOp);
-        VPUX_THROW_UNLESS(cstOp != nullptr, "Couldn't find Weight Table Declare Op");
-        VPUX_THROW_UNLESS(cstLoadOp != nullptr, "Couldn't find Dma Op for Weight Table");
+        VPUX_THROW_WHEN(cstOp == nullptr, "Couldn't find Weight Table Declare Op");
+        VPUX_THROW_WHEN(cstLoadOp == nullptr, "Couldn't find Dma Op for Weight Table");
         _log.nest().trace("Operation loading weight table '{0}' '{1}'", cstLoadOp->getName(), cstLoadOp->getLoc());
         // On top of existing transformation a new transformation is added to the content attribute
         // of weight table const. The new transformation will patch offsets in this constant
@@ -136,7 +136,7 @@ void PatchWeightsTablePass::safeRunOnFunc() {
                                     .get();
         mlir::OpBuilder builder(cstOp);
         auto newConstOp =
-                builder.create<Const::DeclareOp>(cstOp.getLoc(), cstOp.getOutput().getType(), std::move(newConstAttr));
+                Const::DeclareOp::create(builder, cstOp.getLoc(), cstOp.getOutput().getType(), std::move(newConstAttr));
         cstLoadOp->setOperand(0, newConstOp.getOutput());
         if (cstOp->getUses().empty()) {
             cstOp.erase();
@@ -223,7 +223,7 @@ PatchWeightsTablePass::getWeightsTableLoadingChainOps(vpux::VPUIP::NCEClusterTas
     auto rootBuffers = aliasInfo.getRoots(wTable);
     const auto rootBuffer = *rootBuffers.begin();
     auto wtDecBuf = rootBuffer.getDefiningOp<VPURT::DeclareBufferOp>();
-    VPUX_THROW_UNLESS(wtDecBuf != nullptr, "DeclareBufferOp expected as a weight_table parent");
+    VPUX_THROW_WHEN(wtDecBuf == nullptr, "DeclareBufferOp expected as a weight_table parent");
 
     if (nceOp->hasAttr(vpux::ConstantFusing::constantsFused)) {
         mlir::Operation* op = nullptr;
@@ -234,7 +234,7 @@ PatchWeightsTablePass::getWeightsTableLoadingChainOps(vpux::VPUIP::NCEClusterTas
     mlir::Value inputBuffer;
     // Get operation that loads weights table to CMX for NCE Task
     auto* cstLoadOp = getLoadOpForDstBuffer(wtDecBuf.getResult());
-    VPUX_THROW_UNLESS(cstLoadOp != nullptr, "Operation loading weight table expected, but not located");
+    VPUX_THROW_WHEN(cstLoadOp == nullptr, "Operation loading weight table expected, but not located");
 
     // Get the constant definition op whose content will be patched
     inputBuffer = cstLoadOp->getOperand(0);
@@ -243,7 +243,7 @@ PatchWeightsTablePass::getWeightsTableLoadingChainOps(vpux::VPUIP::NCEClusterTas
     // Need to resolve it and update this DMA to have const as input directly
     while (cstOp == nullptr) {
         cstLoadOp = getLoadOpForDstBuffer(inputBuffer);
-        VPUX_THROW_UNLESS(cstLoadOp != nullptr, "Next DMA op as source operation expected");
+        VPUX_THROW_WHEN(cstLoadOp == nullptr, "Next DMA op as source operation expected");
 
         inputBuffer = cstLoadOp->getOperand(0);
         cstOp = inputBuffer.getDefiningOp<Const::DeclareOp>();

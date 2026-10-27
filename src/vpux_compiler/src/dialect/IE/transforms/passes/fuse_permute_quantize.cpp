@@ -203,9 +203,9 @@ mlir::LogicalResult FusePermuteQuantizeBase::matchAndRewrite(IE::ReorderOp origO
     const auto permQuantElemType = mlir::cast<vpux::NDTypeInterface>(permQuantOutType).getElementType();
     const auto dstElemTypeAttr = mlir::TypeAttr::get(permQuantElemType);
     const auto permQuantLoc = takeOpLoc(origOp, "PermuteQuantize");
-    auto permuteQuantizeOp = rewriter.create<IE::PermuteQuantizeOp>(
-            permQuantLoc, permQuantOutType, origOp.getInput(), origOp.getDstOrderAttr(), memPermAttr, dstElemTypeAttr,
-            getIntArrayAttr(ctx, noPadBeginEnd), getIntArrayAttr(ctx, noPadBeginEnd));
+    auto permuteQuantizeOp = IE::PermuteQuantizeOp::create(
+            rewriter, permQuantLoc, permQuantOutType, origOp.getInput(), origOp.getDstOrderAttr(), memPermAttr,
+            dstElemTypeAttr, getIntArrayAttr(ctx, noPadBeginEnd), getIntArrayAttr(ctx, noPadBeginEnd));
 
     replaceByNewOp(opNce, permuteQuantizeOp.getOutput(), rewriter);
 

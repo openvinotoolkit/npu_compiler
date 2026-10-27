@@ -216,6 +216,9 @@ size_t calculateSplitDMACost(VPUIP::DMATypeOpInterface dmaOp, const std::shared_
 
     auto inputShape = inputType.getShape();
     auto [firstPartSize, secondPartSize] = VPUIP::getSplitPartSizes(inputType, tileDim);
+    if (firstPartSize <= 0 || secondPartSize <= 0) {
+        return COST_MAX;
+    }
     SmallVector<int64_t> splitShape = to_small_vector(inputShape);
     splitShape[tileDim.ind()] = secondPartSize;
 

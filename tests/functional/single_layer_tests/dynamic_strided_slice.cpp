@@ -123,6 +123,7 @@ TEST_P(DynamicStridedSliceLayerTest, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(DynamicStridedSliceLayerTest, NPU5020_HW) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();
@@ -291,6 +292,7 @@ TEST_F(StridedSliceWithDynamicInputLayerTest, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_F(StridedSliceWithDynamicInputLayerTest, NPU5020_HW) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();

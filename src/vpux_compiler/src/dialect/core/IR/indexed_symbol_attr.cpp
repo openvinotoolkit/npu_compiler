@@ -41,11 +41,11 @@ bool vpux::IndexedSymbolAttr::classof(mlir::Attribute attr) {
 }
 
 IndexedSymbolAttr vpux::IndexedSymbolAttr::get(mlir::MLIRContext* context, ArrayRef<mlir::Attribute> array) {
-    VPUX_THROW_UNLESS(!array.empty(), "Can not create empty indexed symbol attribute");
+    VPUX_THROW_WHEN(array.empty(), "Can not create empty indexed symbol attribute");
 
     if (array.size() == 1) {
         auto flatSymbolRef = mlir::dyn_cast_or_null<mlir::FlatSymbolRefAttr>(array[0]);
-        VPUX_THROW_UNLESS(flatSymbolRef != nullptr, "Unsupported symbol attr type '{0}'", array[0]);
+        VPUX_THROW_WHEN(flatSymbolRef == nullptr, "Unsupported symbol attr type '{0}'", array[0]);
 
         return mlir::cast<vpux::IndexedSymbolAttr>(flatSymbolRef);
     }

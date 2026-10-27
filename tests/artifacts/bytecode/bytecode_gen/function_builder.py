@@ -139,6 +139,28 @@ class FunctionBuilder:
         operands = self._reg(dst) + self._reg(buffer) + self._counted_regs(index_regs)
         return self._emit(OpCode.BUFFER_LOAD, operands)
 
+    def buffer_from_const(
+        self,
+        dst: int,
+        constant_index: int,
+        elem_type: int,
+        shape_regs: list[int],
+        stride_regs: list[int],
+    ) -> FunctionBuilder:
+        if len(shape_regs) != len(stride_regs):
+            raise ValueError("buffer_from_const expects shape_regs and stride_regs with equal length")
+        operands = (
+            self._reg(dst)
+            + _i16(constant_index)
+            + _i16(elem_type)
+            + self._counted_regs(shape_regs)
+            + self._regs(stride_regs)
+        )
+        return self._emit(OpCode.BUFFER_FROM_CONST, operands)
+
+    def buffer_copy(self, dst: int, src: int) -> FunctionBuilder:
+        return self._emit(OpCode.BUFFER_COPY, self._reg(dst) + self._reg(src))
+
     def _emit(self, opcode: OpCode, operands: bytes = b"") -> FunctionBuilder:
         self._fn.instructions.append(_Instruction(opcode=int(opcode), operands=operands))
         return self

@@ -133,7 +133,7 @@ SmallVector<mlir::Value> reifyTiles(VPU::TilingBuilderOpInterface origOp, const 
     auto inputTiling = origOp.backInferTileInfo(outputTile, log);
     auto& inTiles = inputTiling.tiles;
 
-    VPUX_THROW_UNLESS(!inTiles.empty(), "Got empty tile information");
+    VPUX_THROW_WHEN(inTiles.empty(), "Got empty tile information");
 
     mlir::IRMapping mapper;
     for (auto p : origOp->getOperands() | indexed) {
@@ -183,10 +183,10 @@ mlir::LogicalResult applyTileStrategy(VPU::TilingBuilderOpInterface origOp, cons
 
     auto resultTileValues = SmallVector<SmallVector<mlir::Value>>(results.size());
     auto resultTileOffsets = SmallVector<SmallVector<Shape>>(results.size());
-
-    for (const auto& outputTile : tiles) {
-        auto tiledResults = reifyTiles(origOp, outputTile, rewriter, log);
-        const auto outputTiling = origOp.getOutputTiling(outputTile, log);
+    const auto tileCoordinates = getTileCoordinates(tiles);
+    for (const auto& [tileIndex, mainOutputTile] : tiles | indexed) {
+        auto tiledResults = reifyTiles(origOp, mainOutputTile, rewriter, log);
+        const auto outputTiling = origOp.getOutputTiling(mainOutputTile, log);
         VPUX_THROW_UNLESS(results.size() == outputTiling.size(),
                           "Number of results '{0}' doesn't match with number of output tiles '{1}' at '{2}'",
                           results.size(), outputTiling.size(), origOp->getLoc());
@@ -205,7 +205,14 @@ mlir::LogicalResult applyTileStrategy(VPU::TilingBuilderOpInterface origOp, cons
 
             tiledResult.setType(resultDenseTile);
 
-            copyLoopAttributes(origOp, tiledResult.getDefiningOp());
+            if (i == 0) {
+                auto* tiledOp = tiledResult.getDefiningOp();
+                copyLoopAttributes(origOp, tiledOp);
+                if (tiledOp->hasAttr(TILING_LOOP_INDEX_ATTR_NAME) || tiledOp->hasAttr(VF_LOOP_INDEX_ATTR_NAME)) {
+                    tiledOp->setAttr(LOOP_TILE_COORD,
+                                     getTileCoordinateAttr(origOp->getContext(), tileCoordinates[tileIndex]));
+                }
+            }
 
             resultTileValues[i].push_back(tiledResult);
             resultTileOffsets[i].push_back(outputTiling[i].offsets);
@@ -234,7 +241,7 @@ mlir::LogicalResult applyTileStrategy(VPU::TilingBuilderOpInterface origOp, cons
         auto resultType = origOp->getResult(i).getType();
         auto tileValues = mlir::ValueRange(resultTileValues[i]);
         auto tileOffsets = ArrayRef(resultTileOffsets[i]);
-        auto concatOp = rewriter.create<VPU::ConcatOp>(origOp->getLoc(), resultType, tileValues, tileOffsets);
+        auto concatOp = VPU::ConcatOp::create(rewriter, origOp->getLoc(), resultType, tileValues, tileOffsets);
         resultValues.push_back(concatOp.getOutput());
     }
 

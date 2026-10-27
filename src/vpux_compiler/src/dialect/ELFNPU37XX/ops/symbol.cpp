@@ -28,10 +28,10 @@ mlir::Operation* getParentSectionOp(mlir::Value val) {
 
         return val.getParentRegion()->getParentOp();
     }
-    VPUX_THROW_UNLESS(op != nullptr, "Both user and producer operation can't be found.");
+    VPUX_THROW_WHEN(op == nullptr, "Both user and producer operation can't be found.");
 
     auto region = op->getParentRegion();
-    VPUX_THROW_UNLESS(region != nullptr, "Unlinked ops are unsupported");
+    VPUX_THROW_WHEN(region == nullptr, "Unlinked ops are unsupported");
 
     return region->getParentOp();
 }
@@ -72,7 +72,7 @@ void vpux::ELFNPU37XX::SymbolOp::serialize(elf::writer::Symbol* symbol, vpux::EL
             if (mlir::isa<mlir::func::FuncOp>(parentSection)) {
                 parentSection = nullptr;
             } else {
-                VPUX_THROW_UNLESS(parentSection != nullptr, "Could not find valid parent section for op");
+                VPUX_THROW_WHEN(parentSection == nullptr, "Could not find valid parent section for op");
             }
         }
     }
@@ -84,7 +84,7 @@ void vpux::ELFNPU37XX::SymbolOp::serialize(elf::writer::Symbol* symbol, vpux::EL
 
     if (parentSection != nullptr) {
         auto sectionMapEntry = sectionMap.find(parentSection);
-        VPUX_THROW_UNLESS(sectionMapEntry != sectionMap.end(), "Unable to find section entry for SymbolOp");
+        VPUX_THROW_WHEN(sectionMapEntry == sectionMap.end(), "Unable to find section entry for SymbolOp");
         auto sectionEntry = sectionMapEntry->second;
 
         symbol->setRelatedSection(sectionEntry);

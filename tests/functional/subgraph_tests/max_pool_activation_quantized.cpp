@@ -8,6 +8,7 @@
 
 #include "common/quantization_utils.hpp"
 
+#include "openvino/op/convolution.hpp"
 #include "openvino/op/max_pool.hpp"
 
 namespace ov::test {
@@ -20,11 +21,28 @@ struct MaxPoolQuantParams {
 using MaxPoolWithActivationQuantTestParams = std::tuple<utils::ActivationTypes, MaxPoolQuantParams>;
 using MaxPoolWithSwishQuantTestParams = std::tuple<float, MaxPoolQuantParams>;
 
+// A bare MaxPool cannot host the sprlut activation + output clamp; a quantized 1x1 Convolution
+// hosts them as PPE so the FakeQuantize is not stripped as a boundary Quantize/Dequantize
+inline ov::Output<ov::Node> buildQuantizedConv(const ov::Output<ov::Node>& input) {
+    const auto channels = input.get_shape().at(1);
+    const auto wShape = ov::Shape{channels, channels, 1, 1};
+    auto weights =
+            ov::op::v0::Constant::create(ov::element::f16, wShape, std::vector<float>(ov::shape_size(wShape), 0.5f))
+                    ->get_default_output();
+    weights = utils::makeFakeQuantize(weights, ov::element::f16, 256, FakeQuantizeParams({0.f}, {0.5f}, {0.f}, {0.5f}))
+                      ->get_default_output();
+    return std::make_shared<ov::op::v1::Convolution>(input, weights, ov::Strides{1, 1}, ov::CoordinateDiff{0, 0},
+                                                     ov::CoordinateDiff{0, 0}, ov::Strides{1, 1})
+            ->get_default_output();
+}
+
 //      [input]
 //         |
 //    FakeQuantize (optional)
 //         |
 //      MaxPool
+//         |
+//    Convolution (hosts activation + output quant as PPE)
 //         |
 //     Activation
 //         |
@@ -36,8 +54,7 @@ class MaxPoolWithActivationQuantizedTest :
         public VpuOv2LayerTest,
         public testing::WithParamInterface<MaxPoolWithActivationQuantTestParams> {
     void configure_model() override {
-        // #E-210493 - to remove quant-dequant-removal=false when proper solution is found
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-sprlut=true quant-dequant-removal=false";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-sprlut=true";
     }
 
     void SetUp() override {
@@ -55,6 +72,8 @@ class MaxPoolWithActivationQuantizedTest :
         }
 
         lastOutput = buildMaxPool(lastOutput);
+
+        lastOutput = buildQuantizedConv(lastOutput);
 
         lastOutput = activationType == utils::Swish
                              ? utils::make_activation(lastOutput, ov::element::f16, activationType, ov::Shape{}, {1.f})
@@ -106,8 +125,7 @@ class MaxPoolWithSwishQuantizedTest :
         public VpuOv2LayerTest,
         public testing::WithParamInterface<MaxPoolWithSwishQuantTestParams> {
     void configure_model() override {
-        // #E-210493 - to remove quant-dequant-removal=false when proper solution is found
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-sprlut=true quant-dequant-removal=false";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-sprlut=true";
     }
 
     void SetUp() override {
@@ -125,6 +143,8 @@ class MaxPoolWithSwishQuantizedTest :
         }
 
         lastOutput = buildMaxPool(lastOutput);
+
+        lastOutput = buildQuantizedConv(lastOutput);
 
         lastOutput = utils::make_activation(lastOutput, ov::element::f16, utils::Swish, ov::Shape{}, {beta});
 
@@ -179,6 +199,7 @@ TEST_P(MaxPoolWithSwishQuantizedTest, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(MaxPoolWithActivationQuantizedTest, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
@@ -195,7 +216,8 @@ const std::vector<utils::ActivationTypes> activations = {utils::Tanh, utils::Sig
 const std::vector<float> betas = {1.0f, 1.7f, 10.0f};
 
 const std::vector<MaxPoolQuantParams> quantParams = {
-        MaxPoolQuantParams{FakeQuantizeParams({0.f}, {100.f}, {0.f}, {100.f}), std::nullopt},
+        MaxPoolQuantParams{FakeQuantizeParams({0.f}, {50.f}, {0.f}, {50.f}),
+                           FakeQuantizeParams({-1.f}, {1.f}, {-1.f}, {1.f})},
         MaxPoolQuantParams{std::nullopt, FakeQuantizeParams({-1.f}, {1.f}, {-1.f}, {1.f})},
         MaxPoolQuantParams{FakeQuantizeParams({0.f}, {100.f}, {0.f}, {100.f}),
                            FakeQuantizeParams({-1.f}, {1.f}, {-1.f}, {1.f})},

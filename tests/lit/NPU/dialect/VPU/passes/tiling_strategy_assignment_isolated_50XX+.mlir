@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --tiling-strategy-assignment="tiling-mode=ISOLATED" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --reserve-profiling-mem="dma-profiling=true" --tiling-strategy-assignment="tiling-mode=ISOLATED" %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -736,7 +736,7 @@ module @NCEConvolutionWithoutSprLUTFitIntoCMX {
 
 module @NCEConvolutionWithSprLUTDoesntFitIntoCMX {
     config.Resources 3 of @NCE at 6.000000e+02 MHz {
-        config.MemoryResource 2107664 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.MemoryResource 2106640 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
     func.func @main(%input: tensor<1x16x256x128xf16, {order = #NHWC}>, %weights: tensor<16x16x1x1xf16, {order = #NHWC}>) -> tensor<1x16x256x128xf16, {order = #NHWC}> {
         %0 = VPU.NCE.Convolution(%input, %weights) rawFilterShape [16, 16, 1, 1] {resultSegmentSizes = array<i32: 1, 0, 0, 0>,

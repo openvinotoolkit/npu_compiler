@@ -54,8 +54,8 @@ struct PPEConfig {
 mlir::FailureOr<PPETask> evalPPETasks(const Logger& log, mlir::Region& ppeRegion);
 mlir::LogicalResult buildPPEConfig(mlir::OpBuilder& builder, const mlir::Location& loc, const Logger& log,
                                    const PPEConfig& config, mlir::Value weightsTable, bool hasBypassOp = true);
-mlir::LogicalResult configurePPE(PPEConfig& config, mlir::Type outDataType, const vpux::NDTypeInterface& inActType,
-                                 VPUIP::NCETaskType dpuTaskType, const arch50xx::PPE::PPETask& ppeTask,
-                                 bool isWeightTableProvided, bool isSprLookUpTableProvided);
+mlir::LogicalResult configurePPE(PPEConfig& config, mlir::Type outDataType, VPUIP::NCETaskType dpuTaskType,
+                                 const arch50xx::PPE::PPETask& ppeTask, bool isWeightTableProvided,
+                                 bool isSprLookUpTableProvided);
 
 }  // namespace vpux::VPUIPDPU::arch50xx::PPE

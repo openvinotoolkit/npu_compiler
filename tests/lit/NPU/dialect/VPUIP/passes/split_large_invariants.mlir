@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --platform=%platform% --split-large-invariants="max-variant-count=8"  %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --platform=%platform% --split-large-invariants="max-variant-count=4"  %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -20,7 +20,7 @@ module @SplitLargeInvariants attributes {config.compilationMode = #config.compil
     %wait = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %update = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     VPURT.Task waits(%wait: !VPURT.Barrier) updates(%update: !VPURT.Barrier) {
-        %0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],

@@ -133,7 +133,7 @@ mlir::LogicalResult LayerRewriter::matchAndRewrite(IE::ClampOp origOp, mlir::Pat
         clampMax = getFPAttr(rewriter, newMax);
     }
 
-    auto newClampOp = rewriter.create<IE::ClampOp>(origOp->getLoc(), parentOp->getOperand(0), clampMin, clampMax);
+    auto newClampOp = IE::ClampOp::create(rewriter, origOp->getLoc(), parentOp->getOperand(0), clampMin, clampMax);
     mlir::IRMapping mapper;
     mapper.map(parentOp->getOperand(0), newClampOp.getOutput());
     auto newOp = rewriter.clone(*parentOp, mapper);

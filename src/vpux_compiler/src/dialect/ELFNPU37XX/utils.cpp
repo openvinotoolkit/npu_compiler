@@ -115,7 +115,7 @@ vpux::ELFNPU37XX::ElfSectionInterface vpux::ELFNPU37XX::RelocationManager::getSe
         return section->second;
     }
 
-    VPUX_THROW_UNLESS(funcOp_ != nullptr, "Relocation Manager is not initialized with a mlir::func::FuncOp");
+    VPUX_THROW_WHEN(funcOp_ == nullptr, "Relocation Manager is not initialized with a mlir::func::FuncOp");
 
     auto parent = value.getDefiningOp();
     if (parent->hasTrait<vpux::ELFNPU37XX::ElfSectionInterface::Trait>()) {
@@ -140,7 +140,7 @@ vpux::ELFNPU37XX::ElfSectionInterface vpux::ELFNPU37XX::RelocationManager::getSe
 }
 
 vpux::ELFNPU37XX::CreateSymbolTableSectionOp vpux::ELFNPU37XX::RelocationManager::getCMXSymTab() {
-    VPUX_THROW_UNLESS(cmxMappingSymTab_ != nullptr, "Relocation Manager: CMX Mapping SymTab not init!");
+    VPUX_THROW_WHEN(cmxMappingSymTab_ == nullptr, "Relocation Manager: CMX Mapping SymTab not init!");
     return cmxMappingSymTab_;
 }
 
@@ -150,14 +150,14 @@ vpux::ELFNPU37XX::CreateSymbolTableSectionOp vpux::ELFNPU37XX::RelocationManager
         return section->second;
     }
 
-    VPUX_THROW_UNLESS(funcOp_ != nullptr, "Relocation Manager is not initialized with a mlir::func::FuncOp");
+    VPUX_THROW_WHEN(funcOp_ == nullptr, "Relocation Manager is not initialized with a mlir::func::FuncOp");
 
     auto binaryOp = mlir::dyn_cast<vpux::ELFNPU37XX::BinaryOpInterface>(value.getDefiningOp());
 
     if (binaryOp != nullptr) {
         auto memSpace = binaryOp.getMemorySpace();
         if (memSpace == VPURT::BufferSection::CMX_NN || memSpace == VPURT::BufferSection::Register) {
-            VPUX_THROW_UNLESS(cmxMappingSymTab_ != nullptr, "RelocManager: cmxMappingSymTab is not init!");
+            VPUX_THROW_WHEN(cmxMappingSymTab_ == nullptr, "RelocManager: cmxMappingSymTab is not init!");
             symTabMap_[value] = cmxMappingSymTab_;
             return cmxMappingSymTab_;
         }
@@ -211,7 +211,7 @@ vpux::ELFNPU37XX::CreateSymbolTableSectionOp vpux::ELFNPU37XX::RelocationManager
 
 vpux::ELFNPU37XX::CreateRelocationSectionOp vpux::ELFNPU37XX::RelocationManager::getRelocSection(
         vpux::ELFNPU37XX::ElfSectionInterface section, vpux::ELFNPU37XX::CreateSymbolTableSectionOp symTab) {
-    VPUX_THROW_UNLESS(funcOp_ != nullptr, "Relocation Manager is not initialized with a mlir::func::FuncOp");
+    VPUX_THROW_WHEN(funcOp_ == nullptr, "Relocation Manager is not initialized with a mlir::func::FuncOp");
 
     // for some reason, can't construct an interface object from opaque pointer. So will use the result as the key
     // for the map
@@ -225,8 +225,8 @@ vpux::ELFNPU37XX::CreateRelocationSectionOp vpux::ELFNPU37XX::RelocationManager:
     auto builder = mlir::OpBuilder::atBlockTerminator(&funcOp_.getBody().front());
 
     std::string secName = std::string(".rlt") + section.getName().str();
-    auto newRelocation = builder.create<vpux::ELFNPU37XX::CreateRelocationSectionOp>(
-            section.getLoc(),
+    auto newRelocation = vpux::ELFNPU37XX::CreateRelocationSectionOp::create(
+            builder, section.getLoc(),
             vpux::ELFNPU37XX::SectionType::get(builder.getContext()),  // mlir::Type
             llvm::StringRef(secName),                                  // llvm::StringRef secName
             symTab.getResult(),                                        // sourceSymbolTalbeSection

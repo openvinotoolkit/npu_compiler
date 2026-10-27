@@ -5,9 +5,9 @@
 
 #pragma once
 
-#include <mlir/IR/Types.h>
+#include <llvm/ADT/SmallVector.h>
+#include <cstdint>
 #include <memory>
-#include "vpux/utils/core/helper_macros.hpp"
 
 namespace vpux {
 namespace VPU {
@@ -25,6 +25,7 @@ struct RegisterConfig {
     llvm::SmallVector<uint32_t> getDPURegisterAddrs() const;
     uint32_t getNCEBarrierFifoAddr() const;
     uint32_t getNCEBarrierFifoDepth() const;
+    uint32_t getBarrierFifoDummyEntry() const;
 
 private:
     struct Concept {
@@ -33,6 +34,7 @@ private:
         virtual llvm::SmallVector<uint32_t> getDPURegisterAddrs() const = 0;
         virtual uint32_t getNCEBarrierFifoAddr() const = 0;
         virtual uint32_t getNCEBarrierFifoDepth() const = 0;
+        virtual uint32_t getBarrierFifoDummyEntry() const = 0;
     };
 
     template <typename T>
@@ -50,6 +52,9 @@ private:
         }
         uint32_t getNCEBarrierFifoDepth() const override {
             return self.getNCEBarrierFifoDepth();
+        }
+        uint32_t getBarrierFifoDummyEntry() const override {
+            return self.getBarrierFifoDummyEntry();
         }
         T self;
     };

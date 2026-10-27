@@ -18,7 +18,7 @@ mlir::LogicalResult insertEntryBlock(mlir::OpBuilder& builder, mlir::Block* bloc
                                      const Logger& log) {
     builder.setInsertionPointToEnd(block);
 
-    auto cfgOp = builder.create<CfgOp>(loc);
+    auto cfgOp = CfgOp::create(builder, loc);
     auto& region = cfgOp.getOperation()->getRegion(0);
     auto entryBlock = builder.createBlock(&region);
 
@@ -174,9 +174,9 @@ DPUInvariantRewriter::DPUInvariantRewriter(
 }
 mlir::LogicalResult DPUInvariantRewriter::matchAndRewrite(VPUASM::DPUInvariantOp op,
                                                           mlir::PatternRewriter& rewriter) const {
-    auto inv = rewriter.create<VPUIPDPU::DPUInvariantOp>(
-            op.getLoc(), op.getSymNameAttr(), op.getTaskIndexAttr(), op.getTaskLocationAttr(), op.getInputAttr(),
-            op.getInputSparsityMapAttr(), op.getInputStorageElementTableAttr(), op.getWeightsAttr(),
+    auto inv = VPUIPDPU::DPUInvariantOp::create(
+            rewriter, op.getLoc(), op.getSymNameAttr(), op.getTaskIndexAttr(), op.getTaskLocationAttr(),
+            op.getInputAttr(), op.getInputSparsityMapAttr(), op.getInputStorageElementTableAttr(), op.getWeightsAttr(),
             op.getWeightsSparsityMapAttr(), op.getWeightTableAttr(), op.getWeightTableDataPtrAttr(),
             op.getWeightTableScaleAttr(), op.getSprLookupTableAttr(), op.getPalletLookupTableAttr(), op.getOutputAttr(),
             op.getOutputSparsityMapAttr(), op.getProfilingDataAttr(), op.getIsZeroOffsetWeightsTable(),
@@ -240,10 +240,10 @@ mlir::LogicalResult DPUInvariantRewriter::matchAndRewrite(VPUASM::DPUInvariantOp
         }
     }
 
-    rewriter.create<VPUIPDPU::BarrierCfgOp>(op.getLoc(), op.getWaitBarriers(), op.getUpdateBarriers(),
-                                            op.getStartAfterAttr(), op.getCleanAfterAttr());
+    VPUIPDPU::BarrierCfgOp::create(rewriter, op.getLoc(), op.getWaitBarriers(), op.getUpdateBarriers(),
+                                   op.getStartAfterAttr(), op.getCleanAfterAttr());
 
-    rewriter.create<VPUIPDPU::DPUGroupOp>(op.getLoc(), op.getIndexType(), op.getVariantCount());
+    VPUIPDPU::DPUGroupOp::create(rewriter, op.getLoc(), op.getIndexType(), op.getVariantCount());
 
     rewriter.eraseOp(op);
 

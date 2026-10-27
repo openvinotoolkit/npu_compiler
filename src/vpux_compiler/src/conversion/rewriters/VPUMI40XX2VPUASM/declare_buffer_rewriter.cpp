@@ -36,7 +36,7 @@ mlir::FailureOr<SymbolizationResult> DeclareBufferRewriter::symbolize(VPURT::Dec
         auto memref = mlir::cast<mlir::MemRefType>(result.getType());
         auto traits = VPUASM::BufferTraitsType::get(ctx, op.getSwizzlingKey().value_or(0));
         auto buffType = VPUASM::BufferType::get(ctx, memLocation, memref, traits);
-        auto newDeclareBufOp = rewriter.create<VPUASM::DeclareBufferOp>(op.getLoc(), symName, buffType);
+        auto newDeclareBufOp = VPUASM::DeclareBufferOp::create(rewriter, op.getLoc(), symName, buffType);
         operation = newDeclareBufOp.getOperation();
         if (auto offsets = op->getAttr(vpux::viewOffsetsAttrName)) {
             newDeclareBufOp->setAttr(vpux::viewOffsetsAttrName, offsets);
@@ -47,7 +47,7 @@ mlir::FailureOr<SymbolizationResult> DeclareBufferRewriter::symbolize(VPURT::Dec
         mlir::OpBuilder::InsertionGuard guard(rewriter);
         rewriter.startOpModification(op);
         rewriter.setInsertionPointAfter(op);
-        rewriter.create<VPUASM::SymbolizeValueOp>(op.getLoc(), result, symName);
+        VPUASM::SymbolizeValueOp::create(rewriter, op.getLoc(), result, symName);
         rewriter.finalizeOpModification(op);
     }
 

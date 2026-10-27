@@ -70,7 +70,7 @@ std::optional<SmallVector<double>> VPU::getNCEInterpolateScales(NDTypeInterface 
                        return static_cast<double>(outSize) / static_cast<double>(inSize);
                    });
 
-    VPUX_THROW_UNLESS(coordModeAttr != nullptr, "CoordMode attribute is None");
+    VPUX_THROW_WHEN(coordModeAttr == nullptr, "CoordMode attribute is None");
     if (coordModeAttr.getValue() == IE::InterpolateCoordMode::ALIGN_CORNERS) {
         const auto inputShape = to_small_vector(inputType.getShape());
         const auto outputShape = to_small_vector(outputType.getShape());
@@ -93,8 +93,8 @@ std::optional<SmallVector<double>> VPU::getNCEInterpolateScales(NDTypeInterface 
 SmallVector<int64_t> VPU::getNCEInterpolateFactors(ArrayRef<double> scales, VPU::NCEInterpolateModeAttr modeAttr,
                                                    IE::InterpolateCoordModeAttr coordModeAttr) {
     VPUX_THROW_UNLESS(scales.size() == 4, "Scales should have rank 4, but got rank {0}", scales.size());
-    VPUX_THROW_UNLESS(modeAttr != nullptr, "Mode attribute is None");
-    VPUX_THROW_UNLESS(coordModeAttr != nullptr, "CoordMode attribute is None");
+    VPUX_THROW_WHEN(modeAttr == nullptr, "Mode attribute is None");
+    VPUX_THROW_WHEN(coordModeAttr == nullptr, "CoordMode attribute is None");
 
     const auto mode = modeAttr.getValue();
     const auto coordMode = coordModeAttr.getValue();
@@ -120,8 +120,8 @@ SmallVector<int64_t> VPU::getNCEInterpolateFactors(ArrayRef<double> scales, VPU:
 SmallVector<int64_t> VPU::getNCEInterpolatePadsBegin(ArrayRef<double> scales, VPU::NCEInterpolateModeAttr modeAttr,
                                                      IE::InterpolateCoordModeAttr coordModeAttr) {
     VPUX_THROW_UNLESS(scales.size() == 4, "Scales should have rank 4, but got rank {0}", scales.size());
-    VPUX_THROW_UNLESS(modeAttr != nullptr, "Mode attribute is None");
-    VPUX_THROW_UNLESS(coordModeAttr != nullptr, "CoordMode attribute is None");
+    VPUX_THROW_WHEN(modeAttr == nullptr, "Mode attribute is None");
+    VPUX_THROW_WHEN(coordModeAttr == nullptr, "CoordMode attribute is None");
 
     const auto mode = modeAttr.getValue();
     const auto coordMode = coordModeAttr.getValue();
@@ -156,8 +156,8 @@ SmallVector<int64_t> VPU::getNCEInterpolatePadsBegin(ArrayRef<double> scales, VP
 SmallVector<int64_t> VPU::getNCEInterpolatePadsEnd(ArrayRef<double> scales, VPU::NCEInterpolateModeAttr modeAttr,
                                                    IE::InterpolateCoordModeAttr coordModeAttr) {
     VPUX_THROW_UNLESS(scales.size() == 4, "Scales should have rank 4, but got rank {0}", scales.size());
-    VPUX_THROW_UNLESS(modeAttr != nullptr, "Mode attribute is None");
-    VPUX_THROW_UNLESS(coordModeAttr != nullptr, "CoordMode attribute is None");
+    VPUX_THROW_WHEN(modeAttr == nullptr, "Mode attribute is None");
+    VPUX_THROW_WHEN(coordModeAttr == nullptr, "CoordMode attribute is None");
 
     const auto mode = modeAttr.getValue();
     const auto coordMode = coordModeAttr.getValue();
@@ -192,8 +192,8 @@ SmallVector<int64_t> VPU::getNCEInterpolatePadsEnd(ArrayRef<double> scales, VPU:
 SmallVector<int64_t> VPU::getNCEInterpolateKernelSize(ArrayRef<double> scales, VPU::NCEInterpolateModeAttr modeAttr,
                                                       IE::InterpolateCoordModeAttr coordModeAttr) {
     VPUX_THROW_UNLESS(scales.size() == 4, "Scales should have rank 4, but got rank {0}", scales.size());
-    VPUX_THROW_UNLESS(modeAttr != nullptr, "Mode attribute is None");
-    VPUX_THROW_UNLESS(coordModeAttr != nullptr, "CoordMode attribute is None");
+    VPUX_THROW_WHEN(modeAttr == nullptr, "Mode attribute is None");
+    VPUX_THROW_WHEN(coordModeAttr == nullptr, "CoordMode attribute is None");
 
     const auto mode = modeAttr.getValue();
     const auto coordMode = coordModeAttr.getValue();
@@ -227,8 +227,8 @@ SmallVector<int64_t> VPU::getNCEInterpolateKernelSize(ArrayRef<double> scales, V
 SmallVector<int64_t> VPU::getNCEInterpolateStrides(ArrayRef<double> scales, VPU::NCEInterpolateModeAttr modeAttr,
                                                    IE::InterpolateCoordModeAttr coordModeAttr) {
     VPUX_THROW_UNLESS(scales.size() == 4, "Scales should have rank 4, but got rank {0}", scales.size());
-    VPUX_THROW_UNLESS(modeAttr != nullptr, "Mode attribute is None");
-    VPUX_THROW_UNLESS(coordModeAttr != nullptr, "CoordMode attribute is None");
+    VPUX_THROW_WHEN(modeAttr == nullptr, "Mode attribute is None");
+    VPUX_THROW_WHEN(coordModeAttr == nullptr, "CoordMode attribute is None");
 
     const auto mode = modeAttr.getValue();
     const auto coordMode = coordModeAttr.getValue();

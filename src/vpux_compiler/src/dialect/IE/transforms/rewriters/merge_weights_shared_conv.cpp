@@ -266,7 +266,7 @@ mlir::LogicalResult MergeWeightsSharedConv::matchAndRewrite(IE::ConvolutionOp or
         for (auto user : filter.getUsers()) {
             auto conv = mlir::dyn_cast<IE::ConvolutionOp>(user);
             if (conv == nullptr) {
-                return matchFailed(rewriter, origOp, "Weights are shared with non-Conv Op");
+                return matchFailed(_log, rewriter, origOp, "Weights are shared with non-Conv Op");
             }
             if (conv.getFilter() == filter && conv.getInput() != filter && conv.getBias() != filter) {
                 convOps.push_back(conv);
@@ -275,23 +275,23 @@ mlir::LogicalResult MergeWeightsSharedConv::matchAndRewrite(IE::ConvolutionOp or
     }
 
     if (convOps.size() < 2) {
-        return matchFailed(rewriter, origOp, "Weights shared convolution less than 2");
+        return matchFailed(_log, rewriter, origOp, "Weights shared convolution less than 2");
     }
 
     if (!isBeneficialToMerge(convOps)) {
-        return matchFailed(rewriter, origOp, "Not beneficial to merge");
+        return matchFailed(_log, rewriter, origOp, "Not beneficial to merge");
     }
 
     if (!isSupportedConv(convOps)) {
-        return matchFailed(rewriter, origOp, "Convolution don't have same parameter");
+        return matchFailed(_log, rewriter, origOp, "Convolution don't have same parameter");
     }
 
     if (!isHConcatable(convOps)) {
-        return matchFailed(rewriter, origOp, "Convolution is not H concatable");
+        return matchFailed(_log, rewriter, origOp, "Convolution is not H concatable");
     }
 
     if (!doesConvHaveSameUser(convOps)) {
-        return matchFailed(rewriter, origOp, "Convolution don't have same user");
+        return matchFailed(_log, rewriter, origOp, "Convolution don't have same user");
     }
 
     // If conv input is slicing from the same parent, then we can sort the conv to make them sliced
@@ -303,8 +303,8 @@ mlir::LogicalResult MergeWeightsSharedConv::matchAndRewrite(IE::ConvolutionOp or
     for (auto conv : convOps) {
         convInputs.push_back(conv.getInput());
     }
-    auto inputConcat = rewriter.create<IE::ConcatOp>(appendLoc(origOp->getLoc(), "concat_input"),
-                                                     mlir::ValueRange(convInputs), Dims4D::Act::H);
+    auto inputConcat = IE::ConcatOp::create(rewriter, appendLoc(origOp->getLoc(), "concat_input"),
+                                            mlir::ValueRange(convInputs), Dims4D::Act::H);
 
     for (auto input : convInputs) {
         if (!mlir::isa<mlir::BlockArgument>(input) && inputConcat->isBeforeInBlock(input.getDefiningOp())) {
@@ -330,9 +330,9 @@ mlir::LogicalResult MergeWeightsSharedConv::matchAndRewrite(IE::ConvolutionOp or
         Shape offsets(outShape.size());
         offsets[Dims4D::Act::H] = offset;
         offset += outShape[Dims4D::Act::H];
-        auto slice = rewriter.create<IE::SliceOp>(appendLoc(origOp->getLoc(), "slice_{0}", p.index()),
-                                                  newConv.getOutput(), getIntArrayAttr(rewriter.getContext(), offsets),
-                                                  getIntArrayAttr(rewriter.getContext(), outShape.raw()));
+        auto slice = IE::SliceOp::create(rewriter, appendLoc(origOp->getLoc(), "slice_{0}", p.index()),
+                                         newConv.getOutput(), getIntArrayAttr(rewriter.getContext(), offsets),
+                                         getIntArrayAttr(rewriter.getContext(), outShape.raw()));
         sliceOps.push_back(slice);
     }
 

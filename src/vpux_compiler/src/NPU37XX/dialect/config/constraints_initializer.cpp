@@ -19,6 +19,7 @@ void config::ConstraintsInitializer37XX::initialize(mlir::MLIRContext* context) 
     constraints.mappedInferenceFormat = NPUConstraints::MappedInferenceFormat::MappedInference;
 
     constraints.maxKernelSize = arch37xx::DPU_MAX_KERNEL_SIZE;
+    constraints.legalRoPEConfigs = getDefaultLegalRoPEConfigs();
 
     setNPUConstraints(context, constraints);
 }

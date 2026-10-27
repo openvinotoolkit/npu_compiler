@@ -84,8 +84,8 @@ void applyClusteringOffset(VPU::DPUWorkloadOp dpuWorkloadOp, ArrayRef<int64_t> c
     }
 
     mlir::OpBuilder builder(dpuWorkloadOp);
-    auto newWorkload = builder.create<VPU::DPUWorkloadOp>(
-            dpuWorkloadOp.getLoc(), mlir::DenseI64ArrayAttr::get(dpuWorkloadOp.getContext(), wlOffsets),
+    auto newWorkload = VPU::DPUWorkloadOp::create(
+            builder, dpuWorkloadOp.getLoc(), mlir::DenseI64ArrayAttr::get(dpuWorkloadOp.getContext(), wlOffsets),
             dpuWorkloadOp.getStaticOutSizesAttr(), dpuWorkloadOp.getStaticInOffsetsAttr(),
             dpuWorkloadOp.getStaticInSizesAttr(), dpuWorkloadOp.getPadAttribute(), dpuWorkloadOp.getMpeModeAttr(),
             dpuWorkloadOp.getClusterIdAttr());

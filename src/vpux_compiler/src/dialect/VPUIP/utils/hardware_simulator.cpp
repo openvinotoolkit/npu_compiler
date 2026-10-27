@@ -112,7 +112,7 @@ HardwareSimulator::HardwareSimulator(int64_t dmaCount, ArrayRef<VPUIP::DmaChanne
 HardwareSimulator::Slot HardwareSimulator::findNextAvailableSlot(const FIFOType& fifoType,
                                                                  size_t requiredExecutorCount) const {
     const auto it = _FIFOs.find(fifoType);
-    VPUX_THROW_UNLESS(it != _FIFOs.end(), "No FIFO of type {0} found!", fifoType);
+    VPUX_THROW_WHEN(it == _FIFOs.end(), "No FIFO of type {0} found!", fifoType);
     const auto [cycle, executorMask] = it->second.findNextAvailableSlot(requiredExecutorCount);
     return {cycle, executorMask};
 }
@@ -131,7 +131,7 @@ void HardwareSimulator::insertStall(size_t cycleBegin, size_t cycleCost) {
 
 HardwareSimulator::ScheduledOpInfo HardwareSimulator::getScheduledOpInfo(OpIndex opIndex) const {
     const auto it = _scheduledOpInfos.find(opIndex);
-    VPUX_THROW_UNLESS(it != _scheduledOpInfos.end(), "OpIndex {0} is not scheduled!", opIndex);
+    VPUX_THROW_WHEN(it == _scheduledOpInfos.end(), "OpIndex {0} is not scheduled!", opIndex);
     return ScheduledOpInfo{it->second->cycleBegin, it->second->cycleCost, it->second->executorMask};
 }
 }  // namespace vpux::VPUIP::scheduling::simulator

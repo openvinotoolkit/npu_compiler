@@ -112,6 +112,7 @@ TEST_P(MvnInternalReshapeTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(MvnInternalReshapeTestCommon, NPU5020_HW) {
     rel_threshold = 0.01;
     setDefaultHardwareMode();

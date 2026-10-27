@@ -172,7 +172,8 @@ void ConvertVPUMI40XX2VPUASMPass::safeRunOnModule() {
         // instead of lowering some operation VPUMI40XX -> VPUASM with symbol name
         // lower VPUMI40XX::OpRanges -> mlir::func::ReturnOp with no arguments
         auto opRanges = mlir::cast<VPUMI40XX::OpRanges>(netFunc.getBlocks().front().getTerminator());
-        mlir::OpBuilder(opRanges).create<mlir::func::ReturnOp>(opRanges.getLoc());
+        mlir::OpBuilder opRangesBuilder(opRanges);
+        mlir::func::ReturnOp::create(opRangesBuilder, opRanges.getLoc());
         opRanges.erase();
     }
 

@@ -25,11 +25,9 @@ constexpr mlir::StringLiteral orderName = "order";
 constexpr mlir::StringLiteral stridesName = "strides";
 constexpr mlir::StringLiteral boundsName = "bounds";
 constexpr mlir::StringLiteral allocSizeName = "allocSize";
+constexpr mlir::StringLiteral offsetName = "offset";
 constexpr mlir::StringLiteral coreAttributesNames[] = {
-        allocSizeName,
-        boundsName,
-        orderName,
-        stridesName,
+        allocSizeName, boundsName, offsetName, orderName, stridesName,
 };
 
 /// Returns whether attr is a core attribute of MemRefAttr, that is, an
@@ -53,6 +51,16 @@ std::string standardizeMemRefKey(mlir::StringRef key) {
     auto result = key.str();
     result[0] = std::tolower(result[0]);
     return result;
+}
+
+// The offset field is only ever present when explicitly set to a non-zero (or dynamic) value via
+// MemRefAttr::setOffset; its absence always means static zero.
+int64_t getOffsetOrZero(const vpux::MemRefAttr& desc) {
+    auto offsetAttr = desc.offset();
+    if (offsetAttr == nullptr) {
+        return 0;
+    }
+    return offsetAttr.getValue().getSExtValue();
 }
 
 using NamedHwFields = mlir::SmallVector<mlir::NamedAttribute, vpux::MemRefAttr::maxCountOfHwSpecificFields>;
@@ -120,6 +128,13 @@ bool MemRefAttr::classof(mlir::Attribute attr) {
         return false;
     }
 
+    auto offset = derived.get(offsetName);
+    if (offset == nullptr) {
+        ++numAbsentCoreAttrs;
+    } else if (!isSignlessInt64(offset)) {
+        return false;
+    }
+
     const auto isValidHwSpecificField = [](const mlir::NamedAttribute& attr) {
         if (isCoreAttribute(attr)) {
             return false;
@@ -165,7 +180,7 @@ MemRefAttr MemRefAttr::get(mlir::AffineMapAttr order, mlir::ArrayAttr strides, m
 
     fields.append(makeNamedHwSpecificFields(context, hwFields));
 
-    return mlir::dyn_cast<MemRefAttr>(mlir::DictionaryAttr::get(context, fields));
+    return mlir::cast<MemRefAttr>(mlir::DictionaryAttr::get(context, fields));
 }
 
 mlir::AffineMapAttr MemRefAttr::order() const {
@@ -198,6 +213,30 @@ BoundsRef MemRefAttr::bounds() const {
     return BoundsRef(mlir::cast<Const::OpaqueI64ElementsAttr>(bounds).getValue());
 }
 
+mlir::IntegerAttr MemRefAttr::offset() const {
+    auto offset = DictionaryAttr::get(offsetName);
+    if (offset == nullptr) {
+        return nullptr;
+    }
+    return mlir::cast<mlir::IntegerAttr>(offset);
+}
+
+MemRefAttr MemRefAttr::addOffset(int64_t offset) const {
+    auto* context = getContext();
+
+    SmallVector<mlir::NamedAttribute, MemRefAttr::maxCountOfHwSpecificFields + std::size(coreAttributesNames)> fields(
+            *this | vpux::filtered([](const mlir::NamedAttribute& attr) {
+                return attr.getName() != offsetName;
+            }));
+
+    if (offset != 0) {
+        auto offsetId = mlir::StringAttr::get(context, offsetName);
+        fields.emplace_back(offsetId, mlir::IntegerAttr::get(vpux::getInt64Type(context), offset));
+    }
+
+    return mlir::cast<MemRefAttr>(mlir::DictionaryAttr::get(context, fields));
+}
+
 MemRefAttr::HwFields MemRefAttr::hwSpecificFields() const {
     return MemRefAttr::HwFields(*this | vpux::filtered(std::not_fn(isCoreAttribute)) |
                                 vpux::transformed([](const mlir::NamedAttribute& attr) {
@@ -225,11 +264,16 @@ mlir::AffineMap MemRefAttrLayout::getAffineMap(mlir::Attribute attr) const {
 
     const auto orderMap = desc.order().getValue();
     if (!desc.strides()) {
+        // Offset is set, but in this case it would be dropped; the check below prevents silently losing it.
+        VPUX_THROW_WHEN(desc.offset() != nullptr,
+                        "MemRefAttr '{0}' has an offset but no strides: cannot build an "
+                        "affine map that reflects the offset without a shape",
+                        attr);
         return orderMap;
     }
 
     const auto elemStrides = parseIntArrayAttr<int64_t>(desc.strides());
-    const auto stridesMap = mlir::makeStridedLinearLayoutMap(elemStrides, 0, attr.getContext());
+    const auto stridesMap = mlir::makeStridedLinearLayoutMap(elemStrides, getOffsetOrZero(desc), attr.getContext());
 
     return stridesMap.compose(orderMap);
 }
@@ -245,12 +289,20 @@ mlir::LogicalResult MemRefAttrLayout::verifyLayout(mlir::Attribute attr, ArrayRe
         return printTo(emitError(), "Dims order '{0}' is not a permutation affine map", desc.order());
     }
 
+    if (desc.order().getValue().getNumDims() != shape.size()) {
+        return printTo(emitError(), "Dims order '{0}' rank does not match shape '{1}' rank", desc.order(), shape);
+    }
+
     if (auto stridesAttr = desc.strides()) {
         const auto order = DimsOrder::fromAffineMap(desc.order().getValue());
 
         const auto elemStrides = parseIntArrayAttr<int64_t>(stridesAttr);
 
-        const auto memShape = order.toMemoryOrder(ShapeRef(shape));
+        ShapeRef effectiveShape{shape};
+        if (!desc.bounds().empty() && ShapeRef(shape).isDynamic()) {
+            effectiveShape = ShapeRef(desc.bounds().raw());
+        }
+        const auto memShape = order.toMemoryOrder(effectiveShape);
 
         const auto elemSize = 1_Bit;
         const auto strides = Strides(to_small_vector(elemStrides | transformed([&](int64_t stride) {
@@ -290,6 +342,51 @@ mlir::LogicalResult MemRefAttrLayout::verifyLayout(mlir::Attribute attr, ArrayRe
             }
         }
     }
+
+    return mlir::success();
+}
+
+mlir::LogicalResult MemRefAttrLayout::getStridesAndOffset(mlir::Attribute attr, mlir::ArrayRef<int64_t> shape,
+                                                          llvm::SmallVectorImpl<int64_t>& strides,
+                                                          int64_t& offset) const {
+    const auto desc = mlir::dyn_cast<vpux::MemRefAttr>(attr);
+    if (desc == nullptr) {
+        return mlir::failure();
+    }
+
+    offset = getOffsetOrZero(desc);
+
+    // Note: this is the exact same as MemRefNDTypeInterface::getStrides() but
+    // without being able to produce strides in bytes as element size is
+    // unknown (perhaps it has to be recorded in the MemRefAttr?).
+
+    if (auto stridesAttr = desc.strides()) {
+        strides = parseIntArrayAttr<int64_t>(stridesAttr);
+        return mlir::success();
+    }
+
+    // For dynamic shapes, either explicit strides or per-dimension upper bounds must be provided on the MemRefAttr,
+    // because compact strides cannot be derived from the dynamic shape alone.
+    if (ShapeRef(shape).isDynamic() && desc.bounds().empty()) {
+        return mlir::failure();
+    }
+    auto effectiveShape = ShapeRef(shape);
+    if (!desc.bounds().empty()) {
+        effectiveShape = ShapeRef(desc.bounds().raw());
+    }
+
+    const auto order = DimsOrder::fromAffineMap(desc.order().getValue());
+    const auto memShape = order.toMemoryOrder(effectiveShape);
+    MemStrides memStrides;
+    StrideReqs::compact(order.numDims()).calcStrides(memStrides, vpux::Bit(1), memShape);
+    const auto logicalStrides = order.toLogicalOrder(memStrides);
+
+    strides.resize(logicalStrides.size());
+    std::transform(logicalStrides.begin(), logicalStrides.end(), strides.begin(), [](vpux::Bit value) {
+        // Note: as we don't know the element size, "bits" here are effectively
+        // the same as "units".
+        return value.count();
+    });
 
     return mlir::success();
 }

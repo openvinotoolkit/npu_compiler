@@ -568,13 +568,13 @@ mlir::LogicalResult SplitMemPermuteAndDynamicDequantizeOp::matchAndRewrite(VPU::
     SmallVector<VPU::SliceOp> sliceOps;
     for (auto sliceProducerUser : sliceProducer->getUsers()) {
         auto sliceOp = mlir::dyn_cast<VPU::SliceOp>(sliceProducerUser);
-        VPUX_THROW_UNLESS(sliceOp != nullptr, "Expected Slice user for '{0}' at '{1}', got '{2}'",
-                          sliceProducer->getName(), sliceProducer->getLoc(), sliceProducerUser->getName());
+        VPUX_THROW_WHEN(sliceOp == nullptr, "Expected Slice user for '{0}' at '{1}', got '{2}'",
+                        sliceProducer->getName(), sliceProducer->getLoc(), sliceProducerUser->getName());
         sliceOps.push_back(sliceOp);
     }
 
-    VPUX_THROW_UNLESS(!sliceOps.empty(), "Expected Slice users for '{0}' at '{1}'", sliceProducer->getName(),
-                      sliceProducer->getLoc());
+    VPUX_THROW_WHEN(sliceOps.empty(), "Expected Slice users for '{0}' at '{1}'", sliceProducer->getName(),
+                    sliceProducer->getLoc());
 
     const auto firstSliceInShape = getShape(sliceOps.front().getInput());
     const auto firstSliceOutShape = getShape(sliceOps.front().getResult());
@@ -658,7 +658,7 @@ mlir::LogicalResult SplitMemPermuteAndDynamicDequantizeOp::matchAndRewrite(VPU::
         offsets[tiledAxis] = tile.offsets[Dim(tiledAxis)];
         sizes[tiledAxis] = tile.shape[Dim(tiledAxis)];
 
-        return rewriter.create<VPU::SliceOp>(loc, value, offsets, sizes);
+        return VPU::SliceOp::create(rewriter, loc, value, offsets, sizes);
     };
 
     for (const auto& rewriteInfoIt : rewriteInfos | indexed) {
@@ -695,8 +695,8 @@ mlir::LogicalResult SplitMemPermuteAndDynamicDequantizeOp::matchAndRewrite(VPU::
                                                  appendLoc(sliceOp.getLoc(), "_dequantize_zp_{0}", index));
 
         auto newDequantizeOp =
-                rewriter.create<VPU::DynamicDequantizeOp>(appendLoc(origOp.getLoc(), "_c_tile_{0}", index), inputSlice,
-                                                          scaleSlice, zeroPointSlice, origOp.getDstElemTypeAttr());
+                VPU::DynamicDequantizeOp::create(rewriter, appendLoc(origOp.getLoc(), "_c_tile_{0}", index), inputSlice,
+                                                 scaleSlice, zeroPointSlice, origOp.getDstElemTypeAttr());
         if (origOp.getMultiClusterStrategyAttr() != nullptr) {
             newDequantizeOp.setMultiClusterStrategyAttr(origOp.getMultiClusterStrategyAttr());
         }

@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/config/constraints.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
@@ -24,13 +25,6 @@ using namespace vpux;
 
 namespace {
 
-struct RoPEConfig final {
-    int64_t channel;
-    int64_t width;
-};
-
-static const SmallVector<RoPEConfig> LEGAL_ROPE_CONFIGS = {{32, 128}, {1, 128}, {40, 128}, {8, 256},  {1, 256},
-                                                           {4, 256},  {1, 64},  {64, 64},  {16, 128}, {2, 128}};
 //
 // FuseRoPEPass
 //
@@ -259,12 +253,14 @@ mlir::LogicalResult fuseRoPEPattern(IE::AddOp addOp, mlir::PatternRewriter& rewr
     if (shape[Dims4D::Act::H] == unsupportedH) {
         const auto channel = shape[Dims4D::Act::C];
         const auto width = shape[Dims4D::Act::W];
+        const auto& legalRoPEConfigs = config::getNPUConstraints(addOp->getContext()).legalRoPEConfigs;
 
-        const auto it =
-                std::find_if(LEGAL_ROPE_CONFIGS.begin(), LEGAL_ROPE_CONFIGS.end(), [&](const RoPEConfig& config) {
-                    return config.channel == channel && config.width == width;
-                });
-        if (it == LEGAL_ROPE_CONFIGS.end()) {
+        const auto it = std::find_if(legalRoPEConfigs.begin(), legalRoPEConfigs.end(), [&](const auto& config) {
+            return config.channel == channel && config.width == width;
+        });
+        if (it == legalRoPEConfigs.end()) {
+            log.trace("RoPE fusion rejected for {0} at {1}: unsupported config (C={2}, W={3})", addOp->getName(),
+                      addOp->getLoc(), channel, width);
             return mlir::failure();
         }
     }
@@ -283,14 +279,14 @@ mlir::LogicalResult fuseRoPEPattern(IE::AddOp addOp, mlir::PatternRewriter& rewr
     auto cosShape = mlir::cast<mlir::RankedTensorType>(inputCos.getType()).getShape();
     auto sinShape = mlir::cast<mlir::RankedTensorType>(inputSin.getType()).getShape();
     if (cosShape != sinShape) {
-        inputCos = builder.create<IE::ReshapeOp>(appendLoc(addOp->getLoc(), "cos_reshape"), inputCos,
-                                                 getIntArrayAttr(builder, sinShape));
+        inputCos = IE::ReshapeOp::create(builder, appendLoc(addOp->getLoc(), "cos_reshape"), inputCos,
+                                         getIntArrayAttr(builder, sinShape));
         log.trace("Reshaped input_cos to match input_sin shape");
     }
 
     const auto ropeMode = IE::RoPEModeAttr::get(addOp.getContext(),
                                                 isInterleaved ? IE::RoPEMode::INTERLEAVED : IE::RoPEMode::SPLIT_HALF);
-    auto ropeOp = builder.create<IE::RoPEOp>(appendLoc(addOp->getLoc(), "rope"), input, inputCos, inputSin, ropeMode);
+    auto ropeOp = IE::RoPEOp::create(builder, appendLoc(addOp->getLoc(), "rope"), input, inputCos, inputSin, ropeMode);
     rewriter.replaceOp(addOp, ropeOp.getOutput());
 
     return mlir::success();
@@ -339,9 +335,8 @@ mlir::Value tryMergeAdjacentSlices(IE::SliceOp lhsSlice, IE::SliceOp rhsSlice, m
     log.trace("Synthesized merged Slice for RoPE Pairwise: offsets=[{0}], sizes=[{1}]",
               llvm::make_range(mergedOffsets.begin(), mergedOffsets.end()),
               llvm::make_range(mergedSizes.begin(), mergedSizes.end()));
-    return builder
-            .create<IE::SliceOp>(lhsSlice.getLoc(), lhsSlice.getSource(), getIntArrayAttr(builder, mergedOffsets),
-                                 getIntArrayAttr(builder, mergedSizes))
+    return IE::SliceOp::create(builder, lhsSlice.getLoc(), lhsSlice.getSource(),
+                               getIntArrayAttr(builder, mergedOffsets), getIntArrayAttr(builder, mergedSizes))
             .getResult();
 }
 
@@ -468,15 +463,15 @@ mlir::LogicalResult fuseRoPEPairwisePattern(IE::ConcatOp concatOp, mlir::Pattern
 
     log.trace("RoPE Pairwise pattern matched for operation {0} at {1}", concatOp->getName(), concatOp->getLoc());
     if (cosShape != sinShape) {
-        inputCos = builder.create<IE::ReshapeOp>(appendLoc(concatOp->getLoc(), "cos_reshape"), inputCos,
-                                                 getIntArrayAttr(builder, sinShape));
+        inputCos = IE::ReshapeOp::create(builder, appendLoc(concatOp->getLoc(), "cos_reshape"), inputCos,
+                                         getIntArrayAttr(builder, sinShape));
         log.trace("Reshaped input_cos to match input_sin shape");
     }
 
     const auto ropeMode = IE::RoPEModeAttr::get(
             concatOp.getContext(), isInterleaved ? IE::RoPEMode::PAIRWISE_INTERLEAVED : IE::RoPEMode::PAIRWISE);
     auto ropeOp =
-            builder.create<IE::RoPEOp>(appendLoc(concatOp->getLoc(), "rope"), input, inputCos, inputSin, ropeMode);
+            IE::RoPEOp::create(builder, appendLoc(concatOp->getLoc(), "rope"), input, inputCos, inputSin, ropeMode);
 
     // Pairwise-interleaved uses Concat only as a temporary 5D packing step; the trailing reshapes materialize the
     // real result shape, so rewrite those users directly. Plain pairwise produces the final result at Concat.

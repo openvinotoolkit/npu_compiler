@@ -92,7 +92,7 @@ func.func @OptimizeWeightTableDMAsNCETask(%input: !Input_DDR, %output: !Output_D
 
     // Cluster task
     VPURT.Task waits(%bar2, %bar1, %bar0 : !VPURT.Barrier, !VPURT.Barrier, !VPURT.Barrier) {
-        %49 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 6233 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_zero_offset_weights_table,
+        %49 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 6233 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_zero_offset_weights_table,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1], kernel_strides = [1, 1],
                 mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>
@@ -290,7 +290,7 @@ func.func @DoNotOptimizeDMAsForWTSpill(%input: !Input_DDR, %output: !Output_DDR)
 
     // Cluster task
     VPURT.Task waits(%bar4, %bar1, %bar0 : !VPURT.Barrier, !VPURT.Barrier, !VPURT.Barrier) {
-        %49 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 6233 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_zero_offset_weights_table,
+        %49 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 6233 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_zero_offset_weights_table,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1], kernel_strides = [1, 1],
                 mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>
@@ -495,7 +495,7 @@ func.func @DoNotOptimizeDMAsFor5DTensorUnevenSplitSizes(%input: !Input_DDR, %out
     }
 
     VPURT.Task waits(%bar2, %bar1, %bar0 : !VPURT.Barrier, !VPURT.Barrier, !VPURT.Barrier) updates(%bar3 : !VPURT.Barrier) {
-        %97 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_zero_offset_weights_table,
+        %97 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_zero_offset_weights_table,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1],
                 kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>}>
         input(%parent_input_cmx : !ParentInputDistributed)
@@ -676,7 +676,7 @@ func.func @DoNotOptimizeDMAsForDifferentValuesPerCluster(%input: !Input_DDR, %ou
 
     // Cluster task
     VPURT.Task waits(%bar2, %bar1, %bar0 : !VPURT.Barrier, !VPURT.Barrier, !VPURT.Barrier) {
-        %49 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 6233 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_zero_offset_weights_table,
+        %49 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 6233 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_zero_offset_weights_table,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1], kernel_strides = [1, 1],
                 mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>
@@ -856,7 +856,7 @@ func.func @OptimizeDMAsFor5DTensorEvenSplitSizes(%input: !Input_DDR, %output: !O
     }
 
     VPURT.Task waits(%bar2, %bar1, %bar0 : !VPURT.Barrier, !VPURT.Barrier, !VPURT.Barrier) updates(%bar3 : !VPURT.Barrier) {
-        %97 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_zero_offset_weights_table,
+        %97 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_zero_offset_weights_table,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1],
                 kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>}>
         input(%parent_input_cmx : !ParentInputDistributed)

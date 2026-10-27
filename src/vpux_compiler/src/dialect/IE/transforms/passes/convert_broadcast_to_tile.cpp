@@ -101,8 +101,8 @@ mlir::LogicalResult ConvertBroadcastToTile<ConcreteOp>::matchAndRewrite(Concrete
 
         const auto repeatsAttr = getIntArrayAttr(origOp->getContext(), repeats);
 
-        auto reshapeInputOp = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
-                                                             adjustedInputShapeAttr);
+        auto reshapeInputOp = IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
+                                                    adjustedInputShapeAttr);
 
         rewriter.replaceOpWithNewOp<IE::TileOp>(origOp, origOp.getType(), reshapeInputOp.getOutput(), repeatsAttr);
     } else {
@@ -123,17 +123,17 @@ mlir::LogicalResult ConvertBroadcastToTile<ConcreteOp>::matchAndRewrite(Concrete
         if (getShape(origOp.getInput()).isDynamic() || Shape(adjustedInputShape).isDynamic()) {
             const auto adjustedInputBoundedShapeAttr = getIntArrayAttr(origOp->getContext(), adjustedInputBoundedShape);
 
-            auto reshapeInputOp = rewriter.create<IE::DynamicReshapeOp>(
-                    takeOpLoc(origOp, "dreshape_in"), origOp.getInput(), shapeTensor, adjustedInputShapeAttr,
-                    adjustedInputBoundedShapeAttr);
+            auto reshapeInputOp =
+                    IE::DynamicReshapeOp::create(rewriter, takeOpLoc(origOp, "dreshape_in"), origOp.getInput(),
+                                                 shapeTensor, adjustedInputShapeAttr, adjustedInputBoundedShapeAttr);
             rewriter.replaceOpWithNewOp<IE::DynamicTileOp>(
                     origOp, origOp.getType(),
                     adjustedInputShape != inputShape ? reshapeInputOp.getOutput() : origOp.getInput(),
                     origOp.getTargetShape(), nullptr /*repeats*/, nullptr /*repeats_value*/, outputShapeAttr,
                     outputBoundedShapeAttr);
         } else {
-            auto reshapeInputOp = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
-                                                                 adjustedInputShapeAttr);
+            auto reshapeInputOp = IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
+                                                        adjustedInputShapeAttr);
             rewriter.replaceOpWithNewOp<IE::DynamicTileOp>(
                     origOp, origOp.getType(), reshapeInputOp.getOutput(), origOp.getTargetShape(), nullptr /*repeats*/,
                     nullptr /*repeats_value*/, outputShapeAttr, outputBoundedShapeAttr);

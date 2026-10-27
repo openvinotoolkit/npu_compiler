@@ -141,7 +141,7 @@ vpux::InputTiling vpux::VPU::SpaceToDepthOp::backInferTileInfo(const vpux::TileI
 
     int64_t blockSize = 0;
 
-    VPUX_THROW_UNLESS(getBlockSizeAttr() != nullptr, "Got NULL block_size");
+    VPUX_THROW_WHEN(getBlockSizeAttr() == nullptr, "Got NULL block_size");
     blockSize = mlir::dyn_cast<mlir::IntegerAttr>(getBlockSizeAttr()).getValue().getSExtValue();
 
     VPUX_THROW_WHEN(blockSize <= 0, "Unsupported block size: {0}", blockSize);
@@ -176,7 +176,7 @@ mlir::FailureOr<OutputTiling> vpux::VPU::SpaceToDepthOp::getTilingStrategy(Tilin
 
     int64_t blockSize = 0;
 
-    VPUX_THROW_UNLESS(getBlockSizeAttr() != nullptr, "Got NULL block_size");
+    VPUX_THROW_WHEN(getBlockSizeAttr() == nullptr, "Got NULL block_size");
     blockSize = mlir::dyn_cast<mlir::IntegerAttr>(getBlockSizeAttr()).getValue().getSExtValue();
 
     using namespace Dims4D::Act;

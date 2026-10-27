@@ -4,6 +4,8 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/scheduling/undefined_tiling.hpp"
+#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/scheduling/loop_schedule_utils.hpp"
 #include "vpux/compiler/init/dialects_registry.hpp"
 
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
@@ -44,7 +46,7 @@ protected:
         auto shape = SmallVector<int64_t>{static_cast<int64_t>(rawSize)};
         auto type = mlir::MemRefType::get(shape, _builder.getIntegerType(8));
 
-        auto alloc = _builder.create<mlir::memref::AllocOp>(_builder.getUnknownLoc(), type);
+        auto alloc = mlir::memref::AllocOp::create(_builder, _builder.getUnknownLoc(), type);
         if (rawAlign != 0) {
             alloc.setAlignment(rawAlign);
         }
@@ -132,6 +134,44 @@ TEST_F(MLIR_UndefinedTiling, BasicTilingUniformSizes) {
     EXPECT_GE(allocations.at(1)[0], 2048);
 
     EXPECT_EQ(scheduleResult.reservedSize, 4096);
+}
+
+TEST_F(MLIR_UndefinedTiling, DataInWithInnerLoopDependencyStaysInLoop) {
+    auto schedulingLoop = std::make_unique<SchedulingLoop>();
+    schedulingLoop->type = LoopType::Tiling;
+
+    VPURT::TaskQueueType dmaQueue{config::ExecutorKind::DMA_NN, 0};
+    VPURT::TaskQueueType computeQueue{config::ExecutorKind::DPU, 0};
+
+    for (size_t iteration = 0; iteration < 5; ++iteration) {
+        auto intermediate = createBuffer(1024, 64);
+        auto computeInput = createBuffer(1024, 64);
+        auto output = createBuffer(1024, 64);
+
+        OpAllocationInfo firstDataIn(iteration * 3, dmaQueue, {}, {intermediate}, AllocationType::DATA_IN);
+        OpAllocationInfo chainedDataIn(iteration * 3 + 1, dmaQueue, {intermediate}, {computeInput},
+                                       AllocationType::DATA_IN);
+        chainedDataIn.hasInnerLoopDependency = true;
+        OpAllocationInfo compute(iteration * 3 + 2, computeQueue, {computeInput, intermediate}, {output},
+                                 AllocationType::COMPUTE);
+
+        schedulingLoop->loopBodies.push_back({std::move(firstDataIn), std::move(chainedDataIn), std::move(compute)});
+    }
+
+    ComputeRegionVec regions;
+    regions.emplace_back(std::move(schedulingLoop));
+
+    const auto result = VPU::generateLoopSchedules(regions, /*memorySize=*/8192,
+                                                   /*enableVfUndefinedScheduler=*/false, Logger::global());
+
+    ASSERT_EQ(result.scheduleResults.size(), 1u);
+    for (size_t iteration = 0; iteration < 5; ++iteration) {
+        EXPECT_TRUE(result.loopPrefetchInd.contains(iteration * 3));
+        EXPECT_FALSE(result.loopRegionInd.contains(iteration * 3));
+        EXPECT_TRUE(result.loopRegionInd.contains(iteration * 3 + 1));
+        EXPECT_FALSE(result.loopPrefetchInd.contains(iteration * 3 + 1));
+        EXPECT_TRUE(result.loopRegionInd.contains(iteration * 3 + 2));
+    }
 }
 
 TEST_F(MLIR_UndefinedTiling, TilingUnevenSizes) {
@@ -1293,6 +1333,56 @@ TEST_F(MLIR_UndefinedTiling, CollectComputeOpBuffers_NoComputeOpsReturnsEmpty) {
     EXPECT_TRUE(scheduleResult.schedule.empty());
     EXPECT_EQ(scheduleResult.reservedSize, 0);
     EXPECT_TRUE(scheduleResult.sharedExternalBuffers.empty());
+}
+
+TEST_F(MLIR_UndefinedTiling, DataUpdateInLoopAndPrefetch) {
+    // Test in undefined tiling loop, CMX2CMX DMAs (DATA_UPDATE) are scheduled inside loop.
+    // The iteration-1 DATA_UPDATE is expected to move before iteration-0 DATA_OUT (prefetch)
+    auto schedulingLoop = std::make_unique<SchedulingLoop>();
+    schedulingLoop->type = LoopType::Tiling;
+
+    VPURT::TaskQueueType dmaQt{config::ExecutorKind::DMA_NN, 0};
+    const auto externalUpdateInput = createBuffer(256, 64);
+    const auto makeIteration = [&](size_t baseOpIdx) {
+        const auto externalUpdateOutput = createBuffer(512, 64);
+        const auto computeOutput = createBuffer(512, 64);
+
+        LoopBody iteration;
+        iteration.emplace_back(baseOpIdx, dmaQt, SmallVector<mlir::Value>{externalUpdateInput},
+                               SmallVector<mlir::Value>{externalUpdateOutput}, AllocationType::DATA_UPDATE);
+        iteration.push_back(createComputeOp(baseOpIdx + 1, {externalUpdateOutput}, {computeOutput}));
+        iteration.emplace_back(baseOpIdx + 2, dmaQt, SmallVector<mlir::Value>{computeOutput},
+                               SmallVector<mlir::Value>{}, AllocationType::DATA_OUT);
+        return iteration;
+    };
+
+    schedulingLoop->loopBodies = {makeIteration(0), makeIteration(10)};
+
+    ComputeRegion region(std::move(schedulingLoop));
+    vpux::VPU::UndefinedTiling scenario;
+    const auto scheduleResult = scenario.getScheduleStrategy(region, /*memorySize=*/8192);
+
+    ASSERT_EQ(scheduleResult.schedule.size(), 2);
+    EXPECT_TRUE(scheduleResult.sharedExternalBuffers.count(externalUpdateInput) > 0);
+
+    const auto findEntry = [](const IterationSchedule& schedule, size_t opIdx) {
+        return llvm::find_if(schedule, [&](const auto& entry) {
+            return entry.allocInfo.opIdx == opIdx;
+        });
+    };
+
+    const auto prefetchedUpdate = findEntry(scheduleResult.schedule[0], 10);
+    const auto dataOut0 = findEntry(scheduleResult.schedule[0], 2);
+    // op index 10 (DATA_UPDATE) is prefetched to the first iteration
+    ASSERT_NE(prefetchedUpdate, scheduleResult.schedule[0].end());
+    ASSERT_NE(dataOut0, scheduleResult.schedule[0].end());
+    // op index 10 is prefetched ahead of dataOut0
+    //  Iteration 0: DATA_UPDATE op 0, COMPUTE op 1, prefetched DATA_UPDATE op 10, DATA_OUT op 2
+    //  Iteration 1: COMPUTE op 11, DATA_OUT op 12
+    EXPECT_LT(std::distance(scheduleResult.schedule[0].begin(), prefetchedUpdate),
+              std::distance(scheduleResult.schedule[0].begin(), dataOut0));
+    // prefetched DATA_UPDATE is not duplicated in original iteration
+    EXPECT_EQ(findEntry(scheduleResult.schedule[1], 10), scheduleResult.schedule[1].end());
 }
 
 TEST_F(MLIR_UndefinedTiling, CollectComputeOpBuffers_FrequencyTableDrivesSharedDetection) {

@@ -11,7 +11,7 @@
 #include "vpux/compiler/dialect/const/utils/const_logger.hpp"
 #include "vpux/compiler/utils/stable_hash.hpp"
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/sub_byte.hpp"
 #include "vpux/compiler/dialect/const/utils/transformations.hpp"
@@ -864,6 +864,11 @@ template <>
 llvm::hash_code StableHashStorage<CumSumAttrStorage>::calculateStableHash() const {
     return llvm::hash_combine(CumSumAttr::getMnemonic(), this->axis.getValue(), this->exclusive.getValue(),
                               this->reverse.getValue());
+}
+
+template <>
+llvm::hash_code StableHashStorage<ClampAttrStorage>::calculateStableHash() const {
+    return llvm::hash_combine(ClampAttr::getMnemonic(), this->lowerBound.getValue(), this->upperBound.getValue());
 }
 }  // namespace details
 

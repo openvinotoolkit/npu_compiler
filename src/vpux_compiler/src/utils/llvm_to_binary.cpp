@@ -61,7 +61,7 @@ public:
             }
         }
         const auto ec = llvm::sys::fs::createUniqueDirectory(prefix, _path);
-        VPUX_THROW_UNLESS(!ec, "Failed to create temporary directory for SHAVE kernel compilation: {0}", ec.message());
+        VPUX_THROW_WHEN(ec, "Failed to create temporary directory for SHAVE kernel compilation: {0}", ec.message());
     }
     ScopedTempDirectory(const ScopedTempDirectory&) = delete;
     ScopedTempDirectory& operator=(const ScopedTempDirectory&) = delete;
@@ -149,7 +149,7 @@ private:
 void vpux::transitivelyCloneFunctions(mlir::ModuleOp dstModuleOp, mlir::ModuleOp srcModuleOp,
                                       mlir::SymbolRefAttr swKernelSymbol) {
     auto llvmFuncOp = srcModuleOp.lookupSymbol<mlir::LLVM::LLVMFuncOp>(swKernelSymbol);
-    VPUX_THROW_UNLESS(llvmFuncOp != nullptr, "llvmFuncOp should be valid");
+    VPUX_THROW_WHEN(llvmFuncOp == nullptr, "llvmFuncOp should be valid");
 
     llvm::SmallSetVector<mlir::Operation*, 4> seen;
     llvm::SmallVector<mlir::Operation*, 4> worklist;
@@ -233,12 +233,12 @@ std::unique_ptr<llvm::Module> vpux::translateToLLVMIR(mlir::ModuleOp moduleOp, m
                                                       llvm::LLVMContext& llvmContext) {
     auto llvmFuncOp = moduleOp.lookupSymbol<mlir::LLVM::LLVMFuncOp>(swKernelSymbol);
 
-    VPUX_THROW_UNLESS(llvmFuncOp != nullptr, "llvmFuncOp should be valid");
+    VPUX_THROW_WHEN(llvmFuncOp == nullptr, "llvmFuncOp should be valid");
 
     // We create a temporary module in which we clone the llvmFuncOp and then translate it
     // to LLVM IR.
     auto moduleBuilder = mlir::OpBuilder::atBlockBegin(moduleOp.getBody());
-    auto tmpModuleOp = moduleBuilder.create<mlir::ModuleOp>(moduleOp.getLoc(), llvm::StringRef("TempModule"));
+    auto tmpModuleOp = mlir::ModuleOp::create(moduleBuilder, moduleOp.getLoc(), llvm::StringRef("TempModule"));
 
     // Transitively clone the function and its dependencies into
     // the temporary module.
@@ -268,10 +268,10 @@ llvm::StringRef vpux::getShaveKernelLDScript() {
 void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, std::unique_ptr<llvm::Module> llvmModule,
                              mlir::SymbolRefAttr swKernelSymbol, vpux::Logger log) {
     auto llvmFuncOp = moduleOp.lookupSymbol<mlir::LLVM::LLVMFuncOp>(swKernelSymbol);
-    VPUX_THROW_UNLESS(llvmFuncOp != nullptr, "llvmFuncOp should be valid");
+    VPUX_THROW_WHEN(llvmFuncOp == nullptr, "llvmFuncOp should be valid");
 
     const auto arch = config::getArch(moduleOp);
-    VPUX_THROW_UNLESS(arch != config::ArchKind::UNKNOWN, "Could not identify arch");
+    VPUX_THROW_WHEN(arch == config::ArchKind::UNKNOWN, "Could not identify arch");
 
     auto llvmFuncOpNameStr = llvmFuncOp.getName().str();
     auto& sbr = getShaveBinaryResources(moduleOp->getContext());
@@ -303,7 +303,7 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, std::unique_ptr<llvm::Modu
     // We write llvmModule to file sw_layer.ll.
     std::error_code llFileEC;
     llvm::raw_fd_ostream llFile(llFilePath, llFileEC);
-    VPUX_THROW_UNLESS(!llFileEC, "Could not open file '{0}' for writing LLVM IR: {1}", llFilePath, llFileEC.message());
+    VPUX_THROW_WHEN(llFileEC, "Could not open file '{0}' for writing LLVM IR: {1}", llFilePath, llFileEC.message());
     llFile << *llvmModule;
 
     // Runs an external compilation tool, redirecting its stdout/stderr into files inside the
@@ -343,8 +343,8 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, std::unique_ptr<llvm::Modu
     auto mvToolsDirStrWoNull = std::string(mvToolsEnvVar);
     auto mvToolsVersionStrWoNull = std::string(mvToolsVersionEnvVar);
 
-    VPUX_THROW_UNLESS(!mvToolsDirStrWoNull.empty() && !mvToolsVersionStrWoNull.empty(),
-                      "Error: Environment variable 'MV_TOOLS_DIR' or 'MV_TOOLS_VERSION' are empty.");
+    VPUX_THROW_WHEN(mvToolsDirStrWoNull.empty() || mvToolsVersionStrWoNull.empty(),
+                    "Error: Environment variable 'MV_TOOLS_DIR' or 'MV_TOOLS_VERSION' are empty.");
 
     auto mvToolsPathCompleteStr = mvToolsDirStrWoNull + "/" + mvToolsVersionStrWoNull;
 

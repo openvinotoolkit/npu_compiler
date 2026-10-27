@@ -56,6 +56,30 @@ func.func @DequantizeScaletoFP16(%arg0: tensor<28x512x128xi4>, %arg1: tensor<28x
 
 !qElemType = !quant.uniform<i4:f16, 1.000000e+00>
 
+// Marker attrs must survive the f16 rewrite; downstream bridge passes match on these attrs.
+//
+// CHECK-LABEL: @DynamicDequantizePreservesMarkers
+// CHECK-SAME:   [[INPUT0:%.+]]: tensor<28x512x128xi4>
+// CHECK-SAME:   [[INPUT1:%.+]]: tensor<28x1x128xf32>
+func.func @DynamicDequantizePreservesMarkers(%arg0: tensor<28x512x128xi4>, %arg1: tensor<28x1x128xf32>) -> tensor<28x512x128xf32> {
+    %0 = IE.QuantizeCast(%arg0) {dstElemType = !qElemType} : tensor<28x512x128xi4> -> tensor<28x512x128x!qElemType>
+    %1 = IE.DynamicDequantize(%0, %arg1) {dstElemType = f32, vpux.synthetic_dyn_dequant, vpux.weights_import_dyn_dequant}
+            : tensor<28x512x128x!qElemType>, tensor<28x1x128xf32> -> tensor<28x512x128xf32>
+    return %1 : tensor<28x512x128xf32>
+
+    // CHECK: [[QUANTIZE_CAST:%.+]] = IE.QuantizeCast([[INPUT0]]) {dstElemType = !qElemType} : tensor<28x512x128xi4> -> tensor<28x512x128x!qElemType>
+    // CHECK: [[CONVERT_IN:%.+]] = IE.Convert([[INPUT1]]) {dstElemType = f16} : tensor<28x1x128xf32> -> tensor<28x1x128xf16>
+    // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTIZE_CAST]], [[CONVERT_IN]])
+    // CHECK-SAME:      {dstElemType = f16, vpux.synthetic_dyn_dequant, vpux.weights_import_dyn_dequant}
+    // CHECK-SAME:      tensor<28x512x128x!qElemType>, tensor<28x1x128xf16> -> tensor<28x512x128xf16>
+    // CHECK: [[CONVERT_OUT:%.+]] = IE.Convert([[DYN_DEQUANT]]) {dstElemType = f32} : tensor<28x512x128xf16> -> tensor<28x512x128xf32>
+    // CHECK:       return [[CONVERT_OUT]] : tensor<28x512x128xf32>
+}
+
+// -----
+
+!qElemType = !quant.uniform<i4:f16, 1.000000e+00>
+
 // CHECK-LABEL: @DequantizeStaticScaleToFP16
 // CHECK-SAME:   [[INPUT0:%.+]]: tensor<28x512x128xi4>
 func.func @DequantizeStaticScaleToFP16(%arg0: tensor<28x512x128xi4>) -> tensor<28x512x128xf32> {

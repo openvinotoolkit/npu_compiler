@@ -108,7 +108,7 @@ mlir::LogicalResult SplitCodeGenCapsulesPass::runOnCapsule(IE::CodeGenCapsuleOp 
                     }
 
                     // Create the new CodeGenCapsuleOp at the current insertion point.
-                    auto newCap = builder.create<IE::CodeGenCapsuleOp>(kr.getLoc(), newResultTypes, newInputs);
+                    auto newCap = IE::CodeGenCapsuleOp::create(builder, kr.getLoc(), newResultTypes, newInputs);
 
                     // Move the KernelRegion body into the new capsule.
                     auto* dummyBlock = &newCap.getContent().emplaceBlock();
@@ -119,7 +119,7 @@ mlir::LogicalResult SplitCodeGenCapsulesPass::runOnCapsule(IE::CodeGenCapsuleOp 
                     // Use a local builder scoped to the body so the outer builder's
                     // insertion point is not disturbed.
                     mlir::OpBuilder bodyBuilder(krYield);
-                    bodyBuilder.create<IE::CGCYieldOp>(krYield->getLoc(), krYieldedVals);
+                    IE::CGCYieldOp::create(bodyBuilder, krYield->getLoc(), krYieldedVals);
                     krYield.erase();
 
                     // Update mapping so subsequent KernelRegions can refer to the new capsule results.
@@ -159,8 +159,8 @@ mlir::LogicalResult SplitCodeGenCapsulesPass::runOnCapsule(IE::CodeGenCapsuleOp 
                         }
                     }
 
-                    auto newDimVal = builder.create<mlir::arith::ConstantIndexOp>(dimOp.getLoc(), dimIdx);
-                    auto newDimOp = builder.create<mlir::tensor::DimOp>(dimOp.getLoc(), resolvedSrc, newDimVal);
+                    auto newDimVal = mlir::arith::ConstantIndexOp::create(builder, dimOp.getLoc(), dimIdx);
+                    auto newDimOp = mlir::tensor::DimOp::create(builder, dimOp.getLoc(), resolvedSrc, newDimVal);
                     mapping.map(dimOp.getResult(), newDimOp.getResult());
                 })
                 .Case<mlir::arith::ConstantOp>([&](mlir::arith::ConstantOp constOp) {

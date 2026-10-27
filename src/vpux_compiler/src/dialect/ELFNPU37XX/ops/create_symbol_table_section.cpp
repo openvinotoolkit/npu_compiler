@@ -30,8 +30,8 @@ void vpux::ELFNPU37XX::CreateSymbolTableSectionOp::serialize(elf::Writer& writer
             auto actualOp = placeholder.getInputArg().getDefiningOp();
             auto symOp = llvm::dyn_cast<vpux::ELFNPU37XX::SymbolOp>(actualOp);
 
-            VPUX_THROW_UNLESS(
-                    symOp != nullptr,
+            VPUX_THROW_WHEN(
+                    symOp == nullptr,
                     "Symbol table section op is expected to have PutOpInSectionOps that point to SymbolOps only."
                     " Got *actualOp {0}.",
                     *actualOp);

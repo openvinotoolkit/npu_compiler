@@ -24,13 +24,15 @@ mlir::Value vpux::allocateSpillReadBuffer(mlir::OpBuilder& builder, mlir::Locati
     mlir::Operation* newBufferOp = nullptr;
 
     if (auto distAllocOp = bufferToSpill.getDefiningOp<VPURT::AllocDistributed>()) {
-        newBufferOp = builder.create<VPURT::AllocDistributed>(
-                loc, bufferToSpill.getType(), distAllocOp.getAlignmentAttr(), distAllocOp.getSwizzlingKeyAttr());
+        newBufferOp =
+                VPURT::AllocDistributed::create(builder, loc, bufferToSpill.getType(), distAllocOp.getAlignmentAttr(),
+                                                distAllocOp.getSwizzlingKeyAttr());
     } else if (auto allocOp = bufferToSpill.getDefiningOp<VPURT::Alloc>()) {
-        newBufferOp = builder.create<VPURT::Alloc>(loc, bufferToSpill.getType(), allocOp.getAlignmentAttr(),
-                                                   allocOp.getSwizzlingKeyAttr());
+        newBufferOp = VPURT::Alloc::create(builder, loc, bufferToSpill.getType(), allocOp.getAlignmentAttr(),
+                                           allocOp.getSwizzlingKeyAttr());
     } else {
-        newBufferOp = builder.create<mlir::memref::AllocOp>(loc, mlir::cast<mlir::MemRefType>(bufferToSpill.getType()));
+        newBufferOp =
+                mlir::memref::AllocOp::create(builder, loc, mlir::cast<mlir::MemRefType>(bufferToSpill.getType()));
     }
 
     return newBufferOp->getResult(0);

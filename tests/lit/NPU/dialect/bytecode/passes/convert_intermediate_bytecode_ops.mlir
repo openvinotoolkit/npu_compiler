@@ -11,7 +11,7 @@ module {
 
 bytecode.func_section @func_section {
   bytecode.ext.func @fn () -> () {
-    %0 = bytecode.virtual_general_register
+    %0 = bytecode.virtual_value_register
     bytecode.set_imm %0, 0
     bytecode.ext.assert %0, "Assertion failed"
     bytecode.ret
@@ -27,7 +27,7 @@ bytecode.func_section @func_section {
 // CHECK:  }
 // CHECK:  bytecode.func_section @func_section {
 // CHECK:    bytecode.func @fn @string_section::@function_name @type_section::@function_type {
-// CHECK:      [[REG:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm [[REG]], 0
 // CHECK:      bytecode.assert [[REG]], @assert_msg
 // CHECK:      bytecode.ret
@@ -43,7 +43,7 @@ module {
 
 bytecode.func_section @func_section {
   bytecode.ext.func @add (i64, i64) -> (i64) {
-    %0 = bytecode.virtual_general_register
+    %0 = bytecode.virtual_value_register
     bytecode.set_imm %0, 42
     bytecode.ret
   }
@@ -58,7 +58,7 @@ bytecode.func_section @func_section {
 // CHECK:  }
 // CHECK:  bytecode.func_section @func_section {
 // CHECK:    bytecode.func @add @string_section::@function_name @type_section::@function_type {
-// CHECK:      [[REG:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm [[REG]], 42
 // CHECK:      bytecode.ret
 // CHECK:    }
@@ -172,7 +172,7 @@ bytecode.func_section @func_section {
 
   bytecode.ext.func @caller_buf (memref<2x3xf32>) -> () {
     %buf = bytecode.virtual_parameter_register 0
-    %func_idx = bytecode.virtual_general_register
+    %func_idx = bytecode.virtual_value_register
     bytecode.set_imm_idx %func_idx, @func_section::@callee_buf
     bytecode.call %func_idx, results(), args(%buf : !bytecode.Register)
     bytecode.ret
@@ -195,7 +195,7 @@ bytecode.func_section @func_section {
 // CHECK:    }
 // CHECK:    bytecode.func @caller_buf @string_section::@function_name_1 @type_section::@function_type {
 // CHECK:      [[BUF:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[FUNC_IDX:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[FUNC_IDX:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm_idx [[FUNC_IDX]], @func_section::@callee_buf
 // CHECK:      bytecode.call [[FUNC_IDX]], results(), args([[BUF]] : !bytecode.Register)
 // CHECK:      bytecode.ret
@@ -211,7 +211,7 @@ module {
 
 bytecode.func_section @func_section {
   bytecode.ext.func @alloc_fn () -> () {
-    %0 = bytecode.virtual_general_register
+    %0 = bytecode.virtual_value_register
     bytecode.ext.buffer.create %0, memref<2x3xf32>
     bytecode.ret
   }
@@ -224,7 +224,7 @@ bytecode.func_section @func_section {
 // CHECK-SAME: strides = [3, 1]>
 // CHECK:  }
 // CHECK-LABEL: bytecode.func @alloc_fn
-// CHECK:        [[DST:%.+]] = bytecode.virtual_general_register
+// CHECK:        [[DST:%.+]] = bytecode.virtual_value_register
 // CHECK:        [[S0:%.+]] = bytecode.imm_register 2
 // CHECK:        [[S1:%.+]] = bytecode.imm_register 3
 // CHECK:        [[ST0:%.+]] = bytecode.imm_register 3
@@ -248,7 +248,7 @@ bytecode.type_section @type_section {
 }
 bytecode.func_section @func_section {
   bytecode.ext.func @alloc_fn () -> () {
-    %0 = bytecode.virtual_general_register
+    %0 = bytecode.virtual_value_register
     bytecode.ext.buffer.create %0, memref<2x3xf32>
     bytecode.ret
   }
@@ -267,4 +267,30 @@ bytecode.func_section @func_section {
 // CHECK:  }
 // CHECK:  bytecode.constant_section @constant_section {
 // CHECK:  }
+}
+
+// -----
+
+// The type section entries an earlier pass left behind must be reused, including by the very first type this
+// pass registers. Consumers compare types by their index in the section, so a second entry for a type already
+// there makes that type compare unequal to itself.
+module {
+bytecode.type_section @type_section {
+  bytecode.type @void_signature_from_an_earlier_pass #bytecode.function_type<arguments = [], results = []>
+  bytecode.type @f32_from_an_earlier_pass #bytecode.float_type<width = 32, format = IEEE754>
+}
+bytecode.func_section @func_section {
+  bytecode.ext.func @alloc_fn () -> () {
+    %0 = bytecode.virtual_value_register
+    bytecode.ext.buffer.create %0, memref<2x3xf32>
+    bytecode.ret
+  }
+}
+// CHECK:       bytecode.type_section @type_section {
+// CHECK-NEXT:    bytecode.type @void_signature_from_an_earlier_pass #bytecode.function_type<arguments = [], results = []>
+// CHECK-NEXT:    bytecode.type @f32_from_an_earlier_pass #bytecode.float_type<width = 32, format = IEEE754>
+// CHECK-NEXT:    bytecode.type @buffer_type #bytecode.buffer_type<element_type = @f32_from_an_earlier_pass, rank = 2, shape = [2, 3], strides = [3, 1]>
+// CHECK-NEXT:  }
+// CHECK:       bytecode.func @alloc_fn {{.*}} @type_section::@void_signature_from_an_earlier_pass
+// CHECK:         bytecode.buffer.create {{.*}}, @type_section::@f32_from_an_earlier_pass
 }

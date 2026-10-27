@@ -86,7 +86,8 @@ void PipeliningVFScheduling::addOutputSpill(VFConfig& config, mlir::Operation* o
     VPUX_THROW_WHEN(opTypes.empty(), "getOperationTypes returned empty for operation {0} at {1}", operation->getName(),
                     operation->getLoc());
 
-    auto spillCost = costFunction->getSpillingTypeCost(opTypes.back(), costParameters._tiling[0].axis);
+    auto spillCost = costFunction->getSpillingTypeCost(opTypes.back(), DmaDirectionType::CMX_TO_DDR,
+                                                       costParameters._tiling[0].axis);
     pipelinedStructure.addDMA(operation, index, spillCost);
 }
 

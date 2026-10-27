@@ -881,7 +881,6 @@ func.func @ConvertScatterNDUpdateSelectColumns(%arg0: tensor<4x3xf32>, %arg1: te
 // -----
 
 // Partial scatter with identity prefix selecting non-contiguous rows [7, 14, 25, 33] from dim2 (size 34).
-// Remaining dim3 (size 3) is bulk-copied from updates.
 // CHECK-LABEL: @ConvertScatterNDUpdateSelectRows4D
 // CHECK-SAME:    [[ARG_0:%[^:]+]]: tensor<1x4x34x3xf32>, [[ARG_1:%[^:]+]]: tensor<1x4x4x3xf32>
 func.func @ConvertScatterNDUpdateSelectRows4D(%arg0: tensor<1x4x34x3xf32>, %arg1: tensor<1x4x4x3xf32>) -> tensor<1x4x34x3xf32> {
@@ -995,4 +994,41 @@ func.func @DoNotMergeScatterElementsDifferentAxis(%data: tensor<4x64xi8>, %idx0:
     // CHECK: IE.ScatterElementsUpdate([[DATA]]
     // CHECK: IE.ScatterElementsUpdate
     // CHECK: return
+}
+
+// -----
+
+// bytesPerSlice = 2048/512 = 4 < 1024, so ColumnSelect is skipped (DMA overhead too high).
+// Non-uniform random indices to avoid matching Strided/Arithmetic/SliceConcat rewriters.
+// CHECK-LABEL: @SkipColumnSelectWhenDmaOverheadTooHigh
+// CHECK-SAME: ([[INPUT:%.+]]: tensor<512xf32>, [[UPDATES:%.+]]: tensor<129xf32>)
+func.func @SkipColumnSelectWhenDmaOverheadTooHigh(%arg0: tensor<512xf32>, %arg1: tensor<129xf32>) -> tensor<512xf32> {
+    %cst = const.Declare tensor<129x1xsi64> = dense<[[3],[12],[13],[15],[16],[22],[23],[28],[33],[35],[36],[40],[44],[47],[49],[51],[52],[63],[71],[79],[81],[83],[87],[98],[101],[107],[108],[110],[111],[112],[114],[116],[117],[119],[125],[135],[136],[137],[138],[140],[142],[148],[150],[161],[166],[172],[174],[176],[181],[183],[185],[186],[189],[193],[194],[205],[214],[216],[229],[232],[235],[236],[258],[273],[274],[279],[282],[285],[287],[290],[295],[301],[302],[308],[309],[311],[316],[321],[325],[327],[331],[332],[335],[338],[343],[346],[349],[350],[352],[357],[359],[360],[366],[367],[373],[377],[379],[388],[390],[392],[393],[395],[412],[413],[414],[422],[424],[427],[433],[443],[445],[446],[451],[456],[460],[467],[473],[477],[480],[483],[491],[493],[495],[496],[499],[503],[507],[509],[511]]> : tensor<129x1xsi64>
+    %0 = IE.ScatterNDUpdate(%arg0, %cst, %arg1) : tensor<512xf32>, tensor<129x1xsi64>, tensor<129xf32> -> tensor<512xf32>
+    return %0 : tensor<512xf32>
+
+    // CHECK: IE.ScatterNDUpdate
+    // CHECK-NOT: IE.Concat
+    // CHECK: return
+}
+
+// -----
+
+// bytesPerSlice = 16384/4 = 4096 >= 1024, so ColumnSelect converts to Slice+Concat normally.
+// Selects positions [0, 2] from dim1 (size 4) with identity prefix on dim0.
+// CHECK-LABEL: @ConvertColumnSelectWhenBytesPerSliceLarge
+// CHECK-SAME: ([[ARG_0:%[^:]+]]: tensor<1x4x1024xf32>, [[ARG_1:%[^:]+]]: tensor<1x2x1024xf32>)
+func.func @ConvertColumnSelectWhenBytesPerSliceLarge(%arg0: tensor<1x4x1024xf32>, %arg1: tensor<1x2x1024xf32>) -> tensor<1x4x1024xf32> {
+    %cst = const.Declare tensor<1x2x2xsi64> = dense<[[[0, 0], [0, 2]]]> : tensor<1x2x2xsi64>
+    %0 = IE.ScatterNDUpdate(%arg0, %cst, %arg1) : tensor<1x4x1024xf32>, tensor<1x2x2xsi64>, tensor<1x2x1024xf32> -> tensor<1x4x1024xf32>
+    return %0 : tensor<1x4x1024xf32>
+
+    // CHECK-NOT: IE.ScatterNDUpdate
+    // CHECK: [[SLICE_U0:%.+]] = IE.Slice [[ARG_1]] [0, 0, 0] [1, 1, 1024] : tensor<1x2x1024xf32> to tensor<1x1x1024xf32>
+    // CHECK: [[SLICE_D0:%.+]] = IE.Slice [[ARG_0]] [0, 1, 0] [1, 1, 1024] : tensor<1x4x1024xf32> to tensor<1x1x1024xf32>
+    // CHECK: [[SLICE_U1:%.+]] = IE.Slice [[ARG_1]] [0, 1, 0] [1, 1, 1024] : tensor<1x2x1024xf32> to tensor<1x1x1024xf32>
+    // CHECK: [[SLICE_D1:%.+]] = IE.Slice [[ARG_0]] [0, 3, 0] [1, 1, 1024] : tensor<1x4x1024xf32> to tensor<1x1x1024xf32>
+    // CHECK: [[CONCAT:%.+]] = IE.Concat([[SLICE_U0]], [[SLICE_D0]], [[SLICE_U1]], [[SLICE_D1]])
+    // CHECK-SAME: -> tensor<1x4x1024xf32>
+    // CHECK: return [[CONCAT]] : tensor<1x4x1024xf32>
 }

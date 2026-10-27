@@ -15,7 +15,7 @@ module @mainModule attributes {config.platform = #config.platform<NPU4000>} {
   } outputsInfo : {
     DataInfo "output" : tensor<1x10x2x3xf16>
   }
-  func.func nested @read_after_write_act_dma_f16_f16() {
+  func.func @read_after_write_act_dma_f16_f16() {
     ELF.Main {
       VPUASM.DeclareBuffer @DeclareBuffer0 !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x10x2x3xf16, {order = #NHWC}, @DDR> :  swizzling(0)>
       VPUASM.DeclareBuffer @DeclareBuffer1 !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<1x10x2x3xf16, {order = #NHWC}, @DDR> :  swizzling(0)>

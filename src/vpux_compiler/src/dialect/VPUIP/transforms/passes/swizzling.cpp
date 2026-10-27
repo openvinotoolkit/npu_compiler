@@ -424,7 +424,7 @@ void Swizzling::addSwizzlingAttributesToBuffer(mlir::OpBuilder& builder, InAlloc
     auto origLoc = inAllocOp->getLoc();
     auto newLoc = appendLoc(origLoc, "alloc_swizzling");
 
-    auto outAllocOp = builder.create<OutAllocOp>(newLoc, newType, addressAlignmentAttr, swizzlingSchemeAttr.getKey());
+    auto outAllocOp = OutAllocOp::create(builder, newLoc, newType, addressAlignmentAttr, swizzlingSchemeAttr.getKey());
 
     inAllocOp->replaceAllUsesWith(outAllocOp);
     inAllocOp->erase();
@@ -462,7 +462,7 @@ void Swizzling::updateConstantTypeForSwizzling(Const::DeclareOp cstOp, mlir::Ope
 
     auto newCstType = VPUIP::setSwizzlingKey(cstType, swizzlingKey, deviceInfo.archKind);
     mlir::OpBuilder builder(cstOp);
-    auto newCstOp = builder.create<Const::DeclareOp>(cstOp.getLoc(), newCstType, cstOp.getContentAttr());
+    auto newCstOp = Const::DeclareOp::create(builder, cstOp.getLoc(), newCstType, cstOp.getContentAttr());
     cstLoadOp->setOperand(0, newCstOp.getOutput());
     if (cstOp->getUses().empty()) {
         cstOp.erase();
@@ -541,7 +541,7 @@ void Swizzling::constantBufferSwizzling(mlir::OpBuilder& builder, VPUIP::NCEClus
     // Create new CopyOp with correct result type
     builder.setInsertionPointAfter(copyOp);
     auto tempCopyOp =
-            builder.create<VPUIP::CopyOp>(copyOp.getLoc(), newType, copyOp.getInput(), copyOp.getOutputBuff());
+            VPUIP::CopyOp::create(builder, copyOp.getLoc(), newType, copyOp.getInput(), copyOp.getOutputBuff());
     copyOp->replaceAllUsesWith(tempCopyOp);
     copyOp->erase();
 }
@@ -719,7 +719,7 @@ void Swizzling::activationBufferSwizzling(mlir::OpBuilder& builder, VPUIP::NCECl
 
             // Create new allocation with swizzling enabled and required alignment setting
             auto newAlloc =
-                    builder.create<VPURT::Alloc>(newLoc, newType, addressAlignmentAttr, swizzlingSchemeAttr.getKey());
+                    VPURT::Alloc::create(builder, newLoc, newType, addressAlignmentAttr, swizzlingSchemeAttr.getKey());
             allocOp->replaceAllUsesWith(newAlloc);
 
             opsInfo.opsToRemove.push_back(allocOp.getOperation());
@@ -747,8 +747,8 @@ void Swizzling::activationBufferSwizzling(mlir::OpBuilder& builder, VPUIP::NCECl
             auto newType = getDistributedBufferTypeWithSwizzling(distributedType, swizzlingSchemeAttr);
 
             // Create new allocation with swizzling enabled and required alignment setting
-            auto newAlloc = builder.create<VPURT::AllocDistributed>(newLoc, newType, addressAlignmentAttr,
-                                                                    swizzlingSchemeAttr.getKey());
+            auto newAlloc = VPURT::AllocDistributed::create(builder, newLoc, newType, addressAlignmentAttr,
+                                                            swizzlingSchemeAttr.getKey());
             allocOp->replaceAllUsesWith(newAlloc);
 
             opsInfo.opsToRemove.push_back(allocOp.getOperation());

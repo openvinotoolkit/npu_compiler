@@ -88,23 +88,29 @@ func.func @Unroll2DTilingIncludingC(%arg0: tensor<1x320x64x64xf16, {order = #NHW
     //CHECK:  [[INPUT0_SLICE0:%.+]] = VPU.Slice [[ARG0]] [0, 0, 0, 0] [1, 320, 32, 64]
     //CHECK:  [[INPUT1_SLICE0:%.+]] = VPU.Slice [[ARG1]] [0, 0, 0, 0] [1, 320, 32, 64]
     //CHECK:  [[ELTWISE_TILE0:%.+]] = VPU.NCE.Eltwise([[INPUT0_SLICE0]], [[INPUT1_SLICE0]])
+    //CHECK-SAME: loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}
     //CHECK:  [[WEIGHTS_SLICE0:%.+]] = VPU.Slice [[WEIGHTS]] [0, 0, 0, 0] [160, 320, 1, 1]
     //CHECK:  [[CONV_TILE0:%.+]] = VPU.NCE.Convolution([[ELTWISE_TILE0]], [[WEIGHTS_SLICE0]])
+    //CHECK-SAME: loop_tile_coord = {axes = array<i64: 1, 2>, indices = array<i64: 0, 0>}
 
     // Tile1
     //CHECK:  [[WEIGHTS_SLICE1:%.+]] = VPU.Slice [[WEIGHTS]] [160, 0, 0, 0] [160, 320, 1, 1]
     //CHECK:  [[CONV_TILE1:%.+]] = VPU.NCE.Convolution([[ELTWISE_TILE0]], [[WEIGHTS_SLICE1]])
+    //CHECK-SAME: loop_tile_coord = {axes = array<i64: 1, 2>, indices = array<i64: 1, 0>}
 
     // Tile2
     //CHECK:  [[INPUT0_SLICE2:%.+]] = VPU.Slice [[ARG0]] [0, 0, 32, 0] [1, 320, 32, 64]
     //CHECK:  [[INPUT1_SLICE2:%.+]] = VPU.Slice [[ARG1]] [0, 0, 32, 0] [1, 320, 32, 64]
     //CHECK:  [[ELTWISE_TILE2:%.+]] = VPU.NCE.Eltwise([[INPUT0_SLICE2]], [[INPUT1_SLICE2]])
+    //CHECK-SAME: loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}
     //CHECK:  [[WEIGHTS_TILE2:%.+]] = VPU.Slice [[WEIGHTS]] [0, 0, 0, 0] [160, 320, 1, 1]
     //CHECK:  [[CONV_TILE2:%.+]] = VPU.NCE.Convolution([[ELTWISE_TILE2]], [[WEIGHTS_TILE2]])
+    //CHECK-SAME: loop_tile_coord = {axes = array<i64: 1, 2>, indices = array<i64: 0, 1>}
 
     // Tile3
     //CHECK:  [[WEIGHTS_TILE3:%.+]] = VPU.Slice [[WEIGHTS]] [160, 0, 0, 0] [160, 320, 1, 1]
     //CHECK:  [[CONV_TILE3:%.+]] = VPU.NCE.Convolution([[ELTWISE_TILE2]], [[WEIGHTS_TILE3]])
+    //CHECK-SAME: loop_tile_coord = {axes = array<i64: 1, 2>, indices = array<i64: 1, 1>}
 
     //CHECK:  [[CONCAT:%.+]] = VPU.Concat([[CONV_TILE0]], [[CONV_TILE1]], [[CONV_TILE2]], [[CONV_TILE3]])
     //CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 160, 0, 0], [0, 0, 32, 0], [0, 160, 32, 0]]}

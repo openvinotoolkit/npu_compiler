@@ -107,6 +107,24 @@ private:
 };
 
 //
+// OptimizeSliceViewLikeChainExpand
+//
+
+class OptimizeSliceViewLikeChainExpand final : public mlir::OpRewritePattern<IE::ExpandOp> {
+public:
+    OptimizeSliceViewLikeChainExpand(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ExpandOp>(ctx), _log(log) {
+        setDebugName("OptimizeSliceViewLikeChainExpand");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ExpandOp layerOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
 // OptimizeSliceExpand
 //
 
@@ -370,7 +388,7 @@ public:
                 }
 
                 auto newContentAttr = Const::ContentAttr::get(baseContent, newTransformations);
-                auto newConstOp = rewriter.create<Const::DeclareOp>(origOp.getLoc(), outputType, newContentAttr);
+                auto newConstOp = Const::DeclareOp::create(rewriter, origOp.getLoc(), outputType, newContentAttr);
                 inputs.push_back(newConstOp.getOutput());
             } else {
                 inputs.push_back(inputOp->getOperand(0));

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2025 Intel Corporation
+// Copyright (C) 2022-2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -135,7 +135,7 @@ mlir::LogicalResult SwapTransposeConcat::ConcatConverter::matchAndRewrite(IE::Co
 
     updateConcatAttributes(perAxisAttr, staticOffsets, orderAttr.getValue(), origPermuteInputOrder);
 
-    auto newConcat = rewriter.create<IE::ConcatOp>(origOp.getLoc(), newInputs, perAxisAttr, staticOffsets);
+    auto newConcat = IE::ConcatOp::create(rewriter, origOp.getLoc(), newInputs, perAxisAttr, staticOffsets);
 
     auto transposeOp =
             rewriter.replaceOpWithNewOp<IE::TransposeOp>(origOp, origOp.getType(), newConcat, nullptr, orderAttr);

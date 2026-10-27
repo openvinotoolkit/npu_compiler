@@ -326,12 +326,12 @@ mlir::LogicalResult ConvertDynamicDequantizeToDequantize::matchAndRewrite(IE::Dy
     _log.trace("Found '{0}' Operation at '{1}'", origOp->getName(), origOp->getLoc());
 
     if (!isOptimizableDynamicDequantizeOp(origOp)) {
-        return matchFailed(rewriter, origOp, "not a valid dynamic dequantize op");
+        return matchFailed(_log, rewriter, origOp, "not a valid dynamic dequantize op");
     }
 
     auto isValidPattern = tryToFindValidFCPattern(origOp);
     if (!isValidPattern.has_value()) {
-        return matchFailed(rewriter, origOp, "not a valid FC pattern");
+        return matchFailed(_log, rewriter, origOp, "not a valid FC pattern");
     }
 
     auto fcOp = isValidPattern.value();
@@ -346,7 +346,7 @@ mlir::LogicalResult ConvertDynamicDequantizeToDequantize::matchAndRewrite(IE::Dy
     auto scale =
             rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_scale"), origOp.getScale(), outShapeAttr);
     bool isNF4Quantized = false;
-    if (const auto quantileStorageType = mlir::dyn_cast<vpux::type::QuantileType>(quantStorageType)) {
+    if (const auto quantileStorageType = mlir::dyn_cast<mlir::quant::QuantileType>(quantStorageType)) {
         isNF4Quantized = (quantileStorageType.getStorageWidth() == 4);
     }
 
@@ -363,7 +363,7 @@ mlir::LogicalResult ConvertDynamicDequantizeToDequantize::matchAndRewrite(IE::Dy
         float maxComputationValue = uniformType.getStorageTypeMax();
         if (isNF4Quantized) {
             if (const auto quantileTypeStorage =
-                        mlir::dyn_cast<vpux::type::QuantileType>(uniformType.getStorageType())) {
+                        mlir::dyn_cast<mlir::quant::QuantileType>(uniformType.getStorageType())) {
                 const auto quantLUT = quantileTypeStorage.getQuantiles();
                 const auto result = std::minmax_element(quantLUT.begin(), quantLUT.end());
                 minComputationValue = *result.first;
@@ -398,7 +398,7 @@ mlir::LogicalResult ConvertDynamicDequantizeToDequantize::matchAndRewrite(IE::Dy
             mlir::quant::QuantizedType quantTypeRescaled = nullptr;
             if (isNF4Quantized) {
                 if (const auto quantileTypeStorage =
-                            mlir::dyn_cast<vpux::type::QuantileType>(uniformType.getStorageType())) {
+                            mlir::dyn_cast<mlir::quant::QuantileType>(uniformType.getStorageType())) {
                     quantTypeRescaled = mlir::quant::UniformQuantizedType::get(
                             uniformType.getFlags(), quantileTypeStorage, uniformType.getExpressedType(), rescaler,
                             /*zp=*/0,
@@ -411,8 +411,8 @@ mlir::LogicalResult ConvertDynamicDequantizeToDequantize::matchAndRewrite(IE::Dy
                         /*max=*/uniformType.getStorageTypeMax());
             }
             auto quantCastOpRescaled =
-                    rewriter.create<IE::QuantizeCastOp>(appendLoc(origOp->getLoc(), "quant_cast_i8_with_rescaler"),
-                                                        quantCastOp.getInput(), quantTypeRescaled);
+                    IE::QuantizeCastOp::create(rewriter, appendLoc(origOp->getLoc(), "quant_cast_i8_with_rescaler"),
+                                               quantCastOp.getInput(), quantTypeRescaled);
             rewriter.replaceOp(quantCastOp, quantCastOpRescaled.getOutput());
 
             const auto descalerBaseType =
@@ -422,28 +422,28 @@ mlir::LogicalResult ConvertDynamicDequantizeToDequantize::matchAndRewrite(IE::Dy
             const auto descalerContentAttr = Const::ContentAttr::get(descalerBaseAttr);
             auto descalerConstAttr = descalerContentAttr.transform().get();
             const auto descalerType = mlir::cast<vpux::NDTypeInterface>(descalerContentAttr.getType());
-            auto descalerConstOp = rewriter.create<Const::DeclareOp>(appendLoc(origOp->getLoc(), "descaler"),
-                                                                     descalerType, std::move(descalerConstAttr));
+            auto descalerConstOp = Const::DeclareOp::create(rewriter, appendLoc(origOp->getLoc(), "descaler"),
+                                                            descalerType, std::move(descalerConstAttr));
 
-            auto multiplyWithRescaler = rewriter.create<IE::MultiplyOp>(
-                    appendLoc(origOp->getLoc(), "descale_scaler"), scale, descalerConstOp, IE::AutoBroadcastType::NUMPY,
-                    nullptr, nullptr, nullptr, nullptr);
+            auto multiplyWithRescaler = IE::MultiplyOp::create(rewriter, appendLoc(origOp->getLoc(), "descale_scaler"),
+                                                               scale, descalerConstOp, IE::AutoBroadcastType::NUMPY,
+                                                               nullptr, nullptr, nullptr, nullptr);
             scale = multiplyWithRescaler;
         }
     }
 
     // insert a multiply post FC
     rewriter.setInsertionPointAfter(fcOp);
-    auto multiply =
-            rewriter.create<IE::MultiplyOp>(appendLoc(origOp->getLoc(), "post_multiply"), fcOp.getOutput(), scale,
-                                            IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
+    auto multiply = IE::MultiplyOp::create(rewriter, appendLoc(origOp->getLoc(), "post_multiply"), fcOp.getOutput(),
+                                           scale, IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
     fcOp.getOutput().replaceUsesWithIf(multiply.getOutput(), [&](mlir::OpOperand& opOperand) {
         return opOperand.getOwner() != multiply;
     });
 
     // replace dynamic dequantize with dequantize
     rewriter.setInsertionPointAfter(origOp);
-    auto dequantizeOp = rewriter.create<IE::DequantizeOp>(origOp->getLoc(), origOp.getInput(), origOp.getDstElemType());
+    auto dequantizeOp =
+            IE::DequantizeOp::create(rewriter, origOp->getLoc(), origOp.getInput(), origOp.getDstElemType());
     rewriter.replaceOp(origOp, dequantizeOp.getOutput());
 
     _log.trace("Convert dynamic dequantize to dequantize successful");

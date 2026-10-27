@@ -33,7 +33,7 @@ void WrapVFRewriterBase::wrapIntoVFRegion(VPU::VerticalFusionOpInterface op, mli
         mapper.map(op->getOperands(), newOperands);
         auto* newOp = builder.clone(*op, mapper);
         newOp->removeAttr(tilingStrategy);
-        builder.create<VPU::YieldOp>(loc, newOp->getResults());
+        VPU::YieldOp::create(builder, loc, newOp->getResults());
     };
     rewriter.replaceOpWithNewOp<VPU::VerticalFusionOp>(op, op->getResultTypes(), op->getOperands(), bodyBuilder,
                                                        tilingStrategyArray);

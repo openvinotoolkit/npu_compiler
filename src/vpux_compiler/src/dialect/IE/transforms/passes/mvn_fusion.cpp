@@ -156,23 +156,23 @@ mlir::LogicalResult MVNFusion::matchAndRewrite(IE::DivideOp origOp, mlir::Patter
 
     auto meanSubOp = origOp.getInput1().getDefiningOp<IE::SubtractOp>();
     if (meanSubOp == nullptr) {
-        return matchFailed(rewriter, origOp, "No x SubtractOp found");
+        return matchFailed(_log, rewriter, origOp, "No x SubtractOp found");
     }
 
     auto inputMeanOp = meanSubOp.getInput2().getDefiningOp<IE::ReduceMeanOp>();
     if (inputMeanOp == nullptr) {
-        return matchFailed(rewriter, origOp, "No x ReduceMeanOp found");
+        return matchFailed(_log, rewriter, origOp, "No x ReduceMeanOp found");
     }
     auto inputMeanAxesValue = parseIntArrayAttr<int64_t>(inputMeanOp.getAxesValue());
 
     if (inputMeanOp.getInput() != meanSubOp.getInput1()) {
-        return matchFailed(rewriter, origOp, "Not the same input");
+        return matchFailed(_log, rewriter, origOp, "Not the same input");
     }
     const auto mvnInput = inputMeanOp.getInput();
     const auto inputShape = getShape(mvnInput);
     const auto inputRank = inputShape.size();
     if (inputRank < 2 || inputRank > 4) {
-        return matchFailed(rewriter, origOp, "Invalid input shape rank");
+        return matchFailed(_log, rewriter, origOp, "Invalid input shape rank");
     }
 
     // inside-sqrt or outside-sqrt
@@ -185,11 +185,11 @@ mlir::LogicalResult MVNFusion::matchAndRewrite(IE::DivideOp origOp, mlir::Patter
     if (insideEpsSqrtOp) {
         auto insideEpsAddOp = insideEpsSqrtOp.getInput().getDefiningOp<IE::AddOp>();
         if (insideEpsAddOp == nullptr) {
-            return matchFailed(rewriter, origOp, "No inside-eps AddOp found");
+            return matchFailed(_log, rewriter, origOp, "No inside-eps AddOp found");
         }
         squareSubOp = insideEpsAddOp.getInput1().getDefiningOp<IE::SubtractOp>();
         if (squareSubOp == nullptr) {
-            return matchFailed(rewriter, origOp, "No inside-eps SubtractOp found");
+            return matchFailed(_log, rewriter, origOp, "No inside-eps SubtractOp found");
         }
 
         epsInput = insideEpsAddOp.getInput2();
@@ -197,26 +197,26 @@ mlir::LogicalResult MVNFusion::matchAndRewrite(IE::DivideOp origOp, mlir::Patter
     } else if (outsideEpsAddOp) {
         auto outsideEpsSqrtOp = outsideEpsAddOp.getInput1().getDefiningOp<IE::SqrtOp>();
         if (outsideEpsSqrtOp == nullptr) {
-            return matchFailed(rewriter, origOp, "No outside-eps SqrtOp found");
+            return matchFailed(_log, rewriter, origOp, "No outside-eps SqrtOp found");
         }
         squareSubOp = outsideEpsSqrtOp.getInput().getDefiningOp<IE::SubtractOp>();
         if (squareSubOp == nullptr) {
-            return matchFailed(rewriter, origOp, "No outside-eps SubtractOp found");
+            return matchFailed(_log, rewriter, origOp, "No outside-eps SubtractOp found");
         }
 
         epsInput = outsideEpsAddOp.getInput2();
         isOutsideEps = true;
     } else {
-        return matchFailed(rewriter, origOp, "No inside-eps or outside-eps mode found");
+        return matchFailed(_log, rewriter, origOp, "No inside-eps or outside-eps mode found");
     }
 
     if (squareSubOp == nullptr) {
-        return matchFailed(rewriter, origOp, "No square SubtractOp found");
+        return matchFailed(_log, rewriter, origOp, "No square SubtractOp found");
     }
 
     auto epsValueOpt = getEpsValue(epsInput, isOutsideEps);
     if (!epsValueOpt.has_value()) {
-        return matchFailed(rewriter, origOp, "No valid eps found");
+        return matchFailed(_log, rewriter, origOp, "No valid eps found");
     }
     const auto epsValue = epsValueOpt.value();
 
@@ -226,56 +226,56 @@ mlir::LogicalResult MVNFusion::matchAndRewrite(IE::DivideOp origOp, mlir::Patter
 
     auto squareMeanOp = squareSubOp.getInput1().getDefiningOp<IE::ReduceMeanOp>();
     if (squareMeanOp == nullptr) {
-        return matchFailed(rewriter, origOp, "No square ReduceMeanOp found");
+        return matchFailed(_log, rewriter, origOp, "No square ReduceMeanOp found");
     }
     auto squareMeanAxesValue = parseIntArrayAttr<int64_t>(squareMeanOp.getAxesValue());
 
     if (inputMeanAxesValue != squareMeanAxesValue) {
-        return matchFailed(rewriter, origOp, "ReduceMean ops have different axes");
+        return matchFailed(_log, rewriter, origOp, "ReduceMean ops have different axes");
     }
 
     auto squareOp = squareMeanOp.getInput().getDefiningOp<IE::MultiplyOp>();
     if (squareOp == nullptr) {
-        return matchFailed(rewriter, origOp, "No x MultiplyOp found");
+        return matchFailed(_log, rewriter, origOp, "No x MultiplyOp found");
     }
     if (!isMultiplySquare(squareOp)) {
-        return matchFailed(rewriter, origOp, "x MultiplyOp is not square");
+        return matchFailed(_log, rewriter, origOp, "x MultiplyOp is not square");
     }
     if (squareOp.getInput1() != mvnInput) {
-        return matchFailed(rewriter, origOp, "Not the same input");
+        return matchFailed(_log, rewriter, origOp, "Not the same input");
     }
 
     auto meanSquareOp = squareSubOp.getInput2().getDefiningOp<IE::MultiplyOp>();
     if (meanSquareOp == nullptr) {
-        return matchFailed(rewriter, origOp, "No MultiplyOp for ReduceMean found");
+        return matchFailed(_log, rewriter, origOp, "No MultiplyOp for ReduceMean found");
     }
     if (!isMultiplySquare(meanSquareOp)) {
-        return matchFailed(rewriter, origOp, "MultiplyOp for ReduceMean is not square");
+        return matchFailed(_log, rewriter, origOp, "MultiplyOp for ReduceMean is not square");
     }
     auto meanToSquareOp = meanSquareOp.getInput1().getDefiningOp<IE::ReduceMeanOp>();
     if (meanToSquareOp == nullptr) {
-        return matchFailed(rewriter, origOp, "No ReduceMeanOp for square found");
+        return matchFailed(_log, rewriter, origOp, "No ReduceMeanOp for square found");
     }
     if (meanToSquareOp != inputMeanOp) {
-        return matchFailed(rewriter, origOp, "Not the same ReduceMean input");
+        return matchFailed(_log, rewriter, origOp, "Not the same ReduceMean input");
     }
 
     bool isAcrossChannel;
     const auto newShapeOpt = canConvertToMVN1(inputShape, inputMeanAxesValue, isAcrossChannel);
     if (!newShapeOpt.has_value()) {
-        return matchFailed(rewriter, origOp, "Cannot convert to mvn");
+        return matchFailed(_log, rewriter, origOp, "Cannot convert to mvn");
     }
 
     const auto ctx = origOp.getContext();
-    auto preReshapeOp = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "in_reshape"), inputMeanOp.getInput(),
-                                                       getIntArrayAttr(ctx, newShapeOpt.value()));
+    auto preReshapeOp = IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "in_reshape"), inputMeanOp.getInput(),
+                                              getIntArrayAttr(ctx, newShapeOpt.value()));
 
     const auto normVarianceAttr = mlir::BoolAttr::get(ctx, true);
     const auto acrossChannelsAttr = mlir::BoolAttr::get(ctx, isAcrossChannel);
     const auto epsAttr = getFPAttr(ctx, epsValue);
 
-    auto mvnOp = rewriter.create<IE::MVNOp>(origOp.getLoc(), preReshapeOp.getOutput(), acrossChannelsAttr,
-                                            normVarianceAttr, epsAttr);
+    auto mvnOp = IE::MVNOp::create(rewriter, origOp.getLoc(), preReshapeOp.getOutput(), acrossChannelsAttr,
+                                   normVarianceAttr, epsAttr);
 
     _log.trace("Replace '{0}' with new op '{1}'", origOp.getLoc(), mvnOp);
     auto outReshape = rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, mvnOp.getOutput(),
@@ -313,23 +313,23 @@ mlir::LogicalResult MVNFusionOvRef::matchAndRewrite(IE::DivideOp origOp, mlir::P
 
     auto meanSubOp = origOp.getInput1().getDefiningOp<IE::SubtractOp>();
     if (meanSubOp == nullptr) {
-        return matchFailed(rewriter, origOp, "No SubtractOp found");
+        return matchFailed(_log, rewriter, origOp, "No SubtractOp found");
     }
 
     auto inputMeanOp = meanSubOp.getInput2().getDefiningOp<IE::ReduceMeanOp>();
     if (inputMeanOp == nullptr) {
-        return matchFailed(rewriter, origOp, "No ReduceMeanOp(x) found");
+        return matchFailed(_log, rewriter, origOp, "No ReduceMeanOp(x) found");
     }
     auto inputMeanAxesValue = parseIntArrayAttr<int64_t>(inputMeanOp.getAxesValue());
 
     if (inputMeanOp.getInput() != meanSubOp.getInput1()) {
-        return matchFailed(rewriter, origOp, "No (x - ReduceMeanOp(x)) found");
+        return matchFailed(_log, rewriter, origOp, "No (x - ReduceMeanOp(x)) found");
     }
     const auto mvnInput = inputMeanOp.getInput();
     const auto inputShape = getShape(mvnInput);
     const auto inputRank = inputShape.size();
     if (inputRank < 2 || inputRank > 4) {
-        return matchFailed(rewriter, origOp, "Invalid input shape rank");
+        return matchFailed(_log, rewriter, origOp, "Invalid input shape rank");
     }
 
     // inside-sqrt or outside-sqrt
@@ -342,7 +342,7 @@ mlir::LogicalResult MVNFusionOvRef::matchAndRewrite(IE::DivideOp origOp, mlir::P
     if (insideEpsSqrtOp) {
         auto insideEpsAddOp = insideEpsSqrtOp.getInput().getDefiningOp<IE::AddOp>();
         if (insideEpsAddOp == nullptr) {
-            return matchFailed(rewriter, origOp, "No inside-eps AddOp found");
+            return matchFailed(_log, rewriter, origOp, "No inside-eps AddOp found");
         }
         epsInput = insideEpsAddOp.getInput2();
         reduceMean2 = insideEpsAddOp.getInput1().getDefiningOp();
@@ -350,18 +350,18 @@ mlir::LogicalResult MVNFusionOvRef::matchAndRewrite(IE::DivideOp origOp, mlir::P
     } else if (outsideEpsAddOp) {
         auto outsideEpsSqrtOp = outsideEpsAddOp.getInput1().getDefiningOp<IE::SqrtOp>();
         if (outsideEpsSqrtOp == nullptr) {
-            return matchFailed(rewriter, origOp, "No outside-eps SqrtOp found");
+            return matchFailed(_log, rewriter, origOp, "No outside-eps SqrtOp found");
         }
         epsInput = outsideEpsAddOp.getInput2();
         reduceMean2 = outsideEpsSqrtOp.getInput().getDefiningOp();
         isOutsideEps = true;
     } else {
-        return matchFailed(rewriter, origOp, "No inside-eps or outside-eps mode found");
+        return matchFailed(_log, rewriter, origOp, "No inside-eps or outside-eps mode found");
     }
 
     auto epsValueOpt = getEpsValue(epsInput, isOutsideEps);
     if (!epsValueOpt.has_value()) {
-        return matchFailed(rewriter, origOp, "No valid eps found");
+        return matchFailed(_log, rewriter, origOp, "No valid eps found");
     }
     const auto epsValue = epsValueOpt.value();
 
@@ -369,12 +369,12 @@ mlir::LogicalResult MVNFusionOvRef::matchAndRewrite(IE::DivideOp origOp, mlir::P
 
     auto squareMeanOp = mlir::dyn_cast<IE::ReduceMeanOp>(*reduceMean2);
     if (squareMeanOp == nullptr) {
-        return matchFailed(rewriter, origOp, "No square ReduceMeanOp found");
+        return matchFailed(_log, rewriter, origOp, "No square ReduceMeanOp found");
     }
     auto squareMeanAxesValue = parseIntArrayAttr<int64_t>(squareMeanOp.getAxesValue());
 
     if (inputMeanAxesValue != squareMeanAxesValue) {
-        return matchFailed(rewriter, origOp, "ReduceMean ops have different axes");
+        return matchFailed(_log, rewriter, origOp, "ReduceMean ops have different axes");
     }
 
     // detect Pow(x,2) or Multiply(x,x)
@@ -395,11 +395,11 @@ mlir::LogicalResult MVNFusionOvRef::matchAndRewrite(IE::DivideOp origOp, mlir::P
 
     mlir::Operation* squareOp = getSquareOp(squareMeanOp.getInput().getDefiningOp());
     if (squareOp == nullptr) {
-        return matchFailed(rewriter, origOp, "No Squaring op found");
+        return matchFailed(_log, rewriter, origOp, "No Squaring op found");
     }
     auto squareSubOp = mlir::dyn_cast<IE::SubtractOp>(squareOp->getOperand(0).getDefiningOp());
     if (squareSubOp == nullptr) {
-        return matchFailed(rewriter, origOp, "Squaring op input is not a SubtractOp");
+        return matchFailed(_log, rewriter, origOp, "Squaring op input is not a SubtractOp");
     }
     if (squareSubOp != meanSubOp) {
         // Allow semantically equivalent SubtractOps:
@@ -408,26 +408,26 @@ mlir::LogicalResult MVNFusionOvRef::matchAndRewrite(IE::DivideOp origOp, mlir::P
         if (squareSubMeanOp == nullptr || squareSubOp.getInput1() != meanSubOp.getInput1() ||
             squareSubMeanOp.getInput() != inputMeanOp.getInput() ||
             parseIntArrayAttr<int64_t>(squareSubMeanOp.getAxesValue()) != inputMeanAxesValue) {
-            return matchFailed(rewriter, origOp, "Subtract->SquareOp link not found");
+            return matchFailed(_log, rewriter, origOp, "Subtract->SquareOp link not found");
         }
     }
 
     bool isAcrossChannel;
     const auto newShapeOpt = canConvertToMVN1(inputShape, inputMeanAxesValue, isAcrossChannel);
     if (!newShapeOpt.has_value()) {
-        return matchFailed(rewriter, origOp, "Cannot convert to mvn");
+        return matchFailed(_log, rewriter, origOp, "Cannot convert to mvn");
     }
 
     const auto ctx = origOp.getContext();
-    auto preReshapeOp = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "in_reshape"), inputMeanOp.getInput(),
-                                                       getIntArrayAttr(ctx, newShapeOpt.value()));
+    auto preReshapeOp = IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "in_reshape"), inputMeanOp.getInput(),
+                                              getIntArrayAttr(ctx, newShapeOpt.value()));
 
     const auto normVarianceAttr = mlir::BoolAttr::get(ctx, true);
     const auto acrossChannelsAttr = mlir::BoolAttr::get(ctx, isAcrossChannel);
     const auto epsAttr = getFPAttr(ctx, epsValue);
 
-    auto mvnOp = rewriter.create<IE::MVNOp>(origOp.getLoc(), preReshapeOp.getOutput(), acrossChannelsAttr,
-                                            normVarianceAttr, epsAttr);
+    auto mvnOp = IE::MVNOp::create(rewriter, origOp.getLoc(), preReshapeOp.getOutput(), acrossChannelsAttr,
+                                   normVarianceAttr, epsAttr);
 
     _log.trace("Replace '{0}' with new op '{1}'", origOp.getLoc(), mvnOp);
     auto outReshape = rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, mvnOp.getOutput(),
@@ -517,30 +517,30 @@ mlir::LogicalResult MVNFusionWithAffine::matchAndRewrite(IE::AddOp origOp, mlir:
     for (auto input : {origOp.getInput1(), origOp.getInput2()}) {
         if (auto subOp = input.getDefiningOp<IE::SubtractOp>()) {
             if (affineSubOp != nullptr) {
-                return matchFailed(rewriter, origOp, "Multiple SubtractOps in final affine Add");
+                return matchFailed(_log, rewriter, origOp, "Multiple SubtractOps in final affine Add");
             }
             affineSubOp = subOp;
         } else {
             if (xScaleValue) {
-                return matchFailed(rewriter, origOp, "Final affine Add has multiple non-Subtract inputs");
+                return matchFailed(_log, rewriter, origOp, "Final affine Add has multiple non-Subtract inputs");
             }
             xScaleValue = input;
         }
     }
     if (affineSubOp == nullptr || !xScaleValue) {
-        return matchFailed(rewriter, origOp, "Expected x*scale and beta-mean*scale branches");
+        return matchFailed(_log, rewriter, origOp, "Expected x*scale and beta-mean*scale branches");
     }
     if (!vpux::Const::isConstValue(affineSubOp.getInput1())) {
-        return matchFailed(rewriter, origOp, "Expected a constant beta in affine Subtract");
+        return matchFailed(_log, rewriter, origOp, "Expected a constant beta in affine Subtract");
     }
 
     auto xScaleOp = xScaleValue.getDefiningOp<IE::MultiplyOp>();
     if (xScaleOp == nullptr) {
-        return matchFailed(rewriter, origOp, "Expected Multiply(x, scale) before final Add");
+        return matchFailed(_log, rewriter, origOp, "Expected Multiply(x, scale) before final Add");
     }
     auto meanScaleOp = affineSubOp.getInput2().getDefiningOp<IE::MultiplyOp>();
     if (meanScaleOp == nullptr) {
-        return matchFailed(rewriter, origOp, "Expected Multiply(mean, scale) in affine Subtract");
+        return matchFailed(_log, rewriter, origOp, "Expected Multiply(mean, scale) in affine Subtract");
     }
 
     IE::ReduceMeanOp meanOp = meanScaleOp.getInput1().getDefiningOp<IE::ReduceMeanOp>();
@@ -548,21 +548,21 @@ mlir::LogicalResult MVNFusionWithAffine::matchAndRewrite(IE::AddOp origOp, mlir:
         meanOp = meanScaleOp.getInput2().getDefiningOp<IE::ReduceMeanOp>();
     }
     if (meanOp == nullptr) {
-        return matchFailed(rewriter, origOp, "Expected ReduceMean(x) in mean branch");
+        return matchFailed(_log, rewriter, origOp, "Expected ReduceMean(x) in mean branch");
     }
     const auto meanResult = meanOp.getOutput();
     if (meanScaleOp.getInput1() != meanResult && meanScaleOp.getInput2() != meanResult) {
-        return matchFailed(rewriter, origOp, "Mean branch does not use ReduceMean(x)");
+        return matchFailed(_log, rewriter, origOp, "Mean branch does not use ReduceMean(x)");
     }
     const auto beta = affineSubOp.getInput1();
     const auto scale = meanScaleOp.getInput1() == meanResult ? meanScaleOp.getInput2() : meanScaleOp.getInput1();
     if (xScaleOp.getInput1() != scale && xScaleOp.getInput2() != scale) {
-        return matchFailed(rewriter, origOp, "x branch does not use the same scale as mean branch");
+        return matchFailed(_log, rewriter, origOp, "x branch does not use the same scale as mean branch");
     }
 
     const auto x = xScaleOp.getInput1() == scale ? xScaleOp.getInput2() : xScaleOp.getInput1();
     if (meanOp.getInput() != x) {
-        return matchFailed(rewriter, origOp, "Mean and x-scale branches do not share the same input");
+        return matchFailed(_log, rewriter, origOp, "Mean and x-scale branches do not share the same input");
     }
 
     IE::SubtractOp centered = nullptr;
@@ -574,7 +574,7 @@ mlir::LogicalResult MVNFusionWithAffine::matchAndRewrite(IE::AddOp origOp, mlir:
         }
     }
     if (centered == nullptr) {
-        return matchFailed(rewriter, origOp, "Could not find centered value x-ReduceMean(x)");
+        return matchFailed(_log, rewriter, origOp, "Could not find centered value x-ReduceMean(x)");
     }
 
     IE::MultiplyOp square = nullptr;
@@ -587,21 +587,21 @@ mlir::LogicalResult MVNFusionWithAffine::matchAndRewrite(IE::AddOp origOp, mlir:
         }
     }
     if (square == nullptr || !square->hasOneUse()) {
-        return matchFailed(rewriter, origOp, "Expected single-use Multiply(centered, centered)");
+        return matchFailed(_log, rewriter, origOp, "Expected single-use Multiply(centered, centered)");
     }
 
     auto varianceOp = mlir::dyn_cast<IE::ReduceMeanOp>(*square->getUsers().begin());
     if (varianceOp == nullptr || !varianceOp->hasOneUse()) {
-        return matchFailed(rewriter, origOp, "Expected single-use ReduceMean(centered²)");
+        return matchFailed(_log, rewriter, origOp, "Expected single-use ReduceMean(centered²)");
     }
     const auto meanAxes = parseIntArrayAttr<int64_t>(meanOp.getAxesValue());
     if (meanAxes != parseIntArrayAttr<int64_t>(varianceOp.getAxesValue())) {
-        return matchFailed(rewriter, origOp, "Mean and variance ReduceMean ops have different axes");
+        return matchFailed(_log, rewriter, origOp, "Mean and variance ReduceMean ops have different axes");
     }
 
     auto epsAddOp = mlir::dyn_cast<IE::AddOp>(*varianceOp->getUsers().begin());
     if (epsAddOp == nullptr || !epsAddOp->hasOneUse()) {
-        return matchFailed(rewriter, origOp, "Expected single-use Add(variance, eps)");
+        return matchFailed(_log, rewriter, origOp, "Expected single-use Add(variance, eps)");
     }
     mlir::Value epsInput;
     if (epsAddOp.getInput1().getDefiningOp() == varianceOp) {
@@ -609,21 +609,21 @@ mlir::LogicalResult MVNFusionWithAffine::matchAndRewrite(IE::AddOp origOp, mlir:
     } else if (epsAddOp.getInput2().getDefiningOp() == varianceOp) {
         epsInput = epsAddOp.getInput1();
     } else {
-        return matchFailed(rewriter, origOp, "Add after variance does not consume variance");
+        return matchFailed(_log, rewriter, origOp, "Add after variance does not consume variance");
     }
     const auto epsValue = getEpsValue(epsInput, /*isOutsideEps=*/false);
     if (!epsValue.has_value()) {
-        return matchFailed(rewriter, origOp, "Cannot extract epsilon value");
+        return matchFailed(_log, rewriter, origOp, "Cannot extract epsilon value");
     }
 
     auto sqrtOp = mlir::dyn_cast<IE::SqrtOp>(*epsAddOp->getUsers().begin());
     if (sqrtOp == nullptr || !sqrtOp->hasOneUse()) {
-        return matchFailed(rewriter, origOp, "Expected single-use Sqrt after epsilon Add");
+        return matchFailed(_log, rewriter, origOp, "Expected single-use Sqrt after epsilon Add");
     }
     auto rsqrtOp = mlir::dyn_cast<IE::DivideOp>(*sqrtOp->getUsers().begin());
     if (rsqrtOp == nullptr || !isExpectedSplatConst(rsqrtOp.getInput1(), 1.0f) ||
         rsqrtOp.getInput2() != sqrtOp.getOutput()) {
-        return matchFailed(rewriter, origOp, "Expected Divide(1, Sqrt(variance + eps))");
+        return matchFailed(_log, rewriter, origOp, "Expected Divide(1, Sqrt(variance + eps))");
     }
 
     mlir::Value gamma;
@@ -634,15 +634,15 @@ mlir::LogicalResult MVNFusionWithAffine::matchAndRewrite(IE::AddOp origOp, mlir:
                (scaleOp.getInput1() == rsqrtOp.getOutput() || scaleOp.getInput2() == rsqrtOp.getOutput())) {
         gamma = scaleOp.getInput1() == rsqrtOp.getOutput() ? scaleOp.getInput2() : scaleOp.getInput1();
         if (!vpux::Const::isConstValue(gamma)) {
-            return matchFailed(rewriter, origOp, "Expected a constant gamma in affine scale");
+            return matchFailed(_log, rewriter, origOp, "Expected a constant gamma in affine scale");
         }
     } else {
-        return matchFailed(rewriter, origOp, "Scale is not reciprocal-sqrt optionally multiplied by gamma");
+        return matchFailed(_log, rewriter, origOp, "Scale is not reciprocal-sqrt optionally multiplied by gamma");
     }
 
     const auto mappingOpt = getMVN1Mapping(getShape(x), meanAxes);
     if (!mappingOpt.has_value()) {
-        return matchFailed(rewriter, origOp, "Cannot convert LayerNorm axes to MVN1");
+        return matchFailed(_log, rewriter, origOp, "Cannot convert LayerNorm axes to MVN1");
     }
     const auto& mapping = mappingOpt.value();
     const auto ctx = origOp.getContext();
@@ -651,37 +651,37 @@ mlir::LogicalResult MVNFusionWithAffine::matchAndRewrite(IE::AddOp origOp, mlir:
     mlir::Value mvnInput = x;
     if (!mapping.preTransposePerm.empty()) {
         const auto order = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(mapping.preTransposePerm, ctx));
-        mvnInput =
-                rewriter.create<IE::TransposeOp>(appendLoc(loc, "pre_transpose"), mvnInput, nullptr, order).getOutput();
+        mvnInput = IE::TransposeOp::create(rewriter, appendLoc(loc, "pre_transpose"), mvnInput, nullptr, order)
+                           .getOutput();
     }
-    auto preReshape = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "in_reshape"), mvnInput,
-                                                     getIntArrayAttr(ctx, mapping.mvnShape));
-    auto mvn = rewriter.create<IE::MVNOp>(appendLoc(loc, "mvn"), preReshape.getOutput(),
-                                          mlir::BoolAttr::get(ctx, mapping.isAcrossChannel),
-                                          mlir::BoolAttr::get(ctx, true), getFPAttr(ctx, epsValue.value()));
+    auto preReshape = IE::ReshapeOp::create(rewriter, appendLoc(loc, "in_reshape"), mvnInput,
+                                            getIntArrayAttr(ctx, mapping.mvnShape));
+    auto mvn = IE::MVNOp::create(rewriter, appendLoc(loc, "mvn"), preReshape.getOutput(),
+                                 mlir::BoolAttr::get(ctx, mapping.isAcrossChannel), mlir::BoolAttr::get(ctx, true),
+                                 getFPAttr(ctx, epsValue.value()));
 
     mlir::Value normalized = mvn.getOutput();
     if (mapping.postTransposePerm.empty()) {
-        normalized = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "out_reshape"), normalized,
-                                                    getIntArrayAttr(ctx, getShape(origOp.getOutput())))
+        normalized = IE::ReshapeOp::create(rewriter, appendLoc(loc, "out_reshape"), normalized,
+                                           getIntArrayAttr(ctx, getShape(origOp.getOutput())))
                              .getOutput();
     } else {
-        auto outReshape = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "out_reshape"), normalized,
-                                                         getIntArrayAttr(ctx, mapping.postReshapeShape));
+        auto outReshape = IE::ReshapeOp::create(rewriter, appendLoc(loc, "out_reshape"), normalized,
+                                                getIntArrayAttr(ctx, mapping.postReshapeShape));
         const auto order = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(mapping.postTransposePerm, ctx));
-        normalized = rewriter.create<IE::TransposeOp>(appendLoc(loc, "post_transpose"), outReshape.getOutput(), nullptr,
-                                                      order)
+        normalized = IE::TransposeOp::create(rewriter, appendLoc(loc, "post_transpose"), outReshape.getOutput(),
+                                             nullptr, order)
                              .getOutput();
     }
 
     mlir::Value affineValue = normalized;
     if (gamma) {
-        affineValue = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "gamma"), affineValue, gamma,
-                                                      IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
+        affineValue = IE::MultiplyOp::create(rewriter, appendLoc(loc, "gamma"), affineValue, gamma,
+                                             IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
                               .getOutput();
     }
-    auto result = rewriter.create<IE::AddOp>(appendLoc(loc, "beta"), affineValue, beta, IE::AutoBroadcastType::NUMPY,
-                                             nullptr, nullptr, nullptr, nullptr);
+    auto result = IE::AddOp::create(rewriter, appendLoc(loc, "beta"), affineValue, beta, IE::AutoBroadcastType::NUMPY,
+                                    nullptr, nullptr, nullptr, nullptr);
     rewriter.replaceOp(origOp, result.getOutput());
     return mlir::success();
 }
@@ -724,53 +724,53 @@ mlir::LogicalResult MVNFusionWithSquaredDiff::matchAndRewrite(IE::SquaredDiffere
     // --- 1. port1 of SquaredDiff = ShapeOps*(ReduceMean(x, axes)) ---
     auto inputMeanOp = skipShapeOpsBackward(sqDiffOp.getInput2()).getDefiningOp<IE::ReduceMeanOp>();
     if (inputMeanOp == nullptr) {
-        return matchFailed(rewriter, sqDiffOp, "port1 does not trace back to ReduceMeanOp");
+        return matchFailed(_log, rewriter, sqDiffOp, "port1 does not trace back to ReduceMeanOp");
     }
 
     // --- 2. port0 of SquaredDiff = x (same source as ReduceMean input) ---
     const mlir::Value xVal = sqDiffOp.getInput1();
     if (skipShapeOpsBackward(inputMeanOp.getInput()) != skipShapeOpsBackward(xVal)) {
-        return matchFailed(rewriter, sqDiffOp, "SquaredDifference inputs do not share the same source");
+        return matchFailed(_log, rewriter, sqDiffOp, "SquaredDifference inputs do not share the same source");
     }
     const mlir::Value mvnInput = inputMeanOp.getInput();
     const auto inputShape = getShape(mvnInput);
     const auto inputRank = inputShape.size();
     if (inputRank < 2 || inputRank > 4) {
-        return matchFailed(rewriter, sqDiffOp, "Input rank is outside supported range [2, 4]");
+        return matchFailed(_log, rewriter, sqDiffOp, "Input rank is outside supported range [2, 4]");
     }
 
     // --- 3. SquaredDifference must have exactly one consumer ---
     if (!sqDiffOp->hasOneUse()) {
-        return matchFailed(rewriter, sqDiffOp, "SquaredDifferenceOp has multiple uses");
+        return matchFailed(_log, rewriter, sqDiffOp, "SquaredDifferenceOp has multiple uses");
     }
 
     // --- 4. Single consumer of SquaredDiff: ReduceMean(sq_diff, axes) = variance ---
     auto varMeanOp = mlir::dyn_cast<IE::ReduceMeanOp>(*sqDiffOp->getUsers().begin());
     if (varMeanOp == nullptr || !varMeanOp->hasOneUse()) {
-        return matchFailed(rewriter, sqDiffOp, "Expected single-use ReduceMeanOp after SquaredDifference");
+        return matchFailed(_log, rewriter, sqDiffOp, "Expected single-use ReduceMeanOp after SquaredDifference");
     }
     auto inputMeanAxes = parseIntArrayAttr<int64_t>(inputMeanOp.getAxesValue());
     auto varMeanAxes = parseIntArrayAttr<int64_t>(varMeanOp.getAxesValue());
     if (inputMeanAxes != varMeanAxes) {
-        return matchFailed(rewriter, sqDiffOp, "Mean and variance ReduceMean ops have different axes");
+        return matchFailed(_log, rewriter, sqDiffOp, "Mean and variance ReduceMean ops have different axes");
     }
 
     // --- 5. Add(variance, eps) ---
     auto addEpsOp = mlir::dyn_cast<IE::AddOp>(*varMeanOp->getUsers().begin());
     if (addEpsOp == nullptr || !addEpsOp->hasOneUse()) {
-        return matchFailed(rewriter, sqDiffOp, "Expected single-use AddOp after variance ReduceMean");
+        return matchFailed(_log, rewriter, sqDiffOp, "Expected single-use AddOp after variance ReduceMean");
     }
     const mlir::Value epsInput =
             addEpsOp.getInput1().getDefiningOp() == varMeanOp ? addEpsOp.getInput2() : addEpsOp.getInput1();
     const auto epsOpt = getEpsValue(epsInput, /*isOutsideEps=*/false);
     if (!epsOpt.has_value()) {
-        return matchFailed(rewriter, sqDiffOp, "Cannot extract epsilon value");
+        return matchFailed(_log, rewriter, sqDiffOp, "Cannot extract epsilon value");
     }
 
     // --- 6. Power(var + eps, -0.5) = rsqrt ---
     auto rsqrtOp = mlir::dyn_cast<IE::PowerOp>(*addEpsOp->getUsers().begin());
     if (rsqrtOp == nullptr) {
-        return matchFailed(rewriter, sqDiffOp, "Expected PowerOp after Add(var, eps)");
+        return matchFailed(_log, rewriter, sqDiffOp, "Expected PowerOp after Add(var, eps)");
     }
 
     // Accept both Const and ConvertOp(Const) as the exponent source
@@ -781,11 +781,11 @@ mlir::LogicalResult MVNFusionWithSquaredDiff::matchAndRewrite(IE::SquaredDiffere
         }
     }
     if (expConst == nullptr || !expConst.getContentAttr().isSplat()) {
-        return matchFailed(rewriter, sqDiffOp, "Power exponent is not a splat constant");
+        return matchFailed(_log, rewriter, sqDiffOp, "Power exponent is not a splat constant");
     }
     const auto expVal = expConst.getContent().getSplatValue<double>();
     if (!isDoubleEqual(expVal, -0.5)) {
-        return matchFailed(rewriter, sqDiffOp, "Power exponent is not -0.5");
+        return matchFailed(_log, rewriter, sqDiffOp, "Power exponent is not -0.5");
     }
 
     // --- 7. rsqrtOp must have exactly two users:
@@ -797,24 +797,24 @@ mlir::LogicalResult MVNFusionWithSquaredDiff::matchAndRewrite(IE::SquaredDiffere
     for (auto* user : rsqrtOp->getUsers()) {
         if (mlir::isa<IE::ReshapeOp, IE::AffineReshapeOp>(user)) {
             if (reshapeRsqrtHeadOp != nullptr) {
-                return matchFailed(rewriter, sqDiffOp, "Multiple Reshape users of PowerOp");
+                return matchFailed(_log, rewriter, sqDiffOp, "Multiple Reshape users of PowerOp");
             }
             reshapeRsqrtHeadOp = user;
         } else if (auto mulOp = mlir::dyn_cast<IE::MultiplyOp>(user)) {
             if (mulMeanRsqrtOp != nullptr) {
-                return matchFailed(rewriter, sqDiffOp, "Multiple Multiply users of PowerOp");
+                return matchFailed(_log, rewriter, sqDiffOp, "Multiple Multiply users of PowerOp");
             }
             mulMeanRsqrtOp = mulOp;
         } else {
-            return matchFailed(rewriter, sqDiffOp, "Unexpected user type of PowerOp");
+            return matchFailed(_log, rewriter, sqDiffOp, "Unexpected user type of PowerOp");
         }
     }
     if (reshapeRsqrtHeadOp == nullptr || mulMeanRsqrtOp == nullptr) {
-        return matchFailed(rewriter, sqDiffOp,
+        return matchFailed(_log, rewriter, sqDiffOp,
                            "Expected one Reshape/AffineReshape and one Multiply as PowerOp(-0.5) users");
     }
     if (!reshapeRsqrtHeadOp->hasOneUse() || !mulMeanRsqrtOp->hasOneUse()) {
-        return matchFailed(rewriter, sqDiffOp, "Reshape or Multiply after PowerOp has multiple uses");
+        return matchFailed(_log, rewriter, sqDiffOp, "Reshape or Multiply after PowerOp has multiple uses");
     }
 
     // --- 8. Verify Multiply(mean, rsqrt): inputs must be (inputMeanOp result, rsqrtOp result) ---
@@ -823,25 +823,25 @@ mlir::LogicalResult MVNFusionWithSquaredDiff::matchAndRewrite(IE::SquaredDiffere
     const bool isOrder1 = (mulMeanRsqrtOp.getInput1() == rsqrtResult && mulMeanRsqrtOp.getInput2() == meanResult);
     const bool isOrder2 = (mulMeanRsqrtOp.getInput1() == meanResult && mulMeanRsqrtOp.getInput2() == rsqrtResult);
     if (!isOrder1 && !isOrder2) {
-        return matchFailed(rewriter, sqDiffOp, "Multiply inputs are not (mean, rsqrt)");
+        return matchFailed(_log, rewriter, sqDiffOp, "Multiply inputs are not (mean, rsqrt)");
     }
 
     // --- 9. Subtract(0, Multiply(mean, rsqrt)) = negated-mean term ---
     auto subZeroOp = mlir::dyn_cast<IE::SubtractOp>(*mulMeanRsqrtOp->getUsers().begin());
     if (subZeroOp == nullptr || !subZeroOp->hasOneUse()) {
-        return matchFailed(rewriter, sqDiffOp, "Expected single-use SubtractOp(0, mul_mean_rsqrt)");
+        return matchFailed(_log, rewriter, sqDiffOp, "Expected single-use SubtractOp(0, mul_mean_rsqrt)");
     }
     if (subZeroOp.getInput2() != mulMeanRsqrtOp.getOutput()) {
-        return matchFailed(rewriter, sqDiffOp, "SubtractOp port1 is not Multiply(mean, rsqrt)");
+        return matchFailed(_log, rewriter, sqDiffOp, "SubtractOp port1 is not Multiply(mean, rsqrt)");
     }
     if (!isExpectedSplatConst(subZeroOp.getInput1(), 0.0f)) {
-        return matchFailed(rewriter, sqDiffOp, "SubtractOp minuend is not a zero constant");
+        return matchFailed(_log, rewriter, sqDiffOp, "SubtractOp minuend is not a zero constant");
     }
 
     // --- 10. Reshape/AffineReshape the negated-mean term for broadcasting ---
     auto* subZeroUser = *subZeroOp->getUsers().begin();
     if (!mlir::isa<IE::ReshapeOp, IE::AffineReshapeOp>(subZeroUser) || !subZeroUser->hasOneUse()) {
-        return matchFailed(rewriter, sqDiffOp, "Expected single-use Reshape/AffineReshape after SubtractOp");
+        return matchFailed(_log, rewriter, sqDiffOp, "Expected single-use Reshape/AffineReshape after SubtractOp");
     }
 
     // --- 11. Walk forward through shape-only ops (Reshape/AffineReshape/Transpose) after the
@@ -849,35 +849,35 @@ mlir::LogicalResult MVNFusionWithSquaredDiff::matchAndRewrite(IE::SquaredDiffere
     //         the Reshape and the Multiply is skipped transparently. ---
     const mlir::Value mulXInput = skipShapeOpsForward(reshapeRsqrtHeadOp->getResult(0));
     if (!mulXInput.hasOneUse()) {
-        return matchFailed(rewriter, sqDiffOp, "Shape-chain after Reshape(rsqrt) has multiple uses");
+        return matchFailed(_log, rewriter, sqDiffOp, "Shape-chain after Reshape(rsqrt) has multiple uses");
     }
     auto mulXOp = mlir::dyn_cast<IE::MultiplyOp>(*mulXInput.getUsers().begin());
     if (mulXOp == nullptr || !mulXOp->hasOneUse()) {
-        return matchFailed(rewriter, sqDiffOp, "Expected single-use MultiplyOp(x, Reshape(rsqrt))");
+        return matchFailed(_log, rewriter, sqDiffOp, "Expected single-use MultiplyOp(x, Reshape(rsqrt))");
     }
     const mlir::Value xBase = skipShapeOpsBackward(mvnInput);
     if (skipShapeOpsBackward(mulXOp.getInput1()) != xBase && skipShapeOpsBackward(mulXOp.getInput2()) != xBase) {
-        return matchFailed(rewriter, sqDiffOp, "MultiplyOp(x, rsqrt_r): no input traces back to x");
+        return matchFailed(_log, rewriter, sqDiffOp, "MultiplyOp(x, rsqrt_r): no input traces back to x");
     }
 
     // --- 12. Walk forward through shape-only ops after the neg-mean reshape to find the final Add.
     //         An optional Transpose between the Reshape and the Add is skipped transparently. ---
     const mlir::Value addFinalInput = skipShapeOpsForward(subZeroUser->getResult(0));
     if (!addFinalInput.hasOneUse()) {
-        return matchFailed(rewriter, sqDiffOp, "Shape-chain after neg-mean Reshape has multiple uses");
+        return matchFailed(_log, rewriter, sqDiffOp, "Shape-chain after neg-mean Reshape has multiple uses");
     }
     auto addFinalOp = mlir::dyn_cast<IE::AddOp>(*addFinalInput.getUsers().begin());
     if (addFinalOp == nullptr) {
-        return matchFailed(rewriter, sqDiffOp, "Expected AddOp as final MVN output op");
+        return matchFailed(_log, rewriter, sqDiffOp, "Expected AddOp as final MVN output op");
     }
     if (addFinalOp.getInput1() != mulXOp.getOutput() && addFinalOp.getInput2() != mulXOp.getOutput()) {
-        return matchFailed(rewriter, sqDiffOp, "Final AddOp does not consume Multiply(x, Reshape(rsqrt))");
+        return matchFailed(_log, rewriter, sqDiffOp, "Final AddOp does not consume Multiply(x, Reshape(rsqrt))");
     }
 
     // --- 13. Resolve MVN1 shape mapping (with optional Transpose for non-reshape-friendly axes) ---
     const auto mappingOpt = getMVN1Mapping(inputShape, inputMeanAxes);
     if (!mappingOpt.has_value()) {
-        return matchFailed(rewriter, sqDiffOp, "Cannot reshape to MVN1-compatible shape");
+        return matchFailed(_log, rewriter, sqDiffOp, "Cannot reshape to MVN1-compatible shape");
     }
     const auto& mapping = mappingOpt.value();
 
@@ -891,18 +891,18 @@ mlir::LogicalResult MVNFusionWithSquaredDiff::matchAndRewrite(IE::SquaredDiffere
     if (!mapping.preTransposePerm.empty()) {
         const auto preOrder =
                 mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(mapping.preTransposePerm, ctx));
-        mvnFeedVal = rewriter.create<IE::TransposeOp>(appendLoc(loc, "pre_transpose"), mvnFeedVal, nullptr, preOrder)
+        mvnFeedVal = IE::TransposeOp::create(rewriter, appendLoc(loc, "pre_transpose"), mvnFeedVal, nullptr, preOrder)
                              .getOutput();
     }
 
-    auto preReshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "in_reshape"), mvnFeedVal,
-                                                       getIntArrayAttr(ctx, mapping.mvnShape));
+    auto preReshapeOp = IE::ReshapeOp::create(rewriter, appendLoc(loc, "in_reshape"), mvnFeedVal,
+                                              getIntArrayAttr(ctx, mapping.mvnShape));
 
     const auto normVarianceAttr = mlir::BoolAttr::get(ctx, true);
     const auto acrossChannelsAttr = mlir::BoolAttr::get(ctx, mapping.isAcrossChannel);
     const auto epsAttr = getFPAttr(ctx, epsOpt.value());
-    auto mvnOp = rewriter.create<IE::MVNOp>(appendLoc(loc, "mvn"), preReshapeOp.getOutput(), acrossChannelsAttr,
-                                            normVarianceAttr, epsAttr);
+    auto mvnOp = IE::MVNOp::create(rewriter, appendLoc(loc, "mvn"), preReshapeOp.getOutput(), acrossChannelsAttr,
+                                   normVarianceAttr, epsAttr);
 
     _log.trace("Replace '{0}' with MVN op '{1}'", loc, mvnOp);
 
@@ -913,13 +913,13 @@ mlir::LogicalResult MVNFusionWithSquaredDiff::matchAndRewrite(IE::SquaredDiffere
         extendOpLoc(outReshapeOp, "out_reshape");
     } else {
         // Transpose case: reshape to intermediate shape, then transpose back.
-        auto outReshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "out_reshape"), mvnOp.getOutput(),
-                                                           getIntArrayAttr(ctx, mapping.postReshapeShape));
+        auto outReshapeOp = IE::ReshapeOp::create(rewriter, appendLoc(loc, "out_reshape"), mvnOp.getOutput(),
+                                                  getIntArrayAttr(ctx, mapping.postReshapeShape));
 
         const auto postOrder =
                 mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(mapping.postTransposePerm, ctx));
-        auto postTransposeOp = rewriter.create<IE::TransposeOp>(appendLoc(loc, "post_transpose"),
-                                                                outReshapeOp.getOutput(), nullptr, postOrder);
+        auto postTransposeOp = IE::TransposeOp::create(rewriter, appendLoc(loc, "post_transpose"),
+                                                       outReshapeOp.getOutput(), nullptr, postOrder);
         rewriter.replaceOp(addFinalOp, postTransposeOp.getOutput());
     }
     return mlir::success();

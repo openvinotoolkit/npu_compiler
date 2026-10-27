@@ -775,7 +775,7 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig(mlir::MLIRContext* ctx
     )";
 
     module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, ctx);
-    VPUX_THROW_UNLESS(module.get() != nullptr, "Cannot extract module from input IR");
+    VPUX_THROW_WHEN(module.get() == nullptr, "Cannot extract module from input IR");
 
     BarrierInfoMaps expectedBarrierMaps;
     expectedBarrierMaps.taskUpdateBarriers = {
@@ -882,7 +882,7 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig2(mlir::MLIRContext* ct
     )";
 
     module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, ctx);
-    VPUX_THROW_UNLESS(module.get() != nullptr, "Cannot extract module from input IR");
+    VPUX_THROW_WHEN(module.get() == nullptr, "Cannot extract module from input IR");
 
     BarrierInfoMaps expectedBarrierMaps;
     expectedBarrierMaps.taskUpdateBarriers = {
@@ -987,7 +987,7 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig3(mlir::MLIRContext* ct
     )";
 
     module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, ctx);
-    VPUX_THROW_UNLESS(module.get() != nullptr, "Cannot extract module from input IR");
+    VPUX_THROW_WHEN(module.get() == nullptr, "Cannot extract module from input IR");
 
     BarrierInfoMaps expectedBarrierMaps;
     switch (target) {
@@ -1180,7 +1180,7 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig6(
     )";
 
     module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, ctx);
-    VPUX_THROW_UNLESS(module.get() != nullptr, "Cannot extract module from input IR");
+    VPUX_THROW_WHEN(module.get() == nullptr, "Cannot extract module from input IR");
 
     BarrierInfoMaps expectedBarrierMaps;
     switch (target) {
@@ -1345,7 +1345,7 @@ SmallVector<size_t> variableGraphSplitBlockSizeNPU40XXconfig(
     )";
 
     module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, ctx);
-    VPUX_THROW_UNLESS(module.get() != nullptr, "Cannot extract module from input IR");
+    VPUX_THROW_WHEN(module.get() == nullptr, "Cannot extract module from input IR");
 
     SmallVector<size_t> expectedResult;
     switch (target) {
@@ -1526,7 +1526,7 @@ TEST_F(MLIR_BarrierInfoTests, optimizeBarriersWithFIFOdependenciesNPU40XX) {
     mlir::OwningOpRef<mlir::ModuleOp> module;
     auto expectedResult = barriersWithFIFOdependenciesNPU40XXconfig(&ctx, module);
     auto funcOp = module.get().lookupSymbol<mlir::func::FuncOp>("main");
-    VPUX_THROW_UNLESS(funcOp != nullptr, "Cannot extract funcOp from module");
+    VPUX_THROW_WHEN(funcOp == nullptr, "Cannot extract funcOp from module");
 
     BarrierInfoTest barrierInfoTest(funcOp);
     auto testResult = barrierInfoTest.optimizeBarriers(/* checkValidSlotCount  */ false,
@@ -1541,7 +1541,7 @@ TEST_F(MLIR_BarrierInfoTests, optimizeBarriersWithFIFOdependencies2NPU40XX) {
     mlir::OwningOpRef<mlir::ModuleOp> module;
     auto expectedResult = barriersWithFIFOdependenciesNPU40XXconfig2(&ctx, module);
     auto funcOp = module.get().lookupSymbol<mlir::func::FuncOp>("main");
-    VPUX_THROW_UNLESS(funcOp != nullptr, "Cannot extract funcOp from module");
+    VPUX_THROW_WHEN(funcOp == nullptr, "Cannot extract funcOp from module");
 
     BarrierInfoTest barrierInfoTest(funcOp);
     auto testResult = barrierInfoTest.optimizeBarriers(/* checkValidSlotCount  */ false,
@@ -1557,7 +1557,7 @@ TEST_F(MLIR_BarrierInfoTests, optimizeBarriersWithFIFOdependencies3NPU40XX) {
     auto expectedResult =
             barriersWithFIFOdependenciesNPU40XXconfig3(&ctx, module, TestTarget::optimizeBarriersWithFIFOdeps);
     auto funcOp = module.get().lookupSymbol<mlir::func::FuncOp>("main");
-    VPUX_THROW_UNLESS(funcOp != nullptr, "Cannot extract funcOp from module");
+    VPUX_THROW_WHEN(funcOp == nullptr, "Cannot extract funcOp from module");
 
     BarrierInfoTest barrierInfoTest(funcOp);
     auto testResult = barrierInfoTest.optimizeBarriers(/* checkValidSlotCount  */ false,
@@ -1573,7 +1573,7 @@ TEST_F(MLIR_BarrierInfoTests, createBarrierDependenciesImpliedByFifoNPU40XX) {
     auto expectedResult = barriersWithFIFOdependenciesNPU40XXconfig3(
             &ctx, module, TestTarget::createBarrierDependenciesImpliedByFIFO);
     auto funcOp = module.get().lookupSymbol<mlir::func::FuncOp>("main");
-    VPUX_THROW_UNLESS(funcOp != nullptr, "Cannot extract funcOp from module");
+    VPUX_THROW_WHEN(funcOp == nullptr, "Cannot extract funcOp from module");
 
     BarrierInfoTest barrierInfoTest(funcOp);
     barrierInfoTest.buildTaskQueueTypeMap();
@@ -1592,7 +1592,7 @@ TEST_F(MLIR_BarrierInfoTests, createAndRemoveBarrierDependenciesImpliedByFifoNPU
     auto expectedResult = barriersWithFIFOdependenciesNPU40XXconfig3(
             &ctx, module, TestTarget::createAndRemoveBarrierDependenciesImpliedByFIFO);
     auto funcOp = module.get().lookupSymbol<mlir::func::FuncOp>("main");
-    VPUX_THROW_UNLESS(funcOp != nullptr, "Cannot extract funcOp from module");
+    VPUX_THROW_WHEN(funcOp == nullptr, "Cannot extract funcOp from module");
 
     BarrierInfoTest barrierInfoTest(funcOp);
     barrierInfoTest.buildTaskQueueTypeMap();
@@ -1612,7 +1612,7 @@ TEST_F(MLIR_BarrierInfoTests, optimizeBarriersWithFIFOdependencies4NPU40XX) {
     auto expectedResult =
             barriersWithFIFOdependenciesNPU40XXconfig6(&ctx, module, TestTarget::optimizeBarriersWithFIFOdeps);
     auto funcOp = module.get().lookupSymbol<mlir::func::FuncOp>("main");
-    VPUX_THROW_UNLESS(funcOp != nullptr, "Cannot extract funcOp from module");
+    VPUX_THROW_WHEN(funcOp == nullptr, "Cannot extract funcOp from module");
 
     BarrierInfoTest barrierInfoTest(funcOp);
     auto testResult = barrierInfoTest.optimizeBarriers(/* checkValidSlotCount  */ false,
@@ -1733,7 +1733,7 @@ TEST_F(MLIR_BarrierInfoTests, variableGraphSplitBlockSizeNPU40XX) {
     // test task block indexes
     auto expectedResult = variableGraphSplitBlockSizeNPU40XXconfig(&ctx, module, TestTarget::getControlGraphBlockIndex);
     auto funcOp = module.get().lookupSymbol<mlir::func::FuncOp>("main");
-    VPUX_THROW_UNLESS(funcOp != nullptr, "Cannot extract funcOp from module");
+    VPUX_THROW_WHEN(funcOp == nullptr, "Cannot extract funcOp from module");
 
     BarrierInfoTest barrierInfoTest(funcOp);
     for (auto taskInd : irange(barrierInfoTest.getNumOfTasks())) {
@@ -1994,7 +1994,7 @@ void parallelWaitBarriersIRconfig(mlir::MLIRContext* ctx, mlir::OwningOpRef<mlir
     )";
 
     module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, ctx);
-    VPUX_THROW_UNLESS(module.get() != nullptr, "Cannot extract module from input IR");
+    VPUX_THROW_WHEN(module.get() == nullptr, "Cannot extract module from input IR");
 }
 
 TEST_F(MLIR_BarrierInfoTests, createLegalVariantBatchesByExecutorType) {
@@ -2002,7 +2002,7 @@ TEST_F(MLIR_BarrierInfoTests, createLegalVariantBatchesByExecutorType) {
     mlir::OwningOpRef<mlir::ModuleOp> module;
     parallelWaitBarriersIRconfig(&ctx, module);
     auto funcOp = module.get().lookupSymbol<mlir::func::FuncOp>("main");
-    VPUX_THROW_UNLESS(funcOp != nullptr, "Cannot extract funcOp from module");
+    VPUX_THROW_WHEN(funcOp == nullptr, "Cannot extract funcOp from module");
 
     BarrierInfoTest barrierInfoTest(funcOp);
 
@@ -2757,4 +2757,97 @@ TEST_F(BarrierInfoTests, CheckNoControlPathWithoutEnqueueDependency) {
     EXPECT_FALSE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 1, 3));
     EXPECT_FALSE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 0, 2));
     EXPECT_FALSE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 0, 3));
+}
+
+/**
+ * Models the implicit dependency added by a SHAVE task that submits a DMA (SHVwithDMA), and the transitive chain it
+ * completes towards a DPU task that a preceding SHAVE task submits.
+ *
+ * HW FIFO A(SHV): t0 t1
+ * HW FIFO B(DMA): t2
+ * HW FIFO C(DPU): t3
+ *
+ *   t0(A) SHV_1 (submits DPU t3)
+ *         |
+ *         |(FIFO order, same SHAVE queue)
+ *         |
+ *   t1(A) SHV_2 (submits DMA t2)
+ *         |
+ *         |(added SHVwithDMA dependency)
+ *         |
+ *   t2(B) DMA
+ *         |
+ *         b0
+ *         |
+ *   t3(C) DPU
+ *
+ *  At the barrier level the only edge is DMA(t2) -> DPU(t3) by b0, there is no path from SHV_1(t0) to the DPU it
+ *  submits. The SHVwithDMA edge t1 -> t2 completes the chain so that SHV_1 transitively reaches the DPU:
+ *      t0 --------> t1 -----------> t2 --------> t3
+ *          (FIFO)       (SHVwithDMA)   (BARRIER)
+ */
+BarrierInfoMaps graphToCheckControlPathsWithShvWithDma() {
+    BarrierInfoMaps barrierMapsConfig;
+
+    barrierMapsConfig.taskUpdateBarriers = {
+            {},   // task 0 - SHV_1 (submits DPU t3)
+            {},   // task 1 - SHV_2 (submits DMA t2)
+            {0},  // task 2 - DMA, updates b0
+            {}    // task 3 - DPU
+    };
+
+    barrierMapsConfig.taskWaitBarriers = {
+            {},  // task 0 - no wait barrier
+            {},  // task 1 - no wait barrier
+            {},  // task 2 - no wait barrier
+            {0}  // task 3 - DPU waits on b0
+    };
+
+    fillProducersAndConsumers(barrierMapsConfig);
+
+    const VPURT::TaskQueueType shvType{config::ExecutorKind::SHAVE_ACT, 0};
+    const VPURT::TaskQueueType dmaType{config::ExecutorKind::DMA_NN, 0};
+    const VPURT::TaskQueueType dpuType{config::ExecutorKind::DPU, 0};
+    barrierMapsConfig.taskQueueTypeMap[shvType] = {0, 1};
+    barrierMapsConfig.taskQueueTypeMap[dmaType] = {2};
+    barrierMapsConfig.taskQueueTypeMap[dpuType] = {3};
+
+    // task dependency edge: SHV_2 t1 submits DMA task t2
+    barrierMapsConfig.wlmTaskDependencies = {{1, 2}};
+
+    return barrierMapsConfig;
+}
+
+TEST_F(BarrierInfoTests, CheckControlPathThroughShvWithDmaDependency) {
+    auto config = graphToCheckControlPathsWithShvWithDma();
+
+    BarrierInfoTest barrierInfoTest(config);
+
+    // With non-barrier dependencies considered, the SHVwithDMA -> DMA edge completes the transitive chain
+    const auto& [taskControlMapWithShvWithDma, _] = barrierInfoTest.buildTaskControlMap(0, true);
+
+    // SHV_2(t1) submits DMA(t2) and transitively the DPU(t3) that depends on DMA(t2)
+    EXPECT_TRUE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMapWithShvWithDma, 1, 2));
+    EXPECT_TRUE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMapWithShvWithDma, 1, 3));
+    // SHV_1(t0) reaches DMA(t2) and the DPU(t3) transitively via FIFO order to SHV_2(t1) then the SHVwithDMA edge.
+    // This is the complex case the basic single-hop check misses.
+    EXPECT_TRUE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMapWithShvWithDma, 0, 2));
+    EXPECT_TRUE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMapWithShvWithDma, 0, 3));
+}
+
+TEST_F(BarrierInfoTests, CheckNoControlPathWithoutShvWithDmaDependency) {
+    auto config = graphToCheckControlPathsWithShvWithDma();
+
+    BarrierInfoTest barrierInfoTest(config);
+
+    // Without non-barrier dependencies (no FIFO, no SHVwithDMA), only the barrier level DMA(t2) -> DPU(t3) edge exists,
+    // so neither SHAVE task reaches the DPU, demonstrating why the SHVwithDMA edge is needed
+    const auto& [taskControlMap, _] = barrierInfoTest.buildTaskControlMap(0, false);
+
+    EXPECT_FALSE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 1, 2));
+    EXPECT_FALSE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 1, 3));
+    EXPECT_FALSE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 0, 2));
+    EXPECT_FALSE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 0, 3));
+    // The barrier level DMA -> DPU edge is still present
+    EXPECT_TRUE(barrierInfoTest.controlPathExistsBetweenTasksInSameBlock(taskControlMap, 2, 3));
 }

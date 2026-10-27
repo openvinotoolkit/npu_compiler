@@ -28,9 +28,9 @@ func.func @IsolatedGenericSwLayerNHWCLargeC(%arg0: tensor<1x640x1x960xf16, {orde
   return %0 : tensor<1x640x1x960xf16, {order = #NHWC}>
 
 // CHECK:         [[SLICE0:%.+]] = VPU.Slice [[ARG0]] [0, 0, 0, 0] [1, 640, 1, 480] : tensor<1x640x1x960xf16, {order = #NHWC}> to tensor<1x640x1x480xf16, {order = #NHWC}>
-// CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[SLICE0]], [[ARG1]] : tensor<1x640x1x480xf16, {order = #NHWC}>, tensor<1x640x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [480, 640], offsets = [0, 0]) {tiling_loop_index = 0 : i64} -> tensor<1x640x1x480xf16, {order = #NHWC}>
+// CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[SLICE0]], [[ARG1]] : tensor<1x640x1x480xf16, {order = #NHWC}>, tensor<1x640x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [480, 640], offsets = [0, 0]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} -> tensor<1x640x1x480xf16, {order = #NHWC}>
 // CHECK:         [[SLICE1:%.+]] = VPU.Slice [[ARG0]] [0, 0, 0, 480] [1, 640, 1, 480] : tensor<1x640x1x960xf16, {order = #NHWC}> to tensor<1x640x1x480xf16, {order = #NHWC}>
-// CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[SLICE1]], [[ARG1]] : tensor<1x640x1x480xf16, {order = #NHWC}>, tensor<1x640x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [480, 640], offsets = [480, 0]) {tiling_loop_index = 0 : i64} -> tensor<1x640x1x480xf16, {order = #NHWC}>
+// CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[SLICE1]], [[ARG1]] : tensor<1x640x1x480xf16, {order = #NHWC}>, tensor<1x640x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [480, 640], offsets = [480, 0]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} -> tensor<1x640x1x480xf16, {order = #NHWC}>
 // CHECK:         [[CONCAT:%.+]] = VPU.Concat([[GSL0]], [[GSL1]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 0, 0, 480]]} : tensor<1x640x1x480xf16, {order = #NHWC}>, tensor<1x640x1x480xf16, {order = #NHWC}> -> tensor<1x640x1x960xf16, {order = #NHWC}>
 // CHECK:         return [[CONCAT]] : tensor<1x640x1x960xf16, {order = #NHWC}>
 }
@@ -60,10 +60,10 @@ func.func @IsolatedGenericSwLayerNHWCLargeH(%arg0: tensor<1x960x1x640xf16, {orde
 
 // CHECK:         [[SLICE0:%.+]] = VPU.Slice [[ARG0]] [0, 0, 0, 0] [1, 480, 1, 640] : tensor<1x960x1x640xf16, {order = #NHWC}> to tensor<1x480x1x640xf16, {order = #NHWC}>
 // CHECK:         [[SLICE1:%.+]] = VPU.Slice [[ARG1]] [0, 0, 0, 0] [1, 480, 1, 1] : tensor<1x960x1x1xf16, {order = #NHWC}> to tensor<1x480x1x1xf16, {order = #NHWC}>
-// CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[SLICE0]], [[SLICE1]] : tensor<1x480x1x640xf16, {order = #NHWC}>, tensor<1x480x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [640, 480], offsets = [0, 0]) {tiling_loop_index = 0 : i64} -> tensor<1x480x1x640xf16, {order = #NHWC}>
+// CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[SLICE0]], [[SLICE1]] : tensor<1x480x1x640xf16, {order = #NHWC}>, tensor<1x480x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [640, 480], offsets = [0, 0]) {loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} -> tensor<1x480x1x640xf16, {order = #NHWC}>
 // CHECK:         [[SLICE2:%.+]] = VPU.Slice [[ARG0]] [0, 480, 0, 0] [1, 480, 1, 640] : tensor<1x960x1x640xf16, {order = #NHWC}> to tensor<1x480x1x640xf16, {order = #NHWC}>
 // CHECK:         [[SLICE3:%.+]] = VPU.Slice [[ARG1]] [0, 480, 0, 0] [1, 480, 1, 1] : tensor<1x960x1x1xf16, {order = #NHWC}> to tensor<1x480x1x1xf16, {order = #NHWC}>
-// CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[SLICE2]], [[SLICE3]] : tensor<1x480x1x640xf16, {order = #NHWC}>, tensor<1x480x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [640, 480], offsets = [0, 480]) {tiling_loop_index = 0 : i64} -> tensor<1x480x1x640xf16, {order = #NHWC}>
+// CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[SLICE2]], [[SLICE3]] : tensor<1x480x1x640xf16, {order = #NHWC}>, tensor<1x480x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [640, 480], offsets = [0, 480]) {loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} -> tensor<1x480x1x640xf16, {order = #NHWC}>
 // CHECK:         [[CONCAT:%.+]] = VPU.Concat([[GSL0]], [[GSL1]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 480, 0, 0]]} : tensor<1x480x1x640xf16, {order = #NHWC}>, tensor<1x480x1x640xf16, {order = #NHWC}> -> tensor<1x960x1x640xf16, {order = #NHWC}>
 // CHECK:         return [[CONCAT]] : tensor<1x960x1x640xf16, {order = #NHWC}>
 }
@@ -99,10 +99,10 @@ func.func @Padded(%arg0: tensor<1x960x1x640xf16, {order = #NHWC}>, %arg1: tensor
 
 // CHECK:         [[SLICE0:%.+]] = VPU.Slice [[ARG0]] [0, 0, 0, 0] [1, 512, 1, 640] : tensor<1x960x1x640xf16, {order = #NHWC}> to tensor<1x512x1x640xf16, {order = #NHWC}>
 // CHECK:         [[SLICE1:%.+]] = VPU.Slice [[ARG1]] [0, 0, 0, 0] [1, 512, 1, 1] : tensor<1x960x1x1xf16, {order = #NHWC}> to tensor<1x512x1x1xf16, {order = #NHWC}>
-// CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[SLICE0]], [[SLICE1]] : tensor<1x512x1x640xf16, {order = #NHWC}>, tensor<1x512x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [640, 512], offsets = [0, 0]) {tiling_loop_index = 0 : i64} -> tensor<1x512x1x640xf16, {order = #NHWC}>
+// CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[SLICE0]], [[SLICE1]] : tensor<1x512x1x640xf16, {order = #NHWC}>, tensor<1x512x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [640, 512], offsets = [0, 0]) {loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} -> tensor<1x512x1x640xf16, {order = #NHWC}>
 // CHECK:         [[SLICE2:%.+]] = VPU.Slice [[ARG0]] [0, 512, 0, 0] [1, 448, 1, 640] : tensor<1x960x1x640xf16, {order = #NHWC}> to tensor<1x448x1x640xf16, {order = #NHWC}>
 // CHECK:         [[SLICE3:%.+]] = VPU.Slice [[ARG1]] [0, 512, 0, 0] [1, 448, 1, 1] : tensor<1x960x1x1xf16, {order = #NHWC}> to tensor<1x448x1x1xf16, {order = #NHWC}>
-// CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[SLICE2]], [[SLICE3]] : tensor<1x448x1x640xf16, {order = #NHWC}>, tensor<1x448x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [640, 488], offsets = [0, 512]) {tiling_loop_index = 0 : i64} -> tensor<1x488x1x640xf16, {order = #NHWC}>
+// CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[SLICE2]], [[SLICE3]] : tensor<1x448x1x640xf16, {order = #NHWC}>, tensor<1x448x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [640, 488], offsets = [0, 512]) {loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} -> tensor<1x488x1x640xf16, {order = #NHWC}>
 // CHECK:         [[CONCAT:%.+]] = VPU.Concat([[GSL0]], [[GSL1]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 512, 0, 0]]} : tensor<1x512x1x640xf16, {order = #NHWC}>, tensor<1x488x1x640xf16, {order = #NHWC}> -> tensor<1x1000x1x640xf16, {order = #NHWC}>
 // CHECK:         return [[CONCAT]] : tensor<1x1000x1x640xf16, {order = #NHWC}>
 }
@@ -136,10 +136,10 @@ func.func @PaddedNonZeroOffsets(%arg0: tensor<1x448x1x640xf16, {order = #NHWC}>,
 
 // CHECK:         [[SLICE0:%.+]] = VPU.Slice [[ARG0]] [0, 0, 0, 0] [1, 256, 1, 640] : tensor<1x448x1x640xf16, {order = #NHWC}> to tensor<1x256x1x640xf16, {order = #NHWC}>
 // CHECK:         [[SLICE1:%.+]] = VPU.Slice [[ARG1]] [0, 0, 0, 0] [1, 256, 1, 1] : tensor<1x448x1x1xf16, {order = #NHWC}> to tensor<1x256x1x1xf16, {order = #NHWC}>
-// CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[SLICE0]], [[SLICE1]] : tensor<1x256x1x640xf16, {order = #NHWC}>, tensor<1x256x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [640, 256], offsets = [0, 512]) {tiling_loop_index = 0 : i64} -> tensor<1x256x1x640xf16, {order = #NHWC}>
+// CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[SLICE0]], [[SLICE1]] : tensor<1x256x1x640xf16, {order = #NHWC}>, tensor<1x256x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [640, 256], offsets = [0, 512]) {loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} -> tensor<1x256x1x640xf16, {order = #NHWC}>
 // CHECK:         [[SLICE2:%.+]] = VPU.Slice [[ARG0]] [0, 256, 0, 0] [1, 192, 1, 640] : tensor<1x448x1x640xf16, {order = #NHWC}> to tensor<1x192x1x640xf16, {order = #NHWC}>
 // CHECK:         [[SLICE3:%.+]] = VPU.Slice [[ARG1]] [0, 256, 0, 0] [1, 192, 1, 1] : tensor<1x448x1x1xf16, {order = #NHWC}> to tensor<1x192x1x1xf16, {order = #NHWC}>
-// CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[SLICE2]], [[SLICE3]] : tensor<1x192x1x640xf16, {order = #NHWC}>, tensor<1x192x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [640, 232], offsets = [0, 768]) {tiling_loop_index = 0 : i64} -> tensor<1x232x1x640xf16, {order = #NHWC}>
+// CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[SLICE2]], [[SLICE3]] : tensor<1x192x1x640xf16, {order = #NHWC}>, tensor<1x192x1x1xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [640, 232], offsets = [0, 768]) {loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} -> tensor<1x232x1x640xf16, {order = #NHWC}>
 // CHECK:         [[CONCAT:%.+]] = VPU.Concat([[GSL0]], [[GSL1]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 256, 0, 0]]} : tensor<1x256x1x640xf16, {order = #NHWC}>, tensor<1x232x1x640xf16, {order = #NHWC}> -> tensor<1x488x1x640xf16, {order = #NHWC}>
 // CHECK:         return [[CONCAT]] : tensor<1x488x1x640xf16, {order = #NHWC}>
 }
@@ -182,9 +182,9 @@ func.func @IsolatedGenericSwLayerNHWCLargeCWithScratch(%arg0: tensor<1x640x1x960
 // CHECK:         [[SCRATCH0:%.+]] = VPU.Empty : tensor<1x640x1x480xf16, {order = #NHWC}>
 // CHECK:         [[SCRATCH1:%.+]] = VPU.Empty : tensor<1x640x1x480xf16, {order = #NHWC}>
 // CHECK:         [[SLICE0:%.+]] = VPU.Slice [[ARG0]] [0, 0, 0, 0] [1, 640, 1, 480] : tensor<1x640x1x960xf16, {order = #NHWC}> to tensor<1x640x1x480xf16, {order = #NHWC}>
-// CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[SLICE0]], [[ARG1]] : tensor<1x640x1x480xf16, {order = #NHWC}>, tensor<1x640x1x1xf16, {order = #NHWC}>) scratch([[SCRATCH1]] : tensor<1x640x1x480xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [480, 640], offsets = [0, 0]) {tiling_loop_index = 0 : i64} -> tensor<1x640x1x480xf16, {order = #NHWC}>
+// CHECK:         [[GSL0:%.+]] = VPU.GenericSwLayer([[SLICE0]], [[ARG1]] : tensor<1x640x1x480xf16, {order = #NHWC}>, tensor<1x640x1x1xf16, {order = #NHWC}>) scratch([[SCRATCH1]] : tensor<1x640x1x480xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [480, 640], offsets = [0, 0]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} -> tensor<1x640x1x480xf16, {order = #NHWC}>
 // CHECK:         [[SLICE1:%.+]] = VPU.Slice [[ARG0]] [0, 0, 0, 480] [1, 640, 1, 480] : tensor<1x640x1x960xf16, {order = #NHWC}> to tensor<1x640x1x480xf16, {order = #NHWC}>
-// CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[SLICE1]], [[ARG1]] : tensor<1x640x1x480xf16, {order = #NHWC}>, tensor<1x640x1x1xf16, {order = #NHWC}>) scratch([[SCRATCH0]] : tensor<1x640x1x480xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [480, 640], offsets = [480, 0]) {tiling_loop_index = 0 : i64} -> tensor<1x640x1x480xf16, {order = #NHWC}>
+// CHECK:         [[GSL1:%.+]] = VPU.GenericSwLayer([[SLICE1]], [[ARG1]] : tensor<1x640x1x480xf16, {order = #NHWC}>, tensor<1x640x1x1xf16, {order = #NHWC}>) scratch([[SCRATCH0]] : tensor<1x640x1x480xf16, {order = #NHWC}>) @generated_0 tiling(sizes = [480, 640], offsets = [480, 0]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} -> tensor<1x640x1x480xf16, {order = #NHWC}>
 // CHECK:         [[CONCAT:%.+]] = VPU.Concat([[GSL0]], [[GSL1]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 0, 0, 480]]} : tensor<1x640x1x480xf16, {order = #NHWC}>, tensor<1x640x1x480xf16, {order = #NHWC}> -> tensor<1x640x1x960xf16, {order = #NHWC}>
 // CHECK:         return [[CONCAT]] : tensor<1x640x1x960xf16, {order = #NHWC}>
 }

@@ -335,23 +335,6 @@ private:
     std::unique_ptr<const TensorInfo> _tensorInfo;
 };
 
-class RawProfilingM2IRecord final : public RawProfilingRecord, public DebugFormattableRecordMixin {
-public:
-    explicit RawProfilingM2IRecord(M2IData_t data, const ProfilingFB::M2ITask* metadata, size_t inMemoryOffset);
-
-    void checkData(bool failOnError, Logger& log) const override;
-
-private:
-    ExecutorType getExecutorType() const override;
-    TimeType getStartTime(const FrequenciesSetup& frequenciesSetup) const override;
-    TimeType getFinishTime(const FrequenciesSetup& frequenciesSetup) const override;
-    size_t getDebugDataSize() const override;
-    void printDebugInfo(std::ostream& outStream) const override;
-    ColDesc getColDesc() const override;
-
-    const M2IData_t _data;
-};
-
 class FakeInvariantRecord final : public RawProfilingRecord {
 public:
     explicit FakeInvariantRecord(const std::string& name, const RawProfilingRecords& records,

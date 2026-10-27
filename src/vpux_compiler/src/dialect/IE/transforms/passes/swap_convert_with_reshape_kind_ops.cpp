@@ -82,7 +82,7 @@ void swapOps(IE::ConvertOp origOp, mlir::Operation* swapOp, mlir::PatternRewrite
     const auto newDataType = swapDataType.changeElemType(origDataType.getElementType());
 
     rewriter.setInsertionPointAfter(swapOp);
-    auto newConvert = rewriter.create<IE::ConvertOp>(origOp->getLoc(), swapOp->getResult(0), origOp.getDstElemType());
+    auto newConvert = IE::ConvertOp::create(rewriter, origOp->getLoc(), swapOp->getResult(0), origOp.getDstElemType());
     swapOp->getResult(0).replaceAllUsesExcept(newConvert.getOutput(),
                                               llvm::SmallPtrSet<mlir::Operation*, 1>{newConvert});
     origOp->replaceAllUsesWith(mlir::ValueRange(origOp.getInput()));
@@ -238,8 +238,8 @@ void SwapConvertWithReshapeKindOps::PropagateConvertToFuseConverter::propagateCo
 
     // Create new Convert using firstConvert's input, skipping firstConvert entirely
     rewriter.setInsertionPointAfter(firstConvert);
-    auto newConvertOp = rewriter.create<IE::ConvertOp>(appendLoc(firstConvert.getLoc(), "forward"),
-                                                       firstConvert.getInput(), targetElementType);
+    auto newConvertOp = IE::ConvertOp::create(rewriter, appendLoc(firstConvert.getLoc(), "forward"),
+                                              firstConvert.getInput(), targetElementType);
 
     // Replace firstConvert with the new convert op's output
     rewriter.replaceOp(firstConvert, newConvertOp.getOutput());
@@ -287,8 +287,8 @@ void SwapConvertWithReshapeKindOps::PropagateConvertToFuseConverter::propagateCo
     // Create new Convert before the last Convert
     auto lastOp = propagationChain.back();
     rewriter.setInsertionPointAfter(lastOp);
-    auto newConvertOp = rewriter.create<IE::ConvertOp>(appendLoc(firstConvert.getLoc(), "backward"),
-                                                       lastOp->getResult(0), firstConvert.getDstElemType());
+    auto newConvertOp = IE::ConvertOp::create(rewriter, appendLoc(firstConvert.getLoc(), "backward"),
+                                              lastOp->getResult(0), firstConvert.getDstElemType());
 
     rewriter.replaceOp(firstConvert, firstConvert.getInput());
 
@@ -302,23 +302,24 @@ mlir::LogicalResult SwapConvertWithReshapeKindOps::PropagateConvertToFuseConvert
     _log.trace("Propagate Convert operation '{0}' at '{1}'", origConvertOp->getName(), origConvertOp->getLoc());
 
     if (!origConvertOp.getOutput().hasOneUse()) {
-        return matchFailed(rewriter, origConvertOp, "The Convert has more than one consumer");
+        return matchFailed(_log, rewriter, origConvertOp, "The Convert has more than one consumer");
     }
 
     auto firstUser = *origConvertOp.getOutput().getUsers().begin();
     if (!canPropagateThroughOp(firstUser)) {
-        return matchFailed(rewriter, origConvertOp, "The Convert consumer is not a reshape kind operation or gather");
+        return matchFailed(_log, rewriter, origConvertOp,
+                           "The Convert consumer is not a reshape kind operation or gather");
     }
 
     if (auto gatherOp = mlir::dyn_cast<IE::GatherOp>(firstUser)) {
         if (gatherOp.getInput() != origConvertOp.getOutput()) {
-            return matchFailed(rewriter, origConvertOp, "The Convert is not Gather's data input");
+            return matchFailed(_log, rewriter, origConvertOp, "The Convert is not Gather's data input");
         }
     }
 
     auto targetOp = findPropagationTarget(firstUser);
     if (!targetOp || !mlir::isa<IE::ConvertOp>(targetOp)) {
-        return matchFailed(rewriter, origConvertOp, "Could not find target Convert to fuse");
+        return matchFailed(_log, rewriter, origConvertOp, "Could not find target Convert to fuse");
     }
 
     auto lastConvertOp = mlir::cast<IE::ConvertOp>(targetOp);
@@ -333,7 +334,7 @@ mlir::LogicalResult SwapConvertWithReshapeKindOps::PropagateConvertToFuseConvert
         propagateConvertBackward(origConvertOp, lastConvertOp, rewriter);
         break;
     default:
-        return matchFailed(rewriter, origConvertOp, "Not propagate as no benefit");
+        return matchFailed(_log, rewriter, origConvertOp, "Not propagate as no benefit");
     }
 
     _log.trace("Propagate Convert operation to fuse successfully");

@@ -60,9 +60,9 @@ mlir::LogicalResult InlineAsyncRegion::matchAndRewrite(mlir::async::ExecuteOp ex
     _log.trace("Found 'async.execute' operation at '{0}'", execOp->getLoc());
 
     auto yieldOp = mlir::dyn_cast_or_null<mlir::async::YieldOp>(execOp.getBody()->getTerminator());
-    VPUX_THROW_UNLESS(yieldOp != nullptr, "'async.execute' body doesn't have corresponding terminator");
+    VPUX_THROW_WHEN(yieldOp == nullptr, "'async.execute' body doesn't have corresponding terminator");
 
-    auto barrierOp = rewriter.create<VPURT::DeclareVirtualBarrierOp>(execOp.getLoc());
+    auto barrierOp = VPURT::DeclareVirtualBarrierOp::create(rewriter, execOp.getLoc());
 
     _log.nest(1).trace("Traverse 'async.execute' body");
 
@@ -103,7 +103,7 @@ mlir::LogicalResult InlineAsyncRegion::matchAndRewrite(mlir::async::ExecuteOp ex
             updateBarriers.push_back(barrierOp.getBarrier());
         }
 
-        auto taskOp = rewriter.create<VPURT::TaskOp>(execOp.getLoc(), waitBarriers, updateBarriers);
+        auto taskOp = VPURT::TaskOp::create(rewriter, execOp.getLoc(), waitBarriers, updateBarriers);
         auto& block = taskOp.getBody().emplaceBlock();
         // If the operation has operand from its block. Need to reset it to Execute operand.
         reassignBlockArgs(&op);
@@ -150,9 +150,36 @@ private:
     Logger _log;
 };
 
+mlir::Operation* traversePureViewOps(mlir::Operation* start) {
+    const auto hasSingleSuitablePureViewOp = [](auto users) {
+        auto begin = users.begin();
+        if (std::distance(begin, users.end()) != 1) {
+            return false;
+        }
+
+        // Note: VPUIP::isPureViewOp() imposes additional restrictions but it
+        // also allows many classes of view-like operations (such as group
+        // operations); the logic here is fairly brittle when it comes to how
+        // async operations interact with view-like operations, so a
+        // conservative decision is to only consider mlir::ViewLikeOpInterface
+        // which is a single-input, single-output interface. This is sufficient
+        // to cover the new cases where function boundaries can be covered with
+        // view-like operations (host compilation).
+        auto op = *begin;
+        return mlir::isa<mlir::ViewLikeOpInterface>(op) && VPUIP::isPureViewOp(op);
+    };
+
+    auto users = start->getUsers();
+    while (hasSingleSuitablePureViewOp(users)) {
+        start = *users.begin();
+        users = start->getUsers();
+    }
+    return start;
+}
+
 mlir::LogicalResult RemoveWait::matchAndRewrite(mlir::async::AwaitOp waitOp, OpAdaptor newArgs,
                                                 mlir::ConversionPatternRewriter& rewriter) const {
-    VPUX_THROW_UNLESS(waitOp.getResult() != nullptr, "'async.await' Operation without result is not supported");
+    VPUX_THROW_WHEN(waitOp.getResult() == nullptr, "'async.await' Operation without result is not supported");
 
     // Pure view like operation were replaced with DeclareTensorOp
     // so the remaining Await ops have no users
@@ -162,9 +189,10 @@ mlir::LogicalResult RemoveWait::matchAndRewrite(mlir::async::AwaitOp waitOp, OpA
     }
 
     // If you faced with "'async.await' has more than one consumer" make sure you add your layer
-    // into src/vpux_compiler/src/dialect/VPUIP/ops.cpp `redirectOpInterfacesForIE(...)`
-    VPUX_THROW_UNLESS(waitOp.getResult().hasOneUse(), "'async.await' doesn't have only one consumer");
-    VPUX_THROW_UNLESS(mlir::isa<mlir::func::ReturnOp>(*waitOp.getResult().user_begin()),
+    // into src/vpux_compiler/src/dialect/VPUIP/ops.cpp `redirectOpInterfacesForVPUIP(...)`
+    auto leafViewOp = traversePureViewOps(waitOp);
+    VPUX_THROW_UNLESS(leafViewOp->hasOneUse(), "'async.await' doesn't have only one consumer");
+    VPUX_THROW_UNLESS(mlir::isa<mlir::func::ReturnOp>(*leafViewOp->user_begin()),
                       "'async.await' has non 'return' consumer");
 
     rewriter.replaceOp(waitOp, newArgs.getOperand());

@@ -42,16 +42,11 @@ constexpr uint16_t HW_DPU_PROFILING_SIZE_BYTES_37XX = 16;
 // DPU Profiling for 40XX use MODE3 and consists of two 128-bit structures
 // The alignment of the profiling record is required to be 32-bytes
 constexpr uint16_t HW_DPU_PROFILING_SIZE_BYTES_40XX = 32;
-constexpr uint32_t HW_DPU_PROFILING_MAX_BUFFER_SIZE =
-        1024;  // Up to 64 DPU Tasks in single CMX DPU profiling buffer instance
-constexpr uint32_t HW_DPU_PROFILING_MAX_BUFFER_SIZE_50XX = 2048;
+constexpr uint32_t HW_DPU_PROFILING_BUFFER_SIZE = 1024;  // 2x32 DPU Tasks on NPU2.7 or 2x16 DPU Tasks on NPU4+
 // ActShave Profiling buffer: 64bit start timestamp + 32bit duration + 4 32bit counters + 32 bit reserved
 constexpr uint16_t HW_ACT_SHAVE_PROFILING_SIZE_BYTES = 32;
 // ActShave Profiling buffer size in bytes
-constexpr uint32_t HW_ACT_SHAVE_PROFILING_MAX_BUFFER_SIZE = 256;
-// M2I Profiling buffer size in bytes
-constexpr uint32_t HW_M2I_PROFILING_MAX_BUFFER_SIZE = 128;
-
+constexpr uint32_t HW_ACT_SHAVE_PROFILING_BUFFER_SIZE = 512;  // Up to 16 ActShave Tasks on all platforms
 // SW Kernel reads a few bytes of data for better performance
 // 1024 bytes is safe for 40XX+
 // 256 bytes is safe for 37XX due to 4x smaller vector size
@@ -80,7 +75,6 @@ const EnumMap<config::ArchKind, size_t> firmwareVariantCount = {
  */
 size_t getMaxNumberOfDpuVariantsPerInvariant(mlir::Operation* parentOp);
 
-uint32_t getDPUProfMaxBufferSize(config::ArchKind arch);
 uint16_t getProfWorkloadSize(mlir::ModuleOp module);
 
 //
@@ -211,6 +205,27 @@ inline bool isOnlyCDimShapeChange(ShapeRef inShape, ShapeRef outShape) {
            inShape[Dims4D::Act::C] != outShape[Dims4D::Act::C];
 }
 
+//
+// Distributed Type utils
+//
+
+template <typename DistType>
+bool hasHaloRegion(DistType distType) {
+    auto distInfo = distType.getDistribution();
+    if (VPU::isDistributedAttrWithExplicitShapesAndOffsets(distInfo)) {
+        return distInfo.getComputeShapes() != distInfo.getMemoryShapes() ||
+               distInfo.getComputeOffsets() != distInfo.getMemoryOffsets();
+    }
+
+    const auto mode = distInfo.getMode().getValue();
+    if (mode != VPU::DistributionMode::OVERLAPPED) {
+        return false;
+    }
+
+    const auto distribution = VPU::DistributionInfo::getClassFromAttr(distInfo);
+    return !VPU::isSegmentedLikeDistributionMode(mlir::cast<vpux::NDTypeInterface>(distType), distribution);
+}
+
 template <typename DistType>
 bool areDistributedTypePerClusterDataCompatible(DistType inDistType, DistType outDistType) {
     if (isOnlyCDimShapeChange(inDistType.getShape(), outDistType.getShape())) {
@@ -243,165 +258,6 @@ bool areDistributedTypePerClusterDataCompatible(DistType inDistType, DistType ou
     };
     return llvm::all_of_zip(inPerClusterShapes, outPerClusterShapes, inPerClusterShapeOffsets,
                             outPerClusterShapeOffsets, isPerClusterCompatible);
-}
-
-template <typename DistType>
-VPU::DistributionInfoAttr getSegmentedDistAttrWithNewShape(mlir::MLIRContext* ctx, DistType origDistType,
-                                                           ShapeRef newShape, const DimsOrder& outOrder,
-                                                           config::ArchKind arch,
-                                                           mlir::ArrayAttr explicitOutputAlignment = nullptr) {
-    const auto origDistAttr = origDistType.getDistribution();
-    const auto mode = origDistAttr.getMode().getValue();
-    VPUX_THROW_UNLESS(mode == VPU::DistributionMode::SEGMENTED, "Input dist type is not SEGMENTED");
-
-    const auto origShape = origDistType.getShape();
-    if (origShape == newShape) {
-        return origDistAttr;
-    }
-
-    const auto ndType = mlir::cast<vpux::NDTypeInterface>(origDistType);
-    auto getDistributedAxesMapping = VPUIP::getDistributedAxesMappingAfterShapeChanged(ndType, newShape, outOrder,
-                                                                                       origDistAttr, Logger::global());
-    VPUX_THROW_UNLESS(mlir::succeeded(getDistributedAxesMapping),
-                      "Failed to get distributed axes mapping after shape changed");
-    const auto [inAxis, outAxis] = getDistributedAxesMapping.value();
-    VPUX_THROW_UNLESS(inAxis >= 0 && outAxis >= 0, "Failed to get distributed axes mapping after shape changed");
-
-    auto generateNewArray = [&](ArrayRef<int64_t> srcArray, int64_t srcAxis, int64_t dstAxis,
-                                ArrayRef<int64_t> initArray) -> SmallVector<int64_t> {
-        SmallVector<int64_t> newArray(initArray);
-        newArray[dstAxis] = srcArray[srcAxis];
-        return newArray;
-    };
-
-    auto numTilesAttr = origDistAttr.getNumTiles();
-    SmallVector<int64_t> numTilesVec(newShape.size(), 1);
-    if (numTilesAttr != nullptr) {
-        const auto oldNumTiles = parseIntArrayAttr<int64_t>(numTilesAttr);
-        numTilesVec = generateNewArray(oldNumTiles, inAxis, outAxis, numTilesVec);
-        numTilesAttr = getIntArrayAttr(ctx, numTilesVec);
-    }
-
-    auto alignmentVec = explicitOutputAlignment != nullptr ? parseIntArrayAttr<int64_t>(explicitOutputAlignment)
-                                                           : SmallVector<int64_t>(newShape.size(), 1);
-    if (VPU::isSegmentedOverH(origDistAttr)) {
-        auto isInputSparse = mlir::isa<vpux::VPUIP::SparseBufferType>(origDistType);
-        const auto newHeightAlignment = VPUIP::getSOHMinimalHeightAlignment(
-                newShape, origDistAttr.getNumClusters().getInt(), isInputSparse, arch);
-        if (newHeightAlignment != 1) {
-            alignmentVec[outAxis] = newHeightAlignment;
-        }
-    }
-
-    const auto subbyteAwareAlignment = VPU::getSubbyteAwareSegmentedDistributionAlignment(
-            newShape, numTilesVec, origDistAttr.getNumClusters().getInt(), outAxis, alignmentVec,
-            origDistAttr.getUniformDistributedSegments() ? true : false, origDistType);
-    VPUX_THROW_WHEN(!subbyteAwareAlignment.has_value(), "Failed to get subbyte aware alignment for new shape {0}",
-                    newShape);
-
-    const auto noAlignment =
-            subbyteAwareAlignment.value().empty() || llvm::all_of(subbyteAwareAlignment.value(), [](int64_t v) {
-                return v == 1;
-            });
-
-    const auto newAlignment = noAlignment ? nullptr : getIntArrayAttr(ctx, subbyteAwareAlignment.value());
-    auto distributedAttrWithNonExplicitShapesAndOffsets = VPU::DistributionInfoAttr::get(
-            ctx, origDistAttr.getMode(), numTilesAttr, origDistAttr.getKernel(), origDistAttr.getPads(),
-            origDistAttr.getStrides(), origDistAttr.getNumClusters(), newAlignment,
-            origDistAttr.getUniformDistributedSegments(), nullptr, nullptr, nullptr, nullptr,
-            origDistAttr.getEqualMemoryAndComputeView(), origDistAttr.getMemoryNumTiles());
-
-    if (!VPU::isDistributedAttrWithExplicitShapesAndOffsets(origDistAttr)) {
-        return distributedAttrWithNonExplicitShapesAndOffsets;
-    }
-
-    auto optionalPerClusterMemoryShapes =
-            VPU::getPerClusterMemoryShapes(newShape, distributedAttrWithNonExplicitShapesAndOffsets);
-    VPUX_THROW_UNLESS(optionalPerClusterMemoryShapes.has_value(),
-                      "Cannot get per cluster memory shapes. Unsupported distribution: {0}",
-                      distributedAttrWithNonExplicitShapesAndOffsets);
-    auto perClusterMemoryShapes = vpux::getIntArrayOfArray(ctx, optionalPerClusterMemoryShapes.value());
-    auto perClusterMemoryOffsets = vpux::getIntArrayOfArray(
-            ctx, VPU::getPerClusterMemoryShapeOffsets(newShape, distributedAttrWithNonExplicitShapesAndOffsets));
-    auto perClusterComputeShapes = vpux::getIntArrayOfArray(
-            ctx, VPU::getPerClusterComputeShapes(newShape, distributedAttrWithNonExplicitShapesAndOffsets));
-    auto perClusterComputeOffsets = vpux::getIntArrayOfArray(
-            ctx, VPU::getPerClusterComputeShapeOffsets(newShape, distributedAttrWithNonExplicitShapesAndOffsets));
-
-    return VPU::DistributionInfoAttr::get(
-            ctx, distributedAttrWithNonExplicitShapesAndOffsets.getMode(),
-            distributedAttrWithNonExplicitShapesAndOffsets.getNumTiles(),
-            distributedAttrWithNonExplicitShapesAndOffsets.getKernel(),
-            distributedAttrWithNonExplicitShapesAndOffsets.getPads(),
-            distributedAttrWithNonExplicitShapesAndOffsets.getStrides(),
-            distributedAttrWithNonExplicitShapesAndOffsets.getNumClusters(), newAlignment,
-            distributedAttrWithNonExplicitShapesAndOffsets.getUniformDistributedSegments(), perClusterComputeShapes,
-            perClusterComputeOffsets, perClusterMemoryShapes, perClusterMemoryOffsets,
-            distributedAttrWithNonExplicitShapesAndOffsets.getEqualMemoryAndComputeView(),
-            distributedAttrWithNonExplicitShapesAndOffsets.getMemoryNumTiles());
-}
-
-template <typename DistType>
-VPU::DistributionInfoAttr getOverlappedDistAttrWithNewShape(mlir::MLIRContext* ctx, DistType origDistType,
-                                                            ShapeRef newShape) {
-    const auto origDistAttr = origDistType.getDistribution();
-    VPUX_THROW_UNLESS(VPU::isOverlappedOverH(origDistAttr), "Input dist type is not OVERLAPPED over H");
-
-    const auto origShape = origDistType.getShape();
-    if (origShape == newShape) {
-        return origDistAttr;
-    }
-
-    if (!VPU::isDistributedAttrWithExplicitShapesAndOffsets(origDistAttr)) {
-        return VPU::DistributionInfoAttr::get(
-                ctx, origDistAttr.getMode(), origDistAttr.getNumTiles(), origDistAttr.getKernel(),
-                origDistAttr.getPads(), origDistAttr.getStrides(), origDistAttr.getNumClusters(), nullptr,
-                origDistAttr.getUniformDistributedSegments(), nullptr, nullptr, nullptr, nullptr,
-                origDistAttr.getEqualMemoryAndComputeView(), origDistAttr.getMemoryNumTiles());
-    }
-
-    // When DistributionInfoAttr has explicit per cluster memory/compute shapes, recompute them for the new shape
-    auto perClusterMemoryShapes = vpux::getIntArrayOfArray(
-            ctx, VPU::getOverlappedPerClusterNewMemoryShapes(newShape, origShape, origDistAttr));
-
-    auto perClusterMemoryOffsets =
-            vpux::getIntArrayOfArray(ctx, VPU::getOverlappedPerClusterNewMemoryShapeOffsets(newShape, origDistAttr));
-
-    mlir::ArrayAttr perClusterComputeShapes = nullptr;
-    mlir::ArrayAttr perClusterComputeOffsets = nullptr;
-    if (isOnlyCDimShapeChange(origShape, newShape)) {
-        const auto numClusters = checked_cast<size_t>(origDistAttr.getNumClusters().getInt());
-        const auto tilingScheme = parseIntArrayAttr<int64_t>(origDistAttr.getNumTiles());
-        const auto updateExplicitShapes = [&](mlir::ArrayAttr origShapesAttr) {
-            auto newPerClusterShapes = SmallVector<Shape>(numClusters);
-            const auto origPerClusterShapes = parseIntArrayOfArrayAttr<int64_t>(origShapesAttr);
-            for (auto cluster : irange(numClusters)) {
-                auto shape = to_small_vector(newShape.raw());
-                for (auto dim : irange(shape.size())) {
-                    if (tilingScheme[dim] != 1) {
-                        shape[dim] = origPerClusterShapes[cluster][dim];
-                    }
-                }
-                newPerClusterShapes[cluster] = Shape(shape);
-            }
-            return vpux::getIntArrayOfArray(ctx, newPerClusterShapes);
-        };
-
-        perClusterComputeShapes = updateExplicitShapes(origDistAttr.getComputeShapes());
-        perClusterComputeOffsets = origDistAttr.getComputeOffsets();
-    } else {
-        perClusterComputeShapes =
-                vpux::getIntArrayOfArray(ctx, VPU::getPerClusterComputeShapes(newShape, origDistAttr));
-        perClusterComputeOffsets =
-                vpux::getIntArrayOfArray(ctx, VPU::getPerClusterComputeShapeOffsets(newShape, origDistAttr));
-    }
-
-    return VPU::DistributionInfoAttr::get(
-            ctx, origDistAttr.getMode(), origDistAttr.getNumTiles(), origDistAttr.getKernel(), origDistAttr.getPads(),
-            origDistAttr.getStrides(), origDistAttr.getNumClusters(), nullptr,
-            origDistAttr.getUniformDistributedSegments(), perClusterComputeShapes, perClusterComputeOffsets,
-            perClusterMemoryShapes, perClusterMemoryOffsets, origDistAttr.getEqualMemoryAndComputeView(),
-            origDistAttr.getMemoryNumTiles());
 }
 
 template <typename DistType>
@@ -450,124 +306,268 @@ mlir::FailureOr<int64_t> getDistributedOutTilingAxisAfterShapeChanged(vpux::NDTy
                                                                       int64_t inAxis,
                                                                       Logger log = vpux::Logger::global());
 
-// Re-splits an OVERLAPPED distribution across a resized tiling axis, the same way a SEGMENTED
-// distribution would be split. Only valid when the distribution has no halo on that axis (i.e.
-// memory shapes/offsets equal compute shapes/offsets).
 template <typename DistType>
-VPU::DistributionInfoAttr getHaloFreeOverlappedDistAttrWithNewShape(mlir::MLIRContext* ctx, DistType origDistType,
-                                                                    ShapeRef newShape, int64_t axis) {
-    const auto origDistAttr = origDistType.getDistribution();
-    const auto numTilesAttr = origDistAttr.getNumTiles();
-    if (numTilesAttr == nullptr) {
-        return nullptr;
-    }
-    const auto numTiles = parseIntArrayAttr<int64_t>(numTilesAttr);
-    const auto numClusters = origDistAttr.getNumClusters().getInt();
-    if (axis < 0 || axis >= checked_cast<int64_t>(numTiles.size()) || numTiles[axis] != numClusters) {
-        return nullptr;
-    }
+mlir::FailureOr<VPU::DistributionInfoAttr> tryInferNewDistInfoAfterShapeChange(
+        DistType inDistType, ShapeRef shape, const DimsOrder& outOrder, config::ArchKind arch,
+        mlir::ArrayAttr explicitOutputAlignment = nullptr);
 
-    if (!VPU::isSegmentedLikeDistributionMode(mlir::cast<vpux::NDTypeInterface>(origDistType),
-                                              VPU::DistributionInfo::getClassFromAttr(origDistAttr))) {
-        return nullptr;
-    }
-    if (VPU::isDistributedAttrWithExplicitShapesAndOffsets(origDistAttr) &&
-        (origDistAttr.getComputeShapes() != origDistAttr.getMemoryShapes() ||
-         origDistAttr.getComputeOffsets() != origDistAttr.getMemoryOffsets())) {
-        return nullptr;
-    }
+namespace detail {
 
-    const auto origShape = origDistType.getShape();
-    if (origShape.size() != newShape.size() || origShape.totalSize() != newShape.totalSize()) {
-        return nullptr;
-    }
-    int64_t numOtherAxesChanged = 0;
-    for (auto dim : irange(origShape.size())) {
-        if (checked_cast<int64_t>(dim) != axis && origShape[Dim(dim)] != newShape[Dim(dim)]) {
-            ++numOtherAxesChanged;
+template <typename DistType>
+class ShapeChangeDistributionInfoInfer final {
+    template <typename T>
+    friend mlir::FailureOr<VPU::DistributionInfoAttr> VPUIP::tryInferNewDistInfoAfterShapeChange(
+            T inDistType, ShapeRef shape, const DimsOrder& outOrder, config::ArchKind arch,
+            mlir::ArrayAttr explicitOutputAlignment);
+
+private:
+    static VPU::DistributionInfoAttr getSegmentedDistAttrWithNewShape(
+            mlir::MLIRContext* ctx, DistType origDistType, ShapeRef newShape, int64_t inAxis, int64_t outAxis,
+            config::ArchKind arch, mlir::ArrayAttr explicitOutputAlignment = nullptr) {
+        const auto origDistAttr = origDistType.getDistribution();
+
+        const auto origShape = origDistType.getShape();
+        if (origShape == newShape) {
+            return origDistAttr;
         }
-    }
-    if (numOtherAxesChanged != 1) {
-        return nullptr;
+
+        auto generateNewArray = [&](ArrayRef<int64_t> srcArray, int64_t srcAxis, int64_t dstAxis,
+                                    ArrayRef<int64_t> initArray) -> SmallVector<int64_t> {
+            SmallVector<int64_t> newArray(initArray);
+            newArray[dstAxis] = srcArray[srcAxis];
+            return newArray;
+        };
+
+        auto numTilesAttr = origDistAttr.getNumTiles();
+        SmallVector<int64_t> numTilesVec(newShape.size(), 1);
+        if (numTilesAttr != nullptr) {
+            const auto oldNumTiles = parseIntArrayAttr<int64_t>(numTilesAttr);
+            numTilesVec = generateNewArray(oldNumTiles, inAxis, outAxis, numTilesVec);
+            numTilesAttr = getIntArrayAttr(ctx, numTilesVec);
+        }
+
+        auto alignmentVec = explicitOutputAlignment != nullptr ? parseIntArrayAttr<int64_t>(explicitOutputAlignment)
+                                                               : SmallVector<int64_t>(newShape.size(), 1);
+        if (VPU::isSegmentedOverH(origDistAttr)) {
+            auto isInputSparse = mlir::isa<vpux::VPUIP::SparseBufferType>(origDistType);
+            const auto newHeightAlignment = VPUIP::getSOHMinimalHeightAlignment(
+                    newShape, origDistAttr.getNumClusters().getInt(), isInputSparse, arch);
+            if (newHeightAlignment != 1) {
+                alignmentVec[outAxis] = newHeightAlignment;
+            }
+        }
+
+        const auto subbyteAwareAlignment = VPU::getSubbyteAwareSegmentedDistributionAlignment(
+                newShape, numTilesVec, origDistAttr.getNumClusters().getInt(), outAxis, alignmentVec,
+                origDistAttr.getUniformDistributedSegments() ? true : false, origDistType);
+        VPUX_THROW_WHEN(!subbyteAwareAlignment.has_value(), "Failed to get subbyte aware alignment for new shape {0}",
+                        newShape);
+        const auto noAlignment =
+                subbyteAwareAlignment.value().empty() || llvm::all_of(subbyteAwareAlignment.value(), [](int64_t v) {
+                    return v == 1;
+                });
+
+        const auto newAlignment = noAlignment ? nullptr : getIntArrayAttr(ctx, subbyteAwareAlignment.value());
+        auto distributedAttrWithNonExplicitShapesAndOffsets = VPU::DistributionInfoAttr::get(
+                ctx, origDistAttr.getMode(), numTilesAttr, origDistAttr.getKernel(), origDistAttr.getPads(),
+                origDistAttr.getStrides(), origDistAttr.getNumClusters(), newAlignment,
+                origDistAttr.getUniformDistributedSegments(), nullptr, nullptr, nullptr, nullptr,
+                origDistAttr.getEqualMemoryAndComputeView(), origDistAttr.getMemoryNumTiles());
+
+        if (!VPU::isDistributedAttrWithExplicitShapesAndOffsets(origDistAttr)) {
+            return distributedAttrWithNonExplicitShapesAndOffsets;
+        }
+
+        auto optionalPerClusterMemoryShapes =
+                VPU::getPerClusterMemoryShapes(newShape, distributedAttrWithNonExplicitShapesAndOffsets);
+        auto perClusterMemoryShapes = vpux::getIntArrayOfArray(ctx, optionalPerClusterMemoryShapes.value());
+        auto perClusterMemoryOffsets = vpux::getIntArrayOfArray(
+                ctx, VPU::getPerClusterMemoryShapeOffsets(newShape, distributedAttrWithNonExplicitShapesAndOffsets));
+        auto perClusterComputeShapes = vpux::getIntArrayOfArray(
+                ctx, VPU::getPerClusterComputeShapes(newShape, distributedAttrWithNonExplicitShapesAndOffsets));
+        auto perClusterComputeOffsets = vpux::getIntArrayOfArray(
+                ctx, VPU::getPerClusterComputeShapeOffsets(newShape, distributedAttrWithNonExplicitShapesAndOffsets));
+
+        return VPU::DistributionInfoAttr::get(
+                ctx, distributedAttrWithNonExplicitShapesAndOffsets.getMode(),
+                distributedAttrWithNonExplicitShapesAndOffsets.getNumTiles(),
+                distributedAttrWithNonExplicitShapesAndOffsets.getKernel(),
+                distributedAttrWithNonExplicitShapesAndOffsets.getPads(),
+                distributedAttrWithNonExplicitShapesAndOffsets.getStrides(),
+                distributedAttrWithNonExplicitShapesAndOffsets.getNumClusters(), newAlignment,
+                distributedAttrWithNonExplicitShapesAndOffsets.getUniformDistributedSegments(), perClusterComputeShapes,
+                perClusterComputeOffsets, perClusterMemoryShapes, perClusterMemoryOffsets,
+                distributedAttrWithNonExplicitShapesAndOffsets.getEqualMemoryAndComputeView(),
+                distributedAttrWithNonExplicitShapesAndOffsets.getMemoryNumTiles());
     }
 
-    if (!VPU::isDistributedAttrWithExplicitShapesAndOffsets(origDistAttr)) {
+    static VPU::DistributionInfoAttr getOverlappedDistAttrWithNewShape(mlir::MLIRContext* ctx, DistType origDistType,
+                                                                       ShapeRef newShape, int64_t inAxis,
+                                                                       int64_t outAxis) {
+        const auto origDistAttr = origDistType.getDistribution();
+
+        const auto origShape = origDistType.getShape();
+        if (origShape == newShape) {
+            return origDistAttr;
+        }
+
+        if (!VPUIP::hasHaloRegion(origDistType) && !VPUIP::isOnlyCDimShapeChange(origShape, newShape)) {
+            return getHaloFreeOverlappedDistAttrWithNewShape(ctx, origDistType, newShape, inAxis, outAxis);
+        }
+
+        if (!VPU::isDistributedAttrWithExplicitShapesAndOffsets(origDistAttr)) {
+            return VPU::DistributionInfoAttr::get(
+                    ctx, origDistAttr.getMode(), origDistAttr.getNumTiles(), origDistAttr.getKernel(),
+                    origDistAttr.getPads(), origDistAttr.getStrides(), origDistAttr.getNumClusters(), nullptr,
+                    origDistAttr.getUniformDistributedSegments(), nullptr, nullptr, nullptr, nullptr,
+                    origDistAttr.getEqualMemoryAndComputeView(), origDistAttr.getMemoryNumTiles());
+        }
+
+        // When DistributionInfoAttr has explicit per cluster memory/compute shapes, recompute them for the new shape
+        auto perClusterMemoryShapes = vpux::getIntArrayOfArray(
+                ctx, VPU::getOverlappedPerClusterNewMemoryShapes(newShape, origShape, origDistAttr));
+
+        auto perClusterMemoryOffsets = vpux::getIntArrayOfArray(
+                ctx, VPU::getOverlappedPerClusterNewMemoryShapeOffsets(newShape, origDistAttr));
+
+        mlir::ArrayAttr perClusterComputeShapes = nullptr;
+        mlir::ArrayAttr perClusterComputeOffsets = nullptr;
+        if (isOnlyCDimShapeChange(origShape, newShape)) {
+            const auto numClusters = checked_cast<size_t>(origDistAttr.getNumClusters().getInt());
+            const auto tilingScheme = parseIntArrayAttr<int64_t>(origDistAttr.getNumTiles());
+            const auto updateExplicitShapes = [&](mlir::ArrayAttr origShapesAttr) {
+                auto newPerClusterShapes = SmallVector<Shape>(numClusters);
+                const auto origPerClusterShapes = parseIntArrayOfArrayAttr<int64_t>(origShapesAttr);
+                for (auto cluster : irange(numClusters)) {
+                    auto shape = to_small_vector(newShape.raw());
+                    for (auto dim : irange(shape.size())) {
+                        if (tilingScheme[dim] != 1) {
+                            shape[dim] = origPerClusterShapes[cluster][dim];
+                        }
+                    }
+                    newPerClusterShapes[cluster] = Shape(shape);
+                }
+                return vpux::getIntArrayOfArray(ctx, newPerClusterShapes);
+            };
+
+            perClusterComputeShapes = updateExplicitShapes(origDistAttr.getComputeShapes());
+            perClusterComputeOffsets = origDistAttr.getComputeOffsets();
+        } else {
+            perClusterComputeShapes =
+                    vpux::getIntArrayOfArray(ctx, VPU::getPerClusterComputeShapes(newShape, origDistAttr));
+            perClusterComputeOffsets =
+                    vpux::getIntArrayOfArray(ctx, VPU::getPerClusterComputeShapeOffsets(newShape, origDistAttr));
+        }
+
         return VPU::DistributionInfoAttr::get(
-                ctx, origDistAttr.getMode(), numTilesAttr, origDistAttr.getKernel(), origDistAttr.getPads(),
-                origDistAttr.getStrides(), origDistAttr.getNumClusters(), origDistAttr.getAlignment(),
-                origDistAttr.getUniformDistributedSegments(), nullptr, nullptr, nullptr, nullptr,
+                ctx, origDistAttr.getMode(), origDistAttr.getNumTiles(), nullptr, nullptr, nullptr,
+                origDistAttr.getNumClusters(), nullptr, origDistAttr.getUniformDistributedSegments(),
+                perClusterComputeShapes, perClusterComputeOffsets, perClusterMemoryShapes, perClusterMemoryOffsets,
                 origDistAttr.getEqualMemoryAndComputeView(), origDistAttr.getMemoryNumTiles());
     }
 
-    SmallVector<int64_t> alignmentVec;
-    auto alignmentAttr = origDistAttr.getAlignment();
-    if (alignmentAttr != nullptr) {
-        alignmentVec = parseIntArrayAttr<int64_t>(alignmentAttr);
-    }
+    // Re-splits an OVERLAPPED distribution across a resized tiling axis, the same way a SEGMENTED
+    // distribution would be split. Only valid when the distribution has no halo on that axis.
+    static VPU::DistributionInfoAttr getHaloFreeOverlappedDistAttrWithNewShape(mlir::MLIRContext* ctx,
+                                                                               DistType origDistType, ShapeRef newShape,
+                                                                               int64_t inAxis, int64_t outAxis) {
+        const auto origDistAttr = origDistType.getDistribution();
 
-    const auto uniformSegments = origDistAttr.getUniformDistributedSegments() != nullptr;
-    auto perClusterShapes = VPU::splitSegmentedShape(
-            newShape.raw(), numTiles, numClusters, axis,
-            alignmentVec.empty() ? std::nullopt : std::optional<ArrayRef<int64_t>>(alignmentVec), uniformSegments);
-    if (!perClusterShapes.has_value()) {
-        return nullptr;
-    }
-
-    auto subbyteAwareAlignment = VPU::getSubbyteAwareSegmentedDistributionAlignment(newShape, perClusterShapes.value(),
-                                                                                    axis, alignmentVec, origDistType);
-    if (subbyteAwareAlignment != alignmentVec) {
-        // there is a need for subbyte aware alignment, but new shape could not accomodate it.
-        if (subbyteAwareAlignment.empty()) {
-            return nullptr;
+        const auto origShape = origDistType.getShape();
+        if (origShape == newShape) {
+            return origDistAttr;
         }
-        alignmentVec = std::move(subbyteAwareAlignment);
-        perClusterShapes = VPU::splitSegmentedShape(newShape.raw(), numTiles, numClusters, axis,
-                                                    std::optional<ArrayRef<int64_t>>(alignmentVec), uniformSegments);
-        if (!perClusterShapes.has_value()) {
-            return nullptr;
+
+        auto generateNewArray = [&](ArrayRef<int64_t> srcArray, int64_t srcAxis, int64_t dstAxis,
+                                    const size_t arraySize) -> SmallVector<int64_t> {
+            SmallVector<int64_t> newArray(arraySize, 1);
+            newArray[dstAxis] = srcArray[srcAxis];
+            return newArray;
+        };
+
+        auto numTilesAttr = origDistAttr.getNumTiles();
+        const auto origNumTilesVec = parseIntArrayAttr<int64_t>(numTilesAttr);
+        const auto numTilesVec = generateNewArray(origNumTilesVec, inAxis, outAxis, newShape.size());
+        numTilesAttr = getIntArrayAttr(ctx, numTilesVec);
+
+        auto alignmentAttr = origDistAttr.getAlignment();
+        SmallVector<int64_t> alignmentVec;
+        std::optional<ArrayRef<int64_t>> optionalAlignment = std::nullopt;
+        if (alignmentAttr != nullptr) {
+            const auto origAlignmentVec = parseIntArrayAttr<int64_t>(alignmentAttr);
+            alignmentVec = generateNewArray(origAlignmentVec, inAxis, outAxis, newShape.size());
+            alignmentAttr = getIntArrayAttr(ctx, alignmentVec);
+            optionalAlignment = ArrayRef<int64_t>(alignmentVec);
         }
+
+        const auto numClusters = origDistAttr.getNumClusters().getInt();
+        const auto uniformDistributedSegments = origDistAttr.getUniformDistributedSegments() != nullptr;
+        auto perClusterShapes = VPU::splitSegmentedShape(newShape.raw(), numTilesVec, numClusters, outAxis,
+                                                         optionalAlignment, uniformDistributedSegments);
+        VPUX_THROW_UNLESS(perClusterShapes.has_value(),
+                          "Failed to split shape {0} into {1} clusters along axis {2} with alignment", newShape,
+                          numClusters, outAxis, alignmentVec);
+
+        auto subbyteAwareAlignment = VPU::getSubbyteAwareSegmentedDistributionAlignment(
+                newShape, perClusterShapes.value(), outAxis, alignmentVec, origDistType);
+        if (subbyteAwareAlignment != alignmentVec) {
+            alignmentVec = std::move(subbyteAwareAlignment);
+            optionalAlignment = ArrayRef<int64_t>(alignmentVec);
+            perClusterShapes = VPU::splitSegmentedShape(newShape.raw(), numTilesVec, numClusters, outAxis,
+                                                        optionalAlignment, uniformDistributedSegments);
+            VPUX_THROW_UNLESS(perClusterShapes.has_value(),
+                              "Failed to split shape {0} into {1} clusters along axis {2} with alignment {3}", newShape,
+                              numClusters, outAxis, alignmentVec);
+        }
+
+        SmallVector<Shape> perClusterOffsets;
+        SmallVector<int64_t> currentOffset(newShape.size(), 0);
+        for (const auto& perClusterShape : perClusterShapes.value()) {
+            perClusterOffsets.push_back(Shape(currentOffset));
+            currentOffset[outAxis] += perClusterShape[Dim(outAxis)];
+        }
+        const auto perClusterShapesAttr = vpux::getIntArrayOfArray(ctx, perClusterShapes.value());
+        const auto perClusterOffsetsAttr = vpux::getIntArrayOfArray(ctx, perClusterOffsets);
+
+        const auto noAlignment = alignmentVec.empty() || llvm::all_of(alignmentVec, [](int64_t v) {
+                                     return v == 1;
+                                 });
+
+        alignmentAttr = noAlignment ? nullptr : getIntArrayAttr(ctx, alignmentVec);
+        return VPU::DistributionInfoAttr::get(
+                ctx, origDistAttr.getMode(), numTilesAttr, nullptr, nullptr, nullptr, origDistAttr.getNumClusters(),
+                alignmentAttr, origDistAttr.getUniformDistributedSegments(), perClusterShapesAttr,
+                perClusterOffsetsAttr, perClusterShapesAttr, perClusterOffsetsAttr,
+                origDistAttr.getEqualMemoryAndComputeView(), origDistAttr.getMemoryNumTiles());
     }
+};
 
-    SmallVector<Shape> newOffsets;
-    newOffsets.reserve(perClusterShapes->size());
-    int64_t offset = 0;
-    for (const auto& clusterShape : perClusterShapes.value()) {
-        auto offsetShape = Shape(SmallVector<int64_t>(newShape.size(), 0));
-        offsetShape[Dim(axis)] = offset;
-        newOffsets.push_back(offsetShape);
-        offset += clusterShape[Dim(axis)];
-    }
-
-    const auto newShapesAttr = vpux::getIntArrayOfArray(ctx, perClusterShapes.value());
-    const auto newOffsetsAttr = vpux::getIntArrayOfArray(ctx, newOffsets);
-
-    const auto noAlignment = alignmentVec.empty() || llvm::all_of(alignmentVec, [](int64_t v) {
-                                 return v == 1;
-                             });
-
-    alignmentAttr = noAlignment ? nullptr : getIntArrayAttr(ctx, alignmentVec);
-    return VPU::DistributionInfoAttr::get(
-            ctx, origDistAttr.getMode(), numTilesAttr, origDistAttr.getKernel(), origDistAttr.getPads(),
-            origDistAttr.getStrides(), origDistAttr.getNumClusters(), alignmentAttr,
-            origDistAttr.getUniformDistributedSegments(), newShapesAttr, newOffsetsAttr, newShapesAttr, newOffsetsAttr,
-            origDistAttr.getEqualMemoryAndComputeView(), origDistAttr.getMemoryNumTiles());
-}
+}  // namespace detail
 
 template <typename DistType>
-bool isDistributedCompatibleAfterShapeChangeForViewOps(DistType inDistType, ShapeRef shape, const DimsOrder& outOrder,
-                                                       config::ArchKind arch) {
+mlir::FailureOr<VPU::DistributionInfoAttr> tryInferNewDistInfoAfterShapeChange(
+        DistType inDistType, ShapeRef shape, const DimsOrder& outOrder, config::ArchKind arch,
+        mlir::ArrayAttr explicitOutputAlignment) {
     const auto inShape = inDistType.getShape();
+    const auto inDistAttr = inDistType.getDistribution();
     if (inShape == shape) {
-        return true;
+        return inDistAttr;
     }
 
     const auto ctx = inDistType.getContext();
-    const auto inDistAttr = inDistType.getDistribution();
     const auto mode = inDistAttr.getMode().getValue();
     const auto numClusters = inDistAttr.getNumClusters().getInt();
     if (VPU::bitEnumContainsAny(mode, VPU::DistributionMode::DUPLICATED) ||
         VPU::bitEnumContainsAny(mode, VPU::DistributionMode::MULTICASTED)) {
-        return true;
+        const auto duplicatedMode = VPU::DistributionModeAttr::get(ctx, VPU::DistributionMode::DUPLICATED);
+        if (VPU::isDistributedAttrWithExplicitShapesAndOffsets(inDistAttr)) {
+            return VPU::getNonOverlappedDistributedAttr(shape, duplicatedMode, nullptr, inDistAttr.getNumClusters(),
+                                                        nullptr, inDistAttr.getUniformDistributedSegments(), ctx);
+        }
+
+        return VPU::DistributionInfoAttr::get(
+                ctx, duplicatedMode, nullptr, nullptr, nullptr, nullptr, inDistAttr.getNumClusters(), nullptr,
+                inDistAttr.getUniformDistributedSegments(), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
     }
 
     auto numTilesAttr = inDistAttr.getNumTiles();
@@ -577,13 +577,41 @@ bool isDistributedCompatibleAfterShapeChangeForViewOps(DistType inDistType, Shap
     auto getDistributedAxesMapping = VPUIP::getDistributedAxesMappingAfterShapeChanged(
             inputNDType, shape, outOrder, inDistType.getDistribution(), Logger::global());
     if (mlir::failed(getDistributedAxesMapping)) {
-        return false;
+        return mlir::failure();
     }
     const auto axesMapping = getDistributedAxesMapping.value();
     const auto inAxis = axesMapping.first;
     const auto outAxis = axesMapping.second;
-    if (inAxis == -1 || outAxis == -1) {
-        return false;
+    if (inAxis < 0 || outAxis < 0 || inAxis >= checked_cast<int64_t>(inShape.size()) ||
+        outAxis >= checked_cast<int64_t>(shape.size())) {
+        return mlir::failure();
+    }
+
+    auto isCompatibleWithNewDistribution = [&](VPU::DistributionInfoAttr newDistribution) -> bool {
+        if (newDistribution == nullptr) {
+            return false;
+        }
+
+        const auto order = mlir::AffineMapAttr::get(outOrder.toAffineMap(ctx));
+        const auto outDistType = DistType::get(ctx, shape.raw(), inDistType.getElementType(), order,
+                                               inDistType.getMemSpace(), newDistribution);
+        return VPUIP::isDistributedCompatibleAfterShapeChangeForViewOps<DistType>(inDistType, outDistType);
+    };
+
+    const auto dimIsOne = [](int64_t dim) {
+        return dim == 1;
+    };
+    auto inMemShape = inputNDType.getMemShape();
+    auto outMemShape = outOrder.toMemoryOrder(shape);
+    inMemShape.erase(std::remove_if(inMemShape.begin(), inMemShape.end(), dimIsOne), inMemShape.end());
+    outMemShape.erase(std::remove_if(outMemShape.begin(), outMemShape.end(), dimIsOne), outMemShape.end());
+    if (inMemShape == outMemShape && mode != (VPU::DistributionMode::SEGMENTED | VPU::DistributionMode::OVERLAPPED)) {
+        auto newDistAttr = vpux::VPUIP::changeDistributedAxisOnDistributionInfoAttr(inDistAttr, inAxis, outAxis, shape);
+        if (!isCompatibleWithNewDistribution(newDistAttr)) {
+            return mlir::failure();
+        }
+
+        return newDistAttr;
     }
 
     auto isSupportedCase = [&]() {
@@ -596,33 +624,18 @@ bool isDistributedCompatibleAfterShapeChangeForViewOps(DistType inDistType, Shap
             return false;
         }
 
-        if (mode == VPU::DistributionMode::OVERLAPPED && inAxis != outAxis) {
-            return false;
-        }
-
         return inShape.totalSize() == shape.totalSize() || isOnlyCDimShapeChange(inShape, shape);
     }();
     if (!isSupportedCase) {
-        return false;
+        return mlir::failure();
     }
-
-    auto generateNewArray = [&](ArrayRef<int64_t> srcArray, int64_t inAxis, int64_t outAxis,
-                                ArrayRef<int64_t> initArray) -> SmallVector<int64_t> {
-        SmallVector<int64_t> newArray(initArray);
-        VPUX_THROW_UNLESS(inAxis >= 0 && inAxis < checked_cast<int64_t>(srcArray.size()),
-                          "Input axis index is out of range {0}", inAxis);
-        VPUX_THROW_UNLESS(outAxis >= 0 && outAxis < checked_cast<int64_t>(shape.size()),
-                          "Output axis index is out of range {0}", outAxis);
-        newArray[outAxis] = srcArray[inAxis];
-        return newArray;
-    };
 
     auto checkNewNumTiles = [&](ArrayRef<int64_t> numTilesVec) -> bool {
         if (numTilesVec.size() != shape.size()) {
             return false;
         }
 
-        return numTilesVec[inAxis] <= shape[Dim(outAxis)];
+        return numTilesVec[outAxis] <= shape[Dim(outAxis)];
     };
 
     auto checkNewAlignment = [&](SmallVector<int64_t> alignment, ArrayRef<int64_t> numTilesVec) -> bool {
@@ -644,6 +657,11 @@ bool isDistributedCompatibleAfterShapeChangeForViewOps(DistType inDistType, Shap
             return false;
         }
 
+        if (mode == VPU::DistributionMode::OVERLAPPED &&
+            subbyteAwareAlignment.value() != ArrayRef<int64_t>(alignment)) {
+            return false;
+        }
+
         const auto perClusterShapes =
                 VPU::splitSegmentedShape(shape.raw(), numTilesVec, numClusters, outAxis, subbyteAwareAlignment.value(),
                                          inDistAttr.getUniformDistributedSegments() != nullptr);
@@ -653,69 +671,52 @@ bool isDistributedCompatibleAfterShapeChangeForViewOps(DistType inDistType, Shap
     SmallVector<int64_t> numTilesVec(shape.size(), 1);
     if (numTilesAttr != nullptr) {
         const auto oldNumTiles = parseIntArrayAttr<int64_t>(numTilesAttr);
-        numTilesVec = generateNewArray(oldNumTiles, inAxis, outAxis, numTilesVec);
+        numTilesVec[outAxis] = oldNumTiles[inAxis];
         if (!checkNewNumTiles(numTilesVec)) {
-            return false;
+            return mlir::failure();
         }
     }
 
     SmallVector<int64_t> alignmentVec(shape.size(), 1);
-    if (alignmentAttr != nullptr) {
-        const auto oldAlignment = parseIntArrayAttr<int64_t>(alignmentAttr);
-        alignmentVec = generateNewArray(oldAlignment, inAxis, outAxis, alignmentVec);
-    }
-    if (!checkNewAlignment(alignmentVec, numTilesVec)) {
-        return false;
-    }
-
-    // Create dist type with new shape and check compatibility against the original distribution.
-    auto isCompatibleWithNewDistribution = [&](VPU::DistributionInfoAttr newDistribution) -> bool {
-        const auto order = mlir::AffineMapAttr::get(outOrder.toAffineMap(ctx));
-        const auto outDistType = DistType::get(ctx, shape.raw(), inDistType.getElementType(), order,
-                                               inDistType.getMemSpace(), newDistribution);
-        return VPUIP::isDistributedCompatibleAfterShapeChangeForViewOps<DistType>(inDistType, outDistType);
-    };
-
-    if (mode == VPU::DistributionMode::SEGMENTED) {
-        return isCompatibleWithNewDistribution(
-                getSegmentedDistAttrWithNewShape(ctx, inDistType, shape, outOrder, arch));
-    }
-
-    if (mode != VPU::DistributionMode::OVERLAPPED) {
-        VPUX_THROW("Unsupported distribution mode {0}", mode);
-    }
-
-    // `getOverlappedDistAttrWithNewShape` only supports overlapped over H for now
-    if (!VPU::isOverlappedOverH(inDistAttr)) {
-        return false;
-    }
-
-    const auto hasNewAlignmentForShape =
-            !alignmentVec.empty() && std::any_of(alignmentVec.begin(), alignmentVec.end(), [](int64_t val) {
-                return val != 1;
-            });
-
-    if (inShape[Dim(inAxis)] == shape[Dim(outAxis)]) {
-        // Overlapped distribution with alignment is invalid
-        if (hasNewAlignmentForShape) {
-            return false;
+    if (mode == VPU::DistributionMode::SEGMENTED && explicitOutputAlignment != nullptr) {
+        alignmentVec = parseIntArrayAttr<int64_t>(explicitOutputAlignment);
+        if (alignmentVec.size() != shape.size()) {
+            return mlir::failure();
         }
-        return isCompatibleWithNewDistribution(getOverlappedDistAttrWithNewShape(ctx, inDistType, shape));
+    } else if (alignmentAttr != nullptr && inShape[Dim(inAxis)] == shape[Dim(outAxis)]) {
+        const auto oldAlignment = parseIntArrayAttr<int64_t>(alignmentAttr);
+        // If the input shape and output shape are not the same on the distributed axis, inheriting the alignment from
+        // input might break the compatibility. e.g
+        // {inShape=[64, 1], numTiles=[4, 1], alignment=[16, 1]} => {outShape=[32, 2], numTiles=[4, 1]}
+        // The output alignment shouldn't be [16, 1]
+        alignmentVec[outAxis] = oldAlignment[inAxis];
+    }
+    if (!checkNewAlignment(std::move(alignmentVec), numTilesVec)) {
+        return mlir::failure();
     }
 
-    // Resizing the tiling axis is only safe when there is no halo: the distribution can
-    // then be re-split like a SEGMENTED one.
-    if (!VPU::isSegmentedLikeDistributionMode(mlir::cast<vpux::NDTypeInterface>(inDistType),
-                                              VPU::DistributionInfo::getClassFromAttr(inDistAttr))) {
-        return false;
+    VPU::DistributionInfoAttr newDistAttr = nullptr;
+    if (mode == VPU::DistributionMode::SEGMENTED) {
+        newDistAttr = detail::ShapeChangeDistributionInfoInfer<DistType>::getSegmentedDistAttrWithNewShape(
+                ctx, inDistType, shape, inAxis, outAxis, arch, explicitOutputAlignment);
+    } else if (mode == VPU::DistributionMode::OVERLAPPED) {
+        if (!VPU::isOverlappedOverH(inDistAttr)) {
+            return mlir::failure();
+        }
+
+        if ((inShape[Dim(inAxis)] != shape[Dim(outAxis)] || inAxis != outAxis) && VPUIP::hasHaloRegion(inDistType)) {
+            return mlir::failure();
+        }
+
+        newDistAttr = detail::ShapeChangeDistributionInfoInfer<DistType>::getOverlappedDistAttrWithNewShape(
+                ctx, inDistType, shape, inAxis, outAxis);
     }
 
-    const auto newDistribution = getHaloFreeOverlappedDistAttrWithNewShape(ctx, inDistType, shape, outAxis);
-    if (newDistribution == nullptr) {
-        return false;
+    if (!isCompatibleWithNewDistribution(newDistAttr)) {
+        return mlir::failure();
     }
 
-    return isCompatibleWithNewDistribution(newDistribution);
+    return newDistAttr;
 }
 
 //
@@ -810,91 +811,6 @@ VPURT::TaskOp createBarProgDMA(mlir::OpBuilder& builder, mlir::Value input, mlir
 VPURT::TaskOp createEnqueueDMA(mlir::OpBuilder& builder, mlir::Value input, mlir::Value output, int port,
                                mlir::ValueRange waitBarriers, mlir::ValueRange updateBarriers,
                                VPUIP::EnqueueDMAAttr enqueueDMAAttr, llvm::StringLiteral opName = "enqueue_dma");
-
-//
-// Distributed Type utils
-//
-
-template <typename DistType>
-VPU::DistributionInfoAttr getDistributedAttrAfterShapeCast(VPU::DistributedTypeInterface origDistrType,
-                                                           ArrayRef<int64_t> origOutShape, config::ArchKind arch,
-                                                           mlir::ArrayAttr explicitOutputAlignment = nullptr) {
-    const auto ndTypeIf = mlir::cast<NDTypeInterface>(origDistrType);
-    const auto origInShape = ndTypeIf.getShape().raw();
-    const auto distributedType = mlir::cast<DistType>(origDistrType.getDistributedTypes().front());
-    auto origDistribution = distributedType.getDistribution();
-    auto ctx = origDistrType.getContext();
-
-    auto outShape = origOutShape;
-    if (auto sparseBuff = mlir::dyn_cast<VPUIP::SparseBufferType>(origDistrType)) {
-        if (auto seAttr = sparseBuff.getSeAttr()) {
-            outShape = seAttr.backInferInputShape(ShapeRef(outShape)).raw();
-        }
-        origDistribution = VPU::getExplicitDistrAttrForActualDataFromSparseType(sparseBuff);
-    }
-
-    const auto distMode = origDistribution.getMode().getValue();
-    const auto origNumTiles = origDistribution.getNumTiles();
-    const auto tilingAxis = origNumTiles != nullptr ? VPUIP::getSpecificAxisFromAttr(origNumTiles) : -1;
-
-    const auto isSameDimAsClustering = [&]() {
-        if (origNumTiles == nullptr) {
-            return false;
-        }
-        VPUX_THROW_WHEN(tilingAxis == -1, "cannot get input tiling axis");
-        return origInShape[tilingAxis] != outShape[tilingAxis];
-    };
-
-    const auto clusteringDimChanges = isSameDimAsClustering();
-
-    VPUX_THROW_WHEN(!VPUIP::isDistributedCompatibleAfterShapeChangeForViewOps(distributedType, ShapeRef(outShape),
-                                                                              ndTypeIf.getDimsOrder(), arch),
-                    "Cannot cast shape from '{0}' to '{1}' as clustering", origInShape, outShape);
-
-    if (VPU::bitEnumContainsAny(distMode, VPU::DistributionMode::DUPLICATED) ||
-        VPU::bitEnumContainsAny(distMode, VPU::DistributionMode::MULTICASTED)) {
-        const auto duplicatedMode = VPU::DistributionModeAttr::get(ctx, VPU::DistributionMode::DUPLICATED);
-        if (VPU::isDistributedAttrWithExplicitShapesAndOffsets(origDistribution)) {
-            return VPU::getNonOverlappedDistributedAttr(ShapeRef(outShape), duplicatedMode, nullptr,
-                                                        origDistribution.getNumClusters(), nullptr,
-                                                        origDistribution.getUniformDistributedSegments(), ctx);
-        }
-
-        return VPU::DistributionInfoAttr::get(
-                ctx, duplicatedMode, nullptr, nullptr, nullptr, nullptr, origDistribution.getNumClusters(), nullptr,
-                origDistribution.getUniformDistributedSegments(), nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
-    }
-
-    if (distMode == VPU::DistributionMode::SEGMENTED) {
-        return getSegmentedDistAttrWithNewShape(ctx, distributedType, ShapeRef(outShape), ndTypeIf.getDimsOrder(), arch,
-                                                explicitOutputAlignment);
-    }
-
-    if (distMode != VPU::DistributionMode::OVERLAPPED) {
-        return origDistribution;
-    }
-
-    VPUX_THROW_WHEN(!VPU::isOverlappedOverH(origDistribution),
-                    "Cannot cast shape from '{0}' to '{1}' when having overlapped distribution not over H", origInShape,
-                    outShape);
-
-    if (!clusteringDimChanges) {
-        return getOverlappedDistAttrWithNewShape(ctx, distributedType, ShapeRef(outShape));
-    }
-
-    VPUX_THROW_UNLESS(VPU::isSegmentedLikeDistributionMode(mlir::cast<vpux::NDTypeInterface>(distributedType),
-                                                           VPU::DistributionInfo::getClassFromAttr(origDistribution)),
-                      "Cannot cast shape from '{0}' to '{1}' when having overlapped distribution over H "
-                      "and clustering dim changes at output",
-                      origInShape, outShape);
-    auto haloFreeDistribution =
-            getHaloFreeOverlappedDistAttrWithNewShape(ctx, distributedType, ShapeRef(outShape), tilingAxis);
-    VPUX_THROW_WHEN(haloFreeDistribution == nullptr,
-                    "Cannot cast shape from '{0}' to '{1}' when having overlapped distribution over H "
-                    "and clustering dim changes at output",
-                    origInShape, outShape);
-    return haloFreeDistribution;
-}
 
 bool isSubViewCompatibleWithDistributedBuffer(VPUIP::SubViewOp subViewOp, VPUIP::DistributedBufferType distributedType,
                                               bool supportSameAxisForClusteredTilingAndSubview = false);

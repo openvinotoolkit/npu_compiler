@@ -12,12 +12,13 @@ include "mlir/Pass/PassBase.td"
 // LoadExternalKernelResources
 //
 
-def LoadExternalKernelResources : PassBase<"load-external-kernel-resources", "vpux::FunctionPass"> {
+def LoadExternalKernelResources : PassBase<"load-external-kernel-resources", "vpux::ModulePass"> {
     let summary = "Loads the implementations of the Shave.ExternalKernelOps into ShaveBinary resources";
 
     let description = [{
-        This pass processes all Shave.ExternalKernelOp operations in the function and loads their corresponding
-        kernel implementations from external ELF binary files into the ShaveBinaryResources infrastructure.
+        This pass processes all Shave.ExternalKernelOp operations across every function in the module and loads
+        their corresponding kernel implementations from external ELF binary files into the ShaveBinaryResources
+        infrastructure.
 
         For each ExternalKernelOp, the pass:
         1. Retrieves the kernel path and unique identifier from the operation attributes
@@ -30,9 +31,10 @@ def LoadExternalKernelResources : PassBase<"load-external-kernel-resources", "vp
         operations reference the same external kernel. This optimization reduces memory overhead and compilation time
         in scenarios where external kernels are reused across different invocations.
 
-        This pass is essential for enabling integration of pre-compiled, hand-optimized, or third-party kernel
-        implementations into the VPUX compilation pipeline, providing a bridge between externally developed kernels
-        and the compiler's internal resource management system.
+        This pass runs as part of the init-compiler pipeline, before any IE-dialect transformations, and is
+        essential for enabling integration of pre-compiled, hand-optimized, or third-party kernel implementations
+        into the VPUX compilation pipeline, providing a bridge between externally developed kernels and the
+        compiler's internal resource management system.
     }];
 
     let constructor = "vpux::Shave::createLoadExternalKernelResourcesPass()";

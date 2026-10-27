@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
@@ -25,11 +26,13 @@ template <typename Builder>
 IE::ConvolutionOp cloneConvolutionOp(Builder& builder, IE::ConvolutionOp convOp, mlir::Value input, mlir::Value filter,
                                      mlir::Value bias, mlir::Value scale, mlir::Value zeroPoints,
                                      std::optional<mlir::Location> loc = std::nullopt) {
-    return builder.template create<IE::ConvolutionOp>(
-            loc.value_or(convOp.getLoc()), input, filter, bias, scale, zeroPoints, convOp.getStridesAttr(),
-            convOp.getPadsBegin(), convOp.getPadsEnd(), convOp.getDilations(), convOp.getPostOpAttr(),
-            convOp.getClampAttr(), convOp.getStaticScaleAttr(), convOp.getOutputPaddingAttr(),
-            convOp.getInputPaddingAttr());
+    auto newConvOp = IE::ConvolutionOp::create(builder, loc.value_or(convOp.getLoc()), input, filter, bias, scale,
+                                               zeroPoints, convOp.getStridesAttr(), convOp.getPadsBegin(),
+                                               convOp.getPadsEnd(), convOp.getDilations(), convOp.getPostOpAttr(),
+                                               convOp.getClampAttr(), convOp.getStaticScaleAttr(),
+                                               convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
+    copyLoopAttributes(convOp, newConvOp.getOperation());
+    return newConvOp;
 }
 
 /** Clone a Convolution operation with new inputs (without bias and scale).
@@ -42,11 +45,13 @@ IE::ConvolutionOp cloneConvolutionOp(Builder& builder, IE::ConvolutionOp convOp,
 template <typename Builder>
 IE::ConvolutionOp cloneConvolutionOp(Builder& builder, IE::ConvolutionOp convOp, mlir::Value input, mlir::Value filter,
                                      std::optional<mlir::Location> loc = std::nullopt) {
-    return builder.template create<IE::ConvolutionOp>(
-            loc.value_or(convOp.getLoc()), input, filter, convOp.getBias(), convOp.getScale(), convOp.getZeroPoints(),
-            convOp.getStridesAttr(), convOp.getPadsBegin(), convOp.getPadsEnd(), convOp.getDilations(),
-            convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getStaticScaleAttr(), convOp.getOutputPaddingAttr(),
-            convOp.getInputPaddingAttr());
+    auto newConvOp = IE::ConvolutionOp::create(
+            builder, loc.value_or(convOp.getLoc()), input, filter, convOp.getBias(), convOp.getScale(),
+            convOp.getZeroPoints(), convOp.getStridesAttr(), convOp.getPadsBegin(), convOp.getPadsEnd(),
+            convOp.getDilations(), convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getStaticScaleAttr(),
+            convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
+    copyLoopAttributes(convOp, newConvOp.getOperation());
+    return newConvOp;
 }
 
 /** Clone a Convolution operation with new inputs and output type.
@@ -61,11 +66,13 @@ template <typename Builder>
 IE::ConvolutionOp cloneConvolutionOp(Builder& builder, IE::ConvolutionOp convOp, mlir::Type outputType,
                                      mlir::Value input, mlir::Value filter, mlir::Value bias, mlir::Value scale,
                                      mlir::Value zeroPoints, std::optional<mlir::Location> loc = std::nullopt) {
-    return builder.template create<IE::ConvolutionOp>(
-            loc.value_or(convOp.getLoc()), outputType, input, filter, bias, scale, zeroPoints, convOp.getStridesAttr(),
-            convOp.getPadsBegin(), convOp.getPadsEnd(), convOp.getDilations(), convOp.getPostOpAttr(),
-            convOp.getClampAttr(), convOp.getStaticScaleAttr(), convOp.getOutputPaddingAttr(),
-            convOp.getInputPaddingAttr());
+    auto newConvOp = IE::ConvolutionOp::create(builder, loc.value_or(convOp.getLoc()), outputType, input, filter, bias,
+                                               scale, zeroPoints, convOp.getStridesAttr(), convOp.getPadsBegin(),
+                                               convOp.getPadsEnd(), convOp.getDilations(), convOp.getPostOpAttr(),
+                                               convOp.getClampAttr(), convOp.getStaticScaleAttr(),
+                                               convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
+    copyLoopAttributes(convOp, newConvOp.getOperation());
+    return newConvOp;
 }
 
 /** Clone a Convolution operation with new inputs(without bias and scale) and output type.
@@ -80,11 +87,13 @@ template <typename Builder>
 IE::ConvolutionOp cloneConvolutionOp(Builder& builder, IE::ConvolutionOp convOp, mlir::Type outputType,
                                      mlir::Value input, mlir::Value filter,
                                      std::optional<mlir::Location> loc = std::nullopt) {
-    return builder.template create<IE::ConvolutionOp>(
-            loc.value_or(convOp.getLoc()), outputType, input, filter, convOp.getBias(), convOp.getScale(),
+    auto newConvOp = IE::ConvolutionOp::create(
+            builder, loc.value_or(convOp.getLoc()), outputType, input, filter, convOp.getBias(), convOp.getScale(),
             convOp.getZeroPoints(), convOp.getStridesAttr(), convOp.getPadsBegin(), convOp.getPadsEnd(),
             convOp.getDilations(), convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getStaticScaleAttr(),
             convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
+    copyLoopAttributes(convOp, newConvOp.getOperation());
+    return newConvOp;
 }
 
 /** Clone a Convolution operation with new inputs(without bias and scale) and strides, pads dilations
@@ -98,10 +107,13 @@ template <typename Builder>
 IE::ConvolutionOp cloneConvolutionOp(Builder& builder, IE::ConvolutionOp convOp, mlir::Value input, mlir::Value filter,
                                      mlir::ArrayAttr strides, mlir::ArrayAttr padsBegin, mlir::ArrayAttr padsEnd,
                                      mlir::ArrayAttr dilations, std::optional<mlir::Location> loc = std::nullopt) {
-    return builder.template create<IE::ConvolutionOp>(
-            loc.value_or(convOp.getLoc()), input, filter, convOp.getBias(), convOp.getScale(), convOp.getZeroPoints(),
-            strides, padsBegin, padsEnd, dilations, convOp.getPostOpAttr(), convOp.getClampAttr(),
-            convOp.getStaticScaleAttr(), convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
+    auto newConvOp =
+            IE::ConvolutionOp::create(builder, loc.value_or(convOp.getLoc()), input, filter, convOp.getBias(),
+                                      convOp.getScale(), convOp.getZeroPoints(), strides, padsBegin, padsEnd, dilations,
+                                      convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getStaticScaleAttr(),
+                                      convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
+    copyLoopAttributes(convOp, newConvOp.getOperation());
+    return newConvOp;
 }
 
 /** Clone a Convolution operation with new inputs(without bias and scale) and strides, pads dilations
@@ -117,11 +129,13 @@ IE::ConvolutionOp cloneConvolutionOp(Builder& builder, IE::ConvolutionOp convOp,
                                      mlir::Value input, mlir::Value filter, mlir::ArrayAttr strides,
                                      mlir::ArrayAttr padsBegin, mlir::ArrayAttr padsEnd, mlir::ArrayAttr dilations,
                                      std::optional<mlir::Location> loc = std::nullopt) {
-    return builder.template create<IE::ConvolutionOp>(loc.value_or(convOp.getLoc()), outputType, input, filter,
-                                                      convOp.getBias(), convOp.getScale(), convOp.getZeroPoints(),
-                                                      strides, padsBegin, padsEnd, dilations, convOp.getPostOpAttr(),
-                                                      convOp.getClampAttr(), convOp.getStaticScaleAttr(),
-                                                      convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
+    auto newConvOp = IE::ConvolutionOp::create(builder, loc.value_or(convOp.getLoc()), outputType, input, filter,
+                                               convOp.getBias(), convOp.getScale(), convOp.getZeroPoints(), strides,
+                                               padsBegin, padsEnd, dilations, convOp.getPostOpAttr(),
+                                               convOp.getClampAttr(), convOp.getStaticScaleAttr(),
+                                               convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
+    copyLoopAttributes(convOp, newConvOp.getOperation());
+    return newConvOp;
 }
 
 /** Clone a Convolution operation with new inputs and strides, pads dilations
@@ -136,10 +150,12 @@ IE::ConvolutionOp cloneConvolutionOp(Builder& builder, IE::ConvolutionOp convOp,
                                      mlir::Value bias, mlir::Value scale, mlir::Value zeroPoints,
                                      mlir::ArrayAttr strides, mlir::ArrayAttr padsBegin, mlir::ArrayAttr padsEnd,
                                      mlir::ArrayAttr dilations, std::optional<mlir::Location> loc = std::nullopt) {
-    return builder.template create<IE::ConvolutionOp>(
-            loc.value_or(convOp.getLoc()), input, filter, bias, scale, zeroPoints, strides, padsBegin, padsEnd,
+    auto newConvOp = IE::ConvolutionOp::create(
+            builder, loc.value_or(convOp.getLoc()), input, filter, bias, scale, zeroPoints, strides, padsBegin, padsEnd,
             dilations, convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getStaticScaleAttr(),
             convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
+    copyLoopAttributes(convOp, newConvOp.getOperation());
+    return newConvOp;
 }
 
 /** Clone a Convolution operation with new inputs and strides, pads dilations
@@ -156,10 +172,12 @@ IE::ConvolutionOp cloneConvolutionOp(Builder& builder, IE::ConvolutionOp convOp,
                                      mlir::Value zeroPoints, mlir::ArrayAttr strides, mlir::ArrayAttr padsBegin,
                                      mlir::ArrayAttr padsEnd, mlir::ArrayAttr dilations,
                                      std::optional<mlir::Location> loc = std::nullopt) {
-    return builder.template create<IE::ConvolutionOp>(
-            loc.value_or(convOp.getLoc()), outputType, input, filter, bias, scale, zeroPoints, strides, padsBegin,
-            padsEnd, dilations, convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getStaticScaleAttr(),
+    auto newConvOp = IE::ConvolutionOp::create(
+            builder, loc.value_or(convOp.getLoc()), outputType, input, filter, bias, scale, zeroPoints, strides,
+            padsBegin, padsEnd, dilations, convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getStaticScaleAttr(),
             convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
+    copyLoopAttributes(convOp, newConvOp.getOperation());
+    return newConvOp;
 }
 
 mlir::LogicalResult canConvertGroupConvToConv(IE::GroupConvolutionOp groupconv, bool isAttrCheckEnabled = true,
@@ -172,14 +190,15 @@ bool isEltwiseGroupConv(IE::GroupConvolutionOp convOp, bool isConstFilter = true
 
 class FuseConvAndBias final : public mlir::OpRewritePattern<IE::ScaleShiftOp> {
 public:
-    using mlir::OpRewritePattern<IE::ScaleShiftOp>::OpRewritePattern;
-
-    void initialize() {
+    FuseConvAndBias(mlir::MLIRContext* ctx): mlir::OpRewritePattern<IE::ScaleShiftOp>(ctx), _log(Logger::global()) {
         setDebugName("FuseConvAndBias");
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::ScaleShiftOp biasOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
 };
 
 }  // namespace IE

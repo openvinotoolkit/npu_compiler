@@ -34,7 +34,7 @@ func.func @InplaceEltwiseToEltwise(%in1: !qTypeDDR, %in2: !qTypeDDR, %in3: !qTyp
         outputs(%eltwise_1_cmx_input_buf_2 : !DistributedType1)  ->  !DistributedType1
 
     %eltwise_1_cmx_out_buf = VPURT.AllocDistributed -> !DistributedType1
-    %eltwise_1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %eltwise_1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%eltwise_1_cmx_input_1 : !DistributedType1)
         weights(%eltwise_1_cmx_input_2 : !DistributedType1)
         parent_input(%eltwise_1_cmx_input_1 : !DistributedType1)
@@ -53,7 +53,7 @@ func.func @InplaceEltwiseToEltwise(%in1: !qTypeDDR, %in2: !qTypeDDR, %in3: !qTyp
         outputs(%eltwise_2_cmx_input_buf_1 : !DistributedType1)  ->  !DistributedType1
 
     %eltwise_2_cmx_out_buf = VPURT.AllocDistributed -> !DistributedType1
-    %eltwise_2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %eltwise_2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%eltwise_1 : !DistributedType1)
         weights(%eltwise_2_cmx_input_1 : !DistributedType1)
         parent_input(%eltwise_1 : !DistributedType1)
@@ -131,7 +131,7 @@ func.func @InPlaceEltwiseWithSiblingsOnBothInputs(
         outputs(%eltwiseIn2CMXBuff : !DistributedType1)  ->  !DistributedType1
 
     %eltwiseOutCMXBuff = VPURT.AllocDistributed -> !DistributedType1
-    %eltwise = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %eltwise = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%eltwiseIn1CMX : !DistributedType1)
         weights(%eltwiseIn2CMX : !DistributedType1)
         parent_input(%eltwiseIn1CMX : !DistributedType1)
@@ -151,7 +151,7 @@ func.func @InPlaceEltwiseWithSiblingsOnBothInputs(
         outputs(%conv0InCMXBuff : !DistributedType1)  ->  !DistributedType1
 
     %convOutBuff0 = VPURT.AllocDistributed -> !DistributedType2
-    %conv0 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+    %conv0 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%conv0InCMX : !DistributedType1)
         weights(%weights0 : memref<32x32x1x1xf16, {order = #NHWC}, @CMX_NN>)
         parent_input(%conv0InCMX : !DistributedType1)
@@ -166,7 +166,7 @@ func.func @InPlaceEltwiseWithSiblingsOnBothInputs(
 
 
     %convOutBuff1 = VPURT.AllocDistributed -> !DistributedType1
-    %conv1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
+    %conv1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%eltwiseIn2CMX : !DistributedType1)
         weights(%weights0 : memref<32x32x1x1xf16, {order = #NHWC}, @CMX_NN>)
         parent_input(%eltwiseIn2CMX : !DistributedType1)
@@ -291,7 +291,7 @@ func.func @CreateShapeCastOpBeforeDistributedCastOp (%in1 : !DistributedType3, %
       inputs(%eltwise_1_concat : !DistributedType1) -> !DistributedType4
     %eltwise_1_distributed_cast = VPUIP.DistributedCast inputs(%eltwise_1_shape_cast : !DistributedType4) -> !DistributedType5
     %eltwise_2_cmx_buf = VPURT.AllocDistributed -> !DistributedType5
-    %eltwise_2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10507 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %eltwise_2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10507 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%in3 : !qTypeCMX3)
         weights(%eltwise_1_distributed_cast : !DistributedType5)
         parent_input(%in3 : !qTypeCMX3)
@@ -371,7 +371,7 @@ func.func @NotCreateShapeCastOpWithLayoutChange () -> (!DistributedType1) {
     %eltwise_in_1 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NCHW} inputs(%eltwise_in_1_cmx_buf: !DistributedType)
             -> !DistributedType1
     %eltwise_out_cmx_buf = VPURT.AllocDistributed -> !DistributedType1
-    %eltwise = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10507 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %eltwise = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10507 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%eltwise_in_0 : !DistributedType1)
         weights(%eltwise_in_1 : !DistributedType1)
         parent_input(%eltwise_in_0 : !DistributedType1)
@@ -441,7 +441,7 @@ func.func @CreateShapeCastOpSingleClusterCase (%in1 : memref<1x1x1620x1xf16, {or
     %shape_cast = VPUIP.ShapeCast {
       shape = [1, 16, 20, 10]}
       inputs(%concat : memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>
-    %eltwise = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10507 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %eltwise = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10507 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
           is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
           input(%in3 : memref<1x1x3200x1xf16, {order = #NHWC}, @CMX_NN>)
           weights(%shape_cast : memref<1x16x20x10xf16, {order = #NHWC}, @CMX_NN>)
@@ -526,7 +526,7 @@ func.func @IllegalInPlaceEltwise(
         outputs(%eltwiseIn2CMXBuff : !DistributedType1)  ->  !DistributedType1
 
     %eltwiseOutCMXBuff = VPURT.AllocDistributed -> !DistributedType2
-    %eltwise = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %eltwise = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 21125 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%eltwiseIn1CMX : !DistributedType1)
         weights(%eltwiseIn2CMX : !DistributedType1)
         parent_input(%eltwiseIn1CMX : !DistributedType1)
@@ -560,7 +560,7 @@ func.func @ConvertInplaceForDifferentShapeAndDimsOrder(%input: memref<1x256x16x6
     -> !qTypeCMX0 {
 
   %alloc = memref.alloc() : !qTypeCMX
-  %0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967195 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, tiling_loop_index = 0 : i64} <{is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%input : memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>) weights(%input : memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>) parent_input(%input : memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>) parent_output(%alloc : !qTypeCMX) outputs(%alloc : !qTypeCMX) -> !qTypeCMX variants : {
+  %0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 4294967195 : i64,  tiling_loop_index = 0 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%input : memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>) weights(%input : memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>) parent_input(%input : memref<1x256x16x64xf16, {order = #NHWC}, @CMX_NN>) parent_output(%alloc : !qTypeCMX) outputs(%alloc : !qTypeCMX) -> !qTypeCMX variants : {
     DPUTask {inEnd = [63, 15, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [63, 15, 255], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
   } PPE : {
     PPETask {ppe = #VPU.PPEFp<mode = <ADD>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 5.000000e-01 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>}
@@ -569,7 +569,7 @@ func.func @ConvertInplaceForDifferentShapeAndDimsOrder(%input: memref<1x256x16x6
   %alloc_0 = memref.alloc() : !qTypeCMX0
   %2 = VPUIP.Copy inputs(%weights : memref<1x16x64x256xf16, {order = #NHWC}>) outputs(%alloc_0 : !qTypeCMX0) -> !qTypeCMX0
   %alloc_1 = memref.alloc() : !qTypeCMX0
-  %3 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10253 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, tiling_loop_index = 1 : i64} <{eltwise_type = #VPU.eltwise_type<ADD>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%1 : !qTypeCMX0) weights(%2 : !qTypeCMX0) parent_input(%1 : !qTypeCMX0) parent_output(%alloc_1 : !qTypeCMX0) outputs(%alloc_1 : !qTypeCMX0) -> !qTypeCMX0 variants : {
+  %3 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10253 : i64,  tiling_loop_index = 1 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, eltwise_type = #VPU.eltwise_type<ADD>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%1 : !qTypeCMX0) weights(%2 : !qTypeCMX0) parent_input(%1 : !qTypeCMX0) parent_output(%alloc_1 : !qTypeCMX0) outputs(%alloc_1 : !qTypeCMX0) -> !qTypeCMX0 variants : {
     DPUTask {inEnd = [255, 63, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [255, 63, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
   } PPE : {
     PPETask {ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>}

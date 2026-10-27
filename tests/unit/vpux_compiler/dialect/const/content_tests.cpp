@@ -3,8 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/types/quantile_float/dialect.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -15,6 +14,7 @@
 
 #include "vpux/utils/core/numeric.hpp"
 #include "vpux/utils/core/range.hpp"
+#include "vpux/utils/core/type/float16.hpp"
 
 #include "common/utils.hpp"
 
@@ -134,7 +134,7 @@ public:
     MLIR_ConstContentAttrTest(): MLIR_UnitBase() {
         ctx.appendDialectRegistry(registry);
         ctx.loadDialect<Const::ConstDialect>();
-        ctx.loadDialect<vpux::type::QuantileDialect>();
+        ctx.loadDialect<mlir::quant::QuantDialect>();
     }
 };
 
@@ -745,6 +745,50 @@ TEST_F(MLIR_ConstContentAttrTest, CopyTo_I1) {
     for (size_t i = 0; i < expectedVals.size(); ++i) {
         EXPECT_EQ(expectedVals[i], tempBuf[i]);
     }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, CopyTo_I1_With_Partial_Byte) {
+    const auto baseType = mlir::RankedTensorType::get({9}, mlir::IntegerType::get(&ctx, 8));
+
+    const std::vector<uint8_t> vals = {0, 0, 0, 1,  // 0x1 -> 0x8 packed
+                                       0, 0, 1, 1,  // 0x3 -> 0xC packed
+                                       1};          // trailing element -> 0x1 packed
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 1));
+
+    auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
+    const auto content = contentAttr.fold();
+
+    const auto bufSizeBytes = checked_cast<size_t>(content.getType().getTotalAllocSize().count());
+    std::vector<uint8_t> tempBuf(bufSizeBytes);
+    content.copyTo(MutableArrayRef(reinterpret_cast<char*>(tempBuf.data()), bufSizeBytes));
+
+    const std::vector<uint8_t> expectedVals = {0xC8, 0x01};
+    EXPECT_EQ(expectedVals.size(), bufSizeBytes);
+    EXPECT_EQ(expectedVals, tempBuf);
+}
+
+TEST_F(MLIR_ConstContentAttrTest, CopyTo_U2_With_Partial_Byte) {
+    const auto baseType = mlir::RankedTensorType::get({6}, mlir::IntegerType::get(&ctx, 8));
+
+    const std::vector<uint8_t> vals = {1, 2, 3, 0, 1, 2};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
+
+    Const::ContentSetup contentAttrSetup(baseAttr, baseType);
+    contentAttrSetup = contentAttrSetup.castElemType(mlir::IntegerType::get(&ctx, 2));
+
+    auto contentAttr = Const::ContentAttr::get(baseAttr, std::move(contentAttrSetup));
+    const auto content = contentAttr.fold();
+
+    const auto bufSizeBytes = checked_cast<size_t>(content.getType().getTotalAllocSize().count());
+    std::vector<uint8_t> tempBuf(bufSizeBytes);
+    content.copyTo(MutableArrayRef(reinterpret_cast<char*>(tempBuf.data()), bufSizeBytes));
+
+    const std::vector<uint8_t> expectedVals = {0x39, 0x09};
+    EXPECT_EQ(expectedVals.size(), bufSizeBytes);
+    EXPECT_EQ(expectedVals, tempBuf);
 }
 
 TEST_F(MLIR_ConstContentAttrTest, Splat_CopyTo_FP32) {
@@ -1502,7 +1546,8 @@ TEST_F(MLIR_ConstContentAttrTest, PadUniformQuantileI4) {
                                        8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0};
 
     const auto newQuantileTypeStorage =
-            vpux::type::QuantileType::get(&ctx, getSInt8Type(&ctx), getUInt4Type(&ctx), quantileLUT);
+            mlir::quant::QuantileType::get(&ctx, getSInt8Type(&ctx), getUInt4Type(&ctx), quantileLUT,
+                                           /*storageMin=*/storageTypeMin, /*storageMax=*/storageTypeMax);
     const auto quantileType = mlir::quant::UniformQuantizedType::get(
             mlir::quant::QuantizationFlags::Signed, newQuantileTypeStorage, mlir::Float32Type::get(&ctx), scale,
             zeroPoint, storageTypeMin, storageTypeMax);
@@ -1553,7 +1598,8 @@ TEST_F(MLIR_ConstContentAttrTest, PadPerAxisQuantileI4) {
                                        8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0};
 
     const auto newQuantileTypeStorage =
-            vpux::type::QuantileType::get(&ctx, getSInt8Type(&ctx), getUInt4Type(&ctx), quantileLUT);
+            mlir::quant::QuantileType::get(&ctx, getSInt8Type(&ctx), getUInt4Type(&ctx), quantileLUT,
+                                           /*storageMin=*/storageTypeMin, /*storageMax=*/storageTypeMax);
     const auto quantType = mlir::quant::UniformQuantizedPerAxisType::get(
             mlir::quant::QuantizationFlags::Signed, newQuantileTypeStorage, mlir::Float32Type::get(&ctx), scales,
             zeroPoints, 0, storageTypeMin, storageTypeMax);
@@ -1605,7 +1651,8 @@ TEST_F(MLIR_ConstContentAttrTest, PadWithZero_PerAxisQuantileUI4_ZeroAtLastLUTIn
     const int64_t storageTypeMax = 7;
 
     const auto quantileStorageType =
-            vpux::type::QuantileType::get(&ctx, getSInt8Type(&ctx), getUInt4Type(&ctx), quantileLUT);
+            mlir::quant::QuantileType::get(&ctx, getSInt8Type(&ctx), getUInt4Type(&ctx), quantileLUT,
+                                           /*storageMin=*/storageTypeMin, /*storageMax=*/storageTypeMax);
     const auto quantType = mlir::quant::UniformQuantizedPerAxisType::get(
             mlir::quant::QuantizationFlags::Signed, quantileStorageType, mlir::Float16Type::get(&ctx), scales,
             zeroPoints, 0, storageTypeMin, storageTypeMax);
@@ -3304,12 +3351,10 @@ TEST_F(MLIR_ConstContentAttrTest_StableHash, SameValues_CastElemTypeQuantilePerA
     ctx1.appendDialectRegistry(registry);
     ctx1.loadDialect<Const::ConstDialect>();
     ctx1.loadDialect<mlir::quant::QuantDialect>();
-    ctx1.loadDialect<vpux::type::QuantileDialect>();
     mlir::MLIRContext ctx2;
     ctx2.appendDialectRegistry(registry);
     ctx2.loadDialect<Const::ConstDialect>();
     ctx2.loadDialect<mlir::quant::QuantDialect>();
-    ctx2.loadDialect<vpux::type::QuantileDialect>();
 
     const auto getHash = [&](bool secondCall) {
         auto& currentCtx = secondCall ? ctx2 : ctx1;
@@ -3320,7 +3365,7 @@ TEST_F(MLIR_ConstContentAttrTest_StableHash, SameValues_CastElemTypeQuantilePerA
             std::vector<double> quantiles(256, -0.5);  // Note: these are invalid but it doesn't matter for the test
             std::vector<double> scales({2, 0.5});      // Note: different scales!
             std::vector<int64_t> zeroPoints{127, 127};
-            const auto newQuantileTypeStorage = vpux::type::QuantileType::get(
+            const auto newQuantileTypeStorage = mlir::quant::QuantileType::get(
                     &currentCtx, getUInt8Type(&currentCtx), mlir::Float32Type::get(&currentCtx), quantiles);
             const auto quantType = mlir::quant::UniformQuantizedPerAxisType::get(
                     0, newQuantileTypeStorage, mlir::Float32Type::get(&currentCtx), scales, zeroPoints,
@@ -4179,4 +4224,103 @@ TEST_F(MLIR_ConstContentAttrTest, LogicalNot_SplatZero_F64) {
 
     EXPECT_TRUE(content.isSplat());
     EXPECT_EQ(content.getSplatValue<double>(), static_cast<double>(1.0));
+}
+
+// Clamp<f16_lowest, f16_max> chained with CastElemType<f16>: verifies the end-to-end lazy
+// chain produces correct fp16 values — overflow → ±HALF_MAX, finite → normal fp16.
+TEST_F(MLIR_ConstContentAttrTest, Clamp_F16Bounds_ChainedWithCastToF16) {
+    const auto baseType = mlir::RankedTensorType::get({4}, mlir::Float32Type::get(&ctx));
+
+    const std::vector<float> vals = {0.0f, 1e38f, -1e38f, 2.0f};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
+
+    // Chain: Clamp<f16_lowest, f16_max> (f32→f32) → CastElemType<f16> (f32→f16)
+    const auto f16Lowest = static_cast<double>(std::numeric_limits<vpux::type::float16>::lowest());
+    const auto f16Max = static_cast<double>(std::numeric_limits<vpux::type::float16>::max());
+    const auto lower = getFPAttr(&ctx, f16Lowest);
+    const auto upper = getFPAttr(&ctx, f16Max);
+    Const::ContentSetup setup(baseAttr, baseType);
+    setup = setup.addTransformation(Const::ClampAttr::get(lower, upper)).castElemType(mlir::Float16Type::get(&ctx));
+    auto contentAttr = Const::ContentAttr::get(baseAttr, setup);
+
+    EXPECT_EQ(contentAttr.getType().getElementType(), mlir::Float16Type::get(&ctx));
+
+    const auto content = contentAttr.fold();
+    const auto f16LowestFp16 = std::numeric_limits<vpux::type::float16>::lowest();
+    const auto f16MaxFp16 = std::numeric_limits<vpux::type::float16>::max();
+    const auto contentVals = content.getValues<vpux::type::float16>();
+    ASSERT_EQ(contentVals.size(), 4u);
+    EXPECT_EQ(contentVals[0], vpux::type::float16(0.0f));
+    EXPECT_EQ(contentVals[1], f16MaxFp16);
+    EXPECT_EQ(contentVals[2], f16LowestFp16);
+    EXPECT_EQ(contentVals[3], vpux::type::float16(2.0f));
+    // No element should be ±inf after the clamp
+    for (const auto v : contentVals) {
+        EXPECT_FALSE(std::isinf(static_cast<float>(v)));
+    }
+}
+
+TEST_F(MLIR_ConstContentAttrTest, Clamp_F16Bounds_SplatInput_ChainedWithCastToF16) {
+    // Splat input: single value broadcast across the whole tensor.
+    const auto baseType = mlir::RankedTensorType::get({4}, mlir::Float32Type::get(&ctx));
+
+    // 1e38f overflows to ±inf when cast to f16 — the clamp must cap it to f16_max.
+    const std::vector<float> vals = {1e38f};
+    const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
+    ASSERT_TRUE(baseAttr.isSplat());
+
+    const auto f16Lowest = static_cast<double>(std::numeric_limits<vpux::type::float16>::lowest());
+    const auto f16Max = static_cast<double>(std::numeric_limits<vpux::type::float16>::max());
+    const auto lower = getFPAttr(&ctx, f16Lowest);
+    const auto upper = getFPAttr(&ctx, f16Max);
+    Const::ContentSetup setup(baseAttr, baseType);
+    setup = setup.addTransformation(Const::ClampAttr::get(lower, upper)).castElemType(mlir::Float16Type::get(&ctx));
+    auto contentAttr = Const::ContentAttr::get(baseAttr, setup);
+
+    EXPECT_EQ(contentAttr.getType().getElementType(), mlir::Float16Type::get(&ctx));
+    EXPECT_TRUE(contentAttr.isSplat());
+
+    const auto content = contentAttr.fold();
+    const auto f16MaxFp16 = std::numeric_limits<vpux::type::float16>::max();
+    const auto contentVals = content.getValues<vpux::type::float16>();
+    ASSERT_EQ(contentVals.size(), 4u);
+    for (const auto v : contentVals) {
+        EXPECT_EQ(v, f16MaxFp16);
+        EXPECT_FALSE(std::isinf(static_cast<float>(v)));
+    }
+}
+
+// Non-splat f16 base constant with chain [CastElemType<f32>, Clamp<-65504,65504>, CastElemType<f16>].
+TEST_F(MLIR_ConstContentAttrTest, Clamp_CastElemTypeF32_Clamp_CastElemTypeF16_NonSplat_NoInf) {
+    const auto f16Type = mlir::Float16Type::get(&ctx);
+    const auto baseType = mlir::RankedTensorType::get({1, 1, 4, 4}, f16Type);
+
+    const vpux::type::float16 zero(0.0f);
+    const vpux::type::float16 neg65504(-65504.0f);
+    const vpux::type::float16 pos65504(65504.0f);
+    const std::vector<vpux::type::float16> inputVals = {
+            zero, neg65504, neg65504, neg65504, zero,     zero, neg65504, neg65504,
+            zero, zero,     zero,     neg65504, pos65504, zero, zero,     zero,
+    };
+    const auto baseAttr =
+            Const::createExternalConstContent(baseType,
+                                              ArrayRef<char>(reinterpret_cast<const char*>(inputVals.data()),
+                                                             inputVals.size() * sizeof(vpux::type::float16)),
+                                              "causal_mask");
+
+    const auto f32Type = mlir::Float32Type::get(&ctx);
+    auto contentSetup = Const::ContentSetup(baseAttr, baseType);
+    contentSetup = contentSetup.castElemType(f32Type).clamp(-65504.0, 65504.0).castElemType(f16Type);
+
+    const auto content = Const::ContentAttr::get(baseAttr, std::move(contentSetup)).fold();
+    const auto resultVals = content.getValues<vpux::type::float16>();
+    const auto resultBuf = content.getStorageBuf<vpux::type::float16>();
+    ASSERT_EQ(resultVals.size(), 16u);
+    ASSERT_EQ(resultBuf.size(), 16u);
+    for (size_t i = 0; i < resultVals.size(); ++i) {
+        EXPECT_FALSE(std::isinf(static_cast<float>(resultVals[i]))) << "inf at index " << i;
+        EXPECT_EQ(static_cast<float>(resultVals[i]), static_cast<float>(inputVals[i])) << "mismatch at index " << i;
+        EXPECT_EQ(resultVals[i], inputVals[i]) << "mismatch at index " << i;
+        EXPECT_EQ(resultBuf[i], inputVals[i]) << "storage buf mismatch at index " << i;
+    }
 }

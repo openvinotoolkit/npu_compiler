@@ -324,12 +324,12 @@ vpux::IE::MultiplyOp createMultiplyOp(mlir::Operation* op, mlir::PatternRewriter
     auto tensorType = mlir::RankedTensorType::get({1}, mlir::Float32Type::get(ctx));
     const auto newScaleConst = Const::createFloatConst(rewriter, op->getLoc(), tensorType, {scale});
 
-    auto multiplyOp = rewriter.create<IE::MultiplyOp>(takeOpLoc(op, "as_mul"), op->getResult(0).getType(),
-                                                      op->getResult(0), newScaleConst, IE::AutoBroadcastType::NUMPY,
-                                                      /*post_op=*/nullptr,
-                                                      /*clamp=*/nullptr,
-                                                      /*output_channels=*/nullptr,
-                                                      /*input_channels=*/nullptr);
+    auto multiplyOp = IE::MultiplyOp::create(rewriter, takeOpLoc(op, "as_mul"), op->getResult(0).getType(),
+                                             op->getResult(0), newScaleConst, IE::AutoBroadcastType::NUMPY,
+                                             /*post_op=*/nullptr,
+                                             /*clamp=*/nullptr,
+                                             /*output_channels=*/nullptr,
+                                             /*input_channels=*/nullptr);
     return multiplyOp;
 }
 
@@ -344,12 +344,12 @@ vpux::IE::MultiplyOp createMultiplyOp(mlir::Value value, mlir::PatternRewriter& 
     auto tensorType = mlir::RankedTensorType::get({1}, mlir::Float32Type::get(ctx));
     const auto newScaleConst = Const::createFloatConst(rewriter, value.getLoc(), tensorType, {scale});
 
-    auto multiplyOp = rewriter.create<IE::MultiplyOp>(appendLoc(value.getLoc(), "as_mul"), value.getType(), value,
-                                                      newScaleConst, IE::AutoBroadcastType::NUMPY,
-                                                      /*post_op=*/nullptr,
-                                                      /*clamp=*/nullptr,
-                                                      /*output_channels=*/nullptr,
-                                                      /*input_channels=*/nullptr);
+    auto multiplyOp = IE::MultiplyOp::create(rewriter, appendLoc(value.getLoc(), "as_mul"), value.getType(), value,
+                                             newScaleConst, IE::AutoBroadcastType::NUMPY,
+                                             /*post_op=*/nullptr,
+                                             /*clamp=*/nullptr,
+                                             /*output_channels=*/nullptr,
+                                             /*input_channels=*/nullptr);
     return multiplyOp;
 }
 
@@ -554,7 +554,7 @@ struct MulPropData {
             auto cstType = mlir::cast<vpux::NDTypeInterface>(cstOp.getOutput().getType());
             auto newContentAttr = cstOp.getContentAttr().transform().rescale(scale).get();
             mlir::OpBuilder builder(cstOp);
-            auto newCstOp = builder.create<vpux::Const::DeclareOp>(cstOp.getLoc(), cstType, std::move(newContentAttr));
+            auto newCstOp = vpux::Const::DeclareOp::create(builder, cstOp.getLoc(), cstType, std::move(newContentAttr));
             user->setOperand(user_operand_index, newCstOp);
             return newCstOp;
         }
@@ -785,7 +785,7 @@ bool fuseConstScale(mlir::Operation* oper, size_t operand_index, float scale) {
         auto cstType = mlir::cast<vpux::NDTypeInterface>(cstOp.getOutput().getType());
         auto newContentAttr = cstOp.getContentAttr().transform().rescale(scale).get();
         mlir::OpBuilder builder(cstOp);
-        auto newCstOp = builder.create<vpux::Const::DeclareOp>(cstOp.getLoc(), cstType, std::move(newContentAttr));
+        auto newCstOp = vpux::Const::DeclareOp::create(builder, cstOp.getLoc(), cstType, std::move(newContentAttr));
         oper->setOperand(operand_index, newCstOp);
         return true;
     }
@@ -1070,7 +1070,7 @@ mlir::LogicalResult FakeQdqParamsRewriter::matchAndRewrite(IE::FakeQuantizeOp fa
     // Maximum number of levels that don't exceeds I8/U8 storage type . TODO: E#169024 adjust logic for int16 quant
     // levels.
     if (!levels.has_value() || *levels <= QuantizationLevels::QUANT_LEVELS_8BIT) {
-        return matchFailed(rewriter, fakeQuantizeOp,
+        return matchFailed(_log, rewriter, fakeQuantizeOp,
                            "Skipping AdjustFQParams pass for quantization range < i8 {0} at {1}",
                            fakeQuantizeOp->getName(), fakeQuantizeOp->getLoc());
     }
@@ -1078,7 +1078,7 @@ mlir::LogicalResult FakeQdqParamsRewriter::matchAndRewrite(IE::FakeQuantizeOp fa
     // FQ with in_low != out_low or in_high != out_high is replaced with a ScaleShift op in HandleU16FakeQuantize pass.
     if (!IE::isPerTensorFQ({fakeQuantizeOp}) || !isFqRangeOutOfBounds(fakeQuantizeOp) ||
         !areFQValsEqual(fakeQuantizeOp)) {
-        return matchFailed(rewriter, fakeQuantizeOp, "Skipping AdjustFQParams pass as FQ {0} at {1} is in range",
+        return matchFailed(_log, rewriter, fakeQuantizeOp, "Skipping AdjustFQParams pass as FQ {0} at {1} is in range",
                            fakeQuantizeOp->getName(), fakeQuantizeOp->getLoc());
     }
 
@@ -1086,7 +1086,7 @@ mlir::LogicalResult FakeQdqParamsRewriter::matchAndRewrite(IE::FakeQuantizeOp fa
     // Power -> ReduceMean -> Add -> Sqrt chain breaks FuseRMSNorm, leaving the square in fp16 to
     // overflow. Skipping lets the pattern fuse into IE::RMS, whose kernel squares in fp32.
     if (isRMSNormVarianceBranchFakeQuantize(fakeQuantizeOp)) {
-        return matchFailed(rewriter, fakeQuantizeOp,
+        return matchFailed(_log, rewriter, fakeQuantizeOp,
                            "Skipping AdjustFQParams pass for RMSNorm variance-branch FQ {0} at {1} to allow RMS fusion",
                            fakeQuantizeOp->getName(), fakeQuantizeOp->getLoc());
     }
@@ -1102,13 +1102,13 @@ mlir::LogicalResult FakeQdqParamsRewriter::matchAndRewrite(IE::FakeQuantizeOp fa
 
     // PHASE 1: Traverse subgraph starting from the matched FakeQuantize Op and determine where graph should be changed.
     if (mlir::failed(traverseSubgraph(subgraph, mulProps, subgraphMetaData))) {
-        return matchFailed(rewriter, fakeQuantizeOp, "Graph Traversal Failed, for FQ: {0}, loc: {1}",
+        return matchFailed(_log, rewriter, fakeQuantizeOp, "Graph Traversal Failed, for FQ: {0}, loc: {1}",
                            fakeQuantizeOp->getName(), fakeQuantizeOp->getLoc());
     }
 
     // PHASE 2: Update the input graph by introducing multiply operations and/or updating FakeQuantize nodes.
     if (mlir::failed(createMulsAndUpdateOps(subgraph, mulProps, rewriter, getContext(), subgraphMetaData))) {
-        return matchFailed(rewriter, fakeQuantizeOp, "Create Multiply Ops Failed, for FQ: {0}, loc: {1}",
+        return matchFailed(_log, rewriter, fakeQuantizeOp, "Create Multiply Ops Failed, for FQ: {0}, loc: {1}",
                            fakeQuantizeOp->getName(), fakeQuantizeOp->getLoc());
     }
 

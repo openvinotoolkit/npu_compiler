@@ -3,20 +3,25 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// Regression test for E#163853 (K2 accuracy regression, PR #28182).
-//
+// Regression test for E-163853 (PR #28182).
 // The OptimizeTileOp IE pass folds Tile(bias_1xCx1x1) → Add(act, tile_out) when the
 // resulting broadcast-Add is cheaper than a DPU Eltwise on equal-sized tensors.
-// When the Add carries a post_op activation (e.g. ReLU), the pre-fix code either
-// skipped the fold or incorrectly dropped the activation, producing wrong outputs
-// for negative values. This test verifies the activation is preserved after the fold.
+// When the Add carries a post_op activation (e.g. ReLU), the pre-fix code silently
+// dropped the activation when it fell through to a SHAVE SW kernel that ignores
+// post_op, producing wrong outputs for negative values.
+//
+// The fix restores the unconditional hasPPE() guard: when a post_op is present the
+// Tile is NOT folded, preserving the equal-shape Add so NCE Eltwise can apply the
+// activation correctly via the PPE unit.
 //
 // Model graph:
 //   param(1xCxHxW) ──► GroupConv(const_filter) ──► Add ──► ReLU ──► result
-//   const_bias(1xCx1x1) ──► Tile([1,1,H,W]) ─────────────┘
+//   const_bias(1xCx1x1) ──────────────────────────────────┘
 //
 // Using a constant filter and constant bias triggers the 'isSpatialBroadcastFromGroupConv'
-// guard in FoldTileOpRewriter, forcing the Tile fold regardless of tensor size.
+// path in FoldTileOpRewriter (the fold would otherwise fire). With the hasPPE() guard in
+// place, the fold is blocked and the equal-shape Add+ReLU is lowered to NCE Eltwise with
+// a PPE activation — producing the correct result.
 // Input values in [-1, 1] combined with filter=+0.5 and bias=-0.3 guarantee that
 // roughly half the outputs are negative before ReLU, so a missing activation is
 // immediately visible as a numerical mismatch against the CPU reference.
@@ -71,13 +76,12 @@ protected:
         auto bias = ov::op::v0::Constant::create(ov::element::f32, biasShape, std::vector<float>(C, -0.3f));
 
         // Tile bias from [1,C,1,1] to [1,C,H,W].
-        // In the IE dialect this becomes: Const::DeclareOp → TileOp → AddOp.
         auto repeats = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, std::vector<int64_t>{1, 1, H, W});
         auto tile = std::make_shared<ov::op::v0::Tile>(bias, repeats);
 
-        // Add → ReLU.  The IE canonicalization pass fuses ReLU into AddOp's post_op
-        // attribute.  FoldTileOpRewriter then strips the post_op, removes the Tile,
-        // and re-inserts a standalone ReLU — the path that was broken before this fix.
+        // Add → ReLU. The IE canonicalization pass fuses ReLU into AddOp's post_op attribute.
+        // FoldTileOpRewriter's hasPPE() guard then blocks the Tile fold, keeping the equal-shape
+        // Add so NCE Eltwise applies the ReLU correctly via the PPE unit.
         auto add = std::make_shared<ov::op::v1::Add>(groupConv, tile);
         auto relu = std::make_shared<ov::op::v0::Relu>(add);
 

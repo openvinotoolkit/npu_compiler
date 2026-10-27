@@ -230,9 +230,9 @@ mlir::Value NewWeightsTableTensors::initializeDataPointerTensorWithDummyValues(m
     // Create attributes
     // The shape of the data-pointer table will be expanded based on workloads later
     auto dummyOutputType = mlir::RankedTensorType::get(weightTableShape, getSInt32Type(builder.getContext()));
-    auto dataPointerTableOp = builder.create<VPU::DataPointerTableOp>(loc, dummyOutputType, zeroPoints,
-                                                                      /*workloadSizes=*/nullptr,
-                                                                      /*dataPointerTableData=*/nullptr);
+    auto dataPointerTableOp = VPU::DataPointerTableOp::create(builder, loc, dummyOutputType, zeroPoints,
+                                                              /*workloadSizes=*/nullptr,
+                                                              /*dataPointerTableData=*/nullptr);
 
     return dataPointerTableOp.getResult();
 }
@@ -268,9 +268,9 @@ mlir::Value NewWeightsTableTensors::initializeZeroPointsTensorWithDummyValues(ml
         // Create attributes
         // The shape of the zero-point table will be expanded based on workloads later.
         auto dummyOutputType = mlir::RankedTensorType::get(weightTableShape, builder.getI8Type());
-        auto createZpTableOp = builder.create<VPU::ZeroPointTableOp>(loc, dummyOutputType, zeroPoints,
-                                                                     /*workloadSizes=*/nullptr,
-                                                                     /*zeroPointTableData=*/nullptr);
+        auto createZpTableOp = VPU::ZeroPointTableOp::create(builder, loc, dummyOutputType, zeroPoints,
+                                                             /*workloadSizes=*/nullptr,
+                                                             /*zeroPointTableData=*/nullptr);
 
         return createZpTableOp.getResult();
     }
@@ -297,7 +297,7 @@ mlir::Value getAlignedConstWeights(mlir::OpBuilder& builder, mlir::Location loc,
     const auto outAllocType = mlir::cast<vpux::NDTypeInterface>(
             mlir::RankedTensorType::get(alignedWeightShape, origFilterType.getElementType()));
     const auto outAllocTypeNHWC = outAllocType.changeDimsOrder(DimsOrder::NHWC);
-    auto alignedWeightsOp = builder.create<Const::DeclareOp>(loc, outAllocTypeNHWC, std::move(nhwcWeightsContentAttr));
+    auto alignedWeightsOp = Const::DeclareOp::create(builder, loc, outAllocTypeNHWC, std::move(nhwcWeightsContentAttr));
 
     return alignedWeightsOp.getOutput();
 }
@@ -345,15 +345,15 @@ mlir::Value getAlignedNonConstWeights(mlir::OpBuilder& builder, mlir::Location l
     const auto origOrder = origFilterType.getDimsOrder();
     const auto flatWeightType = origFilterType.changeShape(flatWeightShape).changeDimsOrder(origOrder);
     auto flatWeightsOp =
-            builder.create<IE::ShapeCastOp>(loc, flatWeightType, origFilter, getIntArrayAttr(ctx, flatWeightShape));
+            IE::ShapeCastOp::create(builder, loc, flatWeightType, origFilter, getIntArrayAttr(ctx, flatWeightShape));
 
     // Step 2: Permute flat input to NCHW.
     auto flatWeightTypeNCHWType = flatWeightType.changeDimsOrder(DimsOrder::NCHW);
     const auto nchwAttr = mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx));
     const auto flatWeightsDimsAttr =
             mlir::AffineMapAttr::get(getPermutationFromOrders(origOrder, DimsOrder::NCHW, ctx));
-    auto flatWeightsNCHW = builder.create<IE::PermuteCastOp>(loc, flatWeightTypeNCHWType, flatWeightsOp->getResult(0),
-                                                             nchwAttr, flatWeightsDimsAttr);
+    auto flatWeightsNCHW = IE::PermuteCastOp::create(builder, loc, flatWeightTypeNCHWType, flatWeightsOp->getResult(0),
+                                                     nchwAttr, flatWeightsDimsAttr);
 
     // Step 3: Create padding for flat NCHW input. IC must be a multiple of 16.
     const auto OC = flatWeightShape[Dims4D::Filter::OC];
@@ -369,19 +369,19 @@ mlir::Value getAlignedNonConstWeights(mlir::OpBuilder& builder, mlir::Location l
     const auto padAllocType =
             mlir::cast<vpux::NDTypeInterface>(mlir::RankedTensorType::get(padShape, origFilterType.getElementType()));
     const auto padAllocTypeNHWC = padAllocType.changeDimsOrder(DimsOrder::NCHW);
-    auto paddedTensor = builder.create<Const::DeclareOp>(loc, padAllocTypeNHWC, std::move(padContentAttr));
+    auto paddedTensor = Const::DeclareOp::create(builder, loc, padAllocTypeNHWC, std::move(padContentAttr));
 
     // Step 4: Concatenate flat NCHW input with padding.
 
     auto concatViewOp =
-            builder.create<IE::ConcatOp>(loc, SmallVector<mlir::Value>{flatWeightsNCHW, paddedTensor}, Dims4D::Act::C);
+            IE::ConcatOp::create(builder, loc, SmallVector<mlir::Value>{flatWeightsNCHW, paddedTensor}, Dims4D::Act::C);
 
     // Step 5: Permute the result to NHWC.
     const auto nhwcAttr = mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(ctx));
     auto memPermAttr = mlir::AffineMapAttr::get(getPermutationFromOrders(DimsOrder::NCHW, DimsOrder::NHWC, ctx));
 
     auto outOpNCHW =
-            builder.create<IE::PermuteCastOp>(loc, outAllocType, concatViewOp.getOutput(), nhwcAttr, memPermAttr);
+            IE::PermuteCastOp::create(builder, loc, outAllocType, concatViewOp.getOutput(), nhwcAttr, memPermAttr);
 
     return outOpNCHW.getOutput();
 }
@@ -440,13 +440,13 @@ mlir::Value alignConvWeightsTensor(mlir::OpBuilder& builder, mlir::Location loc,
 
     auto weightsConst = origFilter.getDefiningOp<Const::DeclareOp>();
     if (weightsConst == nullptr) {
-        auto reshape = builder.create<VPU::ReshapeOp>(loc, origFilter, getIntArrayAttr(builder, flatWeightShape));
+        auto reshape = VPU::ReshapeOp::create(builder, loc, origFilter, getIntArrayAttr(builder, flatWeightShape));
 
         auto padBeginAttr = getIntArrayAttr(builder, Shape{{0, 0, 0, 0}});
         auto padEndAttr = getIntArrayAttr(builder, Shape{{0, 0, 0, padding}});
-        auto expandOp = builder.create<VPU::ExpandOp>(loc, reshape.getOutput(), padBeginAttr, padEndAttr);
-        auto layoutCast = builder.create<VPU::LayoutCastOp>(loc, expandOp.getOutput(),
-                                                            DimsOrder::NHWC.toAffineMap(origFilter.getContext()));
+        auto expandOp = VPU::ExpandOp::create(builder, loc, reshape.getOutput(), padBeginAttr, padEndAttr);
+        auto layoutCast = VPU::LayoutCastOp::create(builder, loc, expandOp.getOutput(),
+                                                    DimsOrder::NHWC.toAffineMap(origFilter.getContext()));
         return layoutCast.getOutput();
     }
 
@@ -462,7 +462,7 @@ mlir::Value alignConvWeightsTensor(mlir::OpBuilder& builder, mlir::Location loc,
     const auto outAllocTypeNHWC = outAllocType.changeDimsOrder(DimsOrder::NHWC);
 
     auto alignedWeightsOp =
-            builder.create<Const::DeclareOp>(loc, outAllocTypeNHWC, std::move(alignedWeightsContentAttr));
+            Const::DeclareOp::create(builder, loc, outAllocTypeNHWC, std::move(alignedWeightsContentAttr));
     return alignedWeightsOp.getOutput();
 }
 

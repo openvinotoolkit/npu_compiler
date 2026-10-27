@@ -111,3 +111,9 @@ endif()
 #
 
 include(flatbuffers.cmake)
+
+#
+# pugixml
+#
+
+include(pugixml.cmake)

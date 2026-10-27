@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -10,6 +10,8 @@
 
 #include <mlir/Pass/Pass.h>
 
+#include <string>
+
 namespace vpux {
 namespace Shave {
 
@@ -17,7 +19,8 @@ namespace Shave {
 // Passes
 //
 
-std::unique_ptr<mlir::Pass> createLoadExternalKernelResourcesPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createLoadExternalKernelResourcesPass(std::string customKernelConfigPath = "",
+                                                                  Logger log = Logger::global());
 
 //
 // Registration

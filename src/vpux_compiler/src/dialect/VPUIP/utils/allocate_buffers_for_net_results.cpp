@@ -117,7 +117,7 @@ void updateReturnOps(mlir::func::FuncOp func, ArrayRef<mlir::BlockArgument> appe
                 opLoc = realLoc.value();
             }
             auto idx = opOperand.getOperandNumber();
-            auto copyOp = builder.create<T>(opLoc, op.getOperand(idx), appendedEntryArgs[idx]);
+            auto copyOp = T::create(builder, opLoc, op.getOperand(idx), appendedEntryArgs[idx]);
             opOperand.set(getCopyOpOutput(copyOp));
         }
     });
@@ -264,7 +264,7 @@ mlir::Value tryEliminateResultCopy(mlir::CallOpInterface callOp, mlir::Value res
 
     mlir::Value outParam = copyTarget;
     if (memRefType != outParam.getType()) {
-        auto castBufferOp = builder.create<mlir::memref::CastOp>(callOp.getLoc(), memRefType, outParam);
+        auto castBufferOp = mlir::memref::CastOp::create(builder, callOp.getLoc(), memRefType, outParam);
         outParam = castBufferOp.getResult();
     }
     for (auto copyOp : copiesToErase) {
@@ -326,7 +326,7 @@ void updateCallOp(const mlir::DenseSet<mlir::CallOpInterface>& callOps, vpux::Lo
 
             if (argType != newOperands[argIndex].getType()) {
                 auto castBufferOp =
-                        builder.create<mlir::memref::CastOp>(callOp.getLoc(), argType, newOperands[argIndex]);
+                        mlir::memref::CastOp::create(builder, callOp.getLoc(), argType, newOperands[argIndex]);
                 newOperands[argIndex] = castBufferOp.getResult();
             }
         }

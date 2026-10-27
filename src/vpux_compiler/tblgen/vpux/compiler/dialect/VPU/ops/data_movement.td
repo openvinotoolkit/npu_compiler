@@ -1150,4 +1150,52 @@ def VPU_UpsamplingOp :
     );
 }
 
+//
+// VPU_PadDmaOp
+// Dynamic-shape CONSTANT padding via DMA from SHAVE.
+// input      : data tensor with dynamic shape (bounded to upper bound)
+// aux_buffer : CMX scratch space for DMA descriptors and sync primitives
+// output     : padded tensor with static shape == upper bound
+//
+
+def VPU_PadDmaOp :
+        VPU_SwIoDmaOp<
+            "PadDma"
+        > {
+    let summary = "Pad VPU layer with dynamic input shape using DMA from SHAVE";
+
+    // PadDma is single-tile only — same as ScatterUpdateSwDma.
+    let checkStrategyCompatibilityBody = [{
+            return false;
+    }];
+
+    let arguments = (ins
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$input,
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$aux_buffer,
+
+        OptionalAttr<I64ArrayAttr>:$pads_begin_attr,
+        OptionalAttr<I64ArrayAttr>:$pads_end_attr,
+        OptionalAttr<F32Attr>:$pad_value_attr,
+
+        IE_PadModeAttr:$mode,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
+    );
+
+    let results = (outs
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$output
+    );
+
+    let builders = [
+        OpBuilder<(ins
+            "mlir::Value":$input,
+            "mlir::ArrayAttr":$padsBeginAttr,
+            "mlir::ArrayAttr":$padsEndAttr,
+            "mlir::FloatAttr":$padValueAttr,
+            "IE::PadModeAttr":$mode
+        )>
+    ];
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
+}
+
 #endif

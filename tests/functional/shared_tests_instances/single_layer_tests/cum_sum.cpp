@@ -97,6 +97,16 @@ const auto testCasePrecommit = testing::Combine(testing::ValuesIn({static_shapes
                                                 testing::ValuesIn(exclusive), testing::ValuesIn(reverse),
                                                 testing::Values(test_utils::TARGET_DEVICE));
 
+// Length boundaries of the int32 SIMD prefix scan (sw_runtime_kernels/kernels/src/cum_sum.cpp), which runs
+// only on the innermost axis. Vector width is 4 on NPU3720 and 16 elsewhere; these lengths cover the scalar
+// fallback (3), the remainder handling (17) and the blocked scan (128, 139) on both widths.
+const std::vector<std::vector<ov::Shape>> i32ScanShapes = {{{1, 4, 3}}, {{1, 4, 17}}, {{1, 2, 128}}, {{1, 2, 139}}};
+
+const auto testCaseI32Scan = testing::Combine(testing::ValuesIn(static_shapes_to_test_representation(i32ScanShapes)),
+                                              testing::Values(ov::element::i32), testing::Values(negativeAxes[1]),
+                                              testing::ValuesIn(exclusive), testing::ValuesIn(reverse),
+                                              testing::Values(test_utils::TARGET_DEVICE));
+
 std::vector<std::vector<ov::test::InputShape>> cumSumDynamicShapes = {
         {{{{1, 1, 1, ov::Dimension(1, 10)}, {{1, 1, 1, 10}, {1, 1, 1, 5}}}},
          {{{1, ov::Dimension(1, 32)}, {{1, 16}, {1, 32}}}},
@@ -117,6 +127,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_CumSum_negative_axis, CumSumLayerTestCommon, test
 INSTANTIATE_TEST_SUITE_P(smoke_CumSum_real_net, CumSumLayerTestCommon, testCasesRealNet,
                          CumSumLayerTestCommon::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_CumSum, CumSumLayerTestCommon, testCasePrecommit,
+                         CumSumLayerTestCommon::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_CumSum_i32_scan, CumSumLayerTestCommon, testCaseI32Scan,
                          CumSumLayerTestCommon::getTestCaseName);
 
 // Tests for CumSumToMatMulRewriter (in FuseOpsToMatMulPass).

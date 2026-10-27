@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 namespace vpux::VPUIP {
@@ -66,7 +67,7 @@ mlir::LogicalResult SingleClusterDepthToSpaceDMARewriter::unroll(VPUIP::DepthToS
     auto outType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
 
     auto vpurtTask = origOp->getParentOfType<VPURT::TaskOp>();
-    VPUX_THROW_UNLESS(vpurtTask != nullptr, "Can't get VPURT task operation");
+    VPUX_THROW_WHEN(vpurtTask == nullptr, "Can't get VPURT task operation");
     rewriter.setInsertionPointAfter(vpurtTask);
 
     if (origOp.getInternalDataFlow().has_value()) {
@@ -175,15 +176,26 @@ mlir::LogicalResult MultiClusterDepthToSpaceDMARewriter::unroll(VPUIP::DepthToSp
     if (inDistributedType != nullptr) {
         const auto inputDistModeAttr = getDistModeAttr(inDistributedType);
         VPUX_THROW_UNLESS(
-                inputDistModeAttr != nullptr && inputDistModeAttr.getValue() == VPU::DistributionMode::SEGMENTED,
+                inputDistModeAttr != nullptr && (inputDistModeAttr.getValue() == VPU::DistributionMode::SEGMENTED ||
+                                                 inputDistModeAttr.getValue() == VPU::DistributionMode::DUPLICATED),
                 "Unsupported input distributed mode: {0}", inputDistModeAttr);
     }
 
     if (outDistributedType != nullptr) {
         const auto outputDistModeAttr = getDistModeAttr(outDistributedType);
         VPUX_THROW_UNLESS(
-                outputDistModeAttr != nullptr && outputDistModeAttr.getValue() == VPU::DistributionMode::SEGMENTED,
+                outputDistModeAttr != nullptr && (outputDistModeAttr.getValue() == VPU::DistributionMode::SEGMENTED ||
+                                                  outputDistModeAttr.getValue() == VPU::DistributionMode::DUPLICATED),
                 "Unsupported output distributed mode: {0}", outputDistModeAttr);
+    }
+
+    if (inDistributedType != nullptr && outDistributedType != nullptr) {
+        const auto inputDistMode = getDistModeAttr(inDistributedType).getValue();
+        const auto outputDistMode = getDistModeAttr(outDistributedType).getValue();
+        VPUX_THROW_UNLESS(inputDistMode == outputDistMode,
+                          "Unsupported multi-cluster to multi-cluster distribution mode combination: input={0}, "
+                          "output={1}",
+                          inputDistMode, outputDistMode);
     }
 
     auto vpurtTask = depthToSpaceDMAOp->getParentOfType<VPURT::TaskOp>();

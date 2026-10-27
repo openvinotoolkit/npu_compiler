@@ -492,6 +492,35 @@ func.func @Softmax4dFQ(%arg0: tensor<1x6x4x16xf16>, %arg1: tensor<1x6x32x16xf16>
 
 // -----
 
+// CHECK-LABEL: @Softmax4dDynDeq(
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x6x4x16xsi32>, [[INPUT_1:%.+]]: tensor<1x6x32x16xsi32>) -> tensor<2x3x4x32xf16>
+func.func @Softmax4dDynDeq(%arg0: tensor<1x6x4x16xsi32>, %arg1: tensor<1x6x32x16xsi32>) -> tensor<2x3x4x32xf16> {
+    %cst = const.Declare tensor<1x1x1x1xf16> = dense<1.0> : tensor<1x1x1x1xf16>
+    %0 = IE.MatMul(%arg0, %arg1) {transpose_b} : tensor<1x6x4x16xsi32>, tensor<1x6x32x16xsi32> -> tensor<1x6x4x32xsi32>
+    %1 = IE.Reshape(%0) {shape_value = [2, 3, 4, 32]} : tensor<1x6x4x32xsi32> -> tensor<2x3x4x32xsi32>
+    %2 = IE.DynamicDequantize(%1, %cst) {dstElemType = f16} : tensor<2x3x4x32xsi32>, tensor<1x1x1x1xf16> -> tensor<2x3x4x32xf16>
+
+    %3 = IE.SoftMax(%2) {axisInd = 3 : i64} : tensor<2x3x4x32xf16> -> tensor<2x3x4x32xf16>
+
+    return %3 : tensor<2x3x4x32xf16>
+    // CHECK:    [[MATMUL:%.+]] = IE.MatMul([[INPUT_0]], [[INPUT_1]]) {transpose_b} :
+    // CHECK-SAME:  tensor<1x6x4x16xsi32>, tensor<1x6x32x16xsi32> -> tensor<1x6x4x32xsi32>
+    // CHECK:    [[RESHAPE0:%.+]] = IE.Reshape([[MATMUL]]) {
+    // CHECK-SAME:      shape_value = [2, 3, 4, 32]
+    // CHECK-SAME:  } : tensor<1x6x4x32xsi32> -> tensor<2x3x4x32xsi32>
+    // CHECK:    [[DYNDEQ:%.+]] = IE.DynamicDequantize([[RESHAPE0]]
+    // CHECK:    [[RESHAPE1:%.+]] = IE.Reshape([[DYNDEQ]]) {
+    // CHECK-SAME:      shape_value = [1, 6, 4, 32]
+    // CHECK-SAME:  } : tensor<2x3x4x32xf16> -> tensor<1x6x4x32xf16>
+    // CHECK:    [[SOFTMAX:%.+]] = IE.SoftMax([[RESHAPE1]]) {axisInd = 3 : i64} : tensor<1x6x4x32xf16> -> tensor<1x6x4x32xf16>
+    // CHECK:    [[RESHAPE2:%.+]] = IE.Reshape([[SOFTMAX]]) {
+    // CHECK-SAME:      shape_value = [2, 3, 4, 32]
+    // CHECK-SAME:  } : tensor<1x6x4x32xf16> -> tensor<2x3x4x32xf16>
+    // CHECK:    return [[RESHAPE2]] : tensor<2x3x4x32xf16>
+}
+
+// -----
+
 // Test: 4D MatMul with batch broadcasting on RHS (dim[1]=1 needs broadcast to 3)
 // This is the pattern that caused the crash: To4D flattened [2,3]->6 vs [2,1]->2 independently.
 // The fix inserts IE.Broadcast on RHS before flattening.

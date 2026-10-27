@@ -1542,3 +1542,57 @@ func.func @NotPropagateShapeCastBeforeEltwiseWithBroadcast(
     // CHECK:       [[CONV:%.+]] = IE.Convolution([[SHAPE_CAST]], [[WEIGHTS]])
     // CHECK:       return [[CONV]]
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @AdjustBatchedAddShapeNHWC
+// CHECK-SAME:        [[IN1:%[^:]+]]: tensor<4x3x4x12xf16, {order = #NHWC}>,
+// CHECK-SAME:        [[IN2:%[^:]+]]: tensor<4x3x4x12xf16, {order = #NHWC}>
+func.func @AdjustBatchedAddShapeNHWC(%arg0: tensor<4x3x4x12xf16, {order = #NHWC}>,
+                                     %arg1: tensor<4x3x4x12xf16, {order = #NHWC}>) -> tensor<4x3x4x12xf16, {order = #NHWC}> {
+    %0 = IE.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} :
+        tensor<4x3x4x12xf16, {order = #NHWC}>, tensor<4x3x4x12xf16, {order = #NHWC}> -> tensor<4x3x4x12xf16, {order = #NHWC}>
+    return %0 : tensor<4x3x4x12xf16, {order = #NHWC}>
+
+    // CHECK:       [[SC1:%.+]] = IE.ShapeCast {shape = [1, 16, 6, 6]} inputs([[IN1]] : tensor<4x3x4x12xf16, {order = #NHWC}>) -> tensor<1x16x6x6xf16, {order = #NHWC}>
+    // CHECK:       [[SC2:%.+]] = IE.ShapeCast {shape = [1, 16, 6, 6]} inputs([[IN2]] : tensor<4x3x4x12xf16, {order = #NHWC}>) -> tensor<1x16x6x6xf16, {order = #NHWC}>
+    // CHECK:       [[ADD:%.+]] = IE.Add([[SC1]], [[SC2]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x16x6x6xf16, {order = #NHWC}>, tensor<1x16x6x6xf16, {order = #NHWC}> -> tensor<1x16x6x6xf16, {order = #NHWC}>
+    // CHECK:       [[OUT_SC:%.+]] = IE.ShapeCast {shape = [4, 3, 4, 12]} inputs([[ADD]] : tensor<1x16x6x6xf16, {order = #NHWC}>) -> tensor<4x3x4x12xf16, {order = #NHWC}>
+    // CHECK:       return [[OUT_SC]] : tensor<4x3x4x12xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @DoNotAdjustBatchedAddShapeWhenBatchIsOne
+// CHECK-SAME:        [[IN1:%[^:]+]]: tensor<1x3x4x12xf16, {order = #NHWC}>,
+// CHECK-SAME:        [[IN2:%[^:]+]]: tensor<1x3x4x12xf16, {order = #NHWC}>
+func.func @DoNotAdjustBatchedAddShapeWhenBatchIsOne(%arg0: tensor<1x3x4x12xf16, {order = #NHWC}>,
+                                                     %arg1: tensor<1x3x4x12xf16, {order = #NHWC}>) -> tensor<1x3x4x12xf16, {order = #NHWC}> {
+    %0 = IE.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} :
+        tensor<1x3x4x12xf16, {order = #NHWC}>, tensor<1x3x4x12xf16, {order = #NHWC}> -> tensor<1x3x4x12xf16, {order = #NHWC}>
+    return %0 : tensor<1x3x4x12xf16, {order = #NHWC}>
+
+    // CHECK:       [[ADD:%.+]] = IE.Add([[IN1]], [[IN2]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x3x4x12xf16, {order = #NHWC}>, tensor<1x3x4x12xf16, {order = #NHWC}> -> tensor<1x3x4x12xf16, {order = #NHWC}>
+    // CHECK:       return [[ADD]] : tensor<1x3x4x12xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @DoNotAdjustBatchedAddShapeForBroadcast
+// CHECK-SAME:        [[IN1:%[^:]+]]: tensor<4x3x4x12xf16, {order = #NHWC}>,
+// CHECK-SAME:        [[IN2:%[^:]+]]: tensor<1x3x4x12xf16, {order = #NHWC}>
+func.func @DoNotAdjustBatchedAddShapeForBroadcast(%arg0: tensor<4x3x4x12xf16, {order = #NHWC}>,
+                                                  %arg1: tensor<1x3x4x12xf16, {order = #NHWC}>) -> tensor<4x3x4x12xf16, {order = #NHWC}> {
+    %0 = IE.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<4x3x4x12xf16, {order = #NHWC}>, tensor<1x3x4x12xf16, {order = #NHWC}> -> tensor<4x3x4x12xf16, {order = #NHWC}>
+    return %0 : tensor<4x3x4x12xf16, {order = #NHWC}>
+
+    // CHECK:       [[ADD:%.+]] = IE.Add([[IN1]], [[IN2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x3x4x12xf16, {order = #NHWC}>, tensor<1x3x4x12xf16, {order = #NHWC}> -> tensor<4x3x4x12xf16, {order = #NHWC}>
+    // CHECK:       return [[ADD]] : tensor<4x3x4x12xf16, {order = #NHWC}>
+}

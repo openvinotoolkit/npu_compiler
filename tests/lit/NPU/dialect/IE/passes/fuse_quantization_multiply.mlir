@@ -560,3 +560,50 @@ func.func @FuseDynDeqWithZpAndSplatMul(%arg0: tensor<1x8x20x20xf32>) -> tensor<1
     // CHECK:       [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DD]])
     // CHECK:       return [[CONV]]
 }
+
+// -----
+
+// CHECK-LABEL: @FuseDynDeqAndSplatDivide
+// CHECK-SAME: [[INPUT:%.+]]: tensor<1x8x20x20xf32>
+func.func @FuseDynDeqAndSplatDivide(%arg0: tensor<1x8x20x20xf32>) -> tensor<1x8x20x20xf32> {
+    %weights = const.Declare tensor<8x8x3x3xsi8> = dense<1> : tensor<8x8x3x3xsi8>
+    %scale = const.Declare tensor<8x1x1x1xf32> = dense<3.000000e+00> : tensor<8x1x1x1xf32>
+    %dd = IE.DynamicDequantize(%weights, %scale) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<8x8x3x3xsi8>, tensor<8x1x1x1xf32> -> tensor<8x8x3x3xf32>
+    %div_cst = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
+    %div = IE.Divide(%dd, %div_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x8x3x3xf32>, tensor<1x1x1x1xf32> -> tensor<8x8x3x3xf32>
+    %conv = IE.Convolution(%arg0, %div) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x8x20x20xf32>, tensor<8x8x3x3xf32> -> tensor<1x8x20x20xf32>
+
+    return %conv : tensor<1x8x20x20xf32>
+
+    // CHECK-DAG:   [[WEIGHTS:%.+]] = const.Declare tensor<8x8x3x3xsi8> = dense<1> : tensor<8x8x3x3xsi8>
+    // CHECK-DAG:   [[SCALE:%.+]] = const.Declare tensor<8x1x1x1xf32> = dense<3.000000e+00> : tensor<8x1x1x1xf32>, [#const.Rescale<5.000000e-01 : f64>]
+    // CHECK:       [[DD:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE]]) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<8x8x3x3xsi8>, tensor<8x1x1x1xf32> -> tensor<8x8x3x3xf32>
+    // CHECK-NOT:   IE.Divide
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DD]])
+    // CHECK:       return [[CONV]]
+}
+
+// -----
+
+// A Divide by a zero-valued constant must not be folded into the DynDeq scale.
+
+// CHECK-LABEL: @DoNotFuseDynDeqAndDivideByZero
+// CHECK-SAME: [[INPUT:%.+]]: tensor<1x8x20x20xf32>
+func.func @DoNotFuseDynDeqAndDivideByZero(%arg0: tensor<1x8x20x20xf32>) -> tensor<1x8x20x20xf32> {
+    %weights = const.Declare tensor<8x8x3x3xsi8> = dense<1> : tensor<8x8x3x3xsi8>
+    %scale = const.Declare tensor<8x1x1x1xf32> = dense<3.000000e+00> : tensor<8x1x1x1xf32>
+    %dd = IE.DynamicDequantize(%weights, %scale) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<8x8x3x3xsi8>, tensor<8x1x1x1xf32> -> tensor<8x8x3x3xf32>
+    %div_cst = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
+    %div = IE.Divide(%dd, %div_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x8x3x3xf32>, tensor<1x1x1x1xf32> -> tensor<8x8x3x3xf32>
+    %conv = IE.Convolution(%arg0, %div) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x8x20x20xf32>, tensor<8x8x3x3xf32> -> tensor<1x8x20x20xf32>
+
+    return %conv : tensor<1x8x20x20xf32>
+
+    // CHECK-DAG:   [[WEIGHTS:%.+]] = const.Declare tensor<8x8x3x3xsi8> = dense<1> : tensor<8x8x3x3xsi8>
+    // CHECK-DAG:   [[SCALE:%.+]] = const.Declare tensor<8x1x1x1xf32> = dense<3.000000e+00> : tensor<8x1x1x1xf32>
+    // CHECK:       [[DD:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE]]) {dstElemType = f32, vpux.weights_import_dyn_dequant} : tensor<8x8x3x3xsi8>, tensor<8x1x1x1xf32> -> tensor<8x8x3x3xf32>
+    // CHECK:       [[DIV_CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK:       [[DIV:%.+]] = IE.Divide([[DD]], [[DIV_CST]])
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DIV]])
+    // CHECK:       return [[CONV]]
+}

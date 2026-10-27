@@ -143,26 +143,13 @@ double vpux::VPU::getDmaBandwidthGBps(vpux::config::ArchKind arch) {
 // NOTE: This function is expected to be called only after all CMX memory reservation.
 Byte vpux::VPU::getTotalCMXSize(mlir::ModuleOp module) {
     // This function is used to determine the best tile size. It tries to put maximum data in CMX.
-    // Available CMX memory will be decreased by the size of statically allocated reserved buffers(all reservations
-    // need to happen before this function is called) and by dynamic profling buffers which are not represented in
-    // the IR. Available CMX memory is decreased by two dynamicProfilingBufferSize even if profiling is disabled
-    // because we want to get exactly same compiled networks with profiling enabled and disabled.
-    // Two buffer sizes are required in case when profiling allocates new buffer and old buffer
-    // is still not disposed. Second buffer can be treated as an optimisation that prevents spilling.
-    const auto arch = config::getArch(module);
-    int64_t dynamicProfilingBufferSize =
-            (config::isProfilingEnabled(module) ? vpux::VPUIP::getDPUProfMaxBufferSize(arch)
-                                                : vpux::VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE) +
-            vpux::VPUIP::HW_ACT_SHAVE_PROFILING_MAX_BUFFER_SIZE;
+    // Available CMX memory will be decreased by the size of statically allocated reserved buffers (all reservations
+    // need to happen before this function is called)..
+    const auto cmxSpaceAttr = mlir::SymbolRefAttr::get(module.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
+    const auto cmxSize = config::getAvailableMemory(module, VPU::MemoryKind::CMX_NN).size();
+    const auto reservedCMXSize = config::getReservedMemorySize(module, cmxSpaceAttr);
 
-    if (arch >= config::ArchKind::NPU50XX) {
-        dynamicProfilingBufferSize += vpux::VPUIP::HW_M2I_PROFILING_MAX_BUFFER_SIZE;
-    }
-    auto cmxSpaceAttr = mlir::SymbolRefAttr::get(module.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
-    auto cmxSize = config::getAvailableMemory(module, VPU::MemoryKind::CMX_NN).size();
-    auto reservedCMXSize = config::getReservedMemorySize(module, cmxSpaceAttr);
-
-    return cmxSize - Byte(reservedCMXSize) - Byte(2 * dynamicProfilingBufferSize);
+    return cmxSize - Byte(static_cast<int64_t>(reservedCMXSize));
 }
 
 Byte vpux::VPU::getTotalCMXSize(mlir::Operation* op) {
@@ -1020,8 +1007,8 @@ SmallVector<Shape> vpux::VPU::getOverlappedPerClusterNewMemoryShapes(ShapeRef ne
                       "Only support OVERLAPPED mode, current mode - {0}",
                       VPU::stringifyDistributionMode(distributionMode));
 
-    VPUX_THROW_UNLESS(distributionAttr.getMemoryShapes() != nullptr,
-                      "Only support distributedAttr with explicit shapes and offsets");
+    VPUX_THROW_WHEN(distributionAttr.getMemoryShapes() == nullptr,
+                    "Only support distributedAttr with explicit shapes and offsets");
 
     for (auto dim : irange(originalShape.size())) {
         VPUX_THROW_WHEN(tilingScheme[dim] > 1 && originalShape[dim] != shape[dim],
@@ -1051,8 +1038,8 @@ SmallVector<Shape> vpux::VPU::getOverlappedPerClusterNewMemoryShapeOffsets(Shape
                       "Only support OVERLAPPED mode, current mode - {0}",
                       VPU::stringifyDistributionMode(distributionMode));
 
-    VPUX_THROW_UNLESS(distributionAttr.getMemoryOffsets() != nullptr,
-                      "Only support distributedAttr with explicit shapes and offsets");
+    VPUX_THROW_WHEN(distributionAttr.getMemoryOffsets() == nullptr,
+                    "Only support distributedAttr with explicit shapes and offsets");
 
     auto offsets = parseIntArrayOfArrayAttr<int64_t>(distributionAttr.getMemoryOffsets());
     for (auto cluster : irange(offsets.size())) {
@@ -1314,8 +1301,8 @@ VPU::SparsityCompressionAttr VPU::tileSparsityCompression(VPU::SparsityCompressi
     if (sparsityCompression == nullptr) {
         return nullptr;
     }
-    VPUX_THROW_UNLESS(sparsityCompression.getAxis() != nullptr,
-                      "Cannot tile compression scheme that is not over an axis");
+    VPUX_THROW_WHEN(sparsityCompression.getAxis() == nullptr,
+                    "Cannot tile compression scheme that is not over an axis");
     const size_t axis = sparsityCompression.getAxis().getInt();
     VPUX_THROW_UNLESS(axis < tileOffsets.size() && axis < tileShape.size(),
                       "Axis {0} outside the range of tile dimensions: offsets size {1}, shape size {2}", axis,

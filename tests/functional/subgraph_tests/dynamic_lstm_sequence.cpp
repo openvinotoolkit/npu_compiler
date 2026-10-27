@@ -163,6 +163,7 @@ TEST_P(DynamicTensorIteratorNPUTest, NPU5010_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(DynamicTensorIteratorNPUTest, NPU5020_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

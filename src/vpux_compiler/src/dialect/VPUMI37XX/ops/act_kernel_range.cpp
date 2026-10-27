@@ -29,11 +29,11 @@ void vpux::VPUMI37XX::ActKernelRangeOp::serialize(elf::writer::BinaryDataSection
     uint32_t kernel_entry;
     if (!isCacheOp) {
         auto kernel_text_value = getKernelTextIndex();
-        VPUX_THROW_UNLESS(kernel_text_value != nullptr, "ActKernelRange has no kernel text index");
+        VPUX_THROW_WHEN(kernel_text_value == nullptr, "ActKernelRange has no kernel text index");
         auto kernel_args_value = getKernelArgsIndex();
-        VPUX_THROW_UNLESS(kernel_args_value != nullptr, "ActKernelRange has no kernel args index");
+        VPUX_THROW_WHEN(kernel_args_value == nullptr, "ActKernelRange has no kernel args index");
         auto kernel_entry_value = getKernelEntryIndex();
-        VPUX_THROW_UNLESS(kernel_entry_value != nullptr, "ActKernelRange has no kernel entry index");
+        VPUX_THROW_WHEN(kernel_entry_value == nullptr, "ActKernelRange has no kernel entry index");
 
         auto kernel_text_op = kernel_text_value.getDefiningOp<VPUMI37XX::DeclareKernelTextOp>();
         auto kernel_args_op = kernel_args_value.getDefiningOp<VPUMI37XX::DeclareKernelArgsOp>();

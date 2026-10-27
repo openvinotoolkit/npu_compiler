@@ -290,7 +290,7 @@ func.func @ExpandReifyStaticDim(%arg0: !ExpandInputStatic) -> (!ExpandOutputStat
 // CHECK-SAME:  [[Q:%arg[0-9]]]: tensor<1x6x?x64xf16
 func.func @AttentionDMADynSSL(%Q: !QType, %K: !KType, %V: !VType, %AUX: !AuxType) -> (!OutType, index) {
     %C2 = arith.constant 2 : index
-    %ATTN = VPU.AttentionDMA(%Q, %K, %V, %AUX) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 1, 0>} : !QType, !KType, !VType, !AuxType -> !OutType
+    %ATTN = VPU.AttentionDMA(%Q, %K, %V, %AUX) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0>} : !QType, !KType, !VType, !AuxType -> !OutType
     %DIM = tensor.dim %ATTN, %C2 : !OutType
     return %ATTN, %DIM : !OutType, index
 

@@ -52,6 +52,7 @@ TEST_F(AddRelu3DTests, NPU5010_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_F(AddRelu3DTests, NPU5020_HW_TestKindSubgraph) {
     abs_threshold = 0.5f;
     setDefaultHardwareMode();

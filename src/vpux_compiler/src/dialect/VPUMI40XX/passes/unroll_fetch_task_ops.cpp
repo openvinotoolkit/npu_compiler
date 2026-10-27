@@ -10,7 +10,9 @@
 #include "vpux/compiler/dialect/VPUMI40XX/wlm_utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
-#include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
+
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -18,8 +20,6 @@
 #include "vpux/compiler/utils/walk_utils.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
-
-#include <npu_40xx_nnrt.hpp>
 
 namespace vpux::VPUMI40XX {
 #define GEN_PASS_DECL_UNROLLFETCHTASKOPS
@@ -33,8 +33,8 @@ namespace {
 
 class RewriteFetchTaskToDma final : public mlir::OpRewritePattern<VPURegMapped::FetchTaskOp> {
 public:
-    RewriteFetchTaskToDma(mlir::MLIRContext* ctx, config::ArchKind arch, Logger log)
-            : mlir::OpRewritePattern<VPURegMapped::FetchTaskOp>(ctx), _arch(arch), _log(log) {
+    RewriteFetchTaskToDma(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<VPURegMapped::FetchTaskOp>(ctx), _log(log) {
         setDebugName("FetchTaskOpRewriter");
     }
 
@@ -42,38 +42,23 @@ public:
                                         mlir::PatternRewriter& rewriter) const final;
 
 private:
-    config::ArchKind _arch = config::ArchKind::UNKNOWN;
-    int64_t getTaskSize(VPURegMapped::TaskType taskType) const;
     Logger _log;
 };
-
-int64_t RewriteFetchTaskToDma::getTaskSize(VPURegMapped::TaskType taskType) const {
-    (void)_arch;
-    switch (taskType) {
-    case VPURegMapped::TaskType::DPUInvariant:
-        return sizeof(npu40xx::nn_public::VpuDPUInvariant);
-    case VPURegMapped::TaskType::DPUVariant:
-        return sizeof(npu40xx::nn_public::VpuDPUVariant);
-    case VPURegMapped::TaskType::ActKernelInvocation:
-        return sizeof(npu40xx::nn_public::VpuActKernelInvocation);
-    case VPURegMapped::TaskType::ActKernelRange:
-        return sizeof(npu40xx::nn_public::VpuActKernelRange);
-    default:
-        VPUX_THROW("Unknown Task Type {0}", taskType);
-    }
-}
 
 mlir::LogicalResult RewriteFetchTaskToDma::matchAndRewrite(VPURegMapped::FetchTaskOp fetchTaskOp,
                                                            mlir::PatternRewriter& rewriter) const {
     auto ctx = getContext();
     auto primaryTaskOpStart = mlir::cast<VPURegMapped::TaskOpInterface>(fetchTaskOp.getPrimaryStart().getDefiningOp());
     auto primaryTaskOpEnd = mlir::cast<VPURegMapped::TaskOpInterface>(fetchTaskOp.getPrimaryEnd().getDefiningOp());
-    auto primarySize = getTaskSize(primaryTaskOpStart.getTaskType());
+    auto netFunc = fetchTaskOp->getParentOfType<mlir::func::FuncOp>();
+    auto primarySize =
+            static_cast<int64_t>(VPUMI40XX::getTaskBinarySizeConstraint(netFunc, primaryTaskOpStart.getTaskType()));
 
     auto secondaryTaskOpStart =
             mlir::cast<VPURegMapped::TaskOpInterface>(fetchTaskOp.getSecondaryStart().getDefiningOp());
     auto secondaryTaskOpEnd = mlir::cast<VPURegMapped::TaskOpInterface>(fetchTaskOp.getSecondaryEnd().getDefiningOp());
-    auto secondarySize = getTaskSize(secondaryTaskOpStart.getTaskType());
+    auto secondarySize =
+            static_cast<int64_t>(VPUMI40XX::getTaskBinarySizeConstraint(netFunc, secondaryTaskOpStart.getTaskType()));
 
     // zero based indexes distance need to be incremented by 1
     int64_t primaryCount =
@@ -94,22 +79,24 @@ mlir::LogicalResult RewriteFetchTaskToDma::matchAndRewrite(VPURegMapped::FetchTa
     auto secondaryMemrefCMX = mlir::cast<mlir::MemRefType>(
             mlir::cast<vpux::NDTypeInterface>(secondaryMemrefDDR).changeMemSpace(memSpaceCMX));
 
-    auto primaryTaskView = rewriter.create<VPURegMapped::ViewTaskRangeOp>(
-            fetchTaskOp.getLoc(), primaryMemrefDDR, fetchTaskOp.getPrimaryStart(), fetchTaskOp.getPrimaryEnd());
+    auto primaryTaskView =
+            VPURegMapped::ViewTaskRangeOp::create(rewriter, fetchTaskOp.getLoc(), primaryMemrefDDR,
+                                                  fetchTaskOp.getPrimaryStart(), fetchTaskOp.getPrimaryEnd());
 
-    auto primaryTaskLocationsView = rewriter.create<VPURegMapped::ViewTaskRangeOp>(
-            fetchTaskOp.getLoc(), primaryMemrefCMX, primaryTaskOpStart.getTaskLocation(),
+    auto primaryTaskLocationsView = VPURegMapped::ViewTaskRangeOp::create(
+            rewriter, fetchTaskOp.getLoc(), primaryMemrefCMX, primaryTaskOpStart.getTaskLocation(),
             primaryTaskOpEnd.getTaskLocation());
 
-    auto secondaryTaskView = rewriter.create<VPURegMapped::ViewTaskRangeOp>(
-            fetchTaskOp.getLoc(), secondaryMemrefDDR, fetchTaskOp.getSecondaryStart(), fetchTaskOp.getSecondaryEnd());
+    auto secondaryTaskView =
+            VPURegMapped::ViewTaskRangeOp::create(rewriter, fetchTaskOp.getLoc(), secondaryMemrefDDR,
+                                                  fetchTaskOp.getSecondaryStart(), fetchTaskOp.getSecondaryEnd());
 
-    auto secondaryTaskLocationsView = rewriter.create<VPURegMapped::ViewTaskRangeOp>(
-            fetchTaskOp.getLoc(), secondaryMemrefCMX, secondaryTaskOpStart.getTaskLocation(),
+    auto secondaryTaskLocationsView = VPURegMapped::ViewTaskRangeOp::create(
+            rewriter, fetchTaskOp.getLoc(), secondaryMemrefCMX, secondaryTaskOpStart.getTaskLocation(),
             secondaryTaskOpEnd.getTaskLocation());
 
-    auto primaryDma = rewriter.create<VPUMI40XX::NNDMAOp>(
-            fetchTaskOp.getLoc(), fetchTaskOp.getIndexType(),
+    auto primaryDma = VPUMI40XX::NNDMAOp::create(
+            rewriter, fetchTaskOp.getLoc(), fetchTaskOp.getIndexType(),
             nullptr,  // for now it's assumed that with WLM DMA's don't have a taskLocation
             primaryTaskView.getResult(), mlir::ValueRange({primaryTaskLocationsView.getResult()}),
             fetchTaskOp.getPreviousTask(),  // inherit the previous
@@ -129,8 +116,8 @@ mlir::LogicalResult RewriteFetchTaskToDma::matchAndRewrite(VPURegMapped::FetchTa
             fetchTaskOp.getEnqueueBarrier(),  // enqueueBarrier
             fetchTaskOp.getWlmPageAttr()      // wlmPageAttr
     );
-    auto secondaryDma = rewriter.create<VPUMI40XX::NNDMAOp>(
-            fetchTaskOp.getLoc(), fetchTaskOp.getIndexType(),
+    auto secondaryDma = VPUMI40XX::NNDMAOp::create(
+            rewriter, fetchTaskOp.getLoc(), fetchTaskOp.getIndexType(),
             nullptr,  // for now it's assumed that with WLM DMA's don't have a taskLocation
             secondaryTaskView.getResult(), mlir::ValueRange({secondaryTaskLocationsView.getResult()}),
             primaryDma.getResult(), mlir::ValueRange({}), fetchTaskOp.getUpdateBarriers(), 0,
@@ -180,7 +167,6 @@ private:
 void UnrollFetchTaskOpsPass::safeRunOnFunc() {
     auto netFunc = getOperation();
     auto ctx = &getContext();
-    const auto arch = config::getArch(netFunc);
 
     // logFetchOpsDetails needs some data processing which can be avoided if correct log level is not set
     if (_log.isActive(LogLevel::Trace)) {
@@ -188,7 +174,7 @@ void UnrollFetchTaskOpsPass::safeRunOnFunc() {
     }
 
     mlir::RewritePatternSet patterns(ctx);
-    patterns.add<RewriteFetchTaskToDma>(ctx, arch, _log);
+    patterns.add<RewriteFetchTaskToDma>(ctx, _log);
 
     collectOpsAndApplyPatterns(netFunc, std::move(patterns));
     auto parentModule = netFunc.getOperation()->getParentOfType<mlir::ModuleOp>();

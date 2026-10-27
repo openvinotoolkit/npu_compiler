@@ -234,7 +234,17 @@ public:
     bool isInputQuantizationFusable(mlir::Operation* op) const {
         auto avgPoolOp = mlir::cast<IE::AvgPoolOp>(op);
         auto inputDequantizeOp = avgPoolOp.getInput().getDefiningOp<IE::DequantizeOp>();
-        return inputDequantizeOp != nullptr && !IE::isPerAxisQuant(inputDequantizeOp.getInput());
+        if (inputDequantizeOp == nullptr || IE::isPerAxisQuant(inputDequantizeOp.getInput())) {
+            return false;
+        }
+        // Folding the Dequantize makes this operation read the quantized input directly. A 16-bit
+        // storage type is only readable if the MPE engine assigned to it reports 16-bit support.
+        const auto inputType = mlir::cast<vpux::NDTypeInterface>(inputDequantizeOp.getInput().getType());
+        const auto quantType = mlir::dyn_cast<mlir::quant::QuantizedType>(inputType.getElementType());
+        if (quantType != nullptr && quantType.getStorageTypeIntegralWidth() == 16) {
+            return getMaximumQuantizationLevels(op) == QuantizationLevels::QUANT_LEVELS_16BIT;
+        }
+        return true;
     }
 
     bool isOutputQuantizationFusable(mlir::Operation* op, bool isPerAxisQuantized, bool isFloatInput) const {

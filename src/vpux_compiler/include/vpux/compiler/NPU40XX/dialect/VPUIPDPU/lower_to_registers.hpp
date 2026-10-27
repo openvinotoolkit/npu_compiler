@@ -458,8 +458,8 @@ struct FieldsPPEFpBiasAddOp {
 
 template <typename Type_Fields, typename DpuInvariantDescriptorType>
 void lowerToRegPPEFpBiasAddOp(VPUIPDPU::PPEFpBiasAddOp op, DpuInvariantDescriptorType& descriptor) {
-    VPUX_THROW_UNLESS((op.getScaleTable() != nullptr) ^ op.getBiasStatic().has_value(),
-                      "op {0} has ambiguous parameters", op);
+    VPUX_THROW_WHEN((op.getScaleTable() == nullptr) ^ op.getBiasStatic().has_value(), "op {0} has ambiguous parameters",
+                    op);
     if (op.getScaleTable() != nullptr) {
         descriptor.template write<typename Type_Fields::Field_ppe_fp_scale_overrideType>(0);
     }
@@ -480,8 +480,8 @@ struct FieldsPPEFpScalePreluMultOp {
 
 template <typename Type_Fields, typename DpuInvariantDescriptorType>
 void lowerToRegPPEFpScalePreluMultOp(VPUIPDPU::PPEFpScalePreluMultOp op, DpuInvariantDescriptorType& descriptor) {
-    VPUX_THROW_UNLESS((op.getScaleTable() != nullptr) ^ op.getScaleStatic().has_value(),
-                      "op {0} has ambiguous parameters", op);
+    VPUX_THROW_WHEN((op.getScaleTable() == nullptr) ^ op.getScaleStatic().has_value(),
+                    "op {0} has ambiguous parameters", op);
     if (op.getScaleTable()) {
         descriptor.template write<typename Type_Fields::Field_ppe_fp_scale_overrideType>(0);
     }
@@ -535,8 +535,8 @@ struct FieldsPPEIntBiasAddOp {
 
 template <typename Type_Fields, typename DpuInvariantDescriptorType>
 void lowerToRegPPEIntBiasAddOp(VPUIPDPU::PPEIntBiasAddOp op, DpuInvariantDescriptorType& descriptor) {
-    VPUX_THROW_UNLESS((op.getScaleTable() != nullptr) ^ op.getBiasStatic().has_value(),
-                      "op {0} has ambiguous parameters", op);
+    VPUX_THROW_WHEN((op.getScaleTable() == nullptr) ^ op.getBiasStatic().has_value(), "op {0} has ambiguous parameters",
+                    op);
     if (op.getScaleTable() != nullptr) {
         descriptor.template write<typename Type_Fields::Field_ppe_scale_overrideType>(0);
     }
@@ -554,8 +554,8 @@ struct FieldsPPEIntScaleMultOp {
 
 template <typename Type_Fields, typename DpuInvariantDescriptorType>
 void lowerToRegPPEIntScaleMultOp(VPUIPDPU::PPEIntScaleMultOp op, DpuInvariantDescriptorType& descriptor) {
-    VPUX_THROW_UNLESS((op.getScaleTable() != nullptr) ^ op.getScaleStatic().has_value(),
-                      "op {0} has ambiguous parameters", op);
+    VPUX_THROW_WHEN((op.getScaleTable() == nullptr) ^ op.getScaleStatic().has_value(),
+                    "op {0} has ambiguous parameters", op);
     if (op.getScaleTable()) {
         descriptor.template write<typename Type_Fields::Field_ppe_scale_overrideType>(0);
     }
@@ -579,8 +579,8 @@ struct FieldsPPEIntScaleShiftOp {
 
 template <typename Type_Fields, typename DpuInvariantDescriptorType>
 void lowerToRegPPEIntScaleShiftOp(VPUIPDPU::PPEIntScaleShiftOp op, DpuInvariantDescriptorType& descriptor) {
-    VPUX_THROW_UNLESS((op.getScaleTable() != nullptr) ^ op.getShiftStatic().has_value(),
-                      "op {0} has ambiguous parameters", op);
+    VPUX_THROW_WHEN((op.getScaleTable() == nullptr) ^ op.getShiftStatic().has_value(),
+                    "op {0} has ambiguous parameters", op);
     if (op.getScaleTable() != nullptr) {
         descriptor.template write<typename Type_Fields::Field_ppe_scale_overrideType>(0);
     }

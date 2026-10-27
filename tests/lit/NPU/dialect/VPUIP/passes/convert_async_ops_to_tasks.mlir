@@ -279,3 +279,56 @@ func.func @AwaitWithoutUsers(%arg0: memref<1x16x112x112xf16, {order = #NHWC}>, %
 
     // CHECK:       return [[ARG2]] : memref<1x32x112x112xf16, {order = #NHWC}>
 }
+
+// -----
+
+// CHECK: func.func @AwaitWithPureViewLike([[IN:%.+]]: memref<4xsi32>, [[OUT:%.+]]: memref<4xsi32>) -> memref<4xsi32>
+func.func @AwaitWithPureViewLike(%in: memref<4xsi32>, %out: memref<4xsi32>) -> memref<4xsi32> {
+    %tok, %async_res = async.execute -> !async.value<memref<4xsi32, @DDR>> {
+        %in_cast = Core.ReinterpretCast(%in) : memref<4xsi32> -> memref<4xsi32, @DDR>
+        %out_cast = Core.ReinterpretCast(%out) : memref<4xsi32> -> memref<4xsi32, @DDR>
+        %copy = VPUIP.NNDMA <{port = 0 : i64}> inputs(%in_cast : memref<4xsi32, @DDR>)
+            outputs(%out_cast : memref<4xsi32, @DDR>) -> memref<4xsi32, @DDR>
+        async.yield %out_cast : memref<4xsi32, @DDR>
+    }
+    %await_res = async.await %async_res : !async.value<memref<4xsi32, @DDR>>
+    %res = Core.ReinterpretCast(%await_res) : memref<4xsi32, @DDR> -> memref<4xsi32>
+    return %res : memref<4xsi32>
+
+    // CHECK: [[IN_CAST:%.+]] = Core.ReinterpretCast([[IN]]) {{.*}} -> memref<4xsi32, @DDR>
+    // CHECK: [[OUT_CAST:%.+]] = Core.ReinterpretCast([[OUT]]) {{.*}} -> memref<4xsi32, @DDR>
+
+    // CHECK: VPURT.Task
+    // CHECK-NEXT:  VPUIP.NNDMA
+    // CHECK-SAME:      inputs([[IN_CAST]] : memref<4xsi32, @DDR>)
+    // CHECK-SAME:      outputs([[OUT_CAST]] : memref<4xsi32, @DDR>)
+
+    // CHECK: return [[OUT]]
+}
+
+// -----
+
+// CHECK: func.func @AwaitWithNonTrivialPureViewLike
+// CHECK-SAME: ([[IN:%.+]]: memref<1x4xsi32, @DDR>, [[OUT:%.+]]: memref<4x1xsi32, @DDR>) -> memref<4x1xsi32, @DDR>
+func.func @AwaitWithNonTrivialPureViewLike(%in: memref<1x4xsi32, @DDR>, %out: memref<4x1xsi32, @DDR>)
+        -> memref<4x1xsi32, @DDR> {
+    %tok, %async_res = async.execute -> !async.value<memref<1x4xsi32, @DDR>> {
+        %out_cast = VPUIP.ShapeCast {shape = [1, 4]} inputs(%out : memref<4x1xsi32, @DDR>) -> memref<1x4xsi32, @DDR>
+        %copy = VPUIP.NNDMA <{port = 0 : i64}> inputs(%in : memref<1x4xsi32, @DDR>)
+            outputs(%out_cast : memref<1x4xsi32, @DDR>) -> memref<1x4xsi32, @DDR>
+        async.yield %out_cast : memref<1x4xsi32, @DDR>
+    }
+    %await_res = async.await %async_res : !async.value<memref<1x4xsi32, @DDR>>
+    %res = VPUIP.ShapeCast {shape = [4, 1]} inputs(%await_res : memref<1x4xsi32, @DDR>) -> memref<4x1xsi32, @DDR>
+    return %res : memref<4x1xsi32, @DDR>
+
+    // CHECK: [[OUT_CAST:%.+]] = VPUIP.ShapeCast {shape = [1, 4]} inputs([[OUT]] {{.*}} -> memref<1x4xsi32, @DDR>
+
+    // CHECK: VPURT.Task
+    // CHECK-NEXT:  VPUIP.NNDMA
+    // CHECK-SAME:      inputs([[IN]] : memref<1x4xsi32, @DDR>)
+    // CHECK-SAME:      outputs([[OUT_CAST]] : memref<1x4xsi32, @DDR>)
+
+    // CHECK: [[RES:%.+]] = VPUIP.ShapeCast {shape = [4, 1]} inputs([[OUT_CAST]] {{.*}} -> memref<4x1xsi32, @DDR>
+    // CHECK: return [[RES]]
+}

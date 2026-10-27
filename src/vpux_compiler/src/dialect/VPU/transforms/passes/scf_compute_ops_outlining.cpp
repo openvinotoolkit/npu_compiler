@@ -194,7 +194,7 @@ mlir::func::FuncOp ScfBlockUpdater::buildComputeFunctionOp(const BlockIOAndOps& 
     const auto funcType = mlir::FunctionType::get(ctx, blockInputTypes, blockOutputTypes);
     const auto funcLoc = appendLoc(_entryPointFuncOp.getLoc(), "compute_group{0}", funcIndex);
     auto funcName = vpux::formatv("{0}_func{1}", _entryPointFuncOp.getName().str(), std::to_string(funcIndex));
-    auto func = builder.create<mlir::func::FuncOp>(funcLoc, funcName.str(), funcType);
+    auto func = mlir::func::FuncOp::create(builder, funcLoc, funcName.str(), funcType);
     func.setNested();
 
     OpBuilderLogger builderLog(_log.nest());
@@ -225,7 +225,7 @@ mlir::func::FuncOp ScfBlockUpdater::buildComputeFunctionOp(const BlockIOAndOps& 
     }
 
     const auto returnLoc = appendLoc(_entryPointFuncOp.getLoc(), "part{0}_return", funcIndex);
-    builder.create<mlir::func::ReturnOp>(returnLoc, funcReturnOps);
+    mlir::func::ReturnOp::create(builder, returnLoc, funcReturnOps);
     return func;
 }
 
@@ -244,7 +244,7 @@ void ScfBlockUpdater::buildCallOp(const BlockIOAndOps& blockContents, mlir::func
     auto builder = mlir::OpBuilder::atBlockBegin(&_entryPointFuncOp.getBody().front(), &builderLog);
     builder.setInsertionPoint(blockContents.operations.front());
     const auto callLoc = appendLoc(blockContents.operations.front()->getLoc(), "part{0}_call", funcIndex);
-    auto callOp = builder.create<mlir::func::CallOp>(callLoc, funcOp, funcInputOperands);
+    auto callOp = mlir::func::CallOp::create(builder, callLoc, funcOp, funcInputOperands);
     for (auto outputPair : llvm::zip(blockContents.outputArgs, callOp.getResults())) {
         auto [oldOutput, newOutput] = outputPair;
         operandMapper[oldOutput] = newOutput;

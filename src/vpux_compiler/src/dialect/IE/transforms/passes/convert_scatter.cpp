@@ -263,9 +263,8 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateToStridedConcat::m
         }
 
         const auto upsamplingFactorAttr = getIntArrayAttr(ctx, upsamplingFactor);
-        return rewriter
-                .create<IE::UpsamplingOp>(takeOpLoc(origOp, "upsample"), origOp.getUpdates(), upsamplingFactorAttr,
-                                          padAttr, nullptr, nullptr)
+        return IE::UpsamplingOp::create(rewriter, takeOpLoc(origOp, "upsample"), origOp.getUpdates(),
+                                        upsamplingFactorAttr, padAttr, nullptr, nullptr)
                 .getOutput();
     };
 
@@ -281,11 +280,11 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateToStridedConcat::m
         const auto endsAttr = getIntArrayAttr(ctx, inputShape);
         const auto zeroMask = getIntArrayAttr(ctx, ArrayRef(zeros));
 
-        return rewriter.create<IE::StridedSliceOp>(takeOpLoc(origOp, StringLiteral("slice_{0}_{1}"), offset, dim),
-                                                   input, nullptr, nullptr, nullptr, beginsAttr, endsAttr, stridesAttr,
-                                                   /*beginMask =*/zeroMask, /*endMask =*/zeroMask,
-                                                   /*newAxisMask =*/zeroMask,
-                                                   /*shrinkAxisMask =*/zeroMask, /*ellipsisMask = */ zeroMask);
+        return IE::StridedSliceOp::create(rewriter, takeOpLoc(origOp, StringLiteral("slice_{0}_{1}"), offset, dim),
+                                          input, nullptr, nullptr, nullptr, beginsAttr, endsAttr, stridesAttr,
+                                          /*beginMask =*/zeroMask, /*endMask =*/zeroMask,
+                                          /*newAxisMask =*/zeroMask,
+                                          /*shrinkAxisMask =*/zeroMask, /*ellipsisMask = */ zeroMask);
     };
 
     mlir::Value inputValue = origOp.getUpdates();
@@ -322,8 +321,8 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateToStridedConcat::m
                 subSlices.push_back(stridedSliceOp);
             }
         }
-        inputValue = rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, StringLiteral("concat_over_{0}"), axisIndex),
-                                                   subSlices, axisIndex, 1, scaleFactors[axisIndex])
+        inputValue = IE::ConcatOp::create(rewriter, takeOpLoc(origOp, StringLiteral("concat_over_{0}"), axisIndex),
+                                          subSlices, axisIndex, 1, scaleFactors[axisIndex])
                              .getOutput();
     }
 
@@ -385,7 +384,7 @@ std::optional<Dim> ConvertScatterPass::ConvertScatterNDUpdateToSliceConcat::getU
         }
 
         auto axis = llvm::find_if(inputShape, greaterThanOne);
-        VPUX_THROW_UNLESS(axis != inputShape.end(), "Can not get correct Axis");
+        VPUX_THROW_WHEN(axis == inputShape.end(), "Can not get correct Axis");
         auto updateDim = std::distance(inputShape.begin(), axis);
 
         const auto beginOffset = indicesData[updateDim];
@@ -463,8 +462,8 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateToSliceConcat::mat
     leftSliceShape[updateDim] = beginOffset;
 
     if (beginOffset != 0) {
-        concatInputs.push_back(rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "slice_left"), origOp.getInput(),
-                                                            leftSliceOffset, leftSliceShape)
+        concatInputs.push_back(IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_left"), origOp.getInput(),
+                                                   leftSliceOffset, leftSliceShape)
                                        .getResult());
     }
 
@@ -479,8 +478,8 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateToSliceConcat::mat
     rightSliceShape[updateDim] = rightSliceShape[updateDim] - endOffset;
 
     if (rightSliceShape[updateDim] != 0) {
-        concatInputs.push_back(rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "slice_right"), origOp.getInput(),
-                                                            rightSliceOffset, rightSliceShape)
+        concatInputs.push_back(IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_right"), origOp.getInput(),
+                                                   rightSliceOffset, rightSliceShape)
                                        .getResult());
     }
 
@@ -658,9 +657,8 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateArithmeticToConcat
 
     // 1D Slice of `size` elements starting at `offset`.
     auto sliceFlat = [&](mlir::Value src, int64_t offset, int64_t size, StringRef name) -> mlir::Value {
-        return rewriter
-                .create<IE::SliceOp>(takeOpLoc(origOp, name), src, SmallVector<int64_t>{offset},
-                                     SmallVector<int64_t>{size})
+        return IE::SliceOp::create(rewriter, takeOpLoc(origOp, name), src, SmallVector<int64_t>{offset},
+                                   SmallVector<int64_t>{size})
                 .getResult();
     };
 
@@ -672,36 +670,35 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateArithmeticToConcat
     auto rewriteRowBatch = [&](mlir::Value bodyFlat, mlir::Value updatesFlat, int64_t rows, int64_t rowWidth,
                                StringRef suffix) -> mlir::Value {
         auto reshape = [&](mlir::Value src, ArrayRef<int64_t> shape, StringRef tag) -> mlir::Value {
-            return rewriter
-                    .create<IE::ReshapeOp>(takeOpLoc(origOp, StringLiteral("arith_{0}_{1}"), tag, suffix), src,
-                                           getIntArrayAttr(ctx, shape))
+            return IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, StringLiteral("arith_{0}_{1}"), tag, suffix), src,
+                                         getIntArrayAttr(ctx, shape))
                     .getOutput();
         };
 
         auto body2D = reshape(bodyFlat, {rows, rowWidth}, "body");
         auto strideRegion =
-                rewriter.create<IE::SliceOp>(takeOpLoc(origOp, StringLiteral("arith_stride_{0}"), suffix), body2D,
-                                             SmallVector<int64_t>{0, 0}, SmallVector<int64_t>{rows, strideBlockWidth});
+                IE::SliceOp::create(rewriter, takeOpLoc(origOp, StringLiteral("arith_stride_{0}"), suffix), body2D,
+                                    SmallVector<int64_t>{0, 0}, SmallVector<int64_t>{rows, strideBlockWidth});
         // Merge the row and group dims: the per-group interleave is independent of the row, so all
         // (rows * M) groups are handled by a single 2D op - keep columns 1..innerStride-1 and take
         // column 0 from the updates. (1D progression is rows == 1, i.e. just M groups.)
         const int64_t numGroups = rows * layout.innerCount;
         auto groups2D = reshape(strideRegion.getResult(), {numGroups, layout.innerStride}, "groups");
-        auto groupKeep = rewriter.create<IE::SliceOp>(takeOpLoc(origOp, StringLiteral("arith_keep_{0}"), suffix),
-                                                      groups2D, SmallVector<int64_t>{0, 1},
-                                                      SmallVector<int64_t>{numGroups, layout.innerStride - 1});
+        auto groupKeep = IE::SliceOp::create(rewriter, takeOpLoc(origOp, StringLiteral("arith_keep_{0}"), suffix),
+                                             groups2D, SmallVector<int64_t>{0, 1},
+                                             SmallVector<int64_t>{numGroups, layout.innerStride - 1});
         auto upd2D = reshape(updatesFlat, {numGroups, 1}, "upd");
         auto newGroups2D =
-                rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, StringLiteral("arith_newgroups_{0}"), suffix),
-                                              SmallVector<mlir::Value>{upd2D, groupKeep.getResult()}, /*axis=*/1);
+                IE::ConcatOp::create(rewriter, takeOpLoc(origOp, StringLiteral("arith_newgroups_{0}"), suffix),
+                                     SmallVector<mlir::Value>{upd2D, groupKeep.getResult()}, /*axis=*/1);
 
         mlir::Value rowResult = reshape(newGroups2D.getOutput(), {rows, strideBlockWidth}, "newstride2d");
         if (rowWidth > strideBlockWidth) {
-            auto gap = rewriter.create<IE::SliceOp>(takeOpLoc(origOp, StringLiteral("arith_gap_{0}"), suffix), body2D,
-                                                    SmallVector<int64_t>{0, strideBlockWidth},
-                                                    SmallVector<int64_t>{rows, rowWidth - strideBlockWidth});
-            rowResult = rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, StringLiteral("arith_row_{0}"), suffix),
-                                                      SmallVector<mlir::Value>{rowResult, gap.getResult()}, /*axis=*/1)
+            auto gap = IE::SliceOp::create(rewriter, takeOpLoc(origOp, StringLiteral("arith_gap_{0}"), suffix), body2D,
+                                           SmallVector<int64_t>{0, strideBlockWidth},
+                                           SmallVector<int64_t>{rows, rowWidth - strideBlockWidth});
+            rowResult = IE::ConcatOp::create(rewriter, takeOpLoc(origOp, StringLiteral("arith_row_{0}"), suffix),
+                                             SmallVector<mlir::Value>{rowResult, gap.getResult()}, /*axis=*/1)
                                 .getOutput();
         }
         return reshape(rowResult, {rows * rowWidth}, "rowflat");
@@ -728,8 +725,8 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateArithmeticToConcat
 
     const int64_t tailSize = inputSize - bodyEnd;
     if (tailSize > 0) {
-        auto tailOp = rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "arith_tail"), origOp.getInput(),
-                                                   SmallVector<int64_t>{bodyEnd}, SmallVector<int64_t>{tailSize});
+        auto tailOp = IE::SliceOp::create(rewriter, takeOpLoc(origOp, "arith_tail"), origOp.getInput(),
+                                          SmallVector<int64_t>{bodyEnd}, SmallVector<int64_t>{tailSize});
         outerConcatInputs.push_back(tailOp.getResult());
     }
 
@@ -866,7 +863,7 @@ mlir::LogicalResult ConvertScatterPass::ConvertNDUpdateDataToSliceConcat::matchA
         if (beginSliceShape[dimIdx] > 0) {
             auto beginSliceLoc = takeOpLoc(origOp, StringLiteral("slice_begin_at_Dim{0}"), dimIdx);
             concatInputs.push_back(
-                    rewriter.create<IE::SliceOp>(beginSliceLoc, origOp.getInput(), beginSliceOffset, beginSliceShape)
+                    IE::SliceOp::create(rewriter, beginSliceLoc, origOp.getInput(), beginSliceOffset, beginSliceShape)
                             .getResult());
         }
         // Update data
@@ -879,12 +876,12 @@ mlir::LogicalResult ConvertScatterPass::ConvertNDUpdateDataToSliceConcat::matchA
         if (endSliceShape[dimIdx] > 0) {
             auto endSliceLoc = takeOpLoc(origOp, StringLiteral("slice_end_at_Dim{0}"), dimIdx);
             concatInputs.push_back(
-                    rewriter.create<IE::SliceOp>(endSliceLoc, origOp.getInput(), endSliceOffset, endSliceShape)
+                    IE::SliceOp::create(rewriter, endSliceLoc, origOp.getInput(), endSliceOffset, endSliceShape)
                             .getResult());
         }
         // Create Concat Op
         auto concatLoc = takeOpLoc(origOp, StringLiteral("concat_at_Dim{0}"), dimIdx);
-        updateIn = rewriter.create<IE::ConcatOp>(concatLoc, concatInputs, dimIdx).getResult();
+        updateIn = IE::ConcatOp::create(rewriter, concatLoc, concatInputs, dimIdx).getResult();
     }
 
     _log.trace("Replace '{0}' at '{1}' with Slice and Concat Op", origOp->getName(), origOp->getLoc());
@@ -962,6 +959,17 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateColumnSelectToConc
     const auto numUpdates = indicesShape[Dim(coordSize - 1)];
     const auto selectDimSize = inputShape[Dim(coordSize - 1)];
     if (numUpdates >= selectDimSize) {
+        return mlir::failure();
+    }
+
+    // Each update slice has size = totalBytes / selectDimSize along the select axis.
+    // When this is below the DMA efficient transfer size and numUpdates is large,
+    // cumulative per-task overhead (descriptor setup + barrier sync) dominates over
+    // actual data transfer — keep as SHAVE.
+    const auto bytesPerSlice = inputType.getTotalAllocSize().count() / selectDimSize;
+    constexpr int64_t DMA_MIN_EFFICIENT_SIZE = 1024;  // bytes
+    constexpr int64_t MAX_INEFFICIENT_DMA_TASKS = 32;
+    if (bytesPerSlice < DMA_MIN_EFFICIENT_SIZE && numUpdates > MAX_INEFFICIENT_DMA_TASKS) {
         return mlir::failure();
     }
 
@@ -1044,7 +1052,7 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateColumnSelectToConc
             sliceSize[selectDim] = pos - currentPos;
             auto sliceLoc = takeOpLoc(origOp, StringLiteral("slice_input_{0}_{1}"), currentPos, pos);
             concatInputs.push_back(
-                    rewriter.create<IE::SliceOp>(sliceLoc, origOp.getInput(), sliceOffset, sliceSize).getResult());
+                    IE::SliceOp::create(rewriter, sliceLoc, origOp.getInput(), sliceOffset, sliceSize).getResult());
         }
 
         // Slice from updates at updateIdx
@@ -1054,7 +1062,7 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateColumnSelectToConc
         updSize[selectDim] = 1;
         auto updLoc = takeOpLoc(origOp, StringLiteral("slice_updates_{0}"), pos);
         concatInputs.push_back(
-                rewriter.create<IE::SliceOp>(updLoc, origOp.getUpdates(), updOffset, updSize).getResult());
+                IE::SliceOp::create(rewriter, updLoc, origOp.getUpdates(), updOffset, updSize).getResult());
 
         currentPos = pos + 1;
     }
@@ -1067,7 +1075,7 @@ mlir::LogicalResult ConvertScatterPass::ConvertScatterNDUpdateColumnSelectToConc
         sliceSize[selectDim] = selectDimSize - currentPos;
         auto sliceLoc = takeOpLoc(origOp, StringLiteral("slice_input_{0}_{1}"), currentPos, selectDimSize);
         concatInputs.push_back(
-                rewriter.create<IE::SliceOp>(sliceLoc, origOp.getInput(), sliceOffset, sliceSize).getResult());
+                IE::SliceOp::create(rewriter, sliceLoc, origOp.getInput(), sliceOffset, sliceSize).getResult());
     }
 
     _log.trace("Replaced ScatterNDUpdate with select Slice+Concat (selectDim={0})", selectDim);
@@ -1235,8 +1243,9 @@ mlir::LogicalResult ConvertScatterPass::SplitToMultiScatterNDUpdateOp::matchAndR
                 takeOpLoc(origOp, StringLiteral("slice_update_{0}"), offset), updates, updateOffset, updateSize);
 
         // Create new ScatterNDUpdateOp
-        auto newScatter = rewriter.create<IE::ScatterNDUpdateOp>(
-                takeOpLoc(origOp, StringLiteral("slice_ND_{0}"), offset), nextSliceInput, indicesSlice, updateSlice);
+        auto newScatter =
+                IE::ScatterNDUpdateOp::create(rewriter, takeOpLoc(origOp, StringLiteral("slice_ND_{0}"), offset),
+                                              nextSliceInput, indicesSlice, updateSlice);
 
         nextSliceInput = newScatter.getOutput();
     }
@@ -1478,9 +1487,9 @@ mlir::LogicalResult ConvertScatterPass::MergeChainedScatterElementsUpdate::match
     }
 
     auto mergedUpdates =
-            rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "merged_updates"), updatesList, normalizedAxis);
+            IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "merged_updates"), updatesList, normalizedAxis);
     auto mergedIndices =
-            rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "merged_indices"), indicesList, normalizedAxis);
+            IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "merged_indices"), indicesList, normalizedAxis);
 
     auto originalData = chain[0].getInput();
 

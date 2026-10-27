@@ -148,8 +148,8 @@ mlir::LogicalResult HandleEltwiseWithSmallHeight::matchAndRewrite(IE::AddOp addO
     auto newInputShapeAttr = getIntArrayAttr(getContext(), newInputShape);
 
     // Reshape Inputs
-    auto input1ShapeCastOp = rewriter.create<IE::ShapeCastOp>(addOp.getLoc(), input1, newInputShapeAttr);
-    auto input2ShapeCastOp = rewriter.create<IE::ShapeCastOp>(addOp.getLoc(), input2, newInputShapeAttr);
+    auto input1ShapeCastOp = IE::ShapeCastOp::create(rewriter, addOp.getLoc(), input1, newInputShapeAttr);
+    auto input2ShapeCastOp = IE::ShapeCastOp::create(rewriter, addOp.getLoc(), input2, newInputShapeAttr);
 
     auto newOutputType = outputType.changeShape(newInputShape);
 

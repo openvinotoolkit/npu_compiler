@@ -35,7 +35,7 @@ mlir::FailureOr<SymbolizationResult> DeclareConstBufferRewriter::symbolize(
 
     auto bufferType = VPUASM::BufferType::get(ctx, memLocation, memref, traits);
 
-    auto newOp = rewriter.create<VPUASM::ConstBufferOp>(op.getLoc(), symName, bufferType, op.getContentAttr());
+    auto newOp = VPUASM::ConstBufferOp::create(rewriter, op.getLoc(), symName, bufferType, op.getContentAttr());
 
     rewriter.eraseOp(op);
 

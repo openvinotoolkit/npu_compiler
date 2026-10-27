@@ -67,7 +67,7 @@ void bytecode::KernelCreateOp::serialize(vpux::bytecode::BytecodeWriter& writer)
 
     // Resolve the kernel to its positional index in the kernel section using the leaf name.
     auto parentModule = getOperation()->getParentOfType<mlir::ModuleOp>();
-    VPUX_THROW_UNLESS(parentModule != nullptr, "Expected kernel.create op to be inside a module");
+    VPUX_THROW_WHEN(parentModule == nullptr, "Expected kernel.create op to be inside a module");
     const auto kernelName = getKernelAttr().getLeafReference();
     const auto kernelSectionRef = mlir::SymbolRefAttr::get(getContext(), bytecode::KERNEL_SECTION_NAME,
                                                            {mlir::FlatSymbolRefAttr::get(kernelName)});

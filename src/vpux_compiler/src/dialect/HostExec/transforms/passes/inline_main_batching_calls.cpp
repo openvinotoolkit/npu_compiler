@@ -43,7 +43,7 @@ struct MainBatchingInlinerInterface final : public mlir::InlinerInterface {
             return;
         }
         mlir::OpBuilder builder(op);
-        builder.create<mlir::cf::BranchOp>(op->getLoc(), newDest, returnOp.getOperands());
+        mlir::cf::BranchOp::create(builder, op->getLoc(), newDest, returnOp.getOperands());
         op->erase();
     }
 

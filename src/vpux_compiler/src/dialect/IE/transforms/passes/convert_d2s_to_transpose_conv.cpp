@@ -118,8 +118,8 @@ IE::FakeQuantizeOp createBinaryFakeQuantize(mlir::MLIRContext* ctx, IE::DepthToS
     auto broadcast = vpux::IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NUMPY);
 
     // lowFpType is ignored (nullptr), only levels are given
-    return rewriter.create<IE::FakeQuantizeOp>(takeOpLoc(d2sOp, "fq_in"), inputOp, fqLow, fqHigh, fqLow, fqHigh, levels,
-                                               nullptr, broadcast);
+    return IE::FakeQuantizeOp::create(rewriter, takeOpLoc(d2sOp, "fq_in"), inputOp, fqLow, fqHigh, fqLow, fqHigh,
+                                      levels, nullptr, broadcast);
 }
 
 //
@@ -135,7 +135,7 @@ mlir::LogicalResult convertDepthFirstOp(mlir::MLIRContext* ctx, IE::DepthToSpace
 
     if (inputElemType == getUInt8Type(ctx) || inputElemType == getInt8Type(ctx)) {
         // TODO: Workaround. Upsample does not support unquantized u8/i8 types: E#109658
-        return matchFailed(rewriter, d2sOp, "E#109658 upsample does not support U8/I8 types");
+        return matchFailed(log, rewriter, d2sOp, "E#109658 upsample does not support U8/I8 types");
     }
 
     auto blockSize = d2sOp.getBlockSize();

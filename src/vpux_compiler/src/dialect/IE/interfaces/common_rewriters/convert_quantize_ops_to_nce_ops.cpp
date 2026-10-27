@@ -136,7 +136,7 @@ mlir::LogicalResult DequantizeToAddRewriter::matchAndRewrite(IE::DequantizeOp or
             qType.getFlags(), qType.getStorageType(), qType.getExpressedType(), newScale, zeroPoint,
             qType.getStorageTypeMin(), qType.getStorageTypeMax());
 
-    auto quantizeCastOp = rewriter.create<IE::QuantizeCastOp>(originOp.getLoc(), input, outQuantizeElemType);
+    auto quantizeCastOp = IE::QuantizeCastOp::create(rewriter, originOp.getLoc(), input, outQuantizeElemType);
 
     rewriter.replaceOpWithNewOp<IE::AddOp>(originOp, originOp.getType(), quantizeCastOp.getResult(),
                                            quantizeCastOp.getResult(), broadcastType, nullptr, nullptr, nullptr,
@@ -172,8 +172,8 @@ mlir::LogicalResult QuantizeToAddRewriter::matchAndRewrite(IE::QuantizeOp origin
             qType.getStorageTypeMin(), qType.getStorageTypeMax());
     auto newAddOutType = mlir::cast<NDTypeInterface>(originOp.getType()).changeElemType(quantizeElemType);
 
-    auto addOp = rewriter.create<IE::AddOp>(originOp.getLoc(), newAddOutType, originOp.getInput(), originOp.getInput(),
-                                            broadcastType, nullptr, nullptr, nullptr, nullptr);
+    auto addOp = IE::AddOp::create(rewriter, originOp.getLoc(), newAddOutType, originOp.getInput(), originOp.getInput(),
+                                   broadcastType, nullptr, nullptr, nullptr, nullptr);
 
     rewriter.replaceOpWithNewOp<IE::QuantizeCastOp>(originOp, addOp.getResult(), outElemType);
 
@@ -218,8 +218,8 @@ mlir::LogicalResult DequantizeToConvRewriter::matchAndRewrite(IE::DequantizeOp o
     auto pads_begin = rewriter.getI64ArrayAttr({0, 0});
     auto pads_end = rewriter.getI64ArrayAttr({0, 0});
     auto dilations = rewriter.getI64ArrayAttr({1, 1});
-    auto convOp = rewriter.create<IE::ConvolutionOp>(originOp.getLoc(), originOp.getType(), input, filter, strides,
-                                                     pads_begin, pads_end, dilations);
+    auto convOp = IE::ConvolutionOp::create(rewriter, originOp.getLoc(), originOp.getType(), input, filter, strides,
+                                            pads_begin, pads_end, dilations);
     rewriter.replaceOp(originOp, convOp.getResult());
     return mlir::success();
 }

@@ -63,19 +63,19 @@ void ExtractReturnShapesPass::safeRunOnModule() {
         auto operandTypeInterface = mlir::cast<NDTypeInterface>(operandType);
         for (int64_t idx = 0; idx < operandTypeInterface.getRank(); ++idx) {
             // Create tensor.dim op for each tensor's dimension of a returnOp's operand
-            auto dimOp = builder.create<mlir::tensor::DimOp>(appendLoc(operand.get().getLoc(), "dim_{0}", idx),
-                                                             operand.get(), idx);
+            auto dimOp = mlir::tensor::DimOp::create(builder, appendLoc(operand.get().getLoc(), "dim_{0}", idx),
+                                                     operand.get(), idx);
             // Cast tensor.dim's index type to int64
-            auto toI64 = builder.create<mlir::arith::IndexCastOp>(appendLoc(operand.get().getLoc(), "to_i64_{0}", idx),
-                                                                  vpux::getInt64Type(builder.getContext()), dimOp);
+            auto toI64 = mlir::arith::IndexCastOp::create(builder, appendLoc(operand.get().getLoc(), "to_i64_{0}", idx),
+                                                          vpux::getInt64Type(builder.getContext()), dimOp);
             indexCastOpValues.push_back(toI64->getResult(0));
         }
 
         mlir::ValueRange indexCastOpValueRange(indexCastOpValues);
 
         // Create tensor.from_elements ops from tensor.dim ops
-        auto fromElementsOp = builder.create<mlir::tensor::FromElementsOp>(
-                appendLoc(operand.get().getLoc(), "from_elements"),
+        auto fromElementsOp = mlir::tensor::FromElementsOp::create(
+                builder, appendLoc(operand.get().getLoc(), "from_elements"),
                 mlir::RankedTensorType::get({operandTypeInterface.getRank()}, vpux::getInt64Type(builder.getContext())),
                 indexCastOpValueRange);
 
@@ -95,7 +95,7 @@ void ExtractReturnShapesPass::safeRunOnModule() {
 
     for (size_t i = 0; i < fromElementsOpTypes.size(); ++i) {
         auto name = formatv("out_{0}", i).str();
-        netInfoBuilder.create<net::DataInfoOp>(appendLoc(mainFunc.getLoc(), name), name, fromElementsOpTypes[i]);
+        net::DataInfoOp::create(netInfoBuilder, appendLoc(mainFunc.getLoc(), name), name, fromElementsOpTypes[i]);
     }
 }
 

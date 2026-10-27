@@ -19,9 +19,12 @@
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/Attributes.h>
 #include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/BuiltinTypeInterfaces.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/MLIRContext.h>
+#include <mlir/IR/OwningOpRef.h>
+#include <mlir/IR/PatternMatch.h>
 #include <cstdint>
 
 using namespace vpux;
@@ -252,4 +255,44 @@ TEST_F(MLIR_QuantizationUtilsTest, KeepZeroScaleForConstDequant) {
     // After correction: the true zero scale makes the channel dequantize to 0.
     EXPECT_EQ(correctedPerAxis.getScales()[1], 0.0);
     EXPECT_EQ((storedCode - correctedPerAxis.getZeroPoints()[1]) * correctedPerAxis.getScales()[1], 0.0);
+}
+
+// buildDynamicDequantizeScaleZpConsts defaults to an f32 scale const for maximum precision, but a caller with
+// an already-f16 scale source (e.g. a quant.uniform expressed type) can request the scale const be built in
+// f16 directly instead of paying for a needless upcast.
+TEST_F(MLIR_QuantizationUtilsTest, BuildDynamicDequantizeScaleZpConstsScaleElemType) {
+    mlir::MLIRContext ctx(registry);
+    ctx.loadDialect<Const::ConstDialect>();
+
+    const auto loc = mlir::UnknownLoc::get(&ctx);
+
+    mlir::OwningOpRef<mlir::ModuleOp> module = mlir::ModuleOp::create(loc);
+    mlir::PatternRewriter rewriter(&ctx);
+    rewriter.setInsertionPointToStart(module->getBody());
+
+    const auto rawStorageType = mlir::IntegerType::get(&ctx, 8, mlir::IntegerType::Signed);
+    const SmallVector<int64_t> scaleShape = {1, 1};
+    const SmallVector<int64_t> zpShape = {1, 1};
+    const SmallVector<float> scales = {0.5f};
+    const SmallVector<int32_t> zeroPoints = {0};
+
+    // Omitting scaleElemType defaults to f32.
+    const auto defaultConsts = IE::buildDynamicDequantizeScaleZpConsts(rewriter, loc, loc, rawStorageType, scaleShape,
+                                                                       zpShape, scales, zeroPoints);
+    const auto defaultScaleType = mlir::cast<vpux::NDTypeInterface>(defaultConsts.scale.getType());
+    EXPECT_TRUE(defaultScaleType.getElementType().isF32());
+
+    // Passing f16 explicitly builds the scale const in f16 instead.
+    const auto f16Type = mlir::Float16Type::get(&ctx);
+    const auto f16Consts = IE::buildDynamicDequantizeScaleZpConsts(rewriter, loc, loc, rawStorageType, scaleShape,
+                                                                   zpShape, scales, zeroPoints, f16Type);
+    const auto f16ScaleType = mlir::cast<vpux::NDTypeInterface>(f16Consts.scale.getType());
+    EXPECT_TRUE(f16ScaleType.getElementType().isF16());
+
+    // The stored value round-trips through f16 without loss for this scale (0.5 is exactly representable).
+    auto f16ScaleConst = f16Consts.scale.getDefiningOp<Const::DeclareOp>();
+    ASSERT_NE(f16ScaleConst, nullptr);
+    const auto foldedContent = f16ScaleConst.getContentAttr().fold();
+    const auto foldedScales = to_small_vector(foldedContent.getValues<float>());
+    EXPECT_EQ(foldedScales, SmallVector<float>({0.5f}));
 }

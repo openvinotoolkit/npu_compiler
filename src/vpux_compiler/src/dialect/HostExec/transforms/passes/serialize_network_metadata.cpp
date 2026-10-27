@@ -66,9 +66,9 @@ void SerializeNetworkMetadataPass::defineSerializedMetadataAsGlobalOp(mlir::Modu
     auto type = mlir::LLVM::LLVMArrayType::get(mlir::IntegerType::get(ctx, 8), serializedMetadata.size());
     llvm::StringRef rawMetadata{reinterpret_cast<const char*>(serializedMetadata.data()), serializedMetadata.size()};
 
-    builder.create<mlir::LLVM::GlobalOp>(builder.getUnknownLoc(), type, /*isConstant=*/true,
-                                         mlir::LLVM::Linkage::Internal, nameAttr.getValue(),
-                                         builder.getStringAttr(rawMetadata), /*alignment=*/0);
+    mlir::LLVM::GlobalOp::create(builder, builder.getUnknownLoc(), type, /*isConstant=*/true,
+                                 mlir::LLVM::Linkage::Internal, nameAttr.getValue(), builder.getStringAttr(rawMetadata),
+                                 /*alignment=*/0);
 }
 
 mlir::LogicalResult SerializeNetworkMetadataPass::addFuncOpToReturnMetadata(mlir::ModuleOp& module) {
@@ -82,19 +82,19 @@ mlir::LogicalResult SerializeNetworkMetadataPass::addFuncOpToReturnMetadata(mlir
     auto voidPtrType = mlir::LLVM::LLVMPointerType::get(&typeConverter.getContext());
     auto funcType = mlir::LLVM::LLVMFunctionType::get(voidType, {voidPtrType, voidPtrType, voidPtrType, voidPtrType},
                                                       /*isVarArg=*/false);
-    auto funcOp = builder.create<mlir::LLVM::LLVMFuncOp>(builder.getUnknownLoc(),  // Location
-                                                         "_mlir_ciface_get_network_metadata", funcType,
-                                                         mlir::LLVM::Linkage::External);
+    auto funcOp = mlir::LLVM::LLVMFuncOp::create(builder, builder.getUnknownLoc(),  // Location
+                                                 "_mlir_ciface_get_network_metadata", funcType,
+                                                 mlir::LLVM::Linkage::External);
 
     funcOp.addEntryBlock(builder);
     builder.setInsertionPointToStart(&(*funcOp.getBlocks().begin()));
     auto numSubgraphAttr = module->getAttrOfType<mlir::IntegerAttr>(HOST_EXEC_NUM_SUBGRAPH_ATTR_NAME);
-    auto numSubGraph = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(), builder.getIntegerType(64),
-                                                              numSubgraphAttr.getValue().getSExtValue());
-    auto idx = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(), builder.getIntegerType(64), 0);
-    auto gep = builder.create<mlir::LLVM::GEPOp>(builder.getUnknownLoc(), voidPtrType, builder.getI64Type(),
-                                                 funcOp.getArgument(1), mlir::ValueRange{idx});
-    builder.create<mlir::LLVM::StoreOp>(builder.getUnknownLoc(), numSubGraph, gep);
+    auto numSubGraph = mlir::LLVM::ConstantOp::create(builder, builder.getUnknownLoc(), builder.getIntegerType(64),
+                                                      numSubgraphAttr.getValue().getSExtValue());
+    auto idx = mlir::LLVM::ConstantOp::create(builder, builder.getUnknownLoc(), builder.getIntegerType(64), 0);
+    auto gep = mlir::LLVM::GEPOp::create(builder, builder.getUnknownLoc(), voidPtrType, builder.getI64Type(),
+                                         funcOp.getArgument(1), mlir::ValueRange{idx});
+    mlir::LLVM::StoreOp::create(builder, builder.getUnknownLoc(), numSubGraph, gep);
 
     auto name = mlir::StringRef(vpux::HostExec::HOST_EXEC_NETWORK_METADATA_NAME);
     auto serializedMetadataGlobalOp = module.lookupSymbol<mlir::LLVM::GlobalOp>(name);
@@ -112,16 +112,16 @@ mlir::LogicalResult SerializeNetworkMetadataPass::addFuncOpToReturnMetadata(mlir
         return mlir::failure();
     }
 
-    mlir::LLVM::AddressOfOp serializedMetadataPtr = builder.create<mlir::LLVM::AddressOfOp>(
-            builder.getUnknownLoc(), voidPtrType /*globalType*/,
-            builder.getStringAttr(vpux::HostExec::HOST_EXEC_NETWORK_METADATA_NAME));
+    mlir::LLVM::AddressOfOp serializedMetadataPtr =
+            mlir::LLVM::AddressOfOp::create(builder, builder.getUnknownLoc(), voidPtrType /*globalType*/,
+                                            builder.getStringAttr(vpux::HostExec::HOST_EXEC_NETWORK_METADATA_NAME));
     if (serializedMetadataPtr == nullptr) {
         _log.error("Serialized network metadata is not found");
         return mlir::failure();
     }
 
     auto serializedMetadataSize =
-            builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(), builder.getIntegerType(64), length);
+            mlir::LLVM::ConstantOp::create(builder, builder.getUnknownLoc(), builder.getIntegerType(64), length);
 
     // call L0 wrapper function
     createLLVMFuncCallOp(builder, module, "npu_level_zero_get_network_metadata",
@@ -130,7 +130,7 @@ mlir::LogicalResult SerializeNetworkMetadataPass::addFuncOpToReturnMetadata(mlir
                          voidType);
 
     // create a terminator
-    builder.create<mlir::LLVM::ReturnOp>(builder.getUnknownLoc(), mlir::ValueRange{});
+    mlir::LLVM::ReturnOp::create(builder, builder.getUnknownLoc(), mlir::ValueRange{});
 
     return mlir::success();
 }

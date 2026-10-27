@@ -169,8 +169,8 @@ void ConvertSETablesToConstantsPass::safeRunOnFunc() {
                                                                                          seTableType.getElementType()))
                                    .changeDimsOrder(seTableType.getDimsOrder());
         auto seTableContent = Const::createConstContent(mlir::cast<mlir::ShapedType>(contentType), ArrayRef(sePtrs));
-        auto constantOp = builder.create<Const::DeclareOp>(seTableOp.getLoc(), seTableType,
-                                                           Const::ContentAttr::get(seTableContent));
+        auto constantOp = Const::DeclareOp::create(builder, seTableOp.getLoc(), seTableType,
+                                                   Const::ContentAttr::get(seTableContent));
 
         seTableOp.replaceAllUsesWith(constantOp.getOutput());
         seTableOp.erase();

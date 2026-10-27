@@ -123,32 +123,32 @@ func.func @SplitSoftMaxOverH(%arg0: tensor<1x20x256x384xf16>) -> tensor<1x20x256
 
     // CHECK:       [[INPUT_TILE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 20, 43, 384]
     // CHECK-SAME:      : tensor<1x20x256x384xf16> to tensor<1x20x43x384xf16>
-    // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.SoftMax([[INPUT_TILE0]]) {axisInd = 1 : i64, tiling_loop_index = 0 : i64}
+    // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.SoftMax([[INPUT_TILE0]]) {axisInd = 1 : i64, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x20x43x384xf16> -> tensor<1x20x43x384xf16>
 
     // CHECK:       [[INPUT_TILE1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 43, 0] [1, 20, 43, 384]
     // CHECK-SAME:      : tensor<1x20x256x384xf16> to tensor<1x20x43x384xf16>
-    // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.SoftMax([[INPUT_TILE1]]) {axisInd = 1 : i64, tiling_loop_index = 0 : i64}
+    // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.SoftMax([[INPUT_TILE1]]) {axisInd = 1 : i64, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x20x43x384xf16> -> tensor<1x20x43x384xf16>
 
     // CHECK:       [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT]] [0, 0, 86, 0] [1, 20, 43, 384]
     // CHECK-SAME:      : tensor<1x20x256x384xf16> to tensor<1x20x43x384xf16>
-    // CHECK:       [[OUTPUT_TILE2:%.+]] = VPU.SoftMax([[INPUT_TILE2]]) {axisInd = 1 : i64, tiling_loop_index = 0 : i64}
+    // CHECK:       [[OUTPUT_TILE2:%.+]] = VPU.SoftMax([[INPUT_TILE2]]) {axisInd = 1 : i64, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 2>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x20x43x384xf16> -> tensor<1x20x43x384xf16>
 
     // CHECK:       [[INPUT_TILE3:%.+]] = VPU.Slice [[INPUT]] [0, 0, 129, 0] [1, 20, 43, 384]
     // CHECK-SAME:      : tensor<1x20x256x384xf16> to tensor<1x20x43x384xf16>
-    // CHECK:       [[OUTPUT_TILE3:%.+]] = VPU.SoftMax([[INPUT_TILE3]]) {axisInd = 1 : i64, tiling_loop_index = 0 : i64}
+    // CHECK:       [[OUTPUT_TILE3:%.+]] = VPU.SoftMax([[INPUT_TILE3]]) {axisInd = 1 : i64, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 3>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x20x43x384xf16> -> tensor<1x20x43x384xf16>
 
     // CHECK:       [[INPUT_TILE4:%.+]] = VPU.Slice [[INPUT]] [0, 0, 172, 0] [1, 20, 42, 384]
     // CHECK-SAME:      : tensor<1x20x256x384xf16> to tensor<1x20x42x384xf16>
-    // CHECK:       [[OUTPUT_TILE4:%.+]] = VPU.SoftMax([[INPUT_TILE4]]) {axisInd = 1 : i64, tiling_loop_index = 0 : i64}
+    // CHECK:       [[OUTPUT_TILE4:%.+]] = VPU.SoftMax([[INPUT_TILE4]]) {axisInd = 1 : i64, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 4>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x20x42x384xf16> -> tensor<1x20x42x384xf16>
 
     // CHECK:       [[INPUT_TILE5:%.+]] = VPU.Slice [[INPUT]] [0, 0, 214, 0] [1, 20, 42, 384]
     // CHECK-SAME:      : tensor<1x20x256x384xf16> to tensor<1x20x42x384xf16>
-    // CHECK:       [[OUTPUT_TILE5:%.+]] = VPU.SoftMax([[INPUT_TILE5]]) {axisInd = 1 : i64, tiling_loop_index = 0 : i64}
+    // CHECK:       [[OUTPUT_TILE5:%.+]] = VPU.SoftMax([[INPUT_TILE5]]) {axisInd = 1 : i64, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 5>}, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x20x42x384xf16> -> tensor<1x20x42x384xf16>
 
     // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]], [[OUTPUT_TILE2]], [[OUTPUT_TILE3]], [[OUTPUT_TILE4]], [[OUTPUT_TILE5]])
@@ -350,13 +350,13 @@ func.func @SplitLeakyReluOverW(%arg0: tensor<1x8x80x960xf16>) -> tensor<1x8x80x9
     // CHECK-SAME:  : tensor<1x8x80x960xf16> to tensor<1x8x80x480xf16>
 
     // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.LeakyRelu([[INPUT_TILE0]]) {
-    // CHECK-SAME:  negative_slope = 0.0099999997764825821 : f64, tiling_loop_index = 0 : i64} : tensor<1x8x80x480xf16> -> tensor<1x8x80x480xf16>
+    // CHECK-SAME:  loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 0>}, negative_slope = 0.0099999997764825821 : f64, tiling_loop_index = 0 : i64} : tensor<1x8x80x480xf16> -> tensor<1x8x80x480xf16>
 
     // CHECK:       [[INPUT_TILE1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 480] [1, 8, 80, 480]
     // CHECK-SAME:  : tensor<1x8x80x960xf16> to tensor<1x8x80x480xf16>
 
     // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.LeakyRelu([[INPUT_TILE1]]) {
-    // CHECK-SAME:  negative_slope = 0.0099999997764825821 : f64, tiling_loop_index = 0 : i64} : tensor<1x8x80x480xf16> -> tensor<1x8x80x480xf16>
+    // CHECK-SAME:  loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 1>}, negative_slope = 0.0099999997764825821 : f64, tiling_loop_index = 0 : i64} : tensor<1x8x80x480xf16> -> tensor<1x8x80x480xf16>
 
     // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
     // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 0, 480]
@@ -415,7 +415,7 @@ func.func @GenericTiling(
     // CHECK-SAME:      tensor<576x1x1x4xsi32, {order = #NHWC}> to tensor<144x1x1x4xsi32, {order = #NHWC}>
 
     // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.NCE.Convolution([[AND]], [[WEIGHTS_TILE0]], [[WEIGHTS_TABLE_TILE0]]) rawFilterShape [144, 144, 3, 3]
-    // CHECK-SAME:     pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
+    // CHECK-SAME:     loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
     // CHECK-SAME:    strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:          -> tensor<1x144x20x20xf16, {order = #NHWC}>
 
@@ -428,7 +428,7 @@ func.func @GenericTiling(
     // CHECK-SAME:      tensor<576x1x1x4xsi32, {order = #NHWC}> to tensor<144x1x1x4xsi32, {order = #NHWC}>
 
     // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.NCE.Convolution([[AND]], [[WEIGHTS_TILE1]], [[WEIGHTS_TABLE_TILE1]]) rawFilterShape [144, 144, 3, 3]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
     // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:          -> tensor<1x144x20x20xf16, {order = #NHWC}>
 
@@ -441,7 +441,7 @@ func.func @GenericTiling(
     // CHECK-SAME:      tensor<576x1x1x4xsi32, {order = #NHWC}> to tensor<144x1x1x4xsi32, {order = #NHWC}>
 
     // CHECK:       [[OUTPUT_TILE2:%.+]] = VPU.NCE.Convolution([[AND]], [[WEIGHTS_TILE2]], [[WEIGHTS_TABLE_TILE2]]) rawFilterShape [144, 144, 3, 3]
-    // CHECK-SAME:     {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>
+    // CHECK-SAME:     {loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 2>}, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>
     // CHECK-SAME:  strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:          -> tensor<1x144x20x20xf16, {order = #NHWC}>
 
@@ -455,7 +455,7 @@ func.func @GenericTiling(
     // CHECK-SAME:      tensor<576x1x1x4xsi32, {order = #NHWC}> to tensor<144x1x1x4xsi32, {order = #NHWC}>
 
     // CHECK:       [[OUTPUT_TILE3:%.+]] = VPU.NCE.Convolution([[AND]], [[WEIGHTS_TILE3]], [[WEIGHTS_TABLE_TILE3]]) rawFilterShape [144, 144, 3, 3]
-    // CHECK-SAME:     {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>
+    // CHECK-SAME:     {loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 3>}, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>
     // CHECK-SAME:  strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:          -> tensor<1x144x20x20xf16, {order = #NHWC}>
 
@@ -494,7 +494,7 @@ func.func @SplitNCEConvOverOH(%arg0: tensor<1x32x64x48xf16, {order = #NHWC}>) ->
     // CHECK-SAME:      : tensor<1x32x64x48xf16, {order = #NHWC}> to tensor<1x32x33x48xf16, {order = #NHWC}>
 
     // CHECK:        [[OUTPUT_TILE0:%.+]] = VPU.NCE.Convolution([[ACTIVATION_TILE_0]], [[FILTER]], [[WEIGHTS_TABLE]]) rawFilterShape [256, 32, 3, 3]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64>
     // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64
     // CHECK-SAME:          -> tensor<1x256x32x48xf16, {order = #NHWC}>
 
@@ -502,7 +502,7 @@ func.func @SplitNCEConvOverOH(%arg0: tensor<1x32x64x48xf16, {order = #NHWC}>) ->
     // CHECK-SAME:      : tensor<1x32x64x48xf16, {order = #NHWC}> to tensor<1x32x33x48xf16, {order = #NHWC}>
 
     // CHECK:        [[OUTPUT_TILE1:%.+]] = VPU.NCE.Convolution([[ACTIVATION_TILE_1]], [[FILTER]], [[WEIGHTS_TABLE]]) rawFilterShape [256, 32, 3, 3]
-    // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>
     // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:          -> tensor<1x256x32x48xf16, {order = #NHWC}>
 
@@ -547,21 +547,21 @@ func.func @SplitI4QuantNCEConvOverOC(%arg0: tensor<1x128x256x4xf16, {order = #NH
     // CHECK-DAG:       [[CST_4:%.+]] = const.Declare tensor<2112x1x1x4xsi32> = dense<10> : tensor<6320x1x1x4xsi32>, [#const.SubView<[0, 0, 0, 0], [2112, 1, 1, 4]>]
 
     // CHECK:           [[CONV_0:%.+]] = VPU.NCE.Convolution([[INPUT]], [[CST_3]], [[CST_4]]) rawFilterShape [2112, 128, 1, 1] {
-    // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
     // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:          ppe = #VPU.PPEStub<>
     // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:          -> tensor<1x2112x256x4xf16, {order = #NHWC}>
 
     // CHECK:           [[CONV_1:%.+]] = VPU.NCE.Convolution([[INPUT]], [[CST_2]], [[CST_1]]) rawFilterShape [2112, 128, 1, 1] {
-    // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
     // CHECK-SAME:          pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:          ppe = #VPU.PPEStub<>
     // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:          -> tensor<1x2112x256x4xf16, {order = #NHWC}>
 
     // CHECK:           [[CONV_2:%.+]] = VPU.NCE.Convolution([[INPUT]], [[CST_0]], [[CST]]) rawFilterShape [2096, 128, 1, 1] {
-    // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 2>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:          ppe = #VPU.PPEStub<>
     // CHECK-SAME:          strides = [1, 1], tiling_loop_index = 0 : i64}
     // CHECK-SAME:          -> tensor<1x2096x256x4xf16, {order = #NHWC}>
@@ -822,13 +822,13 @@ func.func @TileWithSOK(
   // CHECK:       [[SLICE:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 32, 18, 30]
   // CHECK-SAME:         tensor<1x32x30x30xf16, {order = #NHWC}> to tensor<1x32x18x30xf16, {order = #NHWC}>
   // CHECK:       [[OUTPUT0:%.+]] = VPU.NCE.Convolution([[SLICE]], [[WEIGHTS]], [[WEIGHTS0]]) rawFilterShape [768, 32, 7, 7]
-  // CHECK-SAME:         {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+  // CHECK-SAME:         {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
   // CHECK-SAME:         pad = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 0 : i64>
   // CHECK-SAME:         strides = [1, 1], tiling_loop_index = 0 : i64}
   // CHECK-SAME:         -> tensor<1x768x15x30xf16, {order = #NHWC}>
   // CHECK:       [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 12, 0] [1, 32, 18, 30] : tensor<1x32x30x30xf16, {order = #NHWC}> to tensor<1x32x18x30xf16, {order = #NHWC}>
   // CHECK:       [[OUTPUT1:%.+]] = VPU.NCE.Convolution([[SLICE1]], [[WEIGHTS]], [[WEIGHTS0]]) rawFilterShape [768, 32, 7, 7]
-  // CHECK-SAME:         {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
+  // CHECK-SAME:         {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
   // CHECK-SAME:         pad = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 0 : i64, bottom = 3 : i64>
   // CHECK-SAME:         strides = [1, 1], tiling_loop_index = 0 : i64}
   // CHECK-SAME:         -> tensor<1x768x15x30xf16, {order = #NHWC}>
@@ -906,7 +906,7 @@ func.func @SplitNCEEltwise(
     // CHECK-SAME:      : tensor<1x512x28x28xf16, {order = #NHWC}> to tensor<1x256x28x28xf16, {order = #NHWC}>
 
     // CHECK:       [[ELTWISE_0:%.+]] = VPU.NCE.Eltwise([[INPUT_0_0]], [[INPUT_1_0]])
-    // CHECK-SAME:      {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>, resultSegmentSizes = array<i32: 1, 0, 0, 0>, tiling_loop_index = 0 : i64}
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>, resultSegmentSizes = array<i32: 1, 0, 0, 0>, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      -> tensor<1x256x28x28xf16, {order = #NHWC}>
 
     // Tile 1
@@ -916,7 +916,7 @@ func.func @SplitNCEEltwise(
     // CHECK-SAME:      : tensor<1x512x28x28xf16, {order = #NHWC}> to tensor<1x256x28x28xf16, {order = #NHWC}>
 
     // CHECK:       [[ELTWISE_1:%.+]] = VPU.NCE.Eltwise([[INPUT_0_1]], [[INPUT_1_1]])
-    // CHECK-SAME:      {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>, resultSegmentSizes = array<i32: 1, 0, 0, 0>, tiling_loop_index = 0 : i64}
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>, resultSegmentSizes = array<i32: 1, 0, 0, 0>, tiling_loop_index = 0 : i64}
     // CHECK-SAME:      -> tensor<1x256x28x28xf16, {order = #NHWC}>
 
     // Concat
@@ -1136,13 +1136,13 @@ func.func @ClampSplitOverW(%arg0: tensor<1x8x80x960xf16>) -> tensor<1x8x80x960xf
 // CHECK-SAME:  : tensor<1x8x80x960xf16> to tensor<1x8x80x480xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.Clamp([[INPUT_TILE0]]) {
-// CHECK-SAME:  max = 1.000000e+00 : f64, min = -1.000000e+00 : f64, tiling_loop_index = 0 : i64} : tensor<1x8x80x480xf16> -> tensor<1x8x80x480xf16>
+// CHECK-SAME:  loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 0>}, max = 1.000000e+00 : f64, min = -1.000000e+00 : f64, tiling_loop_index = 0 : i64} : tensor<1x8x80x480xf16> -> tensor<1x8x80x480xf16>
 
 // CHECK:       [[INPUT_TILE1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 480] [1, 8, 80, 480]
 // CHECK-SAME:  : tensor<1x8x80x960xf16> to tensor<1x8x80x480xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.Clamp([[INPUT_TILE1]]) {
-// CHECK-SAME:  max = 1.000000e+00 : f64, min = -1.000000e+00 : f64, tiling_loop_index = 0 : i64} : tensor<1x8x80x480xf16> -> tensor<1x8x80x480xf16>
+// CHECK-SAME:  loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 1>}, max = 1.000000e+00 : f64, min = -1.000000e+00 : f64, tiling_loop_index = 0 : i64} : tensor<1x8x80x480xf16> -> tensor<1x8x80x480xf16>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 0, 480]
@@ -1255,7 +1255,7 @@ func.func @SplitFloorModEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.FloorMod([[INPUT_TILE0]], [[INPUT_TILE1]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
 
 // CHECK:       [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 128, 0] [1, 10, 128, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
@@ -1264,7 +1264,7 @@ func.func @SplitFloorModEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.FloorMod([[INPUT_TILE2]], [[INPUT_TILE3]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 128, 0]
@@ -1288,7 +1288,7 @@ func.func @SplitModEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1x10
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.Mod([[INPUT_TILE0]], [[INPUT_TILE1]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
 
 // CHECK:       [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 128, 0] [1, 10, 128, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
@@ -1297,7 +1297,7 @@ func.func @SplitModEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1x10
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.Mod([[INPUT_TILE2]], [[INPUT_TILE3]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 128, 0]
@@ -1321,7 +1321,7 @@ func.func @SplitPowerEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1x
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.Power([[INPUT_TILE0]], [[INPUT_TILE1]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
 
 // CHECK:       [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 128, 0] [1, 10, 128, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
@@ -1330,7 +1330,7 @@ func.func @SplitPowerEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1x
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.Power([[INPUT_TILE2]], [[INPUT_TILE3]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 128, 0]
@@ -1355,7 +1355,7 @@ func.func @SplitLogicalOrEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tenso
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.LogicalOr([[INPUT_TILE0]], [[INPUT_TILE1]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
 
 // CHECK:       [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 128, 0] [1, 10, 128, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
@@ -1364,7 +1364,7 @@ func.func @SplitLogicalOrEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tenso
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.LogicalOr([[INPUT_TILE2]], [[INPUT_TILE3]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 128, 0]
@@ -1389,7 +1389,7 @@ func.func @SplitLogicalXorEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tens
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.LogicalXor([[INPUT_TILE0]], [[INPUT_TILE1]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
 
 // CHECK:       [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 128, 0] [1, 10, 128, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
@@ -1398,7 +1398,7 @@ func.func @SplitLogicalXorEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tens
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.LogicalXor([[INPUT_TILE2]], [[INPUT_TILE3]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 128, 0]
@@ -1423,7 +1423,7 @@ func.func @SplitEqualEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1x
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.Equal([[INPUT_TILE0]], [[INPUT_TILE1]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
 
 // CHECK:       [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 128, 0] [1, 10, 128, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
@@ -1432,7 +1432,7 @@ func.func @SplitEqualEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1x
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.Equal([[INPUT_TILE2]], [[INPUT_TILE3]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 128, 0]
@@ -1457,7 +1457,7 @@ func.func @SplitNotEqualEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.NotEqual([[INPUT_TILE0]], [[INPUT_TILE1]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
 
 // CHECK:       [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 128, 0] [1, 10, 128, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
@@ -1466,7 +1466,7 @@ func.func @SplitNotEqualEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.NotEqual([[INPUT_TILE2]], [[INPUT_TILE3]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 128, 0]
@@ -1491,7 +1491,7 @@ func.func @SplitLessEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1x1
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.Less([[INPUT_TILE0]], [[INPUT_TILE1]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
 
 // CHECK:       [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 128, 0] [1, 10, 128, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
@@ -1500,7 +1500,7 @@ func.func @SplitLessEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1x1
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.Less([[INPUT_TILE2]], [[INPUT_TILE3]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 128, 0]
@@ -1525,7 +1525,7 @@ func.func @SplitLessEqualEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tenso
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.LessEqual([[INPUT_TILE0]], [[INPUT_TILE1]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
 
 // CHECK:       [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 128, 0] [1, 10, 128, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
@@ -1534,7 +1534,7 @@ func.func @SplitLessEqualEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tenso
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.LessEqual([[INPUT_TILE2]], [[INPUT_TILE3]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 128, 0]
@@ -1559,7 +1559,7 @@ func.func @SplitGreaterEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.Greater([[INPUT_TILE0]], [[INPUT_TILE1]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
 
 // CHECK:       [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 128, 0] [1, 10, 128, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
@@ -1568,7 +1568,7 @@ func.func @SplitGreaterEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.Greater([[INPUT_TILE2]], [[INPUT_TILE3]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 128, 0]
@@ -1578,13 +1578,13 @@ func.func @SplitGreaterEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<
 
 // -----
 
-func.func @SplitGreaterEqualEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1x10x256x176xf16>) -> tensor<1x10x256x176xf16> {
-  %0 = VPU.GreaterEqual(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x10x256x176xf16>, tensor<1x10x256x176xf16> -> tensor<1x10x256x176xf16>
-  return %0 : tensor<1x10x256x176xf16>
+func.func @SplitGreaterEqualEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1x10x256x176xf16>) -> tensor<1x10x256x176xi8> {
+  %0 = VPU.GreaterEqual(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x10x256x176xf16>, tensor<1x10x256x176xf16> -> tensor<1x10x256x176xi8>
+  return %0 : tensor<1x10x256x176xi8>
 }
 
 // CHECK-LABEL: @SplitGreaterEqualEltwiseSw
-// CHECK-SAME:      [[INPUT_0:%arg[0-9]]]: tensor<1x10x256x176xf16>, [[INPUT_1:%arg[0-9]]]: tensor<1x10x256x176xf16>) -> tensor<1x10x256x176xf16> {
+// CHECK-SAME:      [[INPUT_0:%arg[0-9]]]: tensor<1x10x256x176xf16>, [[INPUT_1:%arg[0-9]]]: tensor<1x10x256x176xf16>) -> tensor<1x10x256x176xi8> {
 
 // CHECK:       [[INPUT_TILE0:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 0, 0] [1, 10, 128, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
@@ -1593,7 +1593,7 @@ func.func @SplitGreaterEqualEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: te
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.GreaterEqual([[INPUT_TILE0]], [[INPUT_TILE1]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
 
 // CHECK:       [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 128, 0] [1, 10, 128, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
@@ -1602,13 +1602,13 @@ func.func @SplitGreaterEqualEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: te
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.GreaterEqual([[INPUT_TILE2]], [[INPUT_TILE3]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xi8>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 128, 0]
-// CHECK-SAME:  : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x256x176xf16>
+// CHECK-SAME:  : tensor<1x10x128x176xi8>, tensor<1x10x128x176xi8> -> tensor<1x10x256x176xi8>
 
-// CHECK:       return [[OUTPUT]] : tensor<1x10x256x176xf16>
+// CHECK:       return [[OUTPUT]] : tensor<1x10x256x176xi8>
 
 // -----
 
@@ -1767,13 +1767,13 @@ func.func @SplitNegativeActivationSw(%arg0: tensor<1x8x80x960xf16>) -> tensor<1x
 // CHECK-SAME:  : tensor<1x8x80x960xf16> to tensor<1x8x80x480xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.Negative([[INPUT_TILE0]])
-// CHECK-SAME:  {tiling_loop_index = 0 : i64} : tensor<1x8x80x480xf16> -> tensor<1x8x80x480xf16>
+// CHECK-SAME:  {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x8x80x480xf16> -> tensor<1x8x80x480xf16>
 
 // CHECK:       [[INPUT_TILE1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 480] [1, 8, 80, 480]
 // CHECK-SAME:  : tensor<1x8x80x960xf16> to tensor<1x8x80x480xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.Negative([[INPUT_TILE1]])
-// CHECK-SAME:  {tiling_loop_index = 0 : i64} : tensor<1x8x80x480xf16> -> tensor<1x8x80x480xf16>
+// CHECK-SAME:  {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x8x80x480xf16> -> tensor<1x8x80x480xf16>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 0, 480]
@@ -1858,7 +1858,7 @@ func.func @SplitSelectEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x2x256x176xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.Select([[INPUT_TILE0]], [[INPUT_TILE1]], [[INPUT_TILE2]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16> -> tensor<1x2x256x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16> -> tensor<1x2x256x176xf16>
 
 // CHECK:       [[INPUT_TILE3:%.+]] = VPU.Slice [[INPUT_0]] [0, 2, 0, 0] [1, 2, 256, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x2x256x176xf16>
@@ -1870,7 +1870,7 @@ func.func @SplitSelectEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x2x256x176xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.Select([[INPUT_TILE3]], [[INPUT_TILE4]], [[INPUT_TILE5]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16> -> tensor<1x2x256x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16> -> tensor<1x2x256x176xf16>
 
 // CHECK:       [[INPUT_TILE6:%.+]] = VPU.Slice [[INPUT_0]] [0, 4, 0, 0] [1, 2, 256, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x2x256x176xf16>
@@ -1882,7 +1882,7 @@ func.func @SplitSelectEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x2x256x176xf16>
 
 // CHECK:       [[OUTPUT_TILE2:%.+]] = VPU.Select([[INPUT_TILE6]], [[INPUT_TILE7]], [[INPUT_TILE8]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16> -> tensor<1x2x256x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 2>}, tiling_loop_index = 0 : i64} : tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16> -> tensor<1x2x256x176xf16>
 
 // CHECK:       [[INPUT_TILE9:%.+]] = VPU.Slice [[INPUT_0]] [0, 6, 0, 0] [1, 2, 256, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x2x256x176xf16>
@@ -1894,7 +1894,7 @@ func.func @SplitSelectEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x2x256x176xf16>
 
 // CHECK:       [[OUTPUT_TILE3:%.+]] = VPU.Select([[INPUT_TILE9]], [[INPUT_TILE10]], [[INPUT_TILE11]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16> -> tensor<1x2x256x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 3>}, tiling_loop_index = 0 : i64} : tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16> -> tensor<1x2x256x176xf16>
 // CHECK:       [[INPUT_TILE12:%.+]] = VPU.Slice [[INPUT_0]] [0, 8, 0, 0] [1, 2, 256, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x2x256x176xf16>
 
@@ -1905,7 +1905,7 @@ func.func @SplitSelectEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x2x256x176xf16>
 
 // CHECK:       [[OUTPUT_TILE4:%.+]] = VPU.Select([[INPUT_TILE12]], [[INPUT_TILE13]], [[INPUT_TILE14]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16> -> tensor<1x2x256x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 4>}, tiling_loop_index = 0 : i64} : tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16>, tensor<1x2x256x176xf16> -> tensor<1x2x256x176xf16>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]], [[OUTPUT_TILE2]], [[OUTPUT_TILE3]], [[OUTPUT_TILE4]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 2, 0, 0], [0, 4, 0, 0], [0, 6, 0, 0], [0, 8, 0, 0]
@@ -1930,7 +1930,7 @@ func.func @SplitAddEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1x10
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.Add([[INPUT_TILE0]], [[INPUT_TILE1]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
 
 // CHECK:       [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 128, 0] [1, 10, 128, 176]
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
@@ -1939,7 +1939,7 @@ func.func @SplitAddEltwiseSw(%arg0: tensor<1x10x256x176xf16>, %arg1: tensor<1x10
 // CHECK-SAME:   : tensor<1x10x256x176xf16> to tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.Add([[INPUT_TILE2]], [[INPUT_TILE3]]) {
-// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
+// CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, tiling_loop_index = 0 : i64} : tensor<1x10x128x176xf16>, tensor<1x10x128x176xf16> -> tensor<1x10x128x176xf16>
 
 // CHECK:       [[OUTPUT:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]])
 // CHECK-SAME:  [0, 0, 0, 0], [0, 0, 128, 0]
@@ -2015,11 +2015,11 @@ func.func @SplitTopK(%arg0: tensor<1x5x512x384xf16>) -> (tensor<1x1x512x384xf32>
     // CHECK-SAME:      [[INPUT_0:%arg[0-9]]]: tensor<1x5x512x384xf16>) -> (tensor<1x1x512x384xf32>, tensor<1x1x512x384xsi32>) {
     // CHECK: [[AUX:%.+]] = const.Declare tensor<1x1x1x80xui8> = dense<0> : tensor<1x1x1x80xui8>
     // CHECK: [[INPUT_TILE0:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 0, 0] [1, 5, 171, 384] : tensor<1x5x512x384xf16> to tensor<1x5x171x384xf16>
-    // CHECK: [[OUTPUT_TILE0:%.+]], [[TARGET_TILE0:%.+]] = VPU.TopK([[INPUT_TILE0]], [[AUX]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>, tiling_loop_index = 0 : i64} : tensor<1x5x171x384xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x171x384xf16>, tensor<1x1x171x384xsi32>
+    // CHECK: [[OUTPUT_TILE0:%.+]], [[TARGET_TILE0:%.+]] = VPU.TopK([[INPUT_TILE0]], [[AUX]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>, tiling_loop_index = 0 : i64} : tensor<1x5x171x384xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x171x384xf16>, tensor<1x1x171x384xsi32>
     // CHECK: [[INPUT_TILE1:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 171, 0] [1, 5, 171, 384] : tensor<1x5x512x384xf16> to tensor<1x5x171x384xf16>
-    // CHECK: [[OUTPUT_TILE1:%.+]], [[TARGET_TILE1:%.+]] = VPU.TopK([[INPUT_TILE1]], [[AUX]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>, tiling_loop_index = 0 : i64} : tensor<1x5x171x384xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x171x384xf16>, tensor<1x1x171x384xsi32>
+    // CHECK: [[OUTPUT_TILE1:%.+]], [[TARGET_TILE1:%.+]] = VPU.TopK([[INPUT_TILE1]], [[AUX]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>, tiling_loop_index = 0 : i64} : tensor<1x5x171x384xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x171x384xf16>, tensor<1x1x171x384xsi32>
     // CHECK: [[INPUT_TILE2:%.+]] = VPU.Slice [[INPUT_0]] [0, 0, 342, 0] [1, 5, 170, 384] : tensor<1x5x512x384xf16> to tensor<1x5x170x384xf16>
-    // CHECK: [[OUTPUT_TILE2:%.+]], [[TARGET_TILE2:%.+]] = VPU.TopK([[INPUT_TILE2]], [[AUX]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>, tiling_loop_index = 0 : i64} : tensor<1x5x170x384xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x170x384xf16>, tensor<1x1x170x384xsi32>
+    // CHECK: [[OUTPUT_TILE2:%.+]], [[TARGET_TILE2:%.+]] = VPU.TopK([[INPUT_TILE2]], [[AUX]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 2>}, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>, tiling_loop_index = 0 : i64} : tensor<1x5x170x384xf16>, tensor<1x1x1x80xui8> -> tensor<1x1x170x384xf16>, tensor<1x1x170x384xsi32>
     // CHECK: [[OUTPUT_VALUE:%.+]] = VPU.Concat([[OUTPUT_TILE0]], [[OUTPUT_TILE1]], [[OUTPUT_TILE2]]) {static_offsets =
     // CHECK: [[TARGET_SHAPE:%.+]] = VPU.Concat([[TARGET_TILE0]], [[TARGET_TILE1]], [[TARGET_TILE2]]) {static_offsets =
     // CHECK: [[OUTPUT_VALUE_CONV:%.+]] = VPU.Convert([[OUTPUT_VALUE]]) {dstElemType = f32} : tensor<1x1x512x384xf16> -> tensor<1x1x512x384xf32>
@@ -2089,21 +2089,21 @@ func.func @MVNTileOverC(%arg0: tensor<1x5376x512x1xf16>) -> tensor<1x5376x512x1x
     return %0 : tensor<1x5376x512x1xf16>
 
 // CHECK:    [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 672, 512, 1] : tensor<1x5376x512x1xf16> to tensor<1x672x512x1xf16>
-// CHECK:    [[MVN0:%.+]] = VPU.MVN([[SLICE0]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
+// CHECK:    [[MVN0:%.+]] = VPU.MVN([[SLICE0]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
 // CHECK:    [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 672, 0, 0] [1, 672, 512, 1] : tensor<1x5376x512x1xf16> to tensor<1x672x512x1xf16>
-// CHECK:    [[MVN1:%.+]] = VPU.MVN([[SLICE1]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
+// CHECK:    [[MVN1:%.+]] = VPU.MVN([[SLICE1]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
 // CHECK:    [[SLICE2:%.+]] = VPU.Slice [[INPUT]] [0, 1344, 0, 0] [1, 672, 512, 1] : tensor<1x5376x512x1xf16> to tensor<1x672x512x1xf16>
-// CHECK:    [[MVN2:%.+]] = VPU.MVN([[SLICE2]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
+// CHECK:    [[MVN2:%.+]] = VPU.MVN([[SLICE2]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 2>}, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
 // CHECK:    [[SLICE3:%.+]] = VPU.Slice [[INPUT]] [0, 2016, 0, 0] [1, 672, 512, 1] : tensor<1x5376x512x1xf16> to tensor<1x672x512x1xf16>
-// CHECK:    [[MVN3:%.+]] = VPU.MVN([[SLICE3]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
+// CHECK:    [[MVN3:%.+]] = VPU.MVN([[SLICE3]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 3>}, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
 // CHECK:    [[SLICE4:%.+]] = VPU.Slice [[INPUT]] [0, 2688, 0, 0] [1, 672, 512, 1] : tensor<1x5376x512x1xf16> to tensor<1x672x512x1xf16>
-// CHECK:    [[MVN4:%.+]] = VPU.MVN([[SLICE4]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
+// CHECK:    [[MVN4:%.+]] = VPU.MVN([[SLICE4]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 4>}, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
 // CHECK:    [[SLICE5:%.+]] = VPU.Slice [[INPUT]] [0, 3360, 0, 0] [1, 672, 512, 1] : tensor<1x5376x512x1xf16> to tensor<1x672x512x1xf16>
-// CHECK:    [[MVN5:%.+]] = VPU.MVN([[SLICE5]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
+// CHECK:    [[MVN5:%.+]] = VPU.MVN([[SLICE5]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 5>}, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
 // CHECK:    [[SLICE6:%.+]] = VPU.Slice [[INPUT]] [0, 4032, 0, 0] [1, 672, 512, 1] : tensor<1x5376x512x1xf16> to tensor<1x672x512x1xf16>
-// CHECK:    [[MVN6:%.+]] = VPU.MVN([[SLICE6]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
+// CHECK:    [[MVN6:%.+]] = VPU.MVN([[SLICE6]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 6>}, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
 // CHECK:    [[SLICE7:%.+]] = VPU.Slice [[INPUT]] [0, 4704, 0, 0] [1, 672, 512, 1] : tensor<1x5376x512x1xf16> to tensor<1x672x512x1xf16>
-// CHECK:    [[MVN7:%.+]] = VPU.MVN([[SLICE7]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
+// CHECK:    [[MVN7:%.+]] = VPU.MVN([[SLICE7]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 7>}, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
 // CHECK:    [[CONCAT:%.+]] = VPU.Concat([[MVN0]], [[MVN1]], [[MVN2]], [[MVN3]], [[MVN4]], [[MVN5]], [[MVN6]], [[MVN7]])
 // CHECK-SAME{LITERAL}:   {static_offsets = [[0, 0, 0, 0], [0, 672, 0, 0], [0, 1344, 0, 0], [0, 2016, 0, 0], [0, 2688, 0, 0], [0, 3360, 0, 0], [0, 4032, 0, 0], [0, 4704, 0, 0]]} : tensor<1x672x512x1xf16>, tensor<1x672x512x1xf16>, tensor<1x672x512x1xf16>, tensor<1x672x512x1xf16>, tensor<1x672x512x1xf16>, tensor<1x672x512x1xf16>, tensor<1x672x512x1xf16>, tensor<1x672x512x1xf16> -> tensor<1x5376x512x1xf16>
 // CHECK:    return [[CONCAT]] : tensor<1x5376x512x1xf16>
@@ -2119,9 +2119,9 @@ func.func @DistributedMVNTileOverC(%arg0: tensor<1x5376x512x1xf16>) -> tensor<1x
     return %0 : tensor<1x5376x512x1xf16>
 
 // CHECK:    [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 2688, 512, 1] : tensor<1x5376x512x1xf16> to tensor<1x2688x512x1xf16>
-// CHECK:    [[MVN0:%.+]] = VPU.MVN([[SLICE0]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x2688x512x1xf16> -> tensor<1x2688x512x1xf16>
+// CHECK:    [[MVN0:%.+]] = VPU.MVN([[SLICE0]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x2688x512x1xf16> -> tensor<1x2688x512x1xf16>
 // CHECK:    [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 2688, 0, 0] [1, 2688, 512, 1] : tensor<1x5376x512x1xf16> to tensor<1x2688x512x1xf16>
-// CHECK:    [[MVN1:%.+]] = VPU.MVN([[SLICE1]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x2688x512x1xf16> -> tensor<1x2688x512x1xf16>
+// CHECK:    [[MVN1:%.+]] = VPU.MVN([[SLICE1]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x2688x512x1xf16> -> tensor<1x2688x512x1xf16>
 // CHECK:    [[CONCAT:%.+]] = VPU.Concat([[MVN0]], [[MVN1]])
 // CHECK-SAME{LITERAL}:   {static_offsets = [[0, 0, 0, 0], [0, 2688, 0, 0]]} : tensor<1x2688x512x1xf16>, tensor<1x2688x512x1xf16> -> tensor<1x5376x512x1xf16>
 // CHECK:    return [[CONCAT]] : tensor<1x5376x512x1xf16>
@@ -2136,13 +2136,13 @@ func.func @MVNTileOverNC(%arg0: tensor<2x1344x512x1xf16>) -> tensor<2x1344x512x1
     %0 = VPU.MVN(%arg0) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true} : tensor<2x1344x512x1xf16> -> tensor<2x1344x512x1xf16>
     return %0 : tensor<2x1344x512x1xf16>
 // CHECK:    [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 672, 512, 1] : tensor<2x1344x512x1xf16> to tensor<1x672x512x1xf16>
-// CHECK:    [[MVN0:%.+]] = VPU.MVN([[SLICE0]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
+// CHECK:    [[MVN0:%.+]] = VPU.MVN([[SLICE0]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 0, 1>, indices = array<i64: 0, 0>}, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
 // CHECK:    [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 672, 0, 0] [1, 672, 512, 1] : tensor<2x1344x512x1xf16> to tensor<1x672x512x1xf16>
-// CHECK:    [[MVN1:%.+]] = VPU.MVN([[SLICE1]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
+// CHECK:    [[MVN1:%.+]] = VPU.MVN([[SLICE1]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 0, 1>, indices = array<i64: 0, 1>}, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
 // CHECK:    [[SLICE2:%.+]] = VPU.Slice [[INPUT]] [1, 0, 0, 0] [1, 672, 512, 1] : tensor<2x1344x512x1xf16> to tensor<1x672x512x1xf16>
-// CHECK:    [[MVN2:%.+]] = VPU.MVN([[SLICE2]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
+// CHECK:    [[MVN2:%.+]] = VPU.MVN([[SLICE2]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 0, 1>, indices = array<i64: 1, 0>}, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
 // CHECK:    [[SLICE3:%.+]] = VPU.Slice [[INPUT]] [1, 672, 0, 0] [1, 672, 512, 1] : tensor<2x1344x512x1xf16> to tensor<1x672x512x1xf16>
-// CHECK:    [[MVN3:%.+]] = VPU.MVN([[SLICE3]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
+// CHECK:    [[MVN3:%.+]] = VPU.MVN([[SLICE3]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 0, 1>, indices = array<i64: 1, 1>}, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x672x512x1xf16> -> tensor<1x672x512x1xf16>
 // CHECK:    [[CONCAT:%.+]] = VPU.Concat([[MVN0]], [[MVN1]], [[MVN2]], [[MVN3]])
 // CHECK-SAME{LITERAL}:   {static_offsets = [[0, 0, 0, 0], [0, 672, 0, 0], [1, 0, 0, 0], [1, 672, 0, 0]]} : tensor<1x672x512x1xf16>, tensor<1x672x512x1xf16>, tensor<1x672x512x1xf16>, tensor<1x672x512x1xf16> -> tensor<2x1344x512x1xf16>
 // CHECK:    return [[CONCAT]] : tensor<2x1344x512x1xf16>
@@ -2157,13 +2157,13 @@ func.func @DistributedMVNTileOverNC(%arg0: tensor<2x5376x512x1xf16>) -> tensor<2
     %0 = VPU.MVN(%arg0) {across_channels = false, eps = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true} : tensor<2x5376x512x1xf16> -> tensor<2x5376x512x1xf16>
     return %0 : tensor<2x5376x512x1xf16>
 // CHECK:    [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 2688, 512, 1] : tensor<2x5376x512x1xf16> to tensor<1x2688x512x1xf16>
-// CHECK:    [[MVN0:%.+]] = VPU.MVN([[SLICE0]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x2688x512x1xf16> -> tensor<1x2688x512x1xf16>
+// CHECK:    [[MVN0:%.+]] = VPU.MVN([[SLICE0]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 0, 1>, indices = array<i64: 0, 0>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x2688x512x1xf16> -> tensor<1x2688x512x1xf16>
 // CHECK:    [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 2688, 0, 0] [1, 2688, 512, 1] : tensor<2x5376x512x1xf16> to tensor<1x2688x512x1xf16>
-// CHECK:    [[MVN1:%.+]] = VPU.MVN([[SLICE1]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x2688x512x1xf16> -> tensor<1x2688x512x1xf16>
+// CHECK:    [[MVN1:%.+]] = VPU.MVN([[SLICE1]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 0, 1>, indices = array<i64: 0, 1>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x2688x512x1xf16> -> tensor<1x2688x512x1xf16>
 // CHECK:    [[SLICE2:%.+]] = VPU.Slice [[INPUT]] [1, 0, 0, 0] [1, 2688, 512, 1] : tensor<2x5376x512x1xf16> to tensor<1x2688x512x1xf16>
-// CHECK:    [[MVN2:%.+]] = VPU.MVN([[SLICE2]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x2688x512x1xf16> -> tensor<1x2688x512x1xf16>
+// CHECK:    [[MVN2:%.+]] = VPU.MVN([[SLICE2]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 0, 1>, indices = array<i64: 1, 0>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x2688x512x1xf16> -> tensor<1x2688x512x1xf16>
 // CHECK:    [[SLICE3:%.+]] = VPU.Slice [[INPUT]] [1, 2688, 0, 0] [1, 2688, 512, 1] : tensor<2x5376x512x1xf16> to tensor<1x2688x512x1xf16>
-// CHECK:    [[MVN3:%.+]] = VPU.MVN([[SLICE3]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x2688x512x1xf16> -> tensor<1x2688x512x1xf16>
+// CHECK:    [[MVN3:%.+]] = VPU.MVN([[SLICE3]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, loop_tile_coord = {axes = array<i64: 0, 1>, indices = array<i64: 1, 1>}, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true, tiling_loop_index = 0 : i64} : tensor<1x2688x512x1xf16> -> tensor<1x2688x512x1xf16>
 // CHECK:    [[CONCAT:%.+]] = VPU.Concat([[MVN0]], [[MVN1]], [[MVN2]], [[MVN3]])
 // CHECK-SAME{LITERAL}:   {static_offsets = [[0, 0, 0, 0], [0, 2688, 0, 0], [1, 0, 0, 0], [1, 2688, 0, 0]]} : tensor<1x2688x512x1xf16>, tensor<1x2688x512x1xf16>, tensor<1x2688x512x1xf16>, tensor<1x2688x512x1xf16> -> tensor<2x5376x512x1xf16>
 // CHECK:    return [[CONCAT]] : tensor<2x5376x512x1xf16>
@@ -2255,18 +2255,18 @@ func.func @SplitTileOnDimH(%arg0: tensor<1x32x1x1xf16, {order = #NHWC}>) -> tens
     %0 = VPU.Tile(%arg0) {repeats_values = [1, 1, 512, 512]} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x512x512xf16, {order = #NHWC}>
     return %0 : tensor<1x32x512x512xf16, {order = #NHWC}>
 
-    // CHECK:         [[TILE_0:%.+]] = VPU.Tile([[ARG_0]]) {repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
-    // CHECK:         [[TILE_1:%.+]] = VPU.Tile([[ARG_0]]) {repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
-    // CHECK:         [[TILE_2:%.+]] = VPU.Tile([[ARG_0]]) {repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
-    // CHECK:         [[TILE_3:%.+]] = VPU.Tile([[ARG_0]]) {repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
-    // CHECK:         [[TILE_4:%.+]] = VPU.Tile([[ARG_0]]) {repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
-    // CHECK:         [[TILE_5:%.+]] = VPU.Tile([[ARG_0]]) {repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
-    // CHECK:         [[TILE_6:%.+]] = VPU.Tile([[ARG_0]]) {repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
-    // CHECK:         [[TILE_7:%.+]] = VPU.Tile([[ARG_0]]) {repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
-    // CHECK:         [[TILE_8:%.+]] = VPU.Tile([[ARG_0]]) {repeats_values = [1, 1, 42, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x42x512xf16, {order = #NHWC}>
-    // CHECK:         [[TILE_9:%.+]] = VPU.Tile([[ARG_0]]) {repeats_values = [1, 1, 42, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x42x512xf16, {order = #NHWC}>
-    // CHECK:         [[TILE_10:%.+]] = VPU.Tile([[ARG_0]]) {repeats_values = [1, 1, 42, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x42x512xf16, {order = #NHWC}>
-    // CHECK:         [[TILE_11:%.+]] = VPU.Tile([[ARG_0]]) {repeats_values = [1, 1, 42, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x42x512xf16, {order = #NHWC}>
+    // CHECK:         [[TILE_0:%.+]] = VPU.Tile([[ARG_0]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
+    // CHECK:         [[TILE_1:%.+]] = VPU.Tile([[ARG_0]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
+    // CHECK:         [[TILE_2:%.+]] = VPU.Tile([[ARG_0]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 2>}, repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
+    // CHECK:         [[TILE_3:%.+]] = VPU.Tile([[ARG_0]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 3>}, repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
+    // CHECK:         [[TILE_4:%.+]] = VPU.Tile([[ARG_0]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 4>}, repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
+    // CHECK:         [[TILE_5:%.+]] = VPU.Tile([[ARG_0]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 5>}, repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
+    // CHECK:         [[TILE_6:%.+]] = VPU.Tile([[ARG_0]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 6>}, repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
+    // CHECK:         [[TILE_7:%.+]] = VPU.Tile([[ARG_0]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 7>}, repeats_values = [1, 1, 43, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x43x512xf16, {order = #NHWC}>
+    // CHECK:         [[TILE_8:%.+]] = VPU.Tile([[ARG_0]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 8>}, repeats_values = [1, 1, 42, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x42x512xf16, {order = #NHWC}>
+    // CHECK:         [[TILE_9:%.+]] = VPU.Tile([[ARG_0]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 9>}, repeats_values = [1, 1, 42, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x42x512xf16, {order = #NHWC}>
+    // CHECK:         [[TILE_10:%.+]] = VPU.Tile([[ARG_0]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 10>}, repeats_values = [1, 1, 42, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x42x512xf16, {order = #NHWC}>
+    // CHECK:         [[TILE_11:%.+]] = VPU.Tile([[ARG_0]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 11>}, repeats_values = [1, 1, 42, 512], tiling_loop_index = 0 : i64} : tensor<1x32x1x1xf16, {order = #NHWC}> -> tensor<1x32x42x512xf16, {order = #NHWC}>
     // CHECK:         [[RET:%.+]] = VPU.Concat([[TILE_0]], [[TILE_1]], [[TILE_2]], [[TILE_3]], [[TILE_4]], [[TILE_5]], [[TILE_6]], [[TILE_7]], [[TILE_8]], [[TILE_9]], [[TILE_10]], [[TILE_11]])
     // CHECK-SAME:      [0, 0, 0, 0], [0, 0, 43, 0], [0, 0, 86, 0], [0, 0, 129, 0], [0, 0, 172, 0], [0, 0, 215, 0], [0, 0, 258, 0], [0, 0, 301, 0], [0, 0, 344, 0], [0, 0, 386, 0], [0, 0, 428, 0], [0, 0, 470, 0]
     // CHECK:         return [[RET]] : tensor<1x32x512x512xf16, {order = #NHWC}>
@@ -2291,7 +2291,7 @@ func.func @TilePadOverWidth(%arg0: tensor<1x3x227x240xf16>) -> tensor<1x16x227x2
     // CHECK-SAME:      : tensor<1x3x227x240xf16> to tensor<1x3x227x120xf16>
 
     // CHECK:       [[PAD0:%.+]] = VPU.Pad([[SLICE0]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 0>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64
     // CHECK-SAME:      pads_begin_attr = [0, 0, 0, 0], pads_end_attr = [0, 13, 0, 0], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x227x120xf16> -> tensor<1x16x227x120xf16>
 
@@ -2300,7 +2300,7 @@ func.func @TilePadOverWidth(%arg0: tensor<1x3x227x240xf16>) -> tensor<1x16x227x2
     // CHECK:       [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 120] [1, 3, 227, 120]
     // CHECK-SAME:      : tensor<1x3x227x240xf16> to tensor<1x3x227x120xf16>
 
-    // CHECK:       [[PAD1:%.+]] = VPU.Pad([[SLICE1]]) {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64
+    // CHECK:       [[PAD1:%.+]] = VPU.Pad([[SLICE1]]) {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 1>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64
     // CHECK-SAME:      pads_begin_attr = [0, 0, 0, 0], pads_end_attr = [0, 13, 0, 0], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x227x120xf16> -> tensor<1x16x227x120xf16>
 
@@ -2332,7 +2332,7 @@ func.func @TilePadOverPaddedWidth(%arg0: tensor<1x3x227x580xf16>) -> tensor<1x16
     // CHECK-SAME:      : tensor<1x3x227x580xf16> to tensor<1x3x227x140xf16>
 
     // CHECK:       [[PAD0:%.+]] = VPU.Pad([[SLICE0]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 0>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64
     // CHECK-SAME:      pads_begin_attr = [0, 0, 0, 10], pads_end_attr = [0, 13, 0, 0], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x227x140xf16> -> tensor<1x16x227x150xf16>
 
@@ -2342,7 +2342,7 @@ func.func @TilePadOverPaddedWidth(%arg0: tensor<1x3x227x580xf16>) -> tensor<1x16
     // CHECK-SAME:      : tensor<1x3x227x580xf16> to tensor<1x3x227x150xf16>
 
     // CHECK:       [[PAD1:%.+]] = VPU.Pad([[SLICE1]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 1>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64
     // CHECK-SAME:      pads_begin_attr = [0, 0, 0, 0], pads_end_attr = [0, 13, 0, 0], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x227x150xf16> -> tensor<1x16x227x150xf16>
 
@@ -2352,7 +2352,7 @@ func.func @TilePadOverPaddedWidth(%arg0: tensor<1x3x227x580xf16>) -> tensor<1x16
     // CHECK-SAME:      : tensor<1x3x227x580xf16> to tensor<1x3x227x150xf16>
 
     // CHECK:       [[PAD2:%.+]] = VPU.Pad([[SLICE2]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 2>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64
     // CHECK-SAME:      pads_begin_attr = [0, 0, 0, 0], pads_end_attr = [0, 13, 0, 0], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x227x150xf16> -> tensor<1x16x227x150xf16>
 
@@ -2362,7 +2362,7 @@ func.func @TilePadOverPaddedWidth(%arg0: tensor<1x3x227x580xf16>) -> tensor<1x16
     // CHECK-SAME:      : tensor<1x3x227x580xf16> to tensor<1x3x227x140xf16>
 
     // CHECK:       [[PAD3:%.+]] = VPU.Pad([[SLICE3]])
-    // CHECK-SAME:      {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64
+    // CHECK-SAME:      {loop_tile_coord = {axes = array<i64: 3>, indices = array<i64: 3>}, mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64
     // CHECK-SAME:      pads_begin_attr = [0, 0, 0, 0], pads_end_attr = [0, 13, 0, 10], tiling_loop_index = 0 : i64}
     // CHECK-SAME:      : tensor<1x3x227x140xf16> -> tensor<1x16x227x150xf16>
 

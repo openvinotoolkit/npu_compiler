@@ -38,11 +38,11 @@ mlir::Operation* IE::createIdentityAvgPool(mlir::Value input, mlir::Type outType
     const SmallVector<int64_t> pads = {0, 0};
     auto ctx = builder.getContext();
 
-    return builder.create<IE::AvgPoolOp>(loc, outType, input, nullptr, getIntArrayAttr(ctx, poolKernels),
-                                         getIntArrayAttr(ctx, poolStrides), getIntArrayAttr(ctx, pads),
-                                         getIntArrayAttr(ctx, pads),
-                                         vpux::IE::RoundingTypeAttr::get(ctx, vpux::IE::RoundingType::FLOOR),
-                                         mlir::UnitAttr::get(ctx), nullptr, nullptr, nullptr, nullptr, nullptr);
+    return IE::AvgPoolOp::create(builder, loc, outType, input, nullptr, getIntArrayAttr(ctx, poolKernels),
+                                 getIntArrayAttr(ctx, poolStrides), getIntArrayAttr(ctx, pads),
+                                 getIntArrayAttr(ctx, pads),
+                                 vpux::IE::RoundingTypeAttr::get(ctx, vpux::IE::RoundingType::FLOOR),
+                                 mlir::UnitAttr::get(ctx), nullptr, nullptr, nullptr, nullptr, nullptr);
 }
 
 //
@@ -55,10 +55,11 @@ mlir::Operation* IE::createIdentityMaxPool(mlir::Value input, mlir::Type outType
     const SmallVector<int64_t> pads = {0, 0};
     auto ctx = rewriter.getContext();
 
-    return rewriter.create<IE::MaxPoolOp>(
-            appendLoc(input.getLoc(), "to_maxpool"), outType, input, nullptr, getIntArrayAttr(ctx, poolKernels),
-            getIntArrayAttr(ctx, poolStrides), getIntArrayAttr(ctx, pads), getIntArrayAttr(ctx, pads),
-            IE::RoundingTypeAttr::get(ctx, IE::RoundingType::FLOOR), nullptr, nullptr, nullptr, nullptr, nullptr);
+    return IE::MaxPoolOp::create(rewriter, appendLoc(input.getLoc(), "to_maxpool"), outType, input, nullptr,
+                                 getIntArrayAttr(ctx, poolKernels), getIntArrayAttr(ctx, poolStrides),
+                                 getIntArrayAttr(ctx, pads), getIntArrayAttr(ctx, pads),
+                                 IE::RoundingTypeAttr::get(ctx, IE::RoundingType::FLOOR), nullptr, nullptr, nullptr,
+                                 nullptr, nullptr);
 }
 
 //

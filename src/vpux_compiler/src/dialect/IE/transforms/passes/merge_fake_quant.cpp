@@ -68,14 +68,14 @@ mlir::LogicalResult MergeQuantDequant::matchAndRewrite(IE::DequantizeOp dequanti
         levelsAttr = getIntAttr(dequantizeOp.getContext(), levels);
     }
 
-    auto rMinOp = rewriter.create<Const::DeclareOp>(appendLoc(dequantizeOp.getLoc(), "low"), attrType,
-                                                    Const::ContentAttr::get(rMinAttr));
-    auto rMaxOp = rewriter.create<Const::DeclareOp>(appendLoc(dequantizeOp.getLoc(), "high"), attrType,
-                                                    Const::ContentAttr::get(rMaxAttr));
+    auto rMinOp = Const::DeclareOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "low"), attrType,
+                                           Const::ContentAttr::get(rMinAttr));
+    auto rMaxOp = Const::DeclareOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "high"), attrType,
+                                           Const::ContentAttr::get(rMaxAttr));
 
-    auto fqOp = rewriter.create<IE::FakeQuantizeOp>(
-            appendLoc(dequantizeOp.getLoc(), "as_fq"), quantizeOp.getInput(), rMinOp.getOutput(), rMaxOp.getOutput(),
-            rMinOp.getOutput(), rMaxOp.getOutput(), levelsAttr, lowFpTypeAttr, IE::AutoBroadcastType::NUMPY);
+    auto fqOp = IE::FakeQuantizeOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "as_fq"), quantizeOp.getInput(),
+                                           rMinOp.getOutput(), rMaxOp.getOutput(), rMinOp.getOutput(),
+                                           rMaxOp.getOutput(), levelsAttr, lowFpTypeAttr, IE::AutoBroadcastType::NUMPY);
     rewriter.replaceAllOpUsesWith(dequantizeOp, fqOp);
 
     return mlir::success();
@@ -138,19 +138,20 @@ mlir::LogicalResult MergeQuantCastDequant::matchAndRewrite(IE::DequantizeOp dequ
         levelsAttr = getIntAttr(dequantizeOp.getContext(), inLevels);
     }
 
-    auto inMinOp = rewriter.create<Const::DeclareOp>(appendLoc(dequantizeOp.getLoc(), "in_low"), inAttrType,
-                                                     Const::ContentAttr::get(inMinAttr));
-    auto inMaxOp = rewriter.create<Const::DeclareOp>(appendLoc(dequantizeOp.getLoc(), "in_high"), inAttrType,
-                                                     Const::ContentAttr::get(inMaxAttr));
-    auto outMinOp = rewriter.create<Const::DeclareOp>(appendLoc(dequantizeOp.getLoc(), "out_low"), outAttrType,
-                                                      Const::ContentAttr::get(outMinAttr));
-    auto outMaxOp = rewriter.create<Const::DeclareOp>(appendLoc(dequantizeOp.getLoc(), "out_high"), outAttrType,
-                                                      Const::ContentAttr::get(outMaxAttr));
+    auto inMinOp = Const::DeclareOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "in_low"), inAttrType,
+                                            Const::ContentAttr::get(inMinAttr));
+    auto inMaxOp = Const::DeclareOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "in_high"), inAttrType,
+                                            Const::ContentAttr::get(inMaxAttr));
+    auto outMinOp = Const::DeclareOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "out_low"), outAttrType,
+                                             Const::ContentAttr::get(outMinAttr));
+    auto outMaxOp = Const::DeclareOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "out_high"), outAttrType,
+                                             Const::ContentAttr::get(outMaxAttr));
 
     // lowFpType in not needed (nullptr), only levels are given
-    auto fqOp = rewriter.create<IE::FakeQuantizeOp>(
-            appendLoc(dequantizeOp.getLoc(), "as_fq"), quantizeOp.getInput(), inMinOp.getOutput(), inMaxOp.getOutput(),
-            outMinOp.getOutput(), outMaxOp.getOutput(), levelsAttr, lowFpTypeAttr, IE::AutoBroadcastType::NUMPY);
+    auto fqOp =
+            IE::FakeQuantizeOp::create(rewriter, appendLoc(dequantizeOp.getLoc(), "as_fq"), quantizeOp.getInput(),
+                                       inMinOp.getOutput(), inMaxOp.getOutput(), outMinOp.getOutput(),
+                                       outMaxOp.getOutput(), levelsAttr, lowFpTypeAttr, IE::AutoBroadcastType::NUMPY);
     rewriter.replaceAllOpUsesWith(dequantizeOp, fqOp);
 
     return mlir::success();

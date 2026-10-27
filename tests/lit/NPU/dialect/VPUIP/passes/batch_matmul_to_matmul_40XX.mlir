@@ -33,7 +33,7 @@ func.func @main() -> () {
     %WAIT_BARRIER = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK:   [[WAIT_BARRIER:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     VPURT.Task updates(%WAIT_BARRIER : !VPURT.Barrier) {
-        %MATMUL = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %MATMUL = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<
                 left = 0 : i64,
                 right = 0 : i64,
@@ -133,7 +133,7 @@ func.func @main() -> () {
     %WAIT_BARRIER = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK:   [[WAIT_BARRIER:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     VPURT.Task updates(%WAIT_BARRIER : !VPURT.Barrier) {
-        %MATMUL = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %MATMUL = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<
                 left = 0 : i64,
                 right = 0 : i64,
@@ -221,7 +221,7 @@ func.func @main() -> () {
     %WAIT_BARRIER = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK:   [[WAIT_BARRIER:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     VPURT.Task updates(%WAIT_BARRIER : !VPURT.Barrier) {
-        %MATMUL = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %MATMUL = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<
                 left = 0 : i64,
                 right = 0 : i64,

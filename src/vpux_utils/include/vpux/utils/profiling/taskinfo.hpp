@@ -47,7 +47,7 @@ using DMAChannelType = ProfilingFB::DMAChannelType;
 struct TaskInfo {
     std::string name;
     std::string layer_type;
-    enum class ExecType { NONE, DPU, SW, DMA, M2I };
+    enum class ExecType { NONE, DPU, SW, DMA };
     ExecType exec_type;
     uint32_t clusterId;
     bool isSubtask;  // DPU variant

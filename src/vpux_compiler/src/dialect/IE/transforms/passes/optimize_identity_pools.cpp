@@ -67,8 +67,7 @@ bool isIdentityAvgPoolWithPPE(IE::AvgPoolOp avgPoolOp) {
     const auto postOp = avgPoolOp.getPostOpAttr();
     const auto clamp = avgPoolOp.getClampAttr();
 
-    // TODO: E#159161 What about other post-ops?
-    if (clamp == nullptr && !mlir::isa_and_nonnull<IE::ReluAttr, IE::LeakyReluAttr>(postOp)) {
+    if (clamp == nullptr && postOp == nullptr) {
         return false;
     }
 
@@ -90,14 +89,46 @@ bool isIdentityAvgPoolWithPPE(IE::AvgPoolOp avgPoolOp) {
 //
 // FuseIdentityAvgPoolWithPostOp
 //
-
+//     Conv (w/clamp || w/o clamp) w/o postOp
+//               |                                                       |
+//     Identity AvgPool (w/clamp || w/o clamp) w/ postOp  ->  Conv (w/ clamp || w/o clamp) w/ postOp
+//               |                                                       |
 //
-//               |
-//            Conv w/o postOp
-//               |                                 |
-//     Identity AvgPool w/ postOp       ->      Conv w/ postOp
-//               |                                 |
+//  PPE tasks apply post-op first then clamp. If the following subgraph is given:
+//  ```
+//  Conv {clamp = {max = 1.0, min = -1.0} }
+//   |
+//  Identity AvgPool {clamp = {max = 0.5, min = -0.5}, post_op = #IE.ReLU<>}
+//  ```
 //
+//  It can be decomposed as:
+//  ```
+//  Conv
+//   |
+//  Clamp1
+//   |
+//  Identity AvgPool
+//   |
+//  ReLU
+//   |
+//  Clamp2
+//  ```
+//
+//  AvgPool can be removed:
+//  ```
+//  Conv
+//   |
+//  Clamp1
+//   |
+//  ReLU
+//   |
+//  Clamp2
+//  ```
+//
+//  The correct order to guarantee correctness while remaining performant:
+//  1. Fuse ReLU into Conv
+//  2. Execute ReLU on min and max of Clamp1 and fuse into Conv
+//  3. Intersect Clamp2 with Clamp1 into Conv
 
 class FuseIdentityAvgPoolWithPostOp final : public mlir::OpRewritePattern<IE::AvgPoolOp> {
 public:
@@ -112,77 +143,6 @@ public:
 private:
     Logger _log;
 };
-
-template <typename T, typename... Ts>
-mlir::LogicalResult rewritePostOp(const Logger& _log, IE::AvgPoolOp avgPoolOp, mlir::PatternRewriter& rewriter,
-                                  IE::LayerWithPostOpInterface producerOp, Ts&&... opArgs) {
-    auto postOp = rewriter.create<T>(opArgs...);
-    const auto isSupported = producerOp.isSupportedPostOp(postOp, [&](const auto& msg) {
-        _log.trace("{0}", msg.str());
-    });
-    rewriter.eraseOp(postOp);
-
-    if (isSupported) {
-        producerOp.setPostOpAttr(avgPoolOp.getPostOpAttr());
-        avgPoolOp.removePostOpAttr();
-        return mlir::success();
-    } else {
-        _log.nest().trace("avgPoolOp producer does not support the post_op in avgPoolOp!");
-        return mlir::failure();
-    }
-}
-
-mlir::LogicalResult rewritePostOps(const Logger& _log, IE::AvgPoolOp avgPoolOp, mlir::PatternRewriter& rewriter,
-                                   IE::LayerWithPostOpInterface producerOp) {
-    const auto postOpAttr = avgPoolOp.getPostOpAttr();
-    if (!mlir::isa_and_present<IE::LeakyReluAttr, IE::ReluAttr>(postOpAttr)) {
-        return mlir::success();  // Success by default, nothing happened
-    }
-
-    if (const auto lrelu = mlir::dyn_cast<IE::LeakyReluAttr>(postOpAttr)) {
-        return rewritePostOp<IE::LeakyReluOp>(_log, avgPoolOp, rewriter, producerOp, avgPoolOp->getLoc(),
-                                              avgPoolOp.getInput(), lrelu.getNegativeSlope());
-    }
-    return rewritePostOp<IE::ReLUOp>(_log, avgPoolOp, rewriter, producerOp, avgPoolOp->getLoc(), avgPoolOp.getInput());
-}
-
-mlir::LogicalResult rewriteClamp(const Logger& _log, IE::AvgPoolOp avgPoolOp, mlir::PatternRewriter& rewriter,
-                                 IE::LayerWithPostOpInterface producerOp) {
-    const auto clampAttr = avgPoolOp.getClampAttr();
-    if (clampAttr == nullptr) {
-        return mlir::success();  // Success by default, nothing happened
-    }
-
-    auto min = clampAttr.getAs<mlir::FloatAttr>("min").getValueAsDouble();
-    auto max = clampAttr.getAs<mlir::FloatAttr>("max").getValueAsDouble();
-    if (const auto producerClamp = producerOp.getClampAttr()) {
-        min = std::max(min, producerClamp.getAs<mlir::FloatAttr>("min").getValueAsDouble());
-        max = std::min(max, producerClamp.getAs<mlir::FloatAttr>("max").getValueAsDouble());
-    }
-
-    const auto clampOp = rewriter.create<IE::ClampOp>(avgPoolOp->getLoc(), avgPoolOp.getInput(),
-                                                      vpux::getFPAttr(avgPoolOp.getContext(), min),
-                                                      vpux::getFPAttr(avgPoolOp.getContext(), max));
-    const auto isSupported = producerOp.isSupportedClampOp(clampOp, [&](const auto& msg) {
-        _log.trace("{0}", msg.str());
-    });
-    rewriter.eraseOp(clampOp);
-
-    if (isSupported) {
-        const auto maxName = mlir::StringAttr::get(avgPoolOp.getContext(), "max");
-        const auto minName = mlir::StringAttr::get(avgPoolOp.getContext(), "min");
-        const auto maxAttr = mlir::NamedAttribute(maxName, vpux::getFPAttr(avgPoolOp.getContext(), max));
-        const auto minAttr = mlir::NamedAttribute(minName, vpux::getFPAttr(avgPoolOp.getContext(), min));
-        const auto dictAttr = mlir::DictionaryAttr::get(avgPoolOp.getContext(), {maxAttr, minAttr});
-        producerOp.setClampAttr(dictAttr);
-
-        avgPoolOp.removeClampAttr();
-        return mlir::success();
-    } else {
-        _log.nest().trace("avgPoolOp producer does not support the clamp in avgPoolOp!");
-        return mlir::failure();
-    }
-}
 
 mlir::LogicalResult FuseIdentityAvgPoolWithPostOp::matchAndRewrite(IE::AvgPoolOp avgPoolOp,
                                                                    mlir::PatternRewriter& rewriter) const {
@@ -211,13 +171,30 @@ mlir::LogicalResult FuseIdentityAvgPoolWithPostOp::matchAndRewrite(IE::AvgPoolOp
         return mlir::failure();
     }
 
-    if (rewritePostOps(_log, avgPoolOp, rewriter, producerOp).failed()) {
+    auto avgPoolPostOp = avgPoolOp.getPostOpAttr();
+    const auto logCb = [&](const formatv_object_base& msg) {
+        _log.trace("{0}", msg.str());
+    };
+    if (avgPoolPostOp != nullptr && !producerOp.isSupportedPostOpAttr(avgPoolPostOp, logCb)) {
+        _log.nest().trace("avgPoolOp producer does not support the post_op in avgPoolOp");
         return mlir::failure();
     }
 
-    if (rewriteClamp(_log, avgPoolOp, rewriter, producerOp).failed()) {
+    auto fusedClamp = IE::getFusedClamp(_log, producerOp.getClampAttr(), avgPoolPostOp, avgPoolOp.getClampAttr(),
+                                        producerOp, avgPoolOp.getInput().getType());
+    if (!fusedClamp.has_value()) {
         return mlir::failure();
     }
+
+    rewriter.modifyOpInPlace(producerOp, [&] {
+        if (avgPoolPostOp != nullptr) {
+            producerOp.setPostOpAttr(avgPoolPostOp);
+        }
+
+        if (*fusedClamp != nullptr) {
+            producerOp.setClampAttr(fusedClamp.value());
+        }
+    });
 
     // Replace the AvgPool with its producer, clamp/post_op fused
     rewriter.replaceOp(avgPoolOp, producerOp->getResult(0));
@@ -260,8 +237,37 @@ mlir::LogicalResult FuseIdentityQuantizedAvgPool::matchAndRewrite(IE::AvgPoolOp 
         return mlir::failure();
     }
 
-    origOp.setClampAttr(parentPoolOp.getClampAttr());
-    origOp.setPostOpAttr(parentPoolOp.getPostOpAttr());
+    const auto logCb = [&](const formatv_object_base& msg) {
+        _log.trace("{0}", msg.str());
+    };
+    auto layerWithPostOp = mlir::cast<IE::LayerWithPostOpInterface>(origOp.getOperation());
+    const auto parentPostOp = parentPoolOp.getPostOpAttr();
+    const auto origPostOp = origOp.getPostOpAttr();
+
+    if (parentPostOp != nullptr && origPostOp != nullptr) {
+        _log.trace("Both avgPoolOp and its parent pool have a post_op!");
+        return mlir::failure();
+    }
+
+    if (parentPostOp != nullptr && !layerWithPostOp.isSupportedPostOpAttr(parentPostOp, logCb)) {
+        _log.trace("avgPoolOp does not support the post_op of its parent pool!");
+        return mlir::failure();
+    }
+
+    const auto fusedClamp = IE::getFusedClamp(_log, parentPoolOp.getClampAttr(), origPostOp, origOp.getClampAttr(),
+                                              layerWithPostOp, origOp.getOutput().getType());
+    if (!fusedClamp.has_value()) {
+        return mlir::failure();
+    }
+
+    if (fusedClamp.value() != nullptr) {
+        origOp.setClampAttr(fusedClamp.value());
+    }
+
+    if (parentPostOp != nullptr) {
+        origOp.setPostOpAttr(parentPostOp);
+    }
+
     origOp.setOperand(0, parentPoolOp.getInput());
     rewriter.eraseOp(parentPoolOp);
 
@@ -314,20 +320,31 @@ mlir::LogicalResult FuseIdentityWithQuantizedAdd::matchAndRewrite(IE::AddOp orig
         return mlir::failure();
     }
 
-    const auto postOp = rewriter.create<IE::LeakyReluOp>(parentPoolOp->getLoc(), parentPoolOp.getInput(),
-                                                         leakyRelu.getNegativeSlope());
-
     const auto logCb = [&](const formatv_object_base& msg) {
         _log.trace("{0}", msg.str());
     };
-    if (!mlir::dyn_cast<IE::LayerWithPostOpInterface>(origOp.getOperation()).isSupportedPostOp(postOp, logCb)) {
-        _log.nest().trace("avgPoolOp producer does not support the post-processing in AddOp!");
-        rewriter.eraseOp(postOp);
+
+    if (origOp.getPostOpAttr() != nullptr) {
+        _log.trace("AddOp already has a post_op");
         return mlir::failure();
     }
-    rewriter.eraseOp(postOp);
 
-    origOp.setClampAttr(parentPoolOp.getClampAttr());
+    auto layerWithPostOp = mlir::cast<IE::LayerWithPostOpInterface>(origOp.getOperation());
+    if (!layerWithPostOp.isSupportedPostOpAttr(leakyRelu, logCb)) {
+        _log.nest().trace("avgPoolOp producer does not support the post-op in AddOp");
+        return mlir::failure();
+    }
+
+    const auto fusedClamp = IE::getFusedClamp(_log, parentPoolOp.getClampAttr(), origOp.getPostOpAttr(),
+                                              origOp.getClampAttr(), layerWithPostOp, origOp.getOutput().getType());
+    if (!fusedClamp.has_value()) {
+        return mlir::failure();
+    }
+
+    if (fusedClamp.value() != nullptr) {
+        origOp.setClampAttr(fusedClamp.value());
+    }
+
     origOp.setPostOpAttr(parentPoolOp.getPostOpAttr());
     origOp.setOperand(0, parentPoolOp.getInput());
     origOp.setOperand(1, parentPoolOp.getInput());
@@ -350,6 +367,9 @@ private:
     void safeRunOnFunc() final;
 };
 
+// NOTE: LayerWithPostOpInterface operations can have PPE which means,
+//       they could have clamp and post_op separately. When fusing these
+//       ops it's important to ensure to account PPE's on both operations
 void OptimizeIdentityPoolPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();

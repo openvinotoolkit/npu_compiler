@@ -469,3 +469,63 @@ func.func @FusionWithMCStrategyAdjustmentDynamic(%arg0: !inputDynType) -> !outpu
 // CHECK: VPU.NCE.Convolution
 // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
 }
+
+// -----
+
+// Positive case exercising the `canUseDynamicAlignment=false` fix in `planFusion`:
+// with `enable-dynamic-dim-alignment=true` the function carries the DYNAMIC_DIM_ALIGNMENT
+// attribute, so the default `getAlignment` path would inflate W alignment via
+// `alignToOptimizeForBatchedLoadDynamicShape` (batched-load optimization for the
+// innermost dynamic dim) and the `alignment[W] > 1 || alignment[H] > 1` guard would
+// reject the fusion whenever the current group already contains an NCE with kernel > 1.
+// After the fix, `planFusion` reads only required alignment, so the guard passes and the
+// two dynamic-W Conv 3x3 producers fuse into the same `scf.for` nest.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!dynConvIO = tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 2160, 3840]> : tensor<4xsi64>, order = #NHWC}>
+
+module @testDynConvChain {
+config.Resources 3 of @NCE at 6.000000e+02 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+}
+
+// CHECK-LABEL: @DynamicConvChainFusedViaRequiredAlignmentOnly
+func.func @DynamicConvChainFusedViaRequiredAlignmentOnly(%arg0: !dynConvIO) -> !dynConvIO {
+    %cst0 = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}> =
+        dense<1.0> : tensor<16x16x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %cst1 = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}> =
+        dense<1.0> : tensor<16x16x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    %0 = VPU.NCE.Convolution(%arg0, %cst0) rawFilterShape [16, 16, 3, 3] {
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+            ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                              lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+            strides = [1, 1],
+            tilingStrategy = [1, 1, 4, 60]
+        } : !dynConvIO, tensor<16x16x3x3xf16, {order = #NHWC}> -> !dynConvIO
+
+    %1 = VPU.NCE.Convolution(%0, %cst1) rawFilterShape [16, 16, 3, 3] {
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+            pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+            ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                              lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+            strides = [1, 1],
+            tilingStrategy = [1, 1, 4, 60]
+        } : !dynConvIO, tensor<16x16x3x3xf16, {order = #NHWC}> -> !dynConvIO
+
+    return %1 : !dynConvIO
+}
+
+// Both dynamic-W Conv 3x3 layers collapse into the same tiled H × W loop nest.
+// CHECK: scf.for
+// CHECK: scf.for
+// CHECK: VPU.NCE.Convolution
+// CHECK: VPU.NCE.Convolution
+// CHECK: scf.yield
+// CHECK: scf.yield
+}

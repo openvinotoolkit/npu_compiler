@@ -24,7 +24,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   }
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
-  func.func nested @nndma_4d_to_4d_with_single_shape() {
+  func.func @nndma_4d_to_4d_with_single_shape() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<2x2x2x2xf16, {order = #NCHW, strides = [256, 64, 16, 1]}, @DDR>
     %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> {swizzlingKey = 0 : i64} -> memref<2x2x2x2xf16, {order = #NCHW, strides = [256, 64, 16, 1]}, @DDR>
@@ -68,7 +68,7 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   VPUASM.ProfilingBindings profilingDeclarations : {
   }
 
-  func.func nested @ConvertDMAWithF32ToF16() {
+  func.func @ConvertDMAWithF32ToF16() {
     %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
     %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> {swizzlingKey = 0 : i64} -> memref<1x320x3x103xf32, {order = #NHWC, strides = [2764800, 1, 921600, 1280]}, @DDR>
     %2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x320x3x103xf16, {order = #NHWC}, [@CMX_NN, 0]>

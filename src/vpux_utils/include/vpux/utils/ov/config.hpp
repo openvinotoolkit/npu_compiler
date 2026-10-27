@@ -117,8 +117,8 @@ struct OptionParser<std::map<K, V>> final {
         std::string val_str(val);
         splitAndApply(val_str, ',', [&](std::string_view item) {
             auto kv_delim_pos = item.find(":");
-            VPUX_THROW_UNLESS(kv_delim_pos != std::string::npos,
-                              "Value '{0}' is not a valid map option, expected key:value pair", item);
+            VPUX_THROW_WHEN(kv_delim_pos == std::string::npos,
+                            "Value '{0}' is not a valid map option, expected key:value pair", item);
             K key = OptionParser<K>::parse(std::string_view(item.substr(0, kv_delim_pos)));
             V value = OptionParser<V>::parse(std::string_view(item.substr(kv_delim_pos + 1)));
             res[key] = std::move(value);
@@ -504,7 +504,7 @@ typename Opt::ValueType Config::get() const {
         return optional.value();
     }
 
-    VPUX_THROW_UNLESS(it->second != nullptr, "Got NULL OptionValue for : {0}", Opt::key().data());
+    VPUX_THROW_WHEN(it->second == nullptr, "Got NULL OptionValue for : {0}", Opt::key().data());
 
     const auto optVal = std::dynamic_pointer_cast<details::OptionValueImpl<Opt, ValueType>>(it->second);
 #if defined(__CHROMIUMOS__) || defined(__ANDROID__)
@@ -515,8 +515,8 @@ typename Opt::ValueType Config::get() const {
         }
     }
 #endif
-    VPUX_THROW_UNLESS(optVal != nullptr, "Option '{0}' has wrong parsed type: expected '{1}', got '{2}'",
-                      Opt::key().data(), Opt::getTypeName().data(), it->second->getTypeName().data());
+    VPUX_THROW_WHEN(optVal == nullptr, "Option '{0}' has wrong parsed type: expected '{1}', got '{2}'",
+                    Opt::key().data(), Opt::getTypeName().data(), it->second->getTypeName().data());
     return optVal->getValue();
 }
 

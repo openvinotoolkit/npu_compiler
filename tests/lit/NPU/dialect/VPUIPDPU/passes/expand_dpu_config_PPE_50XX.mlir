@@ -1011,7 +1011,7 @@ module {
     // CHECK:       VPUIPDPU.DPUInvariant
     // CHECK:       VPUIPDPU.PPECfg {
     // CHECK-NEXT:    VPUIPDPU.PPEFpBiasAdd bias_static(4.000000e-01){{$}}
-    // CHECK-NEXT:    VPUIPDPU.PPEFpScaleMult scale_static(1.562500e-02){{$}}
+    // CHECK-NEXT:    VPUIPDPU.PPEFpScaleMult scale_static(1.000000e+00){{$}}
     // CHECK-NEXT:    VPUIPDPU.PPEFpAddMultBypass bypass_mode(OFF){{$}}
     // CHECK-NEXT:    VPUIPDPU.PPEFpSprLUTMode sprlut_mode(OFF){{$}}
     // CHECK-NEXT:    VPUIPDPU.PPEFpPreluMult prelu_alpha(1.000000e+00){{$}}

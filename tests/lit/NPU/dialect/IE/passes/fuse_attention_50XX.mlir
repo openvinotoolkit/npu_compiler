@@ -612,10 +612,28 @@ func.func @NoPeel_Attention_NonSentinelMaskValue(%Q: tensor<1x32x1200x16xf16>, %
 
 // -----
 
-// Batch-to-channels concentration must also reshape bias (in addition to mask), and
-// the AttentionOp must be created with the reshaped bias/mask (not the raw pre-reshape
-// operands), matching the shapes of the reshaped Q/K/V.
+// CHECK-LABEL: @Fuse_Attention_AsymmetricBroadcastKV
+func.func @Fuse_Attention_AsymmetricBroadcastKV(%Q: tensor<1x4x8x4xf32>, %K_raw: tensor<1x8x1x4xf32>, %V_raw: tensor<1x1x8x4xf32>, %Mask: tensor<1x1x8x8xf32>) -> tensor<1x4x8x4xf32> {
+  %cst_scale = const.Declare tensor<1xf32> = dense<1.0> : tensor<1xf32>
+  %cst_shape = const.Declare tensor<5xsi64> = dense<[1, 1, 4, 8, 4]> : tensor<5xsi64>
 
+  %0 = IE.AffineReshape(%K_raw) {dim_mapping = [[0, 1, 2], [3], [3], [4]], shape_value = [1, 1, 1, 8, 4]} : tensor<1x8x1x4xf32> -> tensor<1x1x1x8x4xf32>
+  %1 = IE.Broadcast(%0, %cst_shape) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x1x1x8x4xf32>, tensor<5xsi64> -> tensor<1x1x4x8x4xf32>
+  %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [0], [1], [2], [3]], shape_value = [1, 4, 8, 4]} : tensor<1x1x4x8x4xf32> -> tensor<1x4x8x4xf32>
+
+  %3 = IE.AffineReshape(%V_raw) {dim_mapping = [[0], [1, 2], [3], [4]], shape_value = [1, 1, 1, 8, 4]} : tensor<1x1x8x4xf32> -> tensor<1x1x1x8x4xf32>
+  %4 = IE.Broadcast(%3, %cst_shape) {mode = #IE.broadcast_type<BIDIRECTIONAL>} : tensor<1x1x1x8x4xf32>, tensor<5xsi64> -> tensor<1x1x4x8x4xf32>
+  %5 = IE.AffineReshape(%4) {dim_mapping = [[0], [0], [1], [2], [3]], shape_value = [1, 4, 8, 4]} : tensor<1x1x4x8x4xf32> -> tensor<1x4x8x4xf32>
+
+  %6 = IE.Squeeze(%Mask) {axes_value = [0, 1]} : tensor<1x1x8x8xf32> -> tensor<8x8xf32>
+
+  %7 = IE.SDPA(%Q, %2, %5, %6, %cst_scale) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 0>} : tensor<1x4x8x4xf32>, tensor<1x4x8x4xf32>, tensor<1x4x8x4xf32>, tensor<8x8xf32>, tensor<1xf32> -> tensor<1x4x8x4xf32>
+  return %7 : tensor<1x4x8x4xf32>
+
+  // CHECK-NOT: IE.SDPA
+}
+
+// -----
 // CHECK-LABEL: @Fuse_MM_SM_MM_WithBatchToChannelsBiasAndMask
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<10x11x128x64xf16>, [[ARG1:%.+]]: tensor<10x11x128x64xf16>, [[ARG2:%.+]]: tensor<10x11x128x64xf16>, [[MASK:%.+]]: tensor<10x11x128x128xf16>, [[BIAS:%.+]]: tensor<10x11x128x128xf16>)
 func.func @Fuse_MM_SM_MM_WithBatchToChannelsBiasAndMask(%arg0: tensor<10x11x128x64xf16>, %arg1: tensor<10x11x128x64xf16>, %arg2: tensor<10x11x128x64xf16>, %mask: tensor<10x11x128x128xf16>, %bias: tensor<10x11x128x128xf16>) -> tensor<10x11x128x64xf16> {
@@ -641,10 +659,6 @@ func.func @Fuse_MM_SM_MM_WithBatchToChannelsBiasAndMask(%arg0: tensor<10x11x128x
 // -----
 
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
-
-// GQA reshaping must also reshape bias (in addition to mask), following the same
-// batch/channel folding as Q/K/V, and the AttentionOp must be created with the
-// reshaped bias/mask/sink dependencies (finalBias/finalSink), not the raw operands.
 
 // CHECK-LABEL: @Fuse_Attention_GQA_WithBiasAndMask
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x32x1024x64xf16>, [[ARG1:%.+]]: tensor<1x8x1024x64xf16>, [[ARG2:%.+]]: tensor<1x8x1024x64xf16>, [[MASK:%.+]]: tensor<1x32x1x1024xf16>, [[BIAS:%.+]]: tensor<1x32x1x1024xf16>)

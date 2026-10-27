@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -177,4 +178,21 @@ mlir::LogicalResult FuseClamps::matchAndRewrite(IE::ClampOp origOp, mlir::Patter
 void vpux::IE::ClampOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* ctx) {
     patterns.add<FuseClamps>(ctx);
     patterns.add<ClampAttrToDataTypeRange>(ctx);
+}
+
+//
+// fold
+//
+
+mlir::OpFoldResult vpux::IE::ClampOp::fold(FoldAdaptor adaptor) {
+    auto operands = adaptor.getOperands();
+    VPUX_THROW_UNLESS(operands.size() == 1, "Expected exactly one operand, but got {0}", operands.size());
+
+    if (auto attr = mlir::dyn_cast_or_null<Const::ContentAttr>(operands[0])) {
+        const auto lower = getMinAttr().getValueAsDouble();
+        const auto upper = getMaxAttr().getValueAsDouble();
+        return attr.transform().clamp(lower, upper).get();
+    }
+
+    return nullptr;
 }

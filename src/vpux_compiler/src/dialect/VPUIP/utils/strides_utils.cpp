@@ -42,7 +42,7 @@ bool isDDRCopyEfficient(vpux::NDTypeInterface tensorType, config::ArchKind arch)
     const auto memShapes = tensorType.getMemShape().raw();
     const auto memStrides = tensorType.getMemStrides().raw();
 
-    int64_t contiguousWidth = 1, stride = 1;
+    int64_t contiguousWidth = 1;
     size_t stridesDimsNum = 0;
     // Calculate the contiguous width by checking from the last dimension
     // Calculate the strides by checking from the last dimension
@@ -54,7 +54,6 @@ bool isDDRCopyEfficient(vpux::NDTypeInterface tensorType, config::ArchKind arch)
         }
         if (ind == lastDimInd && memStrides[ind] != elemSize) {
             contiguousWidth = elemSize.count();
-            stride = memStrides[ind].count();
             ++stridesDimsNum;
         } else if (ind != lastDimInd) {
             const auto prevMemDim = ind + 1;
@@ -62,7 +61,6 @@ bool isDDRCopyEfficient(vpux::NDTypeInterface tensorType, config::ArchKind arch)
             const auto curMemStride = memStrides[ind].count();
             if (curMemStride != expectedStride) {
                 contiguousWidth = expectedStride;
-                stride = curMemStride;
                 ++stridesDimsNum;
             }
         }
@@ -75,9 +73,6 @@ bool isDDRCopyEfficient(vpux::NDTypeInterface tensorType, config::ArchKind arch)
     const auto alignedWidthThreshold =
             arch == config::ArchKind::NPU37XX ? INPUT_DDR_CONTIGUOUS_WIDTH_37XX : INPUT_DDR_CONTIGUOUS_WIDTH_40XX;
     if (contiguousWidth % alignedWidthThreshold != 0) {
-        return false;
-    }
-    if (stride % contiguousWidth != 0) {
         return false;
     }
 

@@ -4,6 +4,8 @@
 //
 
 #include "vpux/compiler/NPU40XX/conversion.hpp"
+#include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/utils.hpp"
+#include "vpux/compiler/NPU50XX/dialect/NPUReg50XX/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/ELF/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUASM/passes.hpp"
@@ -42,12 +44,14 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
              backendCompilationOptions.enableShaveDDRAccessOptimization);
 
     pm.addPass(VPUMI40XX::createAddPlatformInfoPass(log));
+    pm.addPass(
+            VPUMI40XX::createSetupTaskDescriptorConstraintsPass(NPUReg40XX::getTaskDescriptorConstraintsArgs(), log));
 
     pm.addPass(createConvertVPUIP2VPUMI40XXPass(log, backendCompilationOptions.enableMemorySideCache,
                                                 backendCompilationOptions.allocateDDRStackFrames));
     pm.addPass(VPUMI40XX::createSetupProfilingVPUMI40XXPass(backendCompilationOptions.enableDMAProfiling, log));
     pm.addPass(mlir::createCanonicalizerPass());
-    elfSubsetPipelineVPUMI(pm, backendCompilationOptions.workloadManagementMode,
+    elfSubsetPipelineVPUMI(pm, config::ArchKind::NPU40XX, backendCompilationOptions.workloadManagementMode,
                            backendCompilationOptions.enableDumpStatisticsOfWlmOps,
                            backendCompilationOptions.workloadManagementBarrierProgrammingMode, log);
 
@@ -82,7 +86,8 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
 //
 
 void vpux::arch40xx::elfSubsetPipelineVPUMI(
-        mlir::OpPassManager& pm, WorkloadManagementMode workloadManagementMode, bool enableDumpStatisticsOfWlmOps,
+        mlir::OpPassManager& pm, config::ArchKind arch, WorkloadManagementMode workloadManagementMode,
+        bool enableDumpStatisticsOfWlmOps,
         WorkloadManagementBarrierProgrammingMode workloadManagementBarrierProgrammingMode, const Logger& log) {
     pm.addPass(VPUMI40XX::reorderMappedInferenceOpsPass(log));
 
@@ -109,6 +114,12 @@ void vpux::arch40xx::elfSubsetPipelineVPUMI(
 
     if (workloadManagementMode > WorkloadManagementMode::PWLM_V0_1_PAGES) {
         pm.addPass(VPUMI40XX::createAddBarrierConfigurationOps(workloadManagementBarrierProgrammingMode, log));
+    }
+
+    if (arch == config::ArchKind::NPU50XX) {
+        if (workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
+            pm.addPass(NPUReg50XX::createAddShaveDpuDescriptors(log));
+        }
     }
 
     if (workloadManagementMode != WorkloadManagementMode::FWLM_V1_PAGES) {

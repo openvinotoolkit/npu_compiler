@@ -18,7 +18,7 @@ module @act_shave_weights_access {
   } outputsInfo : {
     DataInfo "output_0" : tensor<1x32x32x514xf16>
   }
-  func.func nested @act_shave_weights_access() {
+  func.func @act_shave_weights_access() {
     %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x32x32x514xf16, @DDR>
     %cst = const.Declare memref<1x32x32x514xf16> = dense<1.000000e+00> : tensor<1x32x32x514xf16>
     %1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x32x32x514xf16, [@CMX_NN, 0]>
@@ -51,7 +51,7 @@ module @act_shave_scratch_access {
   } outputsInfo : {
     DataInfo "output_0" : tensor<1x32x32x514xf16>
   }
-  func.func nested @act_shave_scratch_access() {
+  func.func @act_shave_scratch_access() {
     %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x32x32x514xf16, @DDR>
     %var = VPURT.DeclareBuffer <DDR> <1052672> -> memref<1x32x32x514xf16, @DDR>
     %1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x32x32x514xf16, [@CMX_NN, 0]>

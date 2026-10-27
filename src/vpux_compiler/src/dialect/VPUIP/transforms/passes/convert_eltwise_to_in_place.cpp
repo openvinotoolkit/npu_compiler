@@ -40,12 +40,12 @@ bool areInOutDistributionsCompatible(VPUIP::NCEClusterTaskOp clusterTaskOp, Alia
     // Distributed input is compatible with its output, but Distributed input root buffer type is
     // not (e.g. NCE.Permute (SOW) -> ViewOp -> NCE.Eltwise (SOH)). Insert ViewOp.
     if (VPU::areDistributionAttrsCompatible(inRootBuffDistributedType, outDistributedType, true).failed()) {
-        auto supportView = builder.create<VPUIP::ViewOp>(clusterTaskOp.getLoc(), inDistributedType, inputRootBuff);
+        auto supportView = VPUIP::ViewOp::create(builder, clusterTaskOp.getLoc(), inDistributedType, inputRootBuff);
         aliasesInfo.addAlias(originalInputRootBuff, supportView.getResult());
         inputRootBuff = supportView.getResult();
     } else {
         auto distributedCastOp =
-                builder.create<VPUIP::DistributedCastOp>(clusterTaskOp.getLoc(), outDistributedType, inputRootBuff);
+                VPUIP::DistributedCastOp::create(builder, clusterTaskOp.getLoc(), outDistributedType, inputRootBuff);
         aliasesInfo.addAlias(originalInputRootBuff, distributedCastOp.getOutput());
         inputRootBuff = distributedCastOp.getOutput();
     }
@@ -82,7 +82,7 @@ void makeInPlaceEltwise(VPUIP::NCEClusterTaskOp clusterTaskOp, AliasesInfo& alia
             inInterface.getTotalAllocSize() > outInterface.getTotalAllocSize()) {
             mlir::OpBuilder builder(clusterTaskOp);
             builder.setInsertionPointAfterValue(inputRootBuff);
-            auto supportView = builder.create<VPUIP::ViewOp>(input.getLoc(), outputRootBuff.getType(), inputRootBuff);
+            auto supportView = VPUIP::ViewOp::create(builder, input.getLoc(), outputRootBuff.getType(), inputRootBuff);
             aliasesInfo.addAlias(inputRootBuff, supportView.getResult());
             inputRootBuff = supportView.getResult();
         }
@@ -95,8 +95,8 @@ void makeInPlaceEltwise(VPUIP::NCEClusterTaskOp clusterTaskOp, AliasesInfo& alia
             inRootDataBuffType.getNumElements() == outBuffType.getNumElements()) {
             mlir::OpBuilder shapeCastBuilder(clusterTaskOp);
             shapeCastBuilder.setInsertionPointAfterValue(inputRootBuff);
-            auto shapeCastOp = shapeCastBuilder.create<VPUIP::ShapeCastOp>(clusterTaskOp.getLoc(), inputRootBuff,
-                                                                           outBuffType.getShape());
+            auto shapeCastOp = VPUIP::ShapeCastOp::create(shapeCastBuilder, clusterTaskOp.getLoc(), inputRootBuff,
+                                                          outBuffType.getShape());
             aliasesInfo.addAlias(inputRootBuff, shapeCastOp.getResult());
             inputRootBuff = shapeCastOp.getResult();
         }
@@ -110,7 +110,7 @@ void makeInPlaceEltwise(VPUIP::NCEClusterTaskOp clusterTaskOp, AliasesInfo& alia
             currentInType.getElementType() == outBuffType.getElementType()) {
             mlir::OpBuilder builder(clusterTaskOp);
             builder.setInsertionPointAfterValue(inputRootBuff);
-            auto supportView = builder.create<VPUIP::ViewOp>(input.getLoc(), outputRootBuff.getType(), inputRootBuff);
+            auto supportView = VPUIP::ViewOp::create(builder, input.getLoc(), outputRootBuff.getType(), inputRootBuff);
             aliasesInfo.addAlias(inputRootBuff, supportView.getResult());
             inputRootBuff = supportView.getResult();
         }

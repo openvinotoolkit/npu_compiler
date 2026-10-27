@@ -554,7 +554,7 @@ static bool matchGDRPattern(IE::LoopOp loopOp, GDRLoopDescriptor& desc, Logger l
 static mlir::Value createReshape(mlir::OpBuilder& rewriter, mlir::Location loc, mlir::Value input,
                                  ArrayRef<int64_t> newShape) {
     auto shapeAttr = getIntArrayAttr(rewriter.getContext(), newShape);
-    return rewriter.create<IE::ReshapeOp>(loc, input, shapeAttr).getOutput();
+    return IE::ReshapeOp::create(rewriter, loc, input, shapeAttr).getOutput();
 }
 
 /// Build the chunked GDR computation that replaces the original Loop.
@@ -777,16 +777,15 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
             ));
 
     // Create the new Loop op
-    auto newLoop =
-            rewriter.create<IE::LoopOp>(appendLoc(loc, "gdr_chunked"), newLoopOutputTypes, newLoopInputs,
-                                        /*num_iterations=*/getIntAttr(ctx, C),
-                                        /*current_iter_index=*/getIntAttr(ctx, 0),
-                                        /*exec_cond_index=*/getIntAttr(ctx, 0),
-                                        /*slice_input_descs=*/mlir::ArrayAttr::get(ctx, sliceInputDescs),
-                                        /*invariant_input_descs=*/mlir::ArrayAttr::get(ctx, invariantInputDescs),
-                                        /*feedback_input_descs=*/mlir::ArrayAttr::get(ctx, feedbackInputDescs),
-                                        /*concat_output_descs=*/mlir::ArrayAttr::get(ctx, concatOutputDescs),
-                                        /*invariant_output_descs=*/mlir::ArrayAttr::get(ctx, invariantOutputDescs));
+    auto newLoop = IE::LoopOp::create(rewriter, appendLoc(loc, "gdr_chunked"), newLoopOutputTypes, newLoopInputs,
+                                      /*num_iterations=*/getIntAttr(ctx, C),
+                                      /*current_iter_index=*/getIntAttr(ctx, 0),
+                                      /*exec_cond_index=*/getIntAttr(ctx, 0),
+                                      /*slice_input_descs=*/mlir::ArrayAttr::get(ctx, sliceInputDescs),
+                                      /*invariant_input_descs=*/mlir::ArrayAttr::get(ctx, invariantInputDescs),
+                                      /*feedback_input_descs=*/mlir::ArrayAttr::get(ctx, feedbackInputDescs),
+                                      /*concat_output_descs=*/mlir::ArrayAttr::get(ctx, concatOutputDescs),
+                                      /*invariant_output_descs=*/mlir::ArrayAttr::get(ctx, invariantOutputDescs));
 
     // =========================================================================
     // Step 4: Build the new Loop body
@@ -847,15 +846,15 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
     //       - And the L matrix row index uses cumG_exclusive, NOT cumG_inclusive
     //       - The output y_t = q_t^T @ h_t uses inclusive cumG (h_t already includes g_t)
     auto cumGateType = mlir::RankedTensorType::get({B, H, L}, elemType);
-    auto cumGate = rewriter.create<IE::CumSumOp>(appendLoc(loc, "cum_gate"), cumGateType, gateChunk,
-                                                 /*axis=*/nullptr, getIntAttr(ctx, 2),
-                                                 /*exclusive=*/nullptr, /*reverse=*/nullptr)
+    auto cumGate = IE::CumSumOp::create(rewriter, appendLoc(loc, "cum_gate"), cumGateType, gateChunk,
+                                        /*axis=*/nullptr, getIntAttr(ctx, 2),
+                                        /*exclusive=*/nullptr, /*reverse=*/nullptr)
                            .getOutput();
 
     // Exclusive cumsum: [0, cumG[0], cumG[1], ..., cumG[L-2]]
-    auto cumGateExcl = rewriter.create<IE::CumSumOp>(appendLoc(loc, "cum_gate_excl"), cumGateType, gateChunk,
-                                                     /*axis=*/nullptr, getIntAttr(ctx, 2),
-                                                     /*exclusive=*/rewriter.getUnitAttr(), /*reverse=*/nullptr)
+    auto cumGateExcl = IE::CumSumOp::create(rewriter, appendLoc(loc, "cum_gate_excl"), cumGateType, gateChunk,
+                                            /*axis=*/nullptr, getIntAttr(ctx, 2),
+                                            /*exclusive=*/rewriter.getUnitAttr(), /*reverse=*/nullptr)
                                .getOutput();
 
     // 4b. Build decay mask D[i,j] = exp(cumGate[i] - cumGate[j]) for i >= j
@@ -868,14 +867,14 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
 
     // diff = cumGateRow - cumGateCol: [B,H,L,L]
     auto diffType = mlir::RankedTensorType::get({B, H, L, L}, elemType);
-    auto gateRowBcast = rewriter.create<IE::SubtractOp>(appendLoc(loc, "gate_diff"), cumGateRow, cumGateCol,
-                                                        IE::AutoBroadcastType::NUMPY,
-                                                        /*post_op=*/nullptr, /*clamp=*/nullptr,
-                                                        /*output_padding=*/nullptr, /*input_padding=*/nullptr)
+    auto gateRowBcast = IE::SubtractOp::create(rewriter, appendLoc(loc, "gate_diff"), cumGateRow, cumGateCol,
+                                               IE::AutoBroadcastType::NUMPY,
+                                               /*post_op=*/nullptr, /*clamp=*/nullptr,
+                                               /*output_padding=*/nullptr, /*input_padding=*/nullptr)
                                 .getOutput();
 
     // decayMask = exp(diff): [B,H,L,L]
-    auto decayMask = rewriter.create<IE::ExpOp>(appendLoc(loc, "decay_mask"), diffType, gateRowBcast).getOutput();
+    auto decayMask = IE::ExpOp::create(rewriter, appendLoc(loc, "decay_mask"), diffType, gateRowBcast).getOutput();
 
     // 4c. Apply lower-triangular mask via Multiply with a constant triangular matrix
     //     tril[i,j] = 1 if i >= j, else 0
@@ -890,21 +889,21 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
 
     auto trilAttr = mlir::DenseElementsAttr::get(trilType, ArrayRef<float>(trilValues));
     auto trilConst =
-            rewriter.create<Const::DeclareOp>(appendLoc(loc, "tril_mask"), trilType, Const::ContentAttr::get(trilAttr))
+            Const::DeclareOp::create(rewriter, appendLoc(loc, "tril_mask"), trilType, Const::ContentAttr::get(trilAttr))
                     .getResult();
 
     // Convert tril to match element type if needed
     if (elemType != mlir::Float32Type::get(ctx)) {
         auto trilTargetType = mlir::RankedTensorType::get({1, 1, L, L}, elemType);
-        trilConst = rewriter.create<IE::ConvertOp>(appendLoc(loc, "tril_convert"), trilTargetType, trilConst, elemType)
+        trilConst = IE::ConvertOp::create(rewriter, appendLoc(loc, "tril_convert"), trilTargetType, trilConst, elemType)
                             .getOutput();
     }
 
     // maskedDecay = decayMask * tril: [B,H,L,L]
-    auto maskedDecay = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "masked_decay"), decayMask, trilConst,
-                                                       IE::AutoBroadcastType::NUMPY,
-                                                       /*post_op=*/nullptr, /*clamp=*/nullptr,
-                                                       /*output_padding=*/nullptr, /*input_padding=*/nullptr)
+    auto maskedDecay = IE::MultiplyOp::create(rewriter, appendLoc(loc, "masked_decay"), decayMask, trilConst,
+                                              IE::AutoBroadcastType::NUMPY,
+                                              /*post_op=*/nullptr, /*clamp=*/nullptr,
+                                              /*output_padding=*/nullptr, /*input_padding=*/nullptr)
                                .getOutput();
 
     // 4d. Compute delta correction matrix L
@@ -914,32 +913,32 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
 
     // Scale k by beta: k_beta[b,h,l,d] = k[b,h,l,d] * beta[b,h,l]
     auto betaExpanded = createReshape(rewriter, appendLoc(loc, "beta_exp"), betaChunk, {B, H, L, 1});
-    auto kBeta = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "k_beta"), kChunk, betaExpanded,
-                                                 IE::AutoBroadcastType::NUMPY,
-                                                 /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
-                                                 /*input_padding=*/nullptr)
+    auto kBeta = IE::MultiplyOp::create(rewriter, appendLoc(loc, "k_beta"), kChunk, betaExpanded,
+                                        IE::AutoBroadcastType::NUMPY,
+                                        /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
+                                        /*input_padding=*/nullptr)
                          .getOutput();
 
     // kk_T = k @ k_beta^T: [B,H,L,L]
     // IMPORTANT: beta must scale the column (dependency index) in L[j,i], not the row.
     auto kkType = mlir::RankedTensorType::get({B, H, L, L}, elemType);
-    auto kkT = rewriter.create<IE::MatMulOp>(appendLoc(loc, "kk_T"), kkType, kChunk, kBeta,
-                                             /*transpose_a=*/false, /*transpose_b=*/true)
+    auto kkT = IE::MatMulOp::create(rewriter, appendLoc(loc, "kk_T"), kkType, kChunk, kBeta,
+                                    /*transpose_a=*/false, /*transpose_b=*/true)
                        .getOutput();
 
     // Negate: neg_kkT = -kkT
-    auto negKkT = rewriter.create<IE::NegativeOp>(appendLoc(loc, "neg_kkT"), kkType, kkT).getOutput();
+    auto negKkT = IE::NegativeOp::create(rewriter, appendLoc(loc, "neg_kkT"), kkType, kkT).getOutput();
 
     // Build decay for L matrix: exp(cumG_excl[i] - cumG_incl[j]) for strict lower triangular
     // Row index uses EXCLUSIVE cumsum, column index uses INCLUSIVE cumsum
     auto cumGateExclRow = createReshape(rewriter, appendLoc(loc, "cge_row"), cumGateExcl, {B, H, L, 1});
     // cumGateCol (inclusive) already computed above
-    auto lDecayDiff = rewriter.create<IE::SubtractOp>(appendLoc(loc, "l_decay_diff"), cumGateExclRow, cumGateCol,
-                                                      IE::AutoBroadcastType::NUMPY,
-                                                      /*post_op=*/nullptr, /*clamp=*/nullptr,
-                                                      /*output_padding=*/nullptr, /*input_padding=*/nullptr)
+    auto lDecayDiff = IE::SubtractOp::create(rewriter, appendLoc(loc, "l_decay_diff"), cumGateExclRow, cumGateCol,
+                                             IE::AutoBroadcastType::NUMPY,
+                                             /*post_op=*/nullptr, /*clamp=*/nullptr,
+                                             /*output_padding=*/nullptr, /*input_padding=*/nullptr)
                               .getOutput();
-    auto lDecayMask = rewriter.create<IE::ExpOp>(appendLoc(loc, "l_decay_mask"), diffType, lDecayDiff).getOutput();
+    auto lDecayMask = IE::ExpOp::create(rewriter, appendLoc(loc, "l_decay_mask"), diffType, lDecayDiff).getOutput();
 
     // strict_tril[i,j] = 1 if i > j, else 0
     SmallVector<float> strictTrilValues(L * L, 0.0f);
@@ -950,26 +949,26 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
     }
 
     auto strictTrilAttr = mlir::DenseElementsAttr::get(trilType, ArrayRef<float>(strictTrilValues));
-    auto strictTrilConst = rewriter.create<Const::DeclareOp>(appendLoc(loc, "strict_tril"), trilType,
-                                                             Const::ContentAttr::get(strictTrilAttr))
+    auto strictTrilConst = Const::DeclareOp::create(rewriter, appendLoc(loc, "strict_tril"), trilType,
+                                                    Const::ContentAttr::get(strictTrilAttr))
                                    .getResult();
     if (elemType != mlir::Float32Type::get(ctx)) {
         auto strictTrilTargetType = mlir::RankedTensorType::get({1, 1, L, L}, elemType);
-        strictTrilConst = rewriter.create<IE::ConvertOp>(appendLoc(loc, "strict_tril_convert"), strictTrilTargetType,
-                                                         strictTrilConst, elemType)
+        strictTrilConst = IE::ConvertOp::create(rewriter, appendLoc(loc, "strict_tril_convert"), strictTrilTargetType,
+                                                strictTrilConst, elemType)
                                   .getOutput();
     }
 
     // L_matrix = neg_kkT * lDecayMask * strict_tril
-    auto lMatrix =
-            rewriter.create<IE::MultiplyOp>(appendLoc(loc, "l_decay"), negKkT, lDecayMask, IE::AutoBroadcastType::NUMPY,
-                                            /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
-                                            /*input_padding=*/nullptr)
-                    .getOutput();
-    lMatrix = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "l_matrix"), lMatrix, strictTrilConst,
-                                              IE::AutoBroadcastType::NUMPY,
-                                              /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
-                                              /*input_padding=*/nullptr)
+    auto lMatrix = IE::MultiplyOp::create(rewriter, appendLoc(loc, "l_decay"), negKkT, lDecayMask,
+                                          IE::AutoBroadcastType::NUMPY,
+                                          /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
+                                          /*input_padding=*/nullptr)
+                           .getOutput();
+    lMatrix = IE::MultiplyOp::create(rewriter, appendLoc(loc, "l_matrix"), lMatrix, strictTrilConst,
+                                     IE::AutoBroadcastType::NUMPY,
+                                     /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
+                                     /*input_padding=*/nullptr)
                       .getOutput();
 
     // 4e. Approximate (I - L)^{-1} using Neumann series: I + L + L^2 + L^3
@@ -983,11 +982,12 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
         eyeValues[i * L + i] = 1.0f;
     }
     auto eyeAttr = mlir::DenseElementsAttr::get(trilType, ArrayRef<float>(eyeValues));
-    auto eyeConst = rewriter.create<Const::DeclareOp>(appendLoc(loc, "eye"), trilType, Const::ContentAttr::get(eyeAttr))
-                            .getResult();
+    auto eyeConst =
+            Const::DeclareOp::create(rewriter, appendLoc(loc, "eye"), trilType, Const::ContentAttr::get(eyeAttr))
+                    .getResult();
     if (elemType != mlir::Float32Type::get(ctx)) {
         auto eyeTargetType = mlir::RankedTensorType::get({1, 1, L, L}, elemType);
-        eyeConst = rewriter.create<IE::ConvertOp>(appendLoc(loc, "eye_convert"), eyeTargetType, eyeConst, elemType)
+        eyeConst = IE::ConvertOp::create(rewriter, appendLoc(loc, "eye_convert"), eyeTargetType, eyeConst, elemType)
                            .getOutput();
     }
 
@@ -1040,18 +1040,18 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
 
     for (int k = 0; k < numDoubling; k++) {
         // LP = Lpower @ P
-        auto LP = rewriter.create<IE::MatMulOp>(appendLoc(loc, StringRef("neumann_lp_" + std::to_string(k))), kkType,
-                                                Lpower, P, false, false)
+        auto LP = IE::MatMulOp::create(rewriter, appendLoc(loc, StringRef("neumann_lp_" + std::to_string(k))), kkType,
+                                       Lpower, P, false, false)
                           .getOutput();
         // P = P + LP
-        P = rewriter.create<IE::AddOp>(appendLoc(loc, StringRef("neumann_p_" + std::to_string(k))), P, LP,
-                                       IE::AutoBroadcastType::NUMPY,
-                                       /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
-                                       /*input_padding=*/nullptr)
+        P = IE::AddOp::create(rewriter, appendLoc(loc, StringRef("neumann_p_" + std::to_string(k))), P, LP,
+                              IE::AutoBroadcastType::NUMPY,
+                              /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
+                              /*input_padding=*/nullptr)
                     .getOutput();
         // Lpower = Lpower @ Lpower
-        Lpower = rewriter.create<IE::MatMulOp>(appendLoc(loc, StringRef("neumann_l2_" + std::to_string(k))), kkType,
-                                               Lpower, Lpower, false, false)
+        Lpower = IE::MatMulOp::create(rewriter, appendLoc(loc, StringRef("neumann_l2_" + std::to_string(k))), kkType,
+                                      Lpower, Lpower, false, false)
                          .getOutput();
     }
     // P is now (I - L)^{-1} [B,H,L,L], EXACT for strictly lower triangular L
@@ -1064,38 +1064,37 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
     auto vBetaType = mlir::RankedTensorType::get({B, H, L, dV}, elemType);
 
     // Inter-chunk correction: hk = K_chunk @ h_state: [B,H,L,dK] @ [B,H,dK,dV] → [B,H,L,dV]
-    auto hk = rewriter.create<IE::MatMulOp>(appendLoc(loc, "hk_inter"), vBetaType, kChunk, hState,
-                                            /*transpose_a=*/false, /*transpose_b=*/false)
+    auto hk = IE::MatMulOp::create(rewriter, appendLoc(loc, "hk_inter"), vBetaType, kChunk, hState,
+                                   /*transpose_a=*/false, /*transpose_b=*/false)
                       .getOutput();
 
     // Scale by exp(cumG_exclusive) (EXCLUSIVE, not inclusive!): [B,H,L,1]
     // h_{t-1} = exp(cumG_{t-1}) * h_init + ..., so inter-chunk uses cumG_exclusive[t]
     auto cumGateExclExpanded = createReshape(rewriter, appendLoc(loc, "cge_exp"), cumGateExcl, {B, H, L, 1});
-    auto exclDecayScalar =
-            rewriter.create<IE::ExpOp>(appendLoc(loc, "excl_decay_scalar"),
-                                       mlir::RankedTensorType::get({B, H, L, 1}, elemType), cumGateExclExpanded)
-                    .getOutput();
-    auto interCorrection = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "inter_correction"), exclDecayScalar, hk,
-                                                           IE::AutoBroadcastType::NUMPY,
-                                                           /*post_op=*/nullptr, /*clamp=*/nullptr,
-                                                           /*output_padding=*/nullptr, /*input_padding=*/nullptr)
+    auto exclDecayScalar = IE::ExpOp::create(rewriter, appendLoc(loc, "excl_decay_scalar"),
+                                             mlir::RankedTensorType::get({B, H, L, 1}, elemType), cumGateExclExpanded)
+                                   .getOutput();
+    auto interCorrection = IE::MultiplyOp::create(rewriter, appendLoc(loc, "inter_correction"), exclDecayScalar, hk,
+                                                  IE::AutoBroadcastType::NUMPY,
+                                                  /*post_op=*/nullptr, /*clamp=*/nullptr,
+                                                  /*output_padding=*/nullptr, /*input_padding=*/nullptr)
                                    .getOutput();
 
     // RHS = v - exp(cumG_exclusive) * K@h  (no beta!)
-    auto rhs = rewriter.create<IE::SubtractOp>(appendLoc(loc, "rhs"), vChunk, interCorrection,
-                                               IE::AutoBroadcastType::NUMPY,
-                                               /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
-                                               /*input_padding=*/nullptr)
+    auto rhs = IE::SubtractOp::create(rewriter, appendLoc(loc, "rhs"), vChunk, interCorrection,
+                                      IE::AutoBroadcastType::NUMPY,
+                                      /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
+                                      /*input_padding=*/nullptr)
                        .getOutput();
 
     // w = P @ rhs: [B,H,L,L] @ [B,H,L,dV] → [B,H,L,dV]  (solving for w)
-    auto w = rewriter.create<IE::MatMulOp>(appendLoc(loc, "w_solved"), vBetaType, P, rhs, false, false).getOutput();
+    auto w = IE::MatMulOp::create(rewriter, appendLoc(loc, "w_solved"), vBetaType, P, rhs, false, false).getOutput();
 
     // corrected_v = β * w: the final c values used for output and state update
-    auto correctedV = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "corrected_v"), w, betaExpanded,
-                                                      IE::AutoBroadcastType::NUMPY,
-                                                      /*post_op=*/nullptr, /*clamp=*/nullptr,
-                                                      /*output_padding=*/nullptr, /*input_padding=*/nullptr)
+    auto correctedV = IE::MultiplyOp::create(rewriter, appendLoc(loc, "corrected_v"), w, betaExpanded,
+                                             IE::AutoBroadcastType::NUMPY,
+                                             /*post_op=*/nullptr, /*clamp=*/nullptr,
+                                             /*output_padding=*/nullptr, /*input_padding=*/nullptr)
                               .getOutput();
 
     // 4g. Intra-chunk output: y_intra = (maskedDecay @ corrected_v ⊗ k) · q
@@ -1116,19 +1115,19 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
     //     Let's follow that path:
 
     // QK^T = q @ k^T: [B,H,L,dK] @ [B,H,dK,L] → [B,H,L,L]
-    auto qkT = rewriter.create<IE::MatMulOp>(appendLoc(loc, "qk_T"), kkType, qChunk, kChunk, false, true).getOutput();
+    auto qkT = IE::MatMulOp::create(rewriter, appendLoc(loc, "qk_T"), kkType, qChunk, kChunk, false, true).getOutput();
 
     // masked_qkT = qkT * maskedDecay: [B,H,L,L]
-    auto maskedQkT = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "masked_qkT"), qkT, maskedDecay,
-                                                     IE::AutoBroadcastType::NUMPY,
-                                                     /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
-                                                     /*input_padding=*/nullptr)
+    auto maskedQkT = IE::MultiplyOp::create(rewriter, appendLoc(loc, "masked_qkT"), qkT, maskedDecay,
+                                            IE::AutoBroadcastType::NUMPY,
+                                            /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
+                                            /*input_padding=*/nullptr)
                              .getOutput();
 
     // o_intra = maskedQkT @ corrected_v: [B,H,L,L] @ [B,H,L,dV] → [B,H,L,dV]
     auto oIntraType = mlir::RankedTensorType::get({B, H, L, dV}, elemType);
     auto oIntra =
-            rewriter.create<IE::MatMulOp>(appendLoc(loc, "o_intra"), oIntraType, maskedQkT, correctedV, false, false)
+            IE::MatMulOp::create(rewriter, appendLoc(loc, "o_intra"), oIntraType, maskedQkT, correctedV, false, false)
                     .getOutput();
 
     // 4h. Inter-chunk: contribution from h_state of previous chunk
@@ -1141,24 +1140,24 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
 
     // decay_from_start = exp(cumGate): [B,H,L]
     auto decayFromStart =
-            rewriter.create<IE::ExpOp>(appendLoc(loc, "decay_from_start"), cumGateType, cumGate).getOutput();
+            IE::ExpOp::create(rewriter, appendLoc(loc, "decay_from_start"), cumGateType, cumGate).getOutput();
 
     // q_scaled = q * decay_from_start: [B,H,L,dK] * [B,H,L,1] → [B,H,L,dK]
     auto decayStartExpanded = createReshape(rewriter, appendLoc(loc, "dfs_exp"), decayFromStart, {B, H, L, 1});
-    auto qScaled = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "q_scaled"), qChunk, decayStartExpanded,
-                                                   IE::AutoBroadcastType::NUMPY,
-                                                   /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
-                                                   /*input_padding=*/nullptr)
+    auto qScaled = IE::MultiplyOp::create(rewriter, appendLoc(loc, "q_scaled"), qChunk, decayStartExpanded,
+                                          IE::AutoBroadcastType::NUMPY,
+                                          /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
+                                          /*input_padding=*/nullptr)
                            .getOutput();
 
     // o_inter = q_scaled @ h_state: [B,H,L,dK] @ [B,H,dK,dV] → [B,H,L,dV]
-    auto oInter = rewriter.create<IE::MatMulOp>(appendLoc(loc, "o_inter"), oIntraType, qScaled, hState, false, false)
+    auto oInter = IE::MatMulOp::create(rewriter, appendLoc(loc, "o_inter"), oIntraType, qScaled, hState, false, false)
                           .getOutput();
 
     // 4i. Total chunk output: o = o_intra + o_inter
-    auto oTotal = rewriter.create<IE::AddOp>(appendLoc(loc, "o_total"), oIntra, oInter, IE::AutoBroadcastType::NUMPY,
-                                             /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
-                                             /*input_padding=*/nullptr)
+    auto oTotal = IE::AddOp::create(rewriter, appendLoc(loc, "o_total"), oIntra, oInter, IE::AutoBroadcastType::NUMPY,
+                                    /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
+                                    /*input_padding=*/nullptr)
                           .getOutput();
 
     // 4j. Update h_state for next chunk
@@ -1171,55 +1170,56 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
 
     // cumGate_last = cumGate[:,:,L-1:L] → scalar-like
     auto cumGateLastType = mlir::RankedTensorType::get({B, H, 1}, elemType);
-    auto cumGateLast = rewriter.create<IE::SliceOp>(appendLoc(loc, "cg_last"), cumGateLastType, cumGate,
-                                                    getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, L - 1}),
-                                                    getIntArrayAttr(ctx, SmallVector<int64_t>{B, H, 1}))
+    auto cumGateLast = IE::SliceOp::create(rewriter, appendLoc(loc, "cg_last"), cumGateLastType, cumGate,
+                                           getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, L - 1}),
+                                           getIntArrayAttr(ctx, SmallVector<int64_t>{B, H, 1}))
                                .getResult();
 
     // decay_total = exp(cumGate_last): [B,H,1]
     auto decayTotal =
-            rewriter.create<IE::ExpOp>(appendLoc(loc, "decay_total"), cumGateLastType, cumGateLast).getOutput();
+            IE::ExpOp::create(rewriter, appendLoc(loc, "decay_total"), cumGateLastType, cumGateLast).getOutput();
 
     // Expand for broadcasting with h_state [B,H,dK,dV]
     auto decayTotalExp = createReshape(rewriter, appendLoc(loc, "dt_exp"), decayTotal, {B, H, 1, 1});
 
     // h_decayed = decay_total * h_state
     auto stateType = mlir::RankedTensorType::get({B, H, dK, dV}, elemType);
-    auto hDecayed = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "h_decayed"), hState, decayTotalExp,
-                                                    IE::AutoBroadcastType::NUMPY,
-                                                    /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
-                                                    /*input_padding=*/nullptr)
+    auto hDecayed = IE::MultiplyOp::create(rewriter, appendLoc(loc, "h_decayed"), hState, decayTotalExp,
+                                           IE::AutoBroadcastType::NUMPY,
+                                           /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
+                                           /*input_padding=*/nullptr)
                             .getOutput();
 
     // decay_to_end[i] = exp(cumGate[L-1] - cumGate[i])
     // = decay_total / decay_from_start[i] = exp(cumGateLast - cumGate)
     auto cgLastExpanded = createReshape(rewriter, appendLoc(loc, "cgl_exp"), cumGateLast, {B, H, 1});
-    auto decayToEndDiff = rewriter.create<IE::SubtractOp>(appendLoc(loc, "dte_diff"), cgLastExpanded, cumGate,
-                                                          IE::AutoBroadcastType::NUMPY,
-                                                          /*post_op=*/nullptr, /*clamp=*/nullptr,
-                                                          /*output_padding=*/nullptr, /*input_padding=*/nullptr)
+    auto decayToEndDiff = IE::SubtractOp::create(rewriter, appendLoc(loc, "dte_diff"), cgLastExpanded, cumGate,
+                                                 IE::AutoBroadcastType::NUMPY,
+                                                 /*post_op=*/nullptr, /*clamp=*/nullptr,
+                                                 /*output_padding=*/nullptr, /*input_padding=*/nullptr)
                                   .getOutput();
     auto decayToEnd =
-            rewriter.create<IE::ExpOp>(appendLoc(loc, "decay_to_end"), cumGateType, decayToEndDiff).getOutput();
+            IE::ExpOp::create(rewriter, appendLoc(loc, "decay_to_end"), cumGateType, decayToEndDiff).getOutput();
 
     // Scale k by decay_to_end: k_decayed[b,h,l,dk] = k[b,h,l,dk] * decay_to_end[b,h,l]
     auto dteExpanded = createReshape(rewriter, appendLoc(loc, "dte_exp4"), decayToEnd, {B, H, L, 1});
-    auto kDecayed = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "k_decayed"), kChunk, dteExpanded,
-                                                    IE::AutoBroadcastType::NUMPY,
-                                                    /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
-                                                    /*input_padding=*/nullptr)
+    auto kDecayed = IE::MultiplyOp::create(rewriter, appendLoc(loc, "k_decayed"), kChunk, dteExpanded,
+                                           IE::AutoBroadcastType::NUMPY,
+                                           /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
+                                           /*input_padding=*/nullptr)
                             .getOutput();
 
     // state_update = k_decayed^T @ corrected_v: [B,H,dK,L] @ [B,H,L,dV] → [B,H,dK,dV]
-    auto stateUpdate = rewriter.create<IE::MatMulOp>(appendLoc(loc, "state_update"), stateType, kDecayed, correctedV,
-                                                     /*transpose_a=*/true, /*transpose_b=*/false)
+    auto stateUpdate = IE::MatMulOp::create(rewriter, appendLoc(loc, "state_update"), stateType, kDecayed, correctedV,
+                                            /*transpose_a=*/true, /*transpose_b=*/false)
                                .getOutput();
 
     // h_new = h_decayed + state_update
-    auto hNew = rewriter.create<IE::AddOp>(appendLoc(loc, "h_new"), hDecayed, stateUpdate, IE::AutoBroadcastType::NUMPY,
-                                           /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
-                                           /*input_padding=*/nullptr)
-                        .getOutput();
+    auto hNew =
+            IE::AddOp::create(rewriter, appendLoc(loc, "h_new"), hDecayed, stateUpdate, IE::AutoBroadcastType::NUMPY,
+                              /*post_op=*/nullptr, /*clamp=*/nullptr, /*output_padding=*/nullptr,
+                              /*input_padding=*/nullptr)
+                    .getOutput();
 
     // 4k. Reshape chunk output for concat_output_descs: [B,H,L,dV] → [B,H,1,L,dV]
     //     The Loop's concat_output_descs mechanism concatenates each iteration's
@@ -1233,8 +1233,8 @@ static mlir::LogicalResult buildChunkedGDR(IE::LoopOp origLoop, const GDRLoopDes
                                                    mlir::RankedTensorType::get({1}, mlir::IntegerType::get(ctx, 8)),
                                                    ArrayRef<int8_t>{1});
 
-    rewriter.create<IE::LoopTerminatorOp>(appendLoc(loc, "chunk_term"),
-                                          SmallVector<mlir::Value>{bodyExecCond, hNew, oTotalReshaped});
+    IE::LoopTerminatorOp::create(rewriter, appendLoc(loc, "chunk_term"),
+                                 SmallVector<mlir::Value>{bodyExecCond, hNew, oTotalReshaped});
 
     // =========================================================================
     // Step 5: Reshape output and replace original Loop
@@ -1733,8 +1733,8 @@ static mlir::LogicalResult buildChunkedSimplifiedGDR(IE::LoopOp origLoop, const 
     SmallVector<mlir::Attribute> newInvariantDescs = {
             IE::InvariantOutputPortMapAttr::get(ctx, getIntAttr(ctx, 0), getIntAttr(ctx, 1), getIntAttr(ctx, -1))};
 
-    auto newLoop = rewriter.create<IE::LoopOp>(
-            appendLoc(loc, "sgdr_loop"), newOutputTypes, newInputs, getIntAttr(ctx, C),
+    auto newLoop = IE::LoopOp::create(
+            rewriter, appendLoc(loc, "sgdr_loop"), newOutputTypes, newInputs, getIntAttr(ctx, C),
             getIntAttr(ctx, 0),  // current_iter_index = body arg 0
             getIntAttr(ctx, 0),  // exec_cond_index = body output 0
             mlir::ArrayAttr::get(ctx, newSliceDescs), mlir::ArrayAttr::get(ctx, SmallVector<mlir::Attribute>{}),
@@ -1775,44 +1775,43 @@ static mlir::LogicalResult buildChunkedSimplifiedGDR(IE::LoopOp origLoop, const 
         auto tStr = std::to_string(t);
 
         // gate_t [B,H,1,1,1] -> [B,H,1,1] for broadcasting with h [B,H,dK,dV]
-        auto gateT = rewriter.create<IE::SliceOp>(appendLoc(loc, StringRef("sgdr_g_" + tStr)),
-                                                  mlir::RankedTensorType::get({B, H, 1, 1, 1}, elemType), gateChunk,
-                                                  getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, t, 0, 0}),
-                                                  getIntArrayAttr(ctx, SmallVector<int64_t>{B, H, 1, 1, 1}))
+        auto gateT = IE::SliceOp::create(rewriter, appendLoc(loc, StringRef("sgdr_g_" + tStr)),
+                                         mlir::RankedTensorType::get({B, H, 1, 1, 1}, elemType), gateChunk,
+                                         getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, t, 0, 0}),
+                                         getIntArrayAttr(ctx, SmallVector<int64_t>{B, H, 1, 1, 1}))
                              .getResult();
         auto gateTSq = createReshape(rewriter, appendLoc(loc, StringRef("sgdr_gsq_" + tStr)), gateT, {B, H, 1, 1});
 
         // u_t [B,H,dK,dV]
-        auto uTSliced = rewriter.create<IE::SliceOp>(appendLoc(loc, StringRef("sgdr_u_" + tStr)),
-                                                     mlir::RankedTensorType::get({B, H, 1, dK, dV}, elemType), uChunk,
-                                                     getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, t, 0, 0}),
-                                                     getIntArrayAttr(ctx, SmallVector<int64_t>{B, H, 1, dK, dV}))
+        auto uTSliced = IE::SliceOp::create(rewriter, appendLoc(loc, StringRef("sgdr_u_" + tStr)),
+                                            mlir::RankedTensorType::get({B, H, 1, dK, dV}, elemType), uChunk,
+                                            getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, t, 0, 0}),
+                                            getIntArrayAttr(ctx, SmallVector<int64_t>{B, H, 1, dK, dV}))
                                 .getResult();
         auto uT = createReshape(rewriter, appendLoc(loc, StringRef("sgdr_ur_" + tStr)), uTSliced, {B, H, dK, dV});
 
         // q_t [B,H,1,dV] for broadcasting with h [B,H,dK,dV]
-        auto qT = rewriter.create<IE::SliceOp>(appendLoc(loc, StringRef("sgdr_q_" + tStr)),
-                                               mlir::RankedTensorType::get({B, H, 1, dV}, elemType), qChunk,
-                                               getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, t, 0}),
-                                               getIntArrayAttr(ctx, SmallVector<int64_t>{B, H, 1, dV}))
+        auto qT = IE::SliceOp::create(rewriter, appendLoc(loc, StringRef("sgdr_q_" + tStr)),
+                                      mlir::RankedTensorType::get({B, H, 1, dV}, elemType), qChunk,
+                                      getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, t, 0}),
+                                      getIntArrayAttr(ctx, SmallVector<int64_t>{B, H, 1, dV}))
                           .getResult();
 
         // h = gate_t * h + u_t
-        auto hDecayed =
-                rewriter.create<IE::MultiplyOp>(appendLoc(loc, StringRef("sgdr_hd_" + tStr)), h, gateTSq,
-                                                IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
-                        .getOutput();
-        h = rewriter.create<IE::AddOp>(appendLoc(loc, StringRef("sgdr_hn_" + tStr)), hDecayed, uT,
-                                       IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
+        auto hDecayed = IE::MultiplyOp::create(rewriter, appendLoc(loc, StringRef("sgdr_hd_" + tStr)), h, gateTSq,
+                                               IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
+                                .getOutput();
+        h = IE::AddOp::create(rewriter, appendLoc(loc, StringRef("sgdr_hn_" + tStr)), hDecayed, uT,
+                              IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
                     .getOutput();
 
         // y_t = ReduceSum(h * q_t, axis=3) -> [B,H,dK]
-        auto hq = rewriter.create<IE::MultiplyOp>(appendLoc(loc, StringRef("sgdr_hq_" + tStr)), h, qT,
-                                                  IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
+        auto hq = IE::MultiplyOp::create(rewriter, appendLoc(loc, StringRef("sgdr_hq_" + tStr)), h, qT,
+                                         IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr)
                           .getOutput();
-        auto yT = rewriter.create<IE::ReduceSumOp>(appendLoc(loc, StringRef("sgdr_y_" + tStr)),
-                                                   mlir::RankedTensorType::get({B, H, dK}, elemType), hq,
-                                                   getIntArrayAttr(ctx, SmallVector<int64_t>{3}), nullptr)
+        auto yT = IE::ReduceSumOp::create(rewriter, appendLoc(loc, StringRef("sgdr_y_" + tStr)),
+                                          mlir::RankedTensorType::get({B, H, dK}, elemType), hq,
+                                          getIntArrayAttr(ctx, SmallVector<int64_t>{3}), nullptr)
                           .getOutput();
         yOutputs.push_back(createReshape(rewriter, appendLoc(loc, StringRef("sgdr_yr_" + tStr)), yT, {B, H, 1, dK}));
     }
@@ -1827,8 +1826,8 @@ static mlir::LogicalResult buildChunkedSimplifiedGDR(IE::LoopOp origLoop, const 
         for (int64_t t = 0; t < L; t++) {
             concatOffsets.push_back(getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0, t, 0}));
         }
-        yChunk = rewriter.create<IE::ConcatOp>(appendLoc(loc, "sgdr_ycat"), yChunkType, mlir::ValueRange(yOutputs),
-                                               mlir::ArrayAttr::get(ctx, concatOffsets))
+        yChunk = IE::ConcatOp::create(rewriter, appendLoc(loc, "sgdr_ycat"), yChunkType, mlir::ValueRange(yOutputs),
+                                      mlir::ArrayAttr::get(ctx, concatOffsets))
                          .getOutput();
     }
 
@@ -1838,7 +1837,8 @@ static mlir::LogicalResult buildChunkedSimplifiedGDR(IE::LoopOp origLoop, const 
     auto execCond = Const::createConst<int8_t>(rewriter, appendLoc(loc, "sgdr_cond"),
                                                mlir::RankedTensorType::get({1}, mlir::IntegerType::get(ctx, 8)),
                                                ArrayRef<int8_t>{1});
-    rewriter.create<IE::LoopTerminatorOp>(appendLoc(loc, "sgdr_term"), SmallVector<mlir::Value>{execCond, h, yChunk5d});
+    IE::LoopTerminatorOp::create(rewriter, appendLoc(loc, "sgdr_term"),
+                                 SmallVector<mlir::Value>{execCond, h, yChunk5d});
 
     // Post-loop: reshape output and replace original
     rewriter.setInsertionPointAfter(newLoop);

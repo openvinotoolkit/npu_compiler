@@ -195,3 +195,129 @@ module @SplitNCEEltwiseWithUnpaddedOutputChannels {
     // CHECK:       VPU.NCE.Eltwise
     // CHECK-NEXT:    VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 3, 16, 16] pad [0, 0, 0, 0] <CUBOID_8x16>
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// NCE ops inside an scf.for must be skipped. In the product pipeline WorkloadsForNCEOpsSCF
+// (create-workloads-for-nce-ops-scf) runs immediately before this pass and has already given them
+// workloads; this test encodes that precondition directly in the input rather than running that pass,
+// so the convolution in the loop comes in with one workload and must come out with the same one.
+// The identical convolution outside the loop is a control: this pass does split that one, which shows
+// the pass is working and skips the first only because it is in the loop.
+
+// CHECK-LABEL: @SkipNCEOpInsideSCFFor
+func.func @SkipNCEOpInsideSCFFor(%arg0: tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>)
+        -> (tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1x48x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>) {
+    %cst = const.Declare tensor<144x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> = dense<1.000000e+00> : tensor<144x16x1x1xf16>, [#const.Reorder<#NHWC>]
+    %cst_ctrl = const.Declare tensor<48x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> = dense<1.000000e+00> : tensor<48x16x1x1xf16>, [#const.Reorder<#NHWC>]
+    %c0 = arith.constant 0 : index
+    %c144 = arith.constant 144 : index
+    %c48 = arith.constant 48 : index
+    %out = tensor.empty() : tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+    %result = scf.for %k = %c0 to %c144 step %c48 iter_args(%acc = %out) -> (tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>) {
+        %tile_sz = affine.min affine_map<(d0) -> (-d0 + 144, 48)>(%k)
+
+        %w_slice = tensor.extract_slice %cst[%k, 0, 0, 0] [%tile_sz, 16, 1, 1] [1, 1, 1, 1]
+            : tensor<144x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+            to tensor<?x16x1x1xf16, {bounds = #const.OpaqueI64Elements<[144, 16, 1, 1]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+
+        %conv = VPU.NCE.Convolution(%arg0, %w_slice) rawFilterShape [%tile_sz, 16, 1, 1] {
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
+            strides = [1, 1]
+        } : tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>,
+            tensor<?x16x1x1xf16, {bounds = #const.OpaqueI64Elements<[144, 16, 1, 1]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>,
+            index
+          -> tensor<1x?x16x16xf16, {bounds = #const.OpaqueI64Elements<[1, 144, 16, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}> {
+            // Input workload, matching what WorkloadsForNCEOpsSCF produces in the product pipeline.
+            VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 16, 16] pad [0, 0, 0, 0] #VPU.mpe_mode<CUBOID_16x16>
+        }
+
+        %insert = tensor.insert_slice %conv into %acc[0, %k, 0, 0] [1, %tile_sz, 16, 16] [1, 1, 1, 1]
+            : tensor<1x?x16x16xf16, {bounds = #const.OpaqueI64Elements<[1, 144, 16, 16]> : tensor<4xsi64>, mem_space = @CMX_NN, order = #NHWC}>
+            into tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+        scf.yield %insert : tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+    }
+
+    %ctrl = VPU.NCE.Convolution(%arg0, %cst_ctrl) rawFilterShape [48, 16, 1, 1] {
+        resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
+        strides = [1, 1]
+    } : tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>,
+        tensor<48x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+      -> tensor<1x48x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+    return %result, %ctrl : tensor<1x144x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1x48x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+    // Keeps the one workload it came in with, no cost estimate
+    // CHECK:       scf.for
+    // CHECK:         VPU.NCE.Convolution
+    // CHECK-NOT:       minimumHardwareExecutionCost
+    // CHECK:           VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 16, 16] pad [0, 0, 0, 0] <CUBOID_16x16>
+    // no second workload added
+    // CHECK-NOT:       VPU.DPU.Workload
+    // CHECK:         scf.yield
+
+    // The control convolution outside the loop is split as usual
+    // CHECK:       VPU.NCE.Convolution
+    // CHECK-SAME:      minimumHardwareExecutionCost = {{[1-9][0-9]+}} : i64
+    // CHECK:         VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 16, 16] pad [0, 0, 0, 0]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @SkipNCEOpInsideSCFForall
+func.func @SkipNCEOpInsideSCFForall(%arg0: tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>,
+                                    %weights: tensor<32x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>)
+        -> (tensor<2x32x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1x32x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>) {
+    %out = tensor.empty() : tensor<2x32x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+    %result = scf.forall (%tid) = (0) to (2) step (1)
+            shared_outs(%o = %out) -> (tensor<2x32x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>) {
+
+        %conv = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [32, 16, 1, 1] {
+            resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+            pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+            ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
+            strides = [1, 1]
+        } : tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>,
+            tensor<32x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+          -> tensor<1x32x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+        scf.forall.in_parallel {
+            tensor.parallel_insert_slice %conv into %o[%tid, 0, 0, 0] [1, 32, 16, 16] [1, 1, 1, 1]
+                : tensor<1x32x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+                into tensor<2x32x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+        }
+    }
+
+    %ctrl = VPU.NCE.Convolution(%arg0, %weights) rawFilterShape [32, 16, 1, 1] {
+        resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
+        strides = [1, 1]
+    } : tensor<1x16x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>,
+        tensor<32x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+      -> tensor<1x32x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+    return %result, %ctrl : tensor<2x32x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1x32x16x16xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+    // This one comes in with no workloads, so none may be added either
+    // CHECK:       scf.forall
+    // CHECK:         VPU.NCE.Convolution
+    // CHECK-NOT:       minimumHardwareExecutionCost
+    // CHECK-NOT:       VPU.DPU.Workload
+    // CHECK:         scf.forall.in_parallel
+
+    // The control convolution outside the loop is split as usual
+    // CHECK:       VPU.NCE.Convolution
+    // CHECK-SAME:      minimumHardwareExecutionCost = {{[1-9][0-9]+}} : i64
+    // CHECK:         VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 16, 16] pad [0, 0, 0, 0]
+}

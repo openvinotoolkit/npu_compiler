@@ -106,19 +106,18 @@ def SetupPassTools : PassBase<"setup-pass-tools", "vpux::ModulePass"> {
 }
 
 //
-// DMATaskProfilingReserveMem
+// ReserveProfilingMem
 //
 
-def DMATaskProfilingReserveMem : PassBase<"dma-task-profiling-reserve-mem", "vpux::ModulePass"> {
-    let summary = "DMA task profiling memory reserving";
+def ReserveProfilingMem : PassBase<"reserve-profiling-mem", "vpux::ModulePass"> {
+    let summary = "DMA, DPU and ActShave profiling memory reserving";
 
     let description = [{
         AI-generated summary
 
-        Reserves CMX memory for DMA task profiling buffers by analyzing the scheduled DMA
-        operations and computing required profiling buffer sizes. Inserts config::MemoryResourceOp
-        declarations to account for DMA hardware profiling storage, ensuring profiling data
-        collection does not conflict with inference workload memory allocation.
+        Reserves CMX and DDR memory for DMA, DPU and ActShave task profiling buffers.
+        Inserts config::MemoryResourceOp declarations to account for hardware profiling storage,
+        ensuring profiling data collection does not conflict with inference workload memory allocation.
     }];
 
     let options = [
@@ -129,7 +128,7 @@ def DMATaskProfilingReserveMem : PassBase<"dma-task-profiling-reserve-mem", "vpu
         >
     ];
 
-    let constructor = "vpux::VPU::createDMATaskProfilingReserveMemPass()";
+    let constructor = "vpux::VPU::createReserveProfilingMemPass()";
 }
 
 //
@@ -263,8 +262,10 @@ def SCFVerticalFusion : PassBase<"scf-vertical-fusion", "vpux::FunctionPass"> {
           check is applied.
         - COST_BASED: evaluates split options across dimensions with the cost model and
           keeps only candidates the cost model finds profitable relative to the unfused
-          operations. The fusion boundary is then chosen by bottom-up growth: starting
-          from the smallest valid group nearest the anchor, the group is extended toward
+          operations. The `vf-merge-cost-mode` option selects either the VPUNN performance
+          objective or the DMA-byte power proxy. The fusion boundary is then chosen by
+          bottom-up growth: starting from the smallest valid group nearest the anchor,
+          the group is extended toward
           the inputs only while the fused cost of the enlarged group does not exceed the
           previous group's fused cost plus the standalone cost of the added operations (a
           pairwise marginal check), and growth stops at the first non-profitable boundary.
@@ -292,6 +293,16 @@ def SCFVerticalFusion : PassBase<"scf-vertical-fusion", "vpux::FunctionPass"> {
             "enableDynamicDimAlignment", "enable-dynamic-dim-alignment",
             "bool", "false",
             "Align dynamic dimensions during tiling to make it easier to merge strided DMAs into batched DMAs"
+        >,
+
+        Option<
+            "vfMergeCostModeOpt", "vf-merge-cost-mode",
+            "vpux::VFMergeCostMode", "",
+            "Objective used by cost-based VF merging",
+            [{::llvm::cl::values(
+                clEnumValN(vpux::VFMergeCostMode::PERFORMANCE, "performance", "Select the existing VPUNN performance objective"),
+                clEnumValN(vpux::VFMergeCostMode::POWER, "power", "Select the DMA-byte power proxy")
+            )}]
         >
     ];
 }
@@ -671,6 +682,16 @@ def PatternBasedVF : PassBase<"pattern-based-vf", "vpux::FunctionPass"> {
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V0_1_PAGES, "PWLM_V0_1_PAGES", "PWLM with split into subgraphs (pages)"),
                 clEnumValN(vpux::WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES", "Full WLM with split into pages")
             )}]
+        >,
+
+        Option<
+            "vfMergeCostModeOpt", "vf-merge-cost-mode",
+            "vpux::VFMergeCostMode", "",
+            "Objective used by pattern-based VF merging",
+            [{::llvm::cl::values(
+                clEnumValN(vpux::VFMergeCostMode::PERFORMANCE, "performance", "Select the existing VPUNN performance objective"),
+                clEnumValN(vpux::VFMergeCostMode::POWER, "power", "Select the DMA-byte power proxy")
+            )}]
         >
     ];
 
@@ -730,6 +751,16 @@ def MergeVfSubgraphs : PassBase<"merge-vertical-fusion-subgraphs", "vpux::Functi
             [{::llvm::cl::values(
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V0_1_PAGES, "PWLM_V0_1_PAGES", "PWLM with split into subgraphs (pages)"),
                 clEnumValN(vpux::WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES", "Full WLM with split into pages")
+            )}]
+        >,
+
+        Option<
+            "vfMergeCostModeOpt", "vf-merge-cost-mode",
+            "vpux::VFMergeCostMode", "",
+            "Objective used by v2/FWLM VF merging",
+            [{::llvm::cl::values(
+                clEnumValN(vpux::VFMergeCostMode::PERFORMANCE, "performance", "Select the existing VPUNN performance objective"),
+                clEnumValN(vpux::VFMergeCostMode::POWER, "power", "Select the DMA-byte power proxy")
             )}]
         >
     ];
@@ -837,6 +868,15 @@ def VfTiling : PassBase<"vertical-fusion-tiling", "vpux::FunctionPass"> {
             [{::llvm::cl::values(
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V0_1_PAGES, "PWLM_V0_1_PAGES", "PWLM with split into subgraphs (pages)"),
                 clEnumValN(vpux::WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES", "Full WLM with split into pages")
+            )}]
+        >,
+        Option<
+            "vfMergeCostModeOpt", "vf-merge-cost-mode",
+            "vpux::VFMergeCostMode", "",
+            "Objective used by v2/FWLM VF tiling",
+            [{::llvm::cl::values(
+                clEnumValN(vpux::VFMergeCostMode::PERFORMANCE, "performance", "Select the existing VPUNN performance objective"),
+                clEnumValN(vpux::VFMergeCostMode::POWER, "power", "Select the DMA-byte power proxy")
             )}]
         >
     ];
@@ -2087,17 +2127,48 @@ def ConvolutionSplitOverInputChannel : PassBase<"convolution-split-over-input-ch
 //
 
 def FuseConvertPass : PassBase<"fuse-convert", "vpux::FunctionPass"> {
-    let summary = "Fuses VPU.Convert into previous operation";
+    let summary = "Fuses VPU.Convert into a neighbouring operation";
 
     let description = [{
-        AI-generated summary
-
         Fuses VPU.ConvertOp into a preceding VPU.DepthToSpaceOp when the configuration is
         supported (BLOCKS_FIRST mode, blockSize 2, 16 input channels, F16-to-F32 conversion).
         Sets the dstElemType attribute on DepthToSpaceOp and removes the standalone ConvertOp.
+
+        Removes an F32-to-F16 VPU.ConvertOp found on the scales path of a VPU.GroupQuantCorrectionOp
+        by walking back through view-like ops. GroupQuantCorrection accepts F32 scales directly, so the
+        conversion is redundant: the view-like chain is replayed in F32 and the F32 scales are fed
+        directly, avoiding a software Convert on the large scales tensor.
     }];
 
     let constructor = "vpux::VPU::createFuseConvertPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// ConvertDepthToSpaceToNCEConvolutionPass
+//
+
+def ConvertDepthToSpaceToNCEConvolutionPass : PassBase<"convert-depth-to-space-to-nce-convolution", "vpux::FunctionPass"> {
+    let summary = "Rewrites supported VPU.DepthToSpace ops into passthrough VPU.NCE.Convolution";
+
+    let description = [{
+        Rewrites legal VPU.DepthToSpace ops into a passthrough VPU.NCE.Convolution that uses
+        ODU DepthToSpace mode for the final layout transformation.
+        Supported cases:
+        - only VPU.DepthToSpace ops accepted by the pass legality checks
+        - no padded channels on the input or output tensors
+        - blockSize equal to 2 or 4
+        - input/output layout is NHWC
+        - input element type is F16 or quantized
+        The produced VPU.NCE.Convolution does not perform actual convolution. The pass configures the NCE
+        op as a passthrough and enables ODU D2S so that hardware performs the same data
+        rearrangement as the original DepthToSpace op.
+    }];
+
+    let constructor = "vpux::VPU::createConvertDepthToSpaceToNCEConvolutionPass()";
 
     let dependentDialects = [
         "vpux::VPU::VPUDialect"
@@ -2670,6 +2741,7 @@ def ConcatRepeatingBlocksOutlining : PassBase<"concat-repeating-blocks-outlining
 
         The pass can be configured with the following options:
         - min-seq-length: minimum number of compute operations that should be found on an input branch
+        - sdpa-head-threshold: maximum number of SDPA input branches for skipping concat outlining
         - single-function-per-concat: decides whether to outline each input branch into an individual function (false)
                                       or outline all input branches and the concat into a single function (true)
     }];
@@ -2685,6 +2757,12 @@ def ConcatRepeatingBlocksOutlining : PassBase<"concat-repeating-blocks-outlining
             "minSeqLength", "min-seq-length",
             "int", "",
             "Minimum threshold for the length of an input branch"
+        >,
+
+        Option<
+            "sdpaHeadThreshold", "sdpa-head-threshold",
+            "int", "8",
+            "Maximum number of SDPA input branches for skipping concat outlining"
         >,
 
         Option<
@@ -3233,13 +3311,13 @@ def ConcatHostConsts : PassBase<"concat-host-consts", "vpux::ModulePass"> {
 //
 
 def AdjustForOptimizedLayers : PassBase<"adjust-for-optimized-layers", "vpux::FunctionPass"> {
-    let summary = "Adjust layer shapes, layouts, or patterns to leverage optimized implementations";
+    let summary = "Adjust layer shapes or layout to utilize more compute engines or leverage optimized kernel implementation";
 
     let description = [{
         AI-generated summary
 
-        Adjusts layer shapes or layouts via ShapeCast and rewrites selected layer
-        patterns to utilize more compute engines and leverage optimized kernel implementations.
+        Adjusts layer shapes or layouts via ShapeCast to utilize more compute engines and
+        leverage optimized kernel implementations.
         Supported Optimizations:
         - Softmax: Adjust shape for axis=0 optimization and multi-SHAVE utilization
         - Gelu, Convert & Swish: Gather dimensions on tile axis for multi-SHAVE/multi-cluster
@@ -3255,9 +3333,6 @@ def AdjustForOptimizedLayers : PassBase<"adjust-for-optimized-layers", "vpux::Fu
           utilization
         - NCEAveragePool: Reshape batch dimension into spatial dimensions when batch > 1
           to enable HW execution with aligned channels
-        - Tile + NCEEltwise ADD/MULTIPLY: Convert a tiled per-channel FP tensor into
-          NCEMaxPool weight-table scale/bias operands on architectures that support
-          dynamic NCE pool weight-table inputs
     }];
 
     let constructor = "vpux::VPU::createAdjustForOptimizedLayersPass()";
@@ -3411,7 +3486,10 @@ def MoveConvertAroundViewLikeOps : PassBase<"move-convert-around-viewlike-ops", 
         This is the base pass which contains all rewriters for moving convertOp around in the IR
         MoveConvertAfterPermuteCast -> Moves ConvertOp after PermuteCast so we can fuse the CopyOp and ConvertDMAOp and avoid DDR DMAs
         MoveConvertAfterShapeCast -> Moves ConvertOp after ShapeCastOp so we can fuse the CopyOp and ConvertDMAOp and avoid DDR DMAs
-        MoveConvertAffineReshape -> Moves ConvertOp before AffineReshape with all 4 Dims
+        MoveConvertBeforeAffineReshape -> Moves ConvertOp before AffineReshape with all 4 Dims
+        MergeConvertBeforeSliceBranches -> Merges >=8 per-branch Converts after an AffineReshape/Slice fan-out
+            into a single Convert before the AffineReshape, when doing so does not increase converted elements
+            and makes the Convert eligible for multi-SHAVE tiling
     }];
 
     let constructor = "vpux::VPU::createMoveConvertAroundViewLikeOpsPass()";
@@ -3497,7 +3575,8 @@ def FlashSDPATiling : PassBase<"flash-sdpa-tiling", "vpux::FunctionPass"> {
     let summary = "Tiles VPU.FlashSDPA on heads, Query sequence length and Key/Value sequence length";
 
     let description = [{
-        Tiles VPU.FlashSDPA operation, reserving memory for pipelined Query tiles.
+        Tiles VPU.FlashSDPA operation, reserving memory for pipelined Query tiles and,
+        when the Key/Value sequence is unrolled, for prefetched KV blocks.
 
         The pass first annotates each operation with the transient head_tile_size, kv_num_tiles and
         q_num_tiles attributes, then applies three stages in order.
@@ -3505,7 +3584,13 @@ def FlashSDPATiling : PassBase<"flash-sdpa-tiling", "vpux::FunctionPass"> {
         A tile normally holds one whole GQA group, and a group-aligned subset of one group when that
         is what it takes to fit CMX with the Query pipelining reservation.
         The KV unrolling stage consumes kv_num_tiles and unrolls each head tile into a chain of
-        FlashSDPA ops sliced along the Key/Value sequence length.
+        FlashSDPA ops sliced along the Key/Value sequence length. In the decode case (target
+        sequence length 1) the CMX estimate reserves one extra KV block of Key and Value. That
+        reservation makes a single full-KV block stop fitting, so the pass splits the Key/Value
+        sequence, and it leaves room for the scheduler to prefetch the next block's Key and Value
+        while the current block computes, overlapping block DMA with block compute instead of
+        serializing them. Prefill keeps the tightest KV fit because its Query-tile loop already
+        reuses each KV block across Q tiles.
         The Query sequence tiling stage consumes q_num_tiles and tiles each op on the Query
         sequence (H) dimension last, so that Q tiles form the innermost, pipelined loop.
     }];
@@ -3788,21 +3873,16 @@ def FullUnrollSCFLoop : PassBase<"full-unroll-scf-loop", "vpux::ModulePass"> {
     ];
 }
 
-
-
 //
 // RunMVNNormalizeOnDPU
 //
 
 def RunMVNNormalizeOnDPU : PassBase<"run-mvn-normalize-on-dpu", "vpux::FunctionPass"> {
-    let summary = "Run MVN normalize and broadcast-Add on DPU instead of SHAVE";
+    let summary = "Run MVN normalize on DPU instead of SHAVE";
 
     let description = [{
-        Applies two independent rewrite patterns that move small elementwise-style compute
-        from SHAVE onto DPU, avoiding SW kernel dispatch overhead and (for the first pattern)
-        keeping data CMX-resident on an all-DPU chain:
-
-        1. RunMVNNormalizeOnDPU -- replaces VPU.MVN1NormalizeOp with DPU-executable operations:
+        Replaces VPU.MVN1NormalizeOp with DPU-executable operations, keeping data CMX-resident
+        on an all-DPU chain and avoiding SW kernel dispatch overhead:
            - Extracts pre-computed mean and scale from the meanVar input via VPU.SliceOp
            - Computes bias (negated mean) via VPU.NCEEltwiseOp (multiply by -1)
            - Converts scale/bias to fp32 via a DPU identity NCE.MaxPool (scale=1.0, bias=0.0
@@ -3816,23 +3896,10 @@ def RunMVNNormalizeOnDPU : PassBase<"run-mvn-normalize-on-dpu", "vpux::FunctionP
              are already SHAVE-efficient and are left unconverted
            - input layout is NHWC and element type is f16 or bf16
            - the original (pre-flatten) MVN input was not 1D (orig_shape W > 1)
-
-        2. RunAddBroadcastOnDPU -- converts VPU.Add(feature_NxCxHxW, bias_1xCx1x1) to
-           VPU.NCEMaxPoolOp with a per-channel weights table (scale=1.0, bias=per-channel
-           value), removing the SW broadcast kernel and its DMA overhead. Only fires for:
-           - NHWC layout and f16/bf16 element type on both operands
-           - true 2D spatial feature maps (H>1 and W>1) with area >= 256
-           - a dynamic (non-constant) bias -- a static bias is left on SHAVE, since its
-             feature map typically also comes from SHAVE and converting only the Add would
-             add a DDR roundtrip
-           - VPU_CHANNEL_ALIGNMENT-aligned channel count
-           - no post_op on the Add (VPU.AddOp does not implement LayerWithPostOpInterface,
-             so a post-op activation cannot be preserved on NCEMaxPool)
     }];
 
     let constructor = "vpux::VPU::createRunMVNNormalizeOnDPUPass()";
 }
-
 
 //
 // SCF Loop Analysis and Debug
@@ -3873,5 +3940,31 @@ def SCFLoopAnalysisAndDebug : PassBase<"scf-loop-analysis-and-debug", "vpux::Mod
         "vpux::VPU::VPUDialect",
         "mlir::scf::SCFDialect",
         "mlir::tensor::TensorDialect"
+    ];
+}
+
+//
+// ConvertTileWithEltwiseToNCEPool
+//
+
+def ConvertTileWithEltwiseToNCEPool : PassBase<"convert-tile-with-eltwise-to-nce-pool", "vpux::FunctionPass"> {
+    let summary = "Convert Tile + NCE.Eltwise broadcasts to NCE.MaxPool scale/bias tables";
+
+    let description = [{
+        Converts a spatially broadcast per-channel FP tensor followed by NCE.Eltwise
+        ADD or MULTIPLY into an NCE.MaxPool with per-channel scale or bias data.
+
+        The transformation is supported only on NPU50XX and newer platforms. NPU37XX
+        and NPU40XX are excluded because NCE.MaxPool does not support per-channel
+        scale/bias there.
+
+        The generated weight-table representation depends on the target architecture.
+    }];
+
+    let constructor = "vpux::VPU::createConvertTileWithEltwiseToNCEPoolPass()";
+
+    let dependentDialects = [
+        "vpux::Const::ConstDialect",
+        "vpux::VPU::VPUDialect",
     ];
 }

@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/merge_tiling_policy.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_case.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_scheduler_interface.hpp"
+#include "vpux/compiler/utils/options.hpp"
 #include "vpux/utils/core/dense_map.hpp"
 
 namespace vpux::VPU::VF::v2 {
@@ -21,7 +22,8 @@ namespace vpux::VPU::VF::v2 {
 class MergeVFRegionRewriter final : public MergeVFRegionBaseRewriter<VFCase> {
 public:
     MergeVFRegionRewriter(mlir::MLIRContext* ctx, bool enableVerticalFusionPipelining, bool enablePrefetchTiling,
-                          const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log, VFCacheAnalysis& cache);
+                          const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log, VFCacheAnalysis& cache,
+                          VFMergeCostMode costMode = VFMergeCostMode::PERFORMANCE);
 
     mlir::LogicalResult matchAndRewrite(VPU::VerticalFusionOp origOp, mlir::PatternRewriter& rewriter) const final;
 
@@ -43,6 +45,9 @@ protected:
     StrategyCost getOriginalVFCost(VPU::VerticalFusionOp vfOp) const;
 
     VFCacheAnalysis& _cache;
+    VFMergeCostMode _costMode = VFMergeCostMode::PERFORMANCE;
+    bool _enableOutputTileAdjustmentForSW = false;
+    std::shared_ptr<const VFCostStrategy> _costStrategy;
     SmallVector<std::unique_ptr<MergeTilingPolicy>> _tilingPolicies;
 };
 

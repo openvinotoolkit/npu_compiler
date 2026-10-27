@@ -154,19 +154,20 @@ mlir::FailureOr<SymbolizationResult> DPUInvariantRewriter::symbolize(VPUMI40XX::
         outTypeContAttr = mlir::TypeAttr::get(buffType);
     }
 
-    auto invariant = rewriter.create<VPUASM::DPUInvariantOp>(
-            op.getLoc(), symName, taskIdx, taskLocation, inputSym, inputSparsityMapSym, inputSETableSym, weightsSym,
-            weightsSparsityMapSym, weightTableSym, weightTableDataPtrSym, weightTableSpPtrSym, weightTableScaleSym,
-            weightTableBiasSym, weightTableAlphaSym, weightZeroPointsSym, sprLookupTableSym, palletLookupTableSym,
-            outputSym, outputSparsityMapSym, profilingDataSym, dynamicSequenceLengthSym, maxPerXYSym, minPerXYSym,
-            minMaxPerTensorAttr, outTypeContAttr, waitAttr, updateAttr, op.getNceTaskTypeAttr(),
-            op.getEltwiseTypeAttr(), op.getMpeFrequentModeAttr(), op.getMpeEngineAttr(), op.getKernelSizeAttr(),
-            op.getKernelStridesAttr(), op.getKernelPaddingAttr(), op.getIsContinued(), op.getCmSpPatternAttr(),
-            op.getInputChannelsCompression(), op.getIsZeroOffsetWeightsTable(), op.getOutChannelOffsetAttr(),
-            op.getIsSuperdense(), op.getIsInplaceAttr(), op.getInputSeSizeAttr(), op.getOutputSeSizeAttr(),
-            op.getIsPermuteQuantize(), op.getIsSmallKernelOptimized(), op.getSparsityConfigAttr(),
-            op.getDynamicScaleConfigAttr(), op.getLocalRegionAttr(), op.getS2dd2sConfigAttr(), op.getStartAfterAttr(),
-            op.getCleanAfterAttr(), variantsInGroupAttr, firstVariantAttr, lastVariantAttr);
+    auto invariant = VPUASM::DPUInvariantOp::create(
+            rewriter, op.getLoc(), symName, taskIdx, taskLocation, inputSym, inputSparsityMapSym, inputSETableSym,
+            weightsSym, weightsSparsityMapSym, weightTableSym, weightTableDataPtrSym, weightTableSpPtrSym,
+            weightTableScaleSym, weightTableBiasSym, weightTableAlphaSym, weightZeroPointsSym, sprLookupTableSym,
+            palletLookupTableSym, outputSym, outputSparsityMapSym, profilingDataSym, dynamicSequenceLengthSym,
+            maxPerXYSym, minPerXYSym, minMaxPerTensorAttr, outTypeContAttr, waitAttr, updateAttr,
+            op.getNceTaskTypeAttr(), op.getEltwiseTypeAttr(), op.getMpeFrequentModeAttr(), op.getMpeEngineAttr(),
+            op.getKernelSizeAttr(), op.getKernelStridesAttr(), op.getKernelPaddingAttr(), op.getIsContinued(),
+            op.getCmSpPatternAttr(), op.getInputChannelsCompression(), op.getIsZeroOffsetWeightsTable(),
+            op.getOutChannelOffsetAttr(), op.getIsSuperdense(), op.getIsInplaceAttr(), op.getInputSeSizeAttr(),
+            op.getOutputSeSizeAttr(), op.getIsPermuteQuantize(), op.getIsSmallKernelOptimized(),
+            op.getSparsityConfigAttr(), op.getDynamicScaleConfigAttr(), op.getLocalRegionAttr(),
+            op.getS2dd2sConfigAttr(), op.getStartAfterAttr(), op.getCleanAfterAttr(), variantsInGroupAttr,
+            firstVariantAttr, lastVariantAttr);
     {
         auto& ppeRegion = invariant.getPpe();
         ppeRegion.emplaceBlock();
@@ -175,8 +176,8 @@ mlir::FailureOr<SymbolizationResult> DPUInvariantRewriter::symbolize(VPUMI40XX::
         rewriter.setInsertionPointToEnd(&ppeRegion.front());
 
         for (auto ppe : op.getPpe().getOps<VPUMI40XX::PPETaskOp>()) {
-            rewriter.create<VPUASM::PPETaskOp>(rewriter.getUnknownLoc(), ppe->getResultTypes(), ppe->getOperands(),
-                                               ppe->getAttrDictionary().getValue());
+            VPUASM::PPETaskOp::create(rewriter, rewriter.getUnknownLoc(), ppe->getResultTypes(), ppe->getOperands(),
+                                      ppe->getAttrDictionary().getValue());
         }
     }
 

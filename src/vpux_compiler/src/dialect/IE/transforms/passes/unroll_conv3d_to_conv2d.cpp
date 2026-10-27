@@ -67,9 +67,9 @@ auto createFQ(mlir::PatternRewriter& rewriter, mlir::Value input, IE::FakeQuanti
     auto inputHigh = sliceFqConstInput(fq.getInputHigh(), "in_high");
     auto outputLow = sliceFqConstInput(fq.getOutputLow(), "out_low");
     auto outputHigh = sliceFqConstInput(fq.getOutputHigh(), "out_high");
-    return rewriter.create<IE::FakeQuantizeOp>(takeOpLoc(fq, "fq_in_dim{0}_{1}", index, composedIndex), input, inputLow,
-                                               inputHigh, outputLow, outputHigh, fq.getLevelsAttr(),
-                                               fq.getLowFpTypeAttr(), fq.getAutoBroadcast());
+    return IE::FakeQuantizeOp::create(rewriter, takeOpLoc(fq, "fq_in_dim{0}_{1}", index, composedIndex), input,
+                                      inputLow, inputHigh, outputLow, outputHigh, fq.getLevelsAttr(),
+                                      fq.getLowFpTypeAttr(), fq.getAutoBroadcast());
 }
 
 auto createDQ(mlir::PatternRewriter& rewriter, IE::DequantizeOp dq, int64_t index, StringRef composedIndex) {
@@ -91,8 +91,8 @@ auto createDQ(mlir::PatternRewriter& rewriter, IE::DequantizeOp dq, int64_t inde
                 newDqInputShapeSqueezedAttr);
     };
     auto slicedInput = sliceDqConstInput(dq.getInput(), "in_slice");
-    return rewriter.create<IE::DequantizeOp>(takeOpLoc(dq, "dq_in_dim{0}_{1}", index, composedIndex), slicedInput,
-                                             dq.getDstElemTypeAttr());
+    return IE::DequantizeOp::create(rewriter, takeOpLoc(dq, "dq_in_dim{0}_{1}", index, composedIndex), slicedInput,
+                                    dq.getDstElemTypeAttr());
 }
 
 SmallVector<mlir::Value> getSlicedFilters(mlir::PatternRewriter& rewriter, mlir::Operation* origOp, mlir::Value input,
@@ -317,7 +317,7 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
     }
 
     if (!mlir::isa_and_nonnull<IE::ConvolutionOp, IE::GroupConvolutionOp>(origOp.getOperation())) {
-        return matchFailed(rewriter, origOp, "Unroll 3D supports only Convolution and GroupConvolution");
+        return matchFailed(_log, rewriter, origOp, "Unroll 3D supports only Convolution and GroupConvolution");
     }
     _log.trace("Got layer '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
     const auto dilations = Shape(parseIntArrayAttr<int64_t>(origOp.getDilations()));
@@ -360,14 +360,14 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
             SmallVector<int64_t> sliceShape{inputShape[Dims5D::Act::N], inputShape[Dims5D::Act::C], 1,
                                             inputShape[Dims5D::Act::H], inputShape[Dims5D::Act::W]};
             auto slicedActivation =
-                    rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "slice_{0}_{1}", actIndex, depthIndex), input,
-                                                 getIntArrayAttr(ctx, offsets.raw()), getIntArrayAttr(ctx, sliceShape))
+                    IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_{0}_{1}", actIndex, depthIndex), input,
+                                        getIntArrayAttr(ctx, offsets.raw()), getIntArrayAttr(ctx, sliceShape))
                             .getResult();
             SmallVector<int64_t> reshapeShape{inputShape[Dims5D::Act::N], inputShape[Dims5D::Act::C],
                                               inputShape[Dims5D::Act::H], inputShape[Dims5D::Act::W]};
             auto reshapeSlicedActivation =
-                    rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_{0}_{1}", actIndex, depthIndex),
-                                                   slicedActivation, getIntArrayAttr(ctx, reshapeShape));
+                    IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_{0}_{1}", actIndex, depthIndex),
+                                          slicedActivation, getIntArrayAttr(ctx, reshapeShape));
             mlir::Operation* lastOp = reshapeSlicedActivation;
 
             mlir::Builder builder(origOp->getContext());
@@ -388,16 +388,17 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
             mlir::Operation* newConvOp;
             auto newLoc = takeOpLoc(origOp, "conv_{0}_{1}", actIndex, depthIndex);
             if (auto groupConv = mlir::dyn_cast_or_null<IE::GroupConvolutionOp>(origOp.getOperation())) {
-                newConvOp = rewriter.create<IE::GroupConvolutionOp>(
-                        newLoc, lastOp->getResult(0), slicedFilters[depthIndex],
+                newConvOp = IE::GroupConvolutionOp::create(
+                        rewriter, newLoc, lastOp->getResult(0), slicedFilters[depthIndex],
                         /*bias=*/nullptr, stridesAttr, padBeginAttr, padEndAttr, dilationsAttr,
                         groupConv.getGroupsAttr(),
                         /*post_opAttr=*/nullptr, /*clamp=*/nullptr, /*outputPadding=*/nullptr,
                         /*inputPadding=*/nullptr);
             } else {
                 auto conv = mlir::dyn_cast_or_null<IE::ConvolutionOp>(origOp.getOperation());
-                newConvOp = rewriter.create<IE::ConvolutionOp>(
-                        newLoc, lastOp->getResult(0), slicedFilters[depthIndex], /*bias=*/nullptr, /*scale*/ nullptr,
+                newConvOp = IE::ConvolutionOp::create(
+                        rewriter, newLoc, lastOp->getResult(0), slicedFilters[depthIndex], /*bias=*/nullptr,
+                        /*scale*/ nullptr,
                         /*zero_points=*/nullptr, stridesAttr, padBeginAttr, padEndAttr, dilationsAttr,
                         /*post_opAttr=*/nullptr, /*clamp=*/nullptr, conv.getStaticScaleAttr(),
                         origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
@@ -415,10 +416,10 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
             mlir::Value add = newSubConvs.front();
             for (size_t i = 1; i < newSubConvs.size(); i++) {
                 const auto isLast = (i == newSubConvs.size() - 1);
-                add = rewriter.create<IE::AddOp>(takeOpLoc(origOp, "add_{0}_{1}", actIndex, i), add, newSubConvs[i],
-                                                 broadcastType, isLast ? origOp.getPostOpAttr() : nullptr,
-                                                 isLast ? origOp.getClampAttr() : nullptr,
-                                                 origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr())
+                add = IE::AddOp::create(rewriter, takeOpLoc(origOp, "add_{0}_{1}", actIndex, i), add, newSubConvs[i],
+                                        broadcastType, isLast ? origOp.getPostOpAttr() : nullptr,
+                                        isLast ? origOp.getClampAttr() : nullptr, origOp.getOutputPaddingAttr(),
+                                        origOp.getInputPaddingAttr())
                               ->getResult(0);
             }
 
@@ -428,20 +429,21 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
 
     // 3. add the new convolution one by one
     if (newConvs.empty()) {
-        return matchFailed(rewriter, origOp, "no any new conv created.");
+        return matchFailed(_log, rewriter, origOp, "no any new conv created.");
     }
 
     SmallVector<mlir::Value> concatInputs;
     SmallVector<int64_t> subOutputShape{outputShape[Dims5D::Act::N], outputShape[Dims5D::Act::C], 1,
                                         outputShape[Dims5D::Act::H] * outputShape[Dims5D::Act::W]};
     for (auto subConv : newConvs) {
-        auto subOutputReshape = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in_{0}", concatInputs.size()),
-                                                               subConv, getIntArrayAttr(ctx, subOutputShape))
-                                        .getOutput();
+        auto subOutputReshape =
+                IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_in_{0}", concatInputs.size()), subConv,
+                                      getIntArrayAttr(ctx, subOutputShape))
+                        .getOutput();
         concatInputs.push_back(subOutputReshape);
     }
     auto concatOutput =
-            rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "concat_out"), concatInputs, Dims4D::Act::H).getOutput();
+            IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "concat_out"), concatInputs, Dims4D::Act::H).getOutput();
     auto outputReshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_out"), concatOutput,
                                                               getIntArrayAttr(ctx, outputShape));
     rewriter.replaceOp(origOp, outputReshape);
@@ -523,14 +525,14 @@ mlir::LogicalResult TransposedConvGeneralRewriter::matchAndRewrite(IE::Transpose
             SmallVector<int64_t> sliceShape{inputShape[Dims5D::Act::N], inputShape[Dims5D::Act::C], 1,
                                             inputShape[Dims5D::Act::H], inputShape[Dims5D::Act::W]};
             auto slicedActivation =
-                    rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "slice_in_{0}_{1}", actIndex, depthIndex), input,
-                                                 getIntArrayAttr(ctx, offsets.raw()), getIntArrayAttr(ctx, sliceShape))
+                    IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_in_{0}_{1}", actIndex, depthIndex), input,
+                                        getIntArrayAttr(ctx, offsets.raw()), getIntArrayAttr(ctx, sliceShape))
                             .getResult();
             SmallVector<int64_t> reshapeShape{inputShape[Dims5D::Act::N], inputShape[Dims5D::Act::C],
                                               inputShape[Dims5D::Act::H], inputShape[Dims5D::Act::W]};
             auto reshapeSlicedActivation =
-                    rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in_{0}_{1}", actIndex, depthIndex),
-                                                   slicedActivation, getIntArrayAttr(ctx, reshapeShape));
+                    IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_in_{0}_{1}", actIndex, depthIndex),
+                                          slicedActivation, getIntArrayAttr(ctx, reshapeShape));
             mlir::Operation* lastOp = reshapeSlicedActivation;
 
             if (inputFQ != nullptr) {
@@ -538,8 +540,8 @@ mlir::LogicalResult TransposedConvGeneralRewriter::matchAndRewrite(IE::Transpose
                                                   llvm::formatv("{0}_{1}", actIndex, depthIndex).str());
                 lastOp = newFakeQuantizeOp;
             }
-            auto newConvOp = rewriter.create<IE::TransposedConvolutionOp>(
-                    takeOpLoc(origOp, "tconv_{0}_{1}", actIndex, depthIndex), lastOp->getResult(0),
+            auto newConvOp = IE::TransposedConvolutionOp::create(
+                    rewriter, takeOpLoc(origOp, "tconv_{0}_{1}", actIndex, depthIndex), lastOp->getResult(0),
                     slicedFilters[depthIndex], /*output_shape=*/nullptr,
                     /*bias=*/nullptr, stridesAttr, padBeginAttr, padEndAttr, dilationsAttr, outputPaddingAttr,
                     /*post_opAttr=*/nullptr, /*clamp=*/nullptr,
@@ -560,11 +562,11 @@ mlir::LogicalResult TransposedConvGeneralRewriter::matchAndRewrite(IE::Transpose
                     } else {
                         const auto broadcastType = vpux::IE::AutoBroadcastTypeAttr::get(
                                 origOp->getContext(), IE::AutoBroadcastType::NONE_OR_EXPLICIT);
-                        add = rewriter.create<IE::AddOp>(takeOpLoc(origOp, "add_{0}_{1}", i, addId++), add, conv->first,
-                                                         broadcastType,
-                                                         /*post_opAttr=*/nullptr,
-                                                         /*clamp=*/nullptr,
-                                                         /*outputPadding*/ nullptr, /*inputPadding*/ nullptr)
+                        add = IE::AddOp::create(rewriter, takeOpLoc(origOp, "add_{0}_{1}", i, addId++), add,
+                                                conv->first, broadcastType,
+                                                /*post_opAttr=*/nullptr,
+                                                /*clamp=*/nullptr,
+                                                /*outputPadding*/ nullptr, /*inputPadding*/ nullptr)
                                       ->getResult(0);
                     }
                 }
@@ -577,7 +579,7 @@ mlir::LogicalResult TransposedConvGeneralRewriter::matchAndRewrite(IE::Transpose
 
     // 3. add the new convolution one by one
     if (newConvs.empty()) {
-        return matchFailed(rewriter, origOp, "no any new conv created.");
+        return matchFailed(_log, rewriter, origOp, "no any new conv created.");
     }
 
     SmallVector<mlir::Value> concatInputs;
@@ -585,18 +587,18 @@ mlir::LogicalResult TransposedConvGeneralRewriter::matchAndRewrite(IE::Transpose
                                         outputShape[Dims5D::Act::H] * outputShape[Dims5D::Act::W]};
     for (auto subConv : newConvs) {
         auto subOutputReshape =
-                rewriter.create<IE::ReshapeOp>(origOp->getLoc(), subConv, getIntArrayAttr(ctx, subOutputShape))
+                IE::ReshapeOp::create(rewriter, origOp->getLoc(), subConv, getIntArrayAttr(ctx, subOutputShape))
                         .getOutput();
         concatInputs.push_back(subOutputReshape);
     }
 
     mlir::Operation* lastOp =
-            rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "concat_out"), concatInputs, Dims4D::Act::H);
+            IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "concat_out"), concatInputs, Dims4D::Act::H);
 
     if (extraPanding > 0) {
         SmallVector<int64_t> outputPaddingEnd{0, 0, extraPanding, 0};
-        lastOp = rewriter.create<IE::ExpandOp>(takeOpLoc(origOp, "expand_out"), lastOp->getResult(0), std::nullopt,
-                                               ShapeRef(outputPaddingEnd));
+        lastOp = IE::ExpandOp::create(rewriter, takeOpLoc(origOp, "expand_out"), lastOp->getResult(0), std::nullopt,
+                                      ShapeRef(outputPaddingEnd));
     }
 
     auto outReshapeOp =

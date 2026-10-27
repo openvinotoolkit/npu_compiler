@@ -19,7 +19,33 @@
 using namespace vpux;
 
 namespace {
-using ExcludedRange = std::pair<vpux::AddressType, vpux::AddressType>;
+using ExcludedRangeOffsetAndSize = std::pair<vpux::AddressType, vpux::AddressType>;
+
+// Clip excluded ranges to the intersection with currently free gaps.
+// allocWithExcludedRegion routes each range through Partitioner::allocFixed,
+// which requires the range to lie entirely inside a free gap. Parts of an
+// excluded range that overlap already-allocated memory must be dropped;
+// otherwise allocFixed's precondition is violated. Multiple sub-ranges may
+// be produced for a single input if it straddles allocated regions.
+SmallVector<ExcludedRangeOffsetAndSize> intersectExcludedWithGaps(ArrayRef<ExcludedRangeOffsetAndSize> excluded,
+                                                                  ArrayRef<vpux::Partitioner::Gap> gaps) {
+    SmallVector<ExcludedRangeOffsetAndSize> trimmed;
+    for (const auto& [addr, size] : excluded) {
+        const auto excEnd = addr + size;
+        for (const auto& gap : gaps) {
+            if (gap.begin >= excEnd) {
+                break;  // gaps are sorted by begin; no further overlap possible
+            }
+            if (gap.end <= addr) {
+                continue;
+            }
+            const auto interBegin = std::max(gap.begin, addr);
+            const auto interEnd = std::min(gap.end, excEnd);
+            trimmed.emplace_back(interBegin, interEnd - interBegin);
+        }
+    }
+    return trimmed;
+}
 }  // namespace
 
 vpux::VfAllocateLinear::VfAllocateLinear(const ComputeRegion& region, const ClassifierVFResult& classifier,
@@ -38,6 +64,85 @@ vpux::VfAllocateLinear::VfAllocateLinear(const ComputeRegion& region, const Clas
 // Spilling cost is determined by the size of buffer
 size_t vpux::VfAllocateLinear::getSpillCost(size_t bufferSize) {
     return bufferSize;
+}
+
+// Evict the cheapest still-admitted persistent. Returns true if
+// an eviction happened (the caller should retry the failing alloc).
+// Spill of a persistent buffer is done differently from a temporary spill:
+// besides marking the buffer as spilled it also reduces the reserved
+// persistent range so the linear scan can reuse the freed memory. The evicted
+// buffer is retroactively recorded as if it had been allocated at its first
+// use inside the persistent zone, then deallocated at the current op.
+bool vpux::VfAllocateLinear::findAndSpillPersistentBuffer(VfAllocateResult& result, ComputeExplicitSchedule& entry,
+                                                          size_t currentOpPos, ArrayRef<mlir::Value> inOpBuffers,
+                                                          ArrayRef<mlir::Value> outOpBuffers,
+                                                          SmallVector<BufferRecord>& admittedPersistentCand,
+                                                          AddressType& reservedSize, AddressType& persistentFloor,
+                                                          AddressType& temporaryHighWater) {
+    if (admittedPersistentCand.empty()) {
+        _log.trace("No persistent candidate left to evict");
+        return false;
+    }
+
+    // Pick smallest-cost admitted persistent (admission order is DESC by cost,
+    // so back-to-front traversal visits candidates cheapest first). Skip the
+    // current op's own inputs/outputs — evicting them would defeat the retry.
+    BufferRecord persistedBuffer;
+    persistedBuffer.rootValue = nullptr;
+    for (auto it = admittedPersistentCand.rbegin(); it != admittedPersistentCand.rend(); ++it) {
+        const auto& buffer = it->rootValue;
+        if (llvm::is_contained(inOpBuffers, buffer) || llvm::is_contained(outOpBuffers, buffer)) {
+            continue;
+        }
+        persistedBuffer = *it;
+        admittedPersistentCand.erase(std::next(it).base());
+        break;
+    }
+    if (persistedBuffer.rootValue == nullptr) {
+        _log.trace("No persistent candidate left to evict");
+        return false;
+    }
+
+    // Address inside the persistent zone the evicted buffer occupies. Alignment
+    // applies to the OFFSET, so raise `persistentFloor` to a
+    // `persistedBuffer.alignment`-aligned address; the gap between the old
+    // floor and the aligned offset is unusable and counts as freed persistent
+    // space alongside the buffer size itself.
+    const auto alignedOffset = vpux::alignValUp(persistentFloor, persistedBuffer.alignment);
+
+    // Retroactive alloc entry at the buffer's first template use so downstream
+    // consumers see the persistent slot as a TEMPORARY at `alignedOffset` up to
+    // the point of eviction. If the buffer has not been used yet in the
+    // template, its future first use will go through the normal tryAlloc path
+    // (guided by `wasEverSpilled` below).
+    const auto firstUseOp = persistedBuffer.firstUseOp;
+    const auto noTemplateUse = std::numeric_limits<size_t>::max();
+    if (firstUseOp != noTemplateUse && firstUseOp < currentOpPos) {
+        VPUX_THROW_UNLESS(firstUseOp < result.iterationSchedule.size(),
+                          "Spilled persistent firstUseOp {0} outside iteration schedule (size={1})", firstUseOp,
+                          result.iterationSchedule.size());
+        result.iterationSchedule[firstUseOp].allocations.push_back({persistedBuffer.rootValue, alignedOffset});
+        // Since non longer persistent buffer is now allocated as temporary update temporaryHighWater
+        temporaryHighWater = std::max(temporaryHighWater, alignedOffset + persistedBuffer.size);
+        _log.trace("Downgraded persistent, insert alloc at {0}, value={1} addr={2}, highWater={3}", firstUseOp,
+                   persistedBuffer.rootValue, alignedOffset, temporaryHighWater);
+    }
+
+    _linearScan.handler().spilled(persistedBuffer.rootValue);
+    entry.deallocations.push_back(persistedBuffer.rootValue);
+    result.spilledBuffers.push_back(persistedBuffer.rootValue);
+
+    // Persistent zone shrinks by the alignment gap plus the buffer size.
+    const auto freed = (alignedOffset - persistentFloor) + persistedBuffer.size;
+    VPUX_THROW_WHEN(freed > reservedSize, "Evicted persistent buffer would free {0} bytes but reservedSize is only {1}",
+                    freed, reservedSize);
+    reservedSize -= freed;
+    persistentFloor += freed;
+
+    _log.trace("Op {0} dealloc (Spill) PERSISTENT value={1} (persistentFloor now {2})", currentOpPos,
+               persistedBuffer.rootValue, persistentFloor);
+
+    return true;
 }
 
 // Find and spill temporary buffer. Deallocate range in linear scan
@@ -123,29 +228,65 @@ void vpux::VfAllocateLinear::freeDeadAtOp(size_t opPos, ComputeExplicitSchedule&
 }
 
 // Try one TEMPORARY allocation; returns the address on success or
-// InvalidAddress on failure.
-vpux::AddressType vpux::VfAllocateLinear::tryAllocTemporary(mlir::Value out, AddressType persistentFloor) {
+// InvalidAddress on failure. `extraExcludedCandidates` reserves additional
+// (addr, size) ranges. Attempts are made from the largest suffix down: first
+// with the full set, then dropping the last entry on each retry until the
+// set is empty. The persistent-zone exclusion (baseExcluded) is preserved
+// on every attempt. Later entries (added last) are the first to be
+// sacrificed, so callers should push lower-priority ranges to the tail.
+vpux::AddressType vpux::VfAllocateLinear::tryAllocTemporary(
+        mlir::Value out, AddressType persistentFloor,
+        ArrayRef<std::pair<AddressType, AddressType>> extraExcludedCandidates) {
     auto& scanHandler = _linearScan.handler();
     scanHandler.markAsAlive(out);
+
     // Persistent zone occupies [persistentFloor, memoryLimit). Skip the
     // excluded-region argument entirely when the persistent zone is empty
     // — Partitioner::allocFixed asserts size>0 on the excluded range.
-    bool allocStatus = false;
+    SmallVector<ExcludedRangeOffsetAndSize> baseExcluded;
     if (persistentFloor < _memoryLimit) {
-        SmallVector<ExcludedRange> excludedRegion{{persistentFloor, _memoryLimit - persistentFloor}};
-        allocStatus = _linearScan.allocWithExcludedRegion(excludedRegion, std::initializer_list<mlir::Value>{out},
-                                                          /*allowSpills=*/false, DirectionT::Up);
-    } else {
-        allocStatus = _linearScan.alloc(std::initializer_list<mlir::Value>{out},
-                                        /*allowSpills=*/false, DirectionT::Up);
+        baseExcluded.push_back({persistentFloor, _memoryLimit - persistentFloor});
     }
+
+    // Trim to free gaps: allocWithExcludedRegion routes each range through
+    // Partitioner::allocFixed and portions overlapping already-allocated memory
+    // (e.g. extraExcludedCandidates that refer to buffers currently live in CMX)
+    // would violate that precondition. Buffers already live are naturally avoided
+    // by alloc(), so dropping their addresses from the exclusion set is safe.
+    auto tryAlloc = [&](ArrayRef<ExcludedRangeOffsetAndSize> excluded) {
+        const auto trimmed = intersectExcludedWithGaps(excluded, _linearScan.gaps());
+        if (trimmed.empty()) {
+            return _linearScan.alloc(std::initializer_list<mlir::Value>{out},
+                                     /*allowSpills=*/false, DirectionT::Up);
+        }
+        return _linearScan.allocWithExcludedRegion(trimmed, std::initializer_list<mlir::Value>{out},
+                                                   /*allowSpills=*/false, DirectionT::Up);
+    };
+
+    bool allocStatus = false;
+    // Iteratively shrink the extras from the tail down to zero. baseExcluded
+    // is preserved on every attempt — only extras are sacrificed. Later
+    // extras (pushed last) are lowest priority and dropped first.
+    for (size_t i = extraExcludedCandidates.size() + 1; i > 0 && !allocStatus; --i) {
+        const size_t numOfExcludeRanges = i - 1;
+        SmallVector<ExcludedRangeOffsetAndSize> excludedRegion(extraExcludedCandidates.begin(),
+                                                               extraExcludedCandidates.begin() + numOfExcludeRanges);
+        excludedRegion.append(baseExcluded.begin(), baseExcluded.end());
+        _log.trace("Try TEMP alloc with {0} extra excluded range(s) - [offset, size]: {1}", numOfExcludeRanges,
+                   excludedRegion);
+        allocStatus = tryAlloc(excludedRegion);
+        if (!allocStatus) {
+            _log.nest().trace("Allocation failed");
+        }
+    }
+
     if (!allocStatus) {
         scanHandler.markAsDead(out);
         _log.trace("TEMP alloc failed value={0} (persistentFloor={1})", out, persistentFloor);
         return InvalidAddress;
     }
     const auto addr = scanHandler.getAddress(out);
-    _log.trace("TEMP alloc success value={0} addr={1}", out, addr);
+    _log.trace("TEMP alloc success at addr={0}", addr);
     return addr;
 }
 
@@ -164,13 +305,14 @@ vpux::AddressType vpux::VfAllocateLinear::tryAllocTemporary(mlir::Value out, Add
 //               new temporary buffer. Spilled persistent buffer is no longer treated as persistent.
 //               Shrink persistent reserved range
 //     - Step 2: If eviction of all persistent candidates does not free enough space, spill TEMPORARY buffers
-//   * OutputResidency=KEEP heuristic: outBuffers of the LAST op in template iteration occupy different range than
-//     iteration input buffer to allow execution overlap of with iteration
+//   * LastComputeOverlapWithNextIterInputs=ENABLED heuristic: outBuffers of the LAST op in template iteration occupy
+//     different range than iteration input buffer to allow execution overlap of with iteration
 //
 vpux::VfAllocateResult vpux::VfAllocateLinear::performAllocation() {
-    _log.trace("Start (memoryLimit={0}, iterations={1}, opsPerIter={2}, strategy(FetchScope={3}, OutputResidency={4})",
+    _log.trace("Start (memoryLimit={0}, iterations={1}, opsPerIter={2}, strategy(FetchScope={3}, "
+               "LastComputeOverlapWithNextIterInputs={4})",
                _memoryLimit, _classifier.numIterations, _classifier.opsPerIteration, static_cast<int>(_params.fetchScp),
-               static_cast<int>(_params.outputRes));
+               static_cast<int>(_params.lastCompOverlapNextIterIn));
 
     VfAllocateResult result;
 
@@ -178,12 +320,6 @@ vpux::VfAllocateResult vpux::VfAllocateLinear::performAllocation() {
         _log.trace("Non-NONE fetch scope {0} not yet supported by linear allocator",
                    static_cast<int>(_params.fetchScp));
         return result;
-    }
-
-    if (_params.outputRes != VfSchedStrategyDescriptor::OutputResidency::DROP) {
-        _log.trace("Non-DROP output residency {0} not yet supported by linear allocator",
-                   static_cast<int>(_params.outputRes));
-        return result;  // OutputResidency=KEEP is not yet supported by linear allocator, E#222157
     }
 
     // ---- Perform initial checks -----------------------------------------------------
@@ -211,6 +347,54 @@ vpux::VfAllocateResult vpux::VfAllocateLinear::performAllocation() {
 
     const auto& templateBody = loop.loopBodies.front();
     auto& scanHandler = _linearScan.handler();
+
+    const bool isLastCompOverlapNextIterInEn = _params.lastCompOverlapNextIterIn ==
+                                               VfSchedStrategyDescriptor::LastComputeOverlapWithNextIterInputs::ENABLED;
+
+    // ENABLED last-compute overlap: pipelined-loop execution requires that the region
+    // outputs (drained by DATA_OUT ops after the last compute op) and the region
+    // inputs loaded by DATA_IN ops preceding the first compute op occupy disjoint
+    // CMX ranges. Collect both sets up front for downstream use. The last-compute
+    // op's own input buffers are tracked separately, so that any inputs still live
+    // at that point are steered away from first-compute input ranges as well.
+    SmallVector<mlir::Value> lastComputeOpOutBufsRevOrder;
+    SmallVector<mlir::Value> lastComputeOpInBufsOrder;
+    SmallVector<mlir::Value> firstInputBufsOrdered;
+    if (isLastCompOverlapNextIterInEn) {
+        for (auto it = templateBody.rbegin(); it != templateBody.rend(); ++it) {
+            if (it->allocationType == AllocationType::COMPUTE) {
+                lastComputeOpInBufsOrder.append(it->inBuffers.begin(), it->inBuffers.end());
+                break;
+            }
+            if (it->allocationType == AllocationType::DATA_OUT) {
+                lastComputeOpOutBufsRevOrder.append(it->inBuffers.begin(), it->inBuffers.end());
+            }
+        }
+        for (const auto& info : templateBody) {
+            if (info.allocationType == AllocationType::COMPUTE) {
+                break;
+            }
+            if (info.allocationType == AllocationType::DATA_IN) {
+                firstInputBufsOrdered.append(info.outBuffers.begin(), info.outBuffers.end());
+            }
+        }
+        if (!firstInputBufsOrdered.empty() &&
+            (!lastComputeOpOutBufsRevOrder.empty() || !lastComputeOpInBufsOrder.empty())) {
+            _log.trace("Last-compute overlap candidates: lastComputeOpOutBufs={0}, lastComputeOpInBufs={1}, "
+                       "firstInputBufs={2}",
+                       lastComputeOpOutBufsRevOrder, lastComputeOpInBufsOrder, firstInputBufsOrdered);
+        }
+    }
+    // Fast-lookup sets used inside the allocation loop to steer overlap-aware
+    // placement of last-compute buffers away from first-compute input ranges.
+    const llvm::DenseSet<mlir::Value> lastComputeOpOutBufs(lastComputeOpOutBufsRevOrder.begin(),
+                                                           lastComputeOpOutBufsRevOrder.end());
+    const llvm::DenseSet<mlir::Value> lastComputeOpInBufs(lastComputeOpInBufsOrder.begin(),
+                                                          lastComputeOpInBufsOrder.end());
+    const llvm::DenseSet<mlir::Value> firstInputBufsSet(firstInputBufsOrdered.begin(), firstInputBufsOrdered.end());
+    // (addr, size) ranges of first-compute input buffers as they were allocated
+    // — used as extra excluded ranges when placing last-compute outputs.
+    SmallVector<ExcludedRangeOffsetAndSize> firstInputExcludedRanges;
 
     // Register every classifier buffer with the handler so that
     // allocation has knowledge of buffer details like size of VF specific attributes
@@ -250,24 +434,15 @@ vpux::VfAllocateResult vpux::VfAllocateLinear::performAllocation() {
                    getSpillCost(rec.size), _memoryLimit - reservedSize);
     }
 
-    // If not all persistent candidates could be admitted then early return as
-    // this is not yet supported until E#222690 is done
-    if (admittedPersistentCand.size() < _classifier.persistentFitInitial.size()) {
-        result.persistentReservedBytes = reservedSize;
-        _log.trace("Not all persistent candidates admitted (admitted={0}, initial={1}), refusing",
-                   admittedPersistentCand.size(), _classifier.persistentFitInitial.size());
-        return result;  // feasible=false
-    }
-
     // Downgrade all persistent buffers to TEMPORARY if they are not part
     // of admitted set. This is needed to ensure that those buffers are allocated
     // as normal temporary buffers
+    llvm::DenseSet<mlir::Value> persistentChangedToTemporary;
     {
         llvm::DenseSet<mlir::Value> admittedPersistentBufsSet;
         for (const auto& rec : admittedPersistentCand) {
             admittedPersistentBufsSet.insert(rec.rootValue);
         }
-        size_t persistentChangedToTemporaryCount = 0;
         for (const auto& rec : _classifier.buffers) {
             if (rec.category != BufferCategory::PERSISTENT_CANDIDATE || !rec.rootValue) {
                 continue;
@@ -284,10 +459,10 @@ vpux::VfAllocateResult vpux::VfAllocateLinear::performAllocation() {
             // allocation
             scanHandler.addBufferData(rec.rootValue, BufferCategory::TEMPORARY, std::max<AddressType>(rec.size, 1),
                                       rec.alignment, /*spillCost=*/0);
-            ++persistentChangedToTemporaryCount;
+            persistentChangedToTemporary.insert(rec.rootValue);
             _log.trace("Downgrade loop-invariant PC to TEMPORARY (size={0})", rec.size);
         }
-        _log.trace("Unadmitted PC processing done (downgraded={0})", persistentChangedToTemporaryCount);
+        _log.trace("Unadmitted PC processing done (downgraded={0})", persistentChangedToTemporary.size());
     }
 
     AddressType persistentFloor = _memoryLimit - reservedSize;
@@ -312,66 +487,180 @@ vpux::VfAllocateResult vpux::VfAllocateLinear::performAllocation() {
         // Free dead TEMPORARY buffers.
         freeDeadAtOp(opPos, entry, liveTemporary);
 
-        SmallVector<mlir::Value> opBuffers = info.outBuffers;
-        // Add input buffer only if it was previously spilled. Input buffers which are
-        // not produced as part of a loop body are allocated outside of this allocator
-        for (auto inBuf : info.inBuffers) {
-            if (scanHandler.wasEverSpilled(inBuf)) {
-                opBuffers.push_back(inBuf);
-            }
-        }
+        // Last-compute overlap co-allocation heuristic: when the op produces any of the last-compute
+        // op's input buffers, first try to co-allocate all last-compute in/out buffers
+        // alongside this op's own outputs. If that tentative attempt cannot fit
+        // without spilling (or is otherwise infeasible), roll back and retry with
+        // only the op's own outputs.
+        const bool opProducesLastComputeInput =
+                isLastCompOverlapNextIterInEn && !lastComputeOpInBufs.empty() &&
+                std::any_of(info.outBuffers.begin(), info.outBuffers.end(), [&](mlir::Value v) {
+                    return lastComputeOpInBufs.contains(v);
+                });
+        const bool isLastComputeOp = isLastCompOverlapNextIterInEn && !lastComputeOpOutBufs.empty() &&
+                                     std::any_of(info.outBuffers.begin(), info.outBuffers.end(), [&](mlir::Value v) {
+                                         return lastComputeOpOutBufs.contains(v);
+                                     });
 
-        // Allocate input and output buffers. Check if there were already allocated if they were output
-        // of previous operations or spill read them if they were evicted before
-        for (auto opBuf : opBuffers) {
-            const auto recIt = _classifier.valueToRecord.find(opBuf);
-            VPUX_THROW_WHEN(recIt == _classifier.valueToRecord.end(), "Buffer has no classifier record (op={0})",
-                            opPos);
-            const auto category = scanHandler.getCategory(opBuf);
-            if (category == BufferCategory::PERSISTENT_CANDIDATE && !scanHandler.wasEverSpilled(opBuf)) {
-                // Persistent: address is owned by the outer scheduler,
-                // no per-op allocation entry needed.
-                _log.trace("Op {0} skip persistent value={1}", opPos, opBuf);
-                continue;
-            }
-            if (liveTemporary.count(opBuf) != 0) {
-                _log.trace("Op {0} buffer already alive, value={1}", opPos, opBuf);
-                continue;
+        bool isSchedOpWithLastComputeOverlapEnabled =
+                isLastCompOverlapNextIterInEn && (!lastComputeOpOutBufs.empty() || !lastComputeOpInBufs.empty());
+        // Schedule an operation. Retry is possible in case of:
+        // - attempting to co-allocate last-compute input buffers to not overlap with first-compute input buffers
+        //   (last-compute overlap enabled)
+        while (true) {
+            // Snapshot the append-only mutable state so a failed scheduling attempt
+            // can be rolled back without touching allocations from previous ops.
+            const auto allocsSize = entry.allocations.size();
+            const auto excludedRangesSize = firstInputExcludedRanges.size();
+            const AddressType highWaterSnapshot = temporaryHighWater;
+
+            SmallVector<mlir::Value> opBuffers = info.outBuffers;
+
+            // When last-compute overlap is enabled and scheduling operation which produces inputs for last compute
+            // operation try to co-allocate all last-compute input and output buffers alongside this op's own outputs so
+            // that in the end next iteration DATA_IN DMAs can overlap with this iteration last compute op and its
+            // output DATA_OUT DMAs
+            if (isSchedOpWithLastComputeOverlapEnabled && opProducesLastComputeInput) {
+                llvm::DenseSet<mlir::Value> alreadyPresent(opBuffers.begin(), opBuffers.end());
+                for (auto v : lastComputeOpOutBufsRevOrder) {
+                    if (alreadyPresent.insert(v).second) {
+                        opBuffers.push_back(v);
+                    }
+                }
+                for (auto v : lastComputeOpInBufsOrder) {
+                    if (alreadyPresent.insert(v).second) {
+                        opBuffers.push_back(v);
+                    }
+                }
+                _log.trace("Op {0} last-compute overlap extended attempt with last-compute buffers ({1} extra)", opPos,
+                           opBuffers.size() - info.outBuffers.size());
             }
 
-            AddressType addr = tryAllocTemporary(opBuf, persistentFloor);
-
-            // If allocation failed try to spill to get more available memory and retry
-            // TODO: E#222690 Persistent buffer spilling is not fully supported yet. For now
-            // handle only spill of temporary buffers. Need to update the allocations/deallocations for persistent
-            // buffers in compute schedule, decrement reservedSize range and increase persistentFloor to reflect the
-            // eviction of the persistent buffer. Remove this buffer from admittedPersistentCand
-            // TODO: Unify logic for spilling temporary and persistent buffers. There are possible
-            // improvements here as it is not guaranteed that spilling persistend buffers will be better than
-            // spilling temporary ones, especially if its cost is small or can be parallelized with compute
-            // TODO: Analyze if persistent buffer spill is ever needed as persistent buffer candidates will be rejected
-            // already if their persistent allocation together with classifier temporary peak bytes calculation exceed
-            // memory limit
-            while (addr == InvalidAddress &&
-                   findAndSpillTemporaryBuffer(entry, opPos, info.inBuffers, info.outBuffers, liveTemporary, result)) {
-                addr = tryAllocTemporary(opBuf, persistentFloor);
+            if (isSchedOpWithLastComputeOverlapEnabled && (opProducesLastComputeInput || isLastComputeOp)) {
+                // Order buffers based on latest use first to improve last-compute overlap
+                // and enable overlapping of last compute op outputs with first compute op inputs.
+                // If allocation is done first for latest buffers then it is more likely that they will be allocated
+                // in non overlapping way with first compute op inputs
+                std::sort(opBuffers.begin(), opBuffers.end(), [&](mlir::Value a, mlir::Value b) {
+                    const auto aIt = _classifier.valueToRecord.find(a);
+                    const auto bIt = _classifier.valueToRecord.find(b);
+                    VPUX_THROW_WHEN(aIt == _classifier.valueToRecord.end() || bIt == _classifier.valueToRecord.end(),
+                                    "Buffer has no classifier record (op={0})", opPos);
+                    return _classifier.buffers[aIt->second].lastUseOp > _classifier.buffers[bIt->second].lastUseOp;
+                });
+            }
+            // Add input buffer only if it was previously spilled. Input buffers which are
+            // not produced as part of a loop body are allocated outside of this allocator
+            // This is done after previous sorting step as priority is for having latest buffers
+            // to be allocated first to improve likelihood of no-overlap of last buffers with body inputs
+            for (auto inBuf : info.inBuffers) {
+                if (scanHandler.wasEverSpilled(inBuf) || persistentChangedToTemporary.contains(inBuf)) {
+                    opBuffers.push_back(inBuf);
+                }
             }
 
-            if (addr == InvalidAddress) {
-                // After spilling of all buffers no new op could be scheduled — infeasible under current strategy
-                // parameters.
-                result.persistentReservedBytes = reservedSize;
-                result.peakUsedBytes = reservedSize + temporaryHighWater;
-                _log.trace("Infeasible at op {0} (peakUsed={1}, limit={2})", opPos, result.peakUsedBytes, _memoryLimit);
-                return result;  // feasible=false
+            // In case of last-compute overlap enabled and scheduling operation which produces inputs for last compute
+            // operation there is a possibility to rerun scheduling of this op in case first attempt to co-allocate
+            // last-compute input and output buffers alongside this op's own outputs fails and requires spilling
+            bool retrySchedulingThisOp = false;
+
+            // Allocate input and output buffers. Check if there were already allocated if they were output
+            // of previous operations or spill read them if they were evicted before
+            for (auto opBuf : opBuffers) {
+                const auto recIt = _classifier.valueToRecord.find(opBuf);
+                VPUX_THROW_WHEN(recIt == _classifier.valueToRecord.end(), "Buffer has no classifier record (op={0})",
+                                opPos);
+                const auto category = scanHandler.getCategory(opBuf);
+                if (category == BufferCategory::PERSISTENT_CANDIDATE && !scanHandler.wasEverSpilled(opBuf)) {
+                    // Persistent: address is owned by the outer scheduler,
+                    // no per-op allocation entry needed.
+                    _log.trace("Op {0} skip persistent value={1}", opPos, opBuf);
+                    continue;
+                }
+                if (liveTemporary.count(opBuf) != 0) {
+                    _log.trace("Op {0} buffer already alive, value={1}", opPos, opBuf);
+                    continue;
+                }
+
+                // Last-compute overlap: for last-compute buffers pass
+                // first-compute input ranges as excluded so pipelined iterations
+                // can overlap. tryAllocTemporary internally falls back to a plain
+                // allocation if the overlap-aware attempt fails.
+                const ArrayRef<ExcludedRangeOffsetAndSize> extraExcludeRanges =
+                        isSchedOpWithLastComputeOverlapEnabled &&
+                                        (lastComputeOpInBufs.contains(opBuf) || lastComputeOpOutBufs.contains(opBuf))
+                                ? ArrayRef<ExcludedRangeOffsetAndSize>(firstInputExcludedRanges)
+                                : ArrayRef<ExcludedRangeOffsetAndSize>{};
+
+                AddressType addr = tryAllocTemporary(opBuf, persistentFloor, extraExcludeRanges);
+
+                // Tentative extended attempt bails on any spill need — the whole
+                // attempt is redone without the extension.
+                if (addr == InvalidAddress && isSchedOpWithLastComputeOverlapEnabled) {
+                    _log.trace("Op {0} tentative attempt cannot place value={1} without spill — retry scheduling",
+                               opPos, opBuf);
+                    retrySchedulingThisOp = true;
+                    break;
+                }
+
+                // If allocation failed try to spill to get more available memory and retry
+                // TODO: Unify logic for spilling temporary and persistent buffers. There are possible
+                // improvements here as it is not guaranteed that spilling persistend buffers will be better than
+                // spilling temporary ones, especially if its cost is small or can be parallelized with compute
+                while (addr == InvalidAddress &&
+                       findAndSpillPersistentBuffer(result, entry, opPos, info.inBuffers, info.outBuffers,
+                                                    admittedPersistentCand, reservedSize, persistentFloor,
+                                                    temporaryHighWater)) {
+                    addr = tryAllocTemporary(opBuf, persistentFloor);
+                }
+
+                if (addr == InvalidAddress) {
+                    while (addr == InvalidAddress &&
+                           findAndSpillTemporaryBuffer(entry, opPos, info.inBuffers, info.outBuffers, liveTemporary,
+                                                       result)) {
+                        addr = tryAllocTemporary(opBuf, persistentFloor);
+                    }
+                }
+
+                if (addr == InvalidAddress) {
+                    // After spilling of all buffers no new op could be scheduled — infeasible under current strategy
+                    // parameters.
+                    result.persistentReservedBytes = reservedSize;
+                    result.peakUsedBytes = reservedSize + temporaryHighWater;
+                    _log.trace("Infeasible at op {0} (peakUsed={1}, limit={2})", opPos, result.peakUsedBytes,
+                               _memoryLimit);
+                    return result;  // feasible=false
+                }
+                // After buffer was allocated successfully update schedule entry allocation data
+                liveTemporary.insert(opBuf);
+                entry.allocations.push_back({opBuf, addr});
+                const auto recSize = _classifier.buffers[recIt->second].size;
+                temporaryHighWater = std::max(temporaryHighWater, addr + recSize);
+                if (firstInputBufsSet.contains(opBuf)) {
+                    firstInputExcludedRanges.push_back({addr, recSize});
+                }
+                _log.trace("Op {0} emit allocation value={1} addr={2} size={3} highWater={4}", opPos, opBuf, addr,
+                           recSize, temporaryHighWater);
             }
-            // After buffer was allocated successfully update schedule entry allocation data
-            liveTemporary.insert(opBuf);
-            entry.allocations.push_back({opBuf, addr});
-            const auto recSize = _classifier.buffers[recIt->second].size;
-            temporaryHighWater = std::max(temporaryHighWater, addr + recSize);
-            _log.trace("Op {0} emit allocation value={1} addr={2} size={3} highWater={4}", opPos, opBuf, addr, recSize,
-                       temporaryHighWater);
+
+            if (!retrySchedulingThisOp) {
+                break;
+            }
+
+            // Undo tentative-attempt allocations in case first attempt failed
+            // so that retry is possible
+            for (size_t i = allocsSize; i < entry.allocations.size(); ++i) {
+                const auto val = entry.allocations[i].first;
+                scanHandler.markAsDead(val);
+                liveTemporary.erase(val);
+            }
+            _linearScan.freeDeadRanges();
+            entry.allocations.resize(allocsSize);
+            firstInputExcludedRanges.resize(excludedRangesSize);
+            temporaryHighWater = highWaterSnapshot;
+            // On next iteration try again without the overlap-aware extension. The op's own outputs will be allocated,
+            // but the last-compute in/out buffers will be skipped. This is a fallback attempt.
+            isSchedOpWithLastComputeOverlapEnabled = false;
         }
 
         _log = _log.unnest();
@@ -387,6 +676,26 @@ vpux::VfAllocateResult vpux::VfAllocateLinear::performAllocation() {
         VPUX_THROW_WHEN(scanHandler.wasEverSpilled(rec.rootValue), "Admitted persistent was spilled (value={0})",
                         rec.rootValue);
         result.sharedExternalBuffers.insert(rec.rootValue);
+
+        // If this persistent is an explicit-external template anchor, also
+        // forward all iteration-equivalent SSA values. This preserves group
+        // information for downstream schedulers that operate on fully
+        // replicated per-iteration values.
+        const auto recIt = _classifier.valueToRecord.find(rec.rootValue);
+        if (recIt != _classifier.valueToRecord.end()) {
+            const auto templateIdx = recIt->second;
+
+            const auto groupIt = llvm::find_if(_classifier.explicitExternalGroups, [&](const auto& group) {
+                return group.templateBufferIdx == templateIdx;
+            });
+
+            if (groupIt != _classifier.explicitExternalGroups.end()) {
+                for (auto iterVal : groupIt->iterationValues) {
+                    result.sharedExternalBuffers.insert(iterVal);
+                }
+            }
+        }
+
         _log.trace("Final sharedExternal add persistent value={0}", rec.rootValue);
     }
 

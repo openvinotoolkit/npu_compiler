@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -38,7 +38,6 @@ struct DMAData {
     SmallVector<VPURT::IndexType> producesIn;
     DMAType dmaType;
     VPUIP::FetchDMAAttr fetchDmaAttr;
-    bool isShvReleaseDma = false;
     int64_t logicalTaskIndex = -1;
 };
 
@@ -108,13 +107,8 @@ VPURT::TaskOp createDmaForGivenType(mlir::OpBuilder& builder, mlir::Value inputB
     switch (dmaData.dmaType) {
     case DMAType::Sync: {
         const auto logicalTaskAttr = builder.getI64IntegerAttr(dmaData.logicalTaskIndex);
-        newDMA = VPUIP::createSyncDMA(builder, inputBuf, outputBuf, dmaData.port, {}, {},
-                                      dmaData.isShvReleaseDma ? "shv_submit_guard_sync_dma" : "shv_submit_sync_dma",
+        newDMA = VPUIP::createSyncDMA(builder, inputBuf, outputBuf, dmaData.port, {}, {}, "shv_submit_sync_dma",
                                       logicalTaskAttr);
-        if (dmaData.isShvReleaseDma) {
-            auto syncDMAOp = mlir::cast<VPUIP::SyncDMAOp>(newDMA.getInnerTaskOp());
-            syncDMAOp->setAttr(VPUIP::SHV_RELEASE_DMA_ATTR_NAME, builder.getUnitAttr());
-        }
         break;
     }
     case DMAType::Fetch:
@@ -251,12 +245,12 @@ void PrepareShaveSubmitDMAsPass::planLegalization(BarrierInfo& barrierInfo, cons
         auto taskOp = barrierInfo.getTaskOpAtIndex(taskIdx);
         tasksToVerify.push_back(taskOp);
         auto swKernelOp = mlir::dyn_cast<VPUIP::SwKernelOp>(taskOp.getInnerTaskOp());
-        VPUX_THROW_UNLESS(swKernelOp != nullptr, "Expected SwKernelOp inside SHV TaskOp");
+        VPUX_THROW_WHEN(swKernelOp == nullptr, "Expected SwKernelOp inside SHV TaskOp");
 
         const auto logicalTaskAttr = swKernelOp->getAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME);
-        VPUX_THROW_UNLESS(logicalTaskAttr != nullptr,
-                          "SwKernelOp at index '{0}' is missing '{1}' IntegerAttr required by split SHV submit pass",
-                          taskIdx, VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME);
+        VPUX_THROW_WHEN(logicalTaskAttr == nullptr,
+                        "SwKernelOp at index '{0}' is missing '{1}' IntegerAttr required by split SHV submit pass",
+                        taskIdx, VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME);
 
         const auto logicalIdx = mlir::cast<mlir::IntegerAttr>(logicalTaskAttr).getValue().getSExtValue();
         shvGroups[logicalIdx].push_back(taskIdx);
@@ -359,7 +353,6 @@ void PrepareShaveSubmitDMAsPass::planLegalization(BarrierInfo& barrierInfo, cons
             releaseSyncDDR.channelType = VPUIP::DmaChannelType::DDR;
             releaseSyncDDR.port = port;
             releaseSyncDDR.dmaType = DMAType::Sync;
-            releaseSyncDDR.isShvReleaseDma = true;
             releaseSyncDDR.logicalTaskIndex = logicalIdx;
             releaseSyncDDR.consumes = {{shvToReleaseBarrierIdx, VPURT::Type::Dummy}};
             plannedRelease.push_back(releaseSyncDDR);
@@ -370,7 +363,6 @@ void PrepareShaveSubmitDMAsPass::planLegalization(BarrierInfo& barrierInfo, cons
             releaseSyncCMX.channelType = VPUIP::DmaChannelType::CMX;
             releaseSyncCMX.port = port;
             releaseSyncCMX.dmaType = DMAType::Sync;
-            releaseSyncCMX.isShvReleaseDma = true;
             releaseSyncCMX.logicalTaskIndex = logicalIdx;
             releaseSyncCMX.consumes = {{shvToReleaseBarrierIdx, VPURT::Type::Dummy}};
             plannedRelease.push_back(releaseSyncCMX);
@@ -446,8 +438,8 @@ void PrepareShaveSubmitDMAsPass::legalizeDependenciesToControlBlockBoundaries(
 
                     if (barrierInfo.getWaitBarriers(firstTaskIdx).empty()) {
                         auto firstTaskOp = barrierInfo.getTaskOpAtIndex(firstTaskIdx);
-                        VPUX_THROW_UNLESS(
-                                !mlir::isa<VPUIP::SkipDMAOp>(firstTaskOp.getInnerTaskOp()),
+                        VPUX_THROW_WHEN(
+                                mlir::isa<VPUIP::SkipDMAOp>(firstTaskOp.getInnerTaskOp()),
                                 "Unexpected SkipDMAOp at task index {0}, first task on queue {1}:{2} after sync task. "
                                 "SkipDMAOp must be preceded by SyncDMA before this stage",
                                 firstTaskIdx, queueType.type, queueType.id);

@@ -190,6 +190,21 @@ private:
     Logger _log;
 };
 
+// PadRewrite
+//
+
+class PadRewrite final : public mlir::OpRewritePattern<IE::PadOp> {
+public:
+    PadRewrite(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::PadOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::PadOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
 //
 // AtanRewrite
 //

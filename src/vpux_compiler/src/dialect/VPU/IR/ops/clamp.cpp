@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
@@ -102,4 +103,21 @@ mlir::LogicalResult vpux::VPU::ClampOp::reifyResultShapes(mlir::OpBuilder& build
                                                           mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
     reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
     return mlir::success();
+}
+
+//
+// fold
+//
+
+mlir::OpFoldResult vpux::VPU::ClampOp::fold(FoldAdaptor adaptor) {
+    auto operands = adaptor.getOperands();
+    VPUX_THROW_UNLESS(operands.size() == 1, "Expected exactly one operand, but got {0}", operands.size());
+
+    if (auto attr = mlir::dyn_cast_or_null<Const::ContentAttr>(operands[0])) {
+        const auto lower = getMinAttr().getValueAsDouble();
+        const auto upper = getMaxAttr().getValueAsDouble();
+        return attr.transform().clamp(lower, upper).get();
+    }
+
+    return nullptr;
 }

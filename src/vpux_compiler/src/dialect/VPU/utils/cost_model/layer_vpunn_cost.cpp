@@ -216,10 +216,10 @@ StrategyCost LayerVPUNNCost::getStrategyCost(mlir::Operation* operation, const V
     }
 }
 
-StrategyCost LayerVPUNNCost::getSpillingTypeCost(vpux::NDTypeInterface type,
+StrategyCost LayerVPUNNCost::getSpillingTypeCost(vpux::NDTypeInterface type, vpux::DmaDirectionType dmaDirection,
                                                  const std::optional<ShapeRef>& tileAxis) const {
-    StrategyCost cost =
-            getDMACost(type, _arch, _vpuDevice, _vpunnCostModel->get_TheoreticalDMA_cost_model_shared(), _numDMAPorts);
+    StrategyCost cost = getDMACost(type, _arch, _vpuDevice, _vpunnCostModel->get_TheoreticalDMA_cost_model_shared(),
+                                   _numDMAPorts, dmaDirection);
 
     // TODO: Ticket E#213641, remove this after stride DMA cost is accurate
     bool isStrided = tileAxis.has_value() && isTiledOnLowestDim(tileAxis.value(), type.getDimsOrder());
@@ -303,7 +303,7 @@ SmallVector<StrategyCost> LayerVPUNNCost::getSpillingWriteCostsForAllTiles(
     spillWriteCosts.reserve(tiling.size());
     for (const auto& tileInfo : tiling) {
         auto tiledType = getOutputType(tileInfo);
-        auto cost = getSpillingTypeCost(tiledType, tiling[0].axis);
+        auto cost = getSpillingTypeCost(tiledType, DmaDirectionType::CMX_TO_DDR, tiling[0].axis);
         if (mlir::succeeded(factor)) {
             cost = checked_cast<uint32_t>(std::floor(factor.value() * cost));
         }
@@ -365,7 +365,8 @@ SmallVector<StrategyCost> LayerVPUNNCost::getSpillingReadCostsForAllTiles(
     spillReadCosts.reserve(childTiling.size());
     for (const auto& tileInfo : childTiling) {
         const auto childOperandsTiling = getOperandType(tileInfo);
-        spillReadCosts.emplace_back(getSpillingTypeCost(childOperandsTiling, tileInfo.axis));
+        spillReadCosts.emplace_back(
+                getSpillingTypeCost(childOperandsTiling, DmaDirectionType::DDR_TO_CMX, tileInfo.axis));
     }
     return spillReadCosts;
 }
@@ -472,8 +473,8 @@ StrategyCost LayerVPUNNCost::getNCELayerCost(VPU::NCEOpInterface nceOp, const VP
                                          const TensorDistributionMap& distributions) -> uint32_t {
         auto distributedType = getDistributedTypeFromDistributionMap(srcType, distributions);
         return checked_cast<uint32_t>(getDMACost(distributedType, _arch, _vpuDevice,
-                                                 _vpunnCostModel->get_TheoreticalDMA_cost_model_shared(),
-                                                 _numDMAPorts));
+                                                 _vpunnCostModel->get_TheoreticalDMA_cost_model_shared(), _numDMAPorts,
+                                                 DmaDirectionType::DDR_TO_CMX));
     };
     auto vpunnLayerWeightsCosts =
             getPerTileWeightsDMACosts(nceOp, parameters._strategy, siblingsAnalysis, tilesTypes, getSpillingReadCost);

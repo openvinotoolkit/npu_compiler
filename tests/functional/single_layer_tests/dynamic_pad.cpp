@@ -164,6 +164,9 @@ public:
         }
     }
 };
+
+class DynamicPadDmaLayerTest : public DynamicPadLayerTest {};
+
 // Tracking number [E#188947]
 TEST_P(DynamicPadLayerTest, DISABLED_NPU3720_HW) {
     abs_threshold = 0.0f;
@@ -178,6 +181,12 @@ TEST_P(DynamicPadLayerTest, NPU4000_HW) {
 }
 
 TEST_P(DynamicPadLayerTest, NPU5010_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+TEST_P(DynamicPadDmaLayerTest, NPU5010_HW) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();
     run(Platform::NPU5010);
@@ -242,5 +251,83 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_PadDynamic_NonConstant, DynamicPadLa
                                             ::testing::ValuesIn(attributeTypes),  // type combos for Pad's 'attributes'
                                             ::testing::ValuesIn(padNonConstModes)),  // pad_mode
                          DynamicPadLayerTest::getTestCaseName);
+
+const std::vector<Type> padDmaPrecisions = {element::f16};
+const std::vector<InputLayerType> allConstant = {InputLayerType::CONSTANT, InputLayerType::CONSTANT,
+                                                 InputLayerType::CONSTANT};
+const std::vector<float> padDmaValues = {0.f, -1.f};
+
+//====================== PadDma 1D ======================
+const std::vector<InputShape> inputShapesPadDma1D = {
+        InputShape{{Dimension(1, 100)}, std::vector<Shape>{{100}}},
+};
+
+INSTANTIATE_TEST_SUITE_P(
+        smoke_PadDma_Direct_1D, DynamicPadDmaLayerTest,
+        ::testing::Combine(::testing::ValuesIn(inputShapesPadDma1D), ::testing::ValuesIn(padDmaPrecisions),
+                           ::testing::Values(AttrType{0}),  // pads_begin
+                           ::testing::Values(AttrType{1}),  // pads_end
+                           ::testing::ValuesIn(padDmaValues),
+                           ::testing::Values(std::vector<InputLayerType>{
+                                   InputLayerType::CONSTANT, InputLayerType::CONSTANT, InputLayerType::CONSTANT}),
+                           ::testing::Values(PadMode::CONSTANT)),
+        DynamicPadDmaLayerTest::getTestCaseName);
+
+//====================== PadDma 2D ======================
+const std::vector<InputShape> inputShapesDma2D = {
+        InputShape{{4, Dimension(1, 50)}, std::vector<Shape>{{4, 50}}},
+};
+const std::vector<AttrType> padsBegin2Ddma = {{1, 2}};
+const std::vector<AttrType> padsEnd2Ddma = {{2, 1}};
+
+INSTANTIATE_TEST_SUITE_P(smoke_PadDma_2D, DynamicPadDmaLayerTest,
+                         ::testing::Combine(::testing::ValuesIn(inputShapesDma2D),
+                                            ::testing::ValuesIn(padDmaPrecisions), ::testing::ValuesIn(padsBegin2Ddma),
+                                            ::testing::ValuesIn(padsEnd2Ddma), ::testing::ValuesIn(padDmaValues),
+                                            ::testing::Values(allConstant), ::testing::Values(PadMode::CONSTANT)),
+                         DynamicPadDmaLayerTest::getTestCaseName);
+
+//====================== PadDma 3D ======================
+const std::vector<InputShape> inputShapesDma3D = {
+        InputShape{{3, 4, Dimension(1, 30)}, std::vector<Shape>{{3, 4, 30}}},
+};
+const std::vector<AttrType> padsBegin3Ddma = {{0, 1, 2}};
+const std::vector<AttrType> padsEnd3Ddma = {{0, 2, 1}};
+
+INSTANTIATE_TEST_SUITE_P(smoke_PadDma_3D, DynamicPadDmaLayerTest,
+                         ::testing::Combine(::testing::ValuesIn(inputShapesDma3D),
+                                            ::testing::ValuesIn(padDmaPrecisions), ::testing::ValuesIn(padsBegin3Ddma),
+                                            ::testing::ValuesIn(padsEnd3Ddma), ::testing::ValuesIn(padDmaValues),
+                                            ::testing::Values(allConstant), ::testing::Values(PadMode::CONSTANT)),
+                         DynamicPadDmaLayerTest::getTestCaseName);
+
+//====================== PadDma 4D ======================
+const std::vector<InputShape> inputShapesPadDmaDirect = {
+        InputShape{{1, 1, 1, Dimension(1, 100)}, std::vector<Shape>{{1, 1, 1, 100}}},
+};
+
+INSTANTIATE_TEST_SUITE_P(
+        smoke_PadDma_Direct_4D, DynamicPadDmaLayerTest,
+        ::testing::Combine(::testing::ValuesIn(inputShapesPadDmaDirect), ::testing::ValuesIn(padDmaPrecisions),
+                           ::testing::Values(AttrType{0, 0, 0, 0}),  // pads_begin
+                           ::testing::Values(AttrType{1, 0, 0, 0}),  // pads_end (pad on N)
+                           ::testing::ValuesIn(padDmaValues),
+                           ::testing::Values(std::vector<InputLayerType>{
+                                   InputLayerType::CONSTANT, InputLayerType::CONSTANT, InputLayerType::CONSTANT}),
+                           ::testing::Values(PadMode::CONSTANT)),
+        DynamicPadDmaLayerTest::getTestCaseName);
+
+const std::vector<InputShape> inputShapesDma4D = {
+        InputShape{{2, 3, 4, Dimension(1, 20)}, std::vector<Shape>{{2, 3, 4, 20}}},
+};
+const std::vector<AttrType> padsBegin4Ddma = {{1, 2, 3, 4}};
+const std::vector<AttrType> padsEnd4Ddma = {{2, 1, 4, 3}};
+
+INSTANTIATE_TEST_SUITE_P(smoke_PadDma_4D, DynamicPadDmaLayerTest,
+                         ::testing::Combine(::testing::ValuesIn(inputShapesDma4D),
+                                            ::testing::ValuesIn(padDmaPrecisions), ::testing::ValuesIn(padsBegin4Ddma),
+                                            ::testing::ValuesIn(padsEnd4Ddma), ::testing::ValuesIn(padDmaValues),
+                                            ::testing::Values(allConstant), ::testing::Values(PadMode::CONSTANT)),
+                         DynamicPadDmaLayerTest::getTestCaseName);
 
 }  // namespace ov::test

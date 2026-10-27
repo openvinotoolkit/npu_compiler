@@ -172,6 +172,7 @@ def IE_DynamicQuantizeOp :
         RankedTensorOf<[F32]>:$input,
         Optional<RankedTensorOf<[F32]>>:$min,
         Optional<RankedTensorOf<[F32]>>:$max,
+        OptionalAttr<I64ArrayAttr>:$axes_value,
         TypeAttr:$dstElemType
     );
 

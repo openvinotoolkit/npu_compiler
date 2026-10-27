@@ -738,6 +738,25 @@ func.func @DoNotFuseQuantParamsIntoAvgPoolWithExcludePadsAttr(%arg0: tensor<1x3x
 
 // -----
 
+!qElemType = !quant.uniform<u16:f16, 1.0000000000000001E-5:32768>
+// CHECK-DAG: [[QTYPE:!.+]] = !quant.uniform<u16:f16, 1.000000e-05:32768>
+
+// CHECK: @DoNotFuseQuantParamsIntoAvgPoolWithU16Input([[ARG:%.+]]: tensor<1x3x16x16x[[QTYPE]]>)
+// CHECK-SAME: -> tensor<1x3x14x14x[[QTYPE]]>
+func.func @DoNotFuseQuantParamsIntoAvgPoolWithU16Input(%arg0: tensor<1x3x16x16x!qElemType>) -> tensor<1x3x14x14x!qElemType> {
+  %0 = IE.Dequantize(%arg0) {dstElemType = f16} : tensor<1x3x16x16x!qElemType> -> tensor<1x3x16x16xf16>
+  %1 = IE.AvgPool(%0) {kernel_size = [3, 3], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x3x16x16xf16> -> tensor<1x3x14x14xf16>
+  %2 = IE.Quantize(%1) {dstElemType = !qElemType} : tensor<1x3x14x14xf16> -> tensor<1x3x14x14x!qElemType>
+  return %2 : tensor<1x3x14x14x!qElemType>
+
+  // CHECK: [[DEQUANTIZE:%.+]] = IE.Dequantize([[ARG]]) {dstElemType = f16}
+  // CHECK: [[AVGPOOL:%.+]] = IE.AvgPool([[DEQUANTIZE]]) {kernel_size = [3, 3], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]}
+  // CHECK: [[RESULT:%.+]] = IE.Quantize([[AVGPOOL]]) {dstElemType = [[QTYPE]]}
+  // CHECK: return [[RESULT]]
+}
+
+// -----
+
 !qElemType = !quant.uniform<u8<1:255>:f16:0, {1.010680671751968504:128,1.0081200787401574797:128,1.010596087598425197:128}>
 // CHECK-DAG: [[QTYPE:!.+]] = !quant.uniform<u8<1:255>:f16:0, {1.0106806717519685:128,1.0081200787401574:128,1.0105960875984252:128}>
 !qElemType1 = !quant.uniform<u8:f16, 1.0534313725490195:128>

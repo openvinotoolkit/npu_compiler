@@ -20,8 +20,8 @@ std::optional<IE::PermuteCastOp> IE::tryToFindPermuteCastOp(mlir::Location loc, 
     auto hasValidPermutationMap =
             tryToFindPermutationForPermuteCast(inputType, outOrder, outShape, rewriter.getContext());
     if (hasValidPermutationMap.has_value()) {
-        return rewriter.create<IE::PermuteCastOp>(loc, input, mlir::AffineMapAttr::get(outOrder.toAffineMap(ctx)),
-                                                  mlir::AffineMapAttr::get(hasValidPermutationMap.value()));
+        return IE::PermuteCastOp::create(rewriter, loc, input, mlir::AffineMapAttr::get(outOrder.toAffineMap(ctx)),
+                                         mlir::AffineMapAttr::get(hasValidPermutationMap.value()));
     } else {
         return std::nullopt;
     }

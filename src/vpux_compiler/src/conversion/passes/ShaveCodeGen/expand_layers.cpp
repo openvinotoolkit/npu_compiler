@@ -66,73 +66,74 @@ static mlir::LogicalResult Roundfp16(mlir::math::RoundOp op, mlir::PatternRewrit
     auto getUI16Attr = [&](uint16_t value) {
         return rewriter.getIntegerAttr(i16Type, llvm::APInt(16, value));
     };
-    Value xInt = rewriter.create<arith::BitcastOp>(loc, i16Type, operand);
+    Value xInt = arith::BitcastOp::create(rewriter, loc, i16Type, operand);
 
-    Value fp16Bias = rewriter.create<arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(FP16_BIAS));
-    Value fractBits = rewriter.create<arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(FP16_FRACTBITS));
+    Value fp16Bias = arith::ConstantOp::create(rewriter, loc, rewriter.getI16IntegerAttr(FP16_BIAS));
+    Value fractBits = arith::ConstantOp::create(rewriter, loc, rewriter.getI16IntegerAttr(FP16_FRACTBITS));
     constexpr uint16_t TOTALBITS_ONE = static_cast<uint16_t>(FP16_TOTALBITS - 1);
-    Value totalBitsMinusOne = rewriter.create<arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(TOTALBITS_ONE));
+    Value totalBitsMinusOne = arith::ConstantOp::create(rewriter, loc, rewriter.getI16IntegerAttr(TOTALBITS_ONE));
 
     constexpr uint16_t signMaskValue = static_cast<uint16_t>(1u << TOTALBITS_ONE);
-    Value signMask = rewriter.create<arith::ConstantOp>(loc, getUI16Attr(signMaskValue));
+    Value signMask = arith::ConstantOp::create(rewriter, loc, getUI16Attr(signMaskValue));
 
     // xAbs = xInt & ~signMask
     constexpr uint16_t absMaskvalue = static_cast<uint16_t>(~(1u << FP16_BIAS));  // 0x7FFF
-    Value absMask = rewriter.create<arith::ConstantOp>(loc, getUI16Attr(absMaskvalue));
-    Value xAbs = rewriter.create<arith::AndIOp>(loc, xInt, absMask);
+    Value absMask = arith::ConstantOp::create(rewriter, loc, getUI16Attr(absMaskvalue));
+    Value xAbs = arith::AndIOp::create(rewriter, loc, xInt, absMask);
 
     // xAbsHalfPlus = (shortx)( (halfx)xAbs + 0.5 )
-    Value xAbsF16 = rewriter.create<arith::BitcastOp>(loc, f16Type, xAbs);
-    Value halfF16 = rewriter.create<arith::ConstantOp>(loc, rewriter.getFloatAttr(f16Type, 0.5));
+    Value xAbsF16 = arith::BitcastOp::create(rewriter, loc, f16Type, xAbs);
+    Value halfF16 = arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f16Type, 0.5));
 
     // xAbsF16 + 0.5.
-    Value xAbsPlus = rewriter.create<arith::AddFOp>(loc, xAbsF16, halfF16);
-    Value xAbsHalfPlus = rewriter.create<arith::BitcastOp>(loc, i16Type, xAbsPlus);
+    Value xAbsPlus = arith::AddFOp::create(rewriter, loc, xAbsF16, halfF16);
+    Value xAbsHalfPlus = arith::BitcastOp::create(rewriter, loc, i16Type, xAbsPlus);
 
     // xExpo = (xAbsHalfPlus >> FP16_FRACTBITS) - FP16_BIAS.
-    Value shifted = rewriter.create<arith::ShRSIOp>(loc, xAbsHalfPlus, fractBits);
-    Value xExpo = rewriter.create<arith::SubIOp>(loc, shifted, fp16Bias);
+    Value shifted = arith::ShRSIOp::create(rewriter, loc, xAbsHalfPlus, fractBits);
+    Value xExpo = arith::SubIOp::create(rewriter, loc, shifted, fp16Bias);
 
     // FP16_TRUNCFRACT = (((unsigned)-1) << FP16_FRACTBITS)
     constexpr uint16_t fp16TruncFracvalue = static_cast<uint16_t>((unsignedminusone << FP16_FRACTBITS));
-    Value fp16TruncFrac = rewriter.create<arith::ConstantOp>(loc, getUI16Attr(fp16TruncFracvalue));
+    Value fp16TruncFrac = arith::ConstantOp::create(rewriter, loc, getUI16Attr(fp16TruncFracvalue));
 
     // truncMask = fp16TruncFrac >> xExpo (shift dinamic).
-    Value truncMask = rewriter.create<arith::ShRSIOp>(loc, fp16TruncFrac, xExpo);
+    Value truncMask = arith::ShRSIOp::create(rewriter, loc, fp16TruncFrac, xExpo);
 
     // isSmall = (xAbs - (shortx)halves) >> (FP16_TOTALBITS - 1).
-    Value halvesInt = rewriter.create<arith::BitcastOp>(loc, i16Type, halfF16);
-    Value diffSmall = rewriter.create<arith::SubIOp>(loc, xAbs, halvesInt);
-    Value isSmall = rewriter.create<arith::ShRSIOp>(loc, diffSmall, totalBitsMinusOne);
+    Value halvesInt = arith::BitcastOp::create(rewriter, loc, i16Type, halfF16);
+    Value diffSmall = arith::SubIOp::create(rewriter, loc, xAbs, halvesInt);
+    Value isSmall = arith::ShRSIOp::create(rewriter, loc, diffSmall, totalBitsMinusOne);
 
     // isGreat = ((FP16_GREATINT - 1) - xAbs) >> (FP16_TOTALBITS - 1).
     constexpr uint16_t greatIntMinusOnevalue = static_cast<uint16_t>(FP16_GREATINT - 1);
-    Value greatIntMinusOne = rewriter.create<arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(greatIntMinusOnevalue));
-    Value diffGreat = rewriter.create<arith::SubIOp>(loc, greatIntMinusOne, xAbs);
-    Value isGreat = rewriter.create<arith::ShRSIOp>(loc, diffGreat, totalBitsMinusOne);
+    Value greatIntMinusOne =
+            arith::ConstantOp::create(rewriter, loc, rewriter.getI16IntegerAttr(greatIntMinusOnevalue));
+    Value diffGreat = arith::SubIOp::create(rewriter, loc, greatIntMinusOne, xAbs);
+    Value isGreat = arith::ShRSIOp::create(rewriter, loc, diffGreat, totalBitsMinusOne);
 
     // isTrunc = ~(isGreat | isSmall).
-    Value greatOrSmall = rewriter.create<arith::OrIOp>(loc, isGreat, isSmall);
+    Value greatOrSmall = arith::OrIOp::create(rewriter, loc, isGreat, isSmall);
 
     // Force sign extension of the constant:
-    Value rawAllOnes = rewriter.create<arith::ConstantOp>(loc, getUI16Attr(unsignedminusone));
-    Value shiftZero = rewriter.create<arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(0));
-    Value allOnesExtended = rewriter.create<arith::ShRSIOp>(loc, rawAllOnes, shiftZero);
-    Value isTrunc = rewriter.create<arith::XOrIOp>(loc, greatOrSmall, allOnesExtended);
+    Value rawAllOnes = arith::ConstantOp::create(rewriter, loc, getUI16Attr(unsignedminusone));
+    Value shiftZero = arith::ConstantOp::create(rewriter, loc, rewriter.getI16IntegerAttr(0));
+    Value allOnesExtended = arith::ShRSIOp::create(rewriter, loc, rawAllOnes, shiftZero);
+    Value isTrunc = arith::XOrIOp::create(rewriter, loc, greatOrSmall, allOnesExtended);
 
     // xTrunc = xAbsHalfPlus & truncMask.
-    Value xTrunc = rewriter.create<arith::AndIOp>(loc, xAbsHalfPlus, truncMask);
+    Value xTrunc = arith::AndIOp::create(rewriter, loc, xAbsHalfPlus, truncMask);
 
     // xSign = xInt & signMask.
-    Value xSign = rewriter.create<arith::AndIOp>(loc, xInt, signMask);
+    Value xSign = arith::AndIOp::create(rewriter, loc, xInt, signMask);
 
     // res = (isGreat & xInt) | xSign | (isTrunc & xTrunc)
-    Value partGreat = rewriter.create<arith::AndIOp>(loc, isGreat, xInt);
-    Value partTrunc = rewriter.create<arith::AndIOp>(loc, isTrunc, xTrunc);
-    Value combined1 = rewriter.create<arith::OrIOp>(loc, partGreat, xSign);
-    Value combined = rewriter.create<arith::OrIOp>(loc, combined1, partTrunc);
+    Value partGreat = arith::AndIOp::create(rewriter, loc, isGreat, xInt);
+    Value partTrunc = arith::AndIOp::create(rewriter, loc, isTrunc, xTrunc);
+    Value combined1 = arith::OrIOp::create(rewriter, loc, partGreat, xSign);
+    Value combined = arith::OrIOp::create(rewriter, loc, combined1, partTrunc);
 
-    Value res = rewriter.create<arith::BitcastOp>(loc, f16Type, combined);
+    Value res = arith::BitcastOp::create(rewriter, loc, f16Type, combined);
 
     rewriter.replaceOp(op, res);
     return success();
@@ -166,50 +167,50 @@ static mlir::LogicalResult RoundEvenfp16(mlir::math::RoundEvenOp op, mlir::Patte
     // const shortx signMask = (shortx)(1 << (FP16_TOTALBITS - 1));
     constexpr uint16_t TOTALBITS_ONE = static_cast<uint16_t>(FP16_TOTALBITS - 1);
     constexpr uint16_t signMaskValue = static_cast<uint16_t>(1u << TOTALBITS_ONE);
-    mlir::Value signMask = rewriter.create<mlir::arith::ConstantOp>(
-            loc, rewriter.getIntegerAttr(i16Type, llvm::APInt(16, signMaskValue)));
+    mlir::Value signMask = mlir::arith::ConstantOp::create(
+            rewriter, loc, rewriter.getIntegerAttr(i16Type, llvm::APInt(16, signMaskValue)));
 
     // halfx roundShift = (halfx)((shortx)FP16_GREATINT);
-    mlir::Value roundShift = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(FP16_GREATINT));
-    mlir::Value froundShift = rewriter.create<mlir::arith::BitcastOp>(loc, f16Type, roundShift);
+    mlir::Value roundShift = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getI16IntegerAttr(FP16_GREATINT));
+    mlir::Value froundShift = mlir::arith::BitcastOp::create(rewriter, loc, f16Type, roundShift);
 
     mlir::Value totalBitsMinusOne =
-            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(TOTALBITS_ONE));
+            mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getI16IntegerAttr(TOTALBITS_ONE));
     constexpr uint16_t greatIntMinusOnevalue = static_cast<uint16_t>(FP16_GREATINT - 1);
     mlir::Value greatIntMinusOne =
-            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(greatIntMinusOnevalue));
+            mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getI16IntegerAttr(greatIntMinusOnevalue));
     auto allOnesAttr = rewriter.getIntegerAttr(i16Type, llvm::APInt::getAllOnes(i16Type.getIntOrFloatBitWidth()));
-    mlir::Value allOnes = rewriter.create<mlir::arith::ConstantOp>(loc, allOnesAttr);
+    mlir::Value allOnes = mlir::arith::ConstantOp::create(rewriter, loc, allOnesAttr);
 
-    mlir::Value xInt = rewriter.create<mlir::arith::BitcastOp>(loc, i16Type, operand);
+    mlir::Value xInt = mlir::arith::BitcastOp::create(rewriter, loc, i16Type, operand);
 
     // xAbs = xInt & ~signMask
     constexpr uint16_t absMaskvalue = static_cast<uint16_t>(0x7FFF);  //~signMask
-    mlir::Value absMask = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(absMaskvalue));
-    mlir::Value xAbs = rewriter.create<mlir::arith::AndIOp>(loc, xInt, absMask);
+    mlir::Value absMask = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getI16IntegerAttr(absMaskvalue));
+    mlir::Value xAbs = mlir::arith::AndIOp::create(rewriter, loc, xInt, absMask);
 
     // xSign = xInt & signMask.
-    mlir::Value xSign = rewriter.create<mlir::arith::AndIOp>(loc, xInt, signMask);
+    mlir::Value xSign = mlir::arith::AndIOp::create(rewriter, loc, xInt, signMask);
 
     // isGreat = ((shortx)(FP16_GREATINT - 1) - xAbs) >> (FP16_TOTALBITS - 1);
-    mlir::Value diffGreat = rewriter.create<mlir::arith::SubIOp>(loc, greatIntMinusOne, xAbs);
-    mlir::Value isGreat = rewriter.create<mlir::arith::ShRSIOp>(loc, diffGreat, totalBitsMinusOne);
+    mlir::Value diffGreat = mlir::arith::SubIOp::create(rewriter, loc, greatIntMinusOne, xAbs);
+    mlir::Value isGreat = mlir::arith::ShRSIOp::create(rewriter, loc, diffGreat, totalBitsMinusOne);
 
     // halfx vround = v_sub(((halfx)xAbs + roundShift), roundShift);
-    mlir::Value fxAbs = rewriter.create<mlir::arith::BitcastOp>(loc, f16Type, xAbs);
-    mlir::Value sum = rewriter.create<mlir::arith::AddFOp>(loc, froundShift, fxAbs);
-    mlir::Value vround = rewriter.create<mlir::arith::SubFOp>(loc, sum, froundShift);
-    mlir::Value Ivround = rewriter.create<mlir::arith::BitcastOp>(loc, i16Type, vround);
+    mlir::Value fxAbs = mlir::arith::BitcastOp::create(rewriter, loc, f16Type, xAbs);
+    mlir::Value sum = mlir::arith::AddFOp::create(rewriter, loc, froundShift, fxAbs);
+    mlir::Value vround = mlir::arith::SubFOp::create(rewriter, loc, sum, froundShift);
+    mlir::Value Ivround = mlir::arith::BitcastOp::create(rewriter, loc, i16Type, vround);
 
     // halfx xres = (halfx)((~isGreat & (shortx)vround) | ((isGreat)&xInt) | xSign);
-    mlir::Value isNotGreat = rewriter.create<mlir::arith::XOrIOp>(loc, i16Type, isGreat, allOnes);
+    mlir::Value isNotGreat = mlir::arith::XOrIOp::create(rewriter, loc, i16Type, isGreat, allOnes);
 
-    mlir::Value partOne = rewriter.create<mlir::arith::AndIOp>(loc, isNotGreat, Ivround);
-    mlir::Value partTwo = rewriter.create<mlir::arith::AndIOp>(loc, isGreat, xInt);
-    mlir::Value combined1 = rewriter.create<mlir::arith::OrIOp>(loc, partOne, partTwo);
-    mlir::Value combined = rewriter.create<mlir::arith::OrIOp>(loc, combined1, xSign);
+    mlir::Value partOne = mlir::arith::AndIOp::create(rewriter, loc, isNotGreat, Ivround);
+    mlir::Value partTwo = mlir::arith::AndIOp::create(rewriter, loc, isGreat, xInt);
+    mlir::Value combined1 = mlir::arith::OrIOp::create(rewriter, loc, partOne, partTwo);
+    mlir::Value combined = mlir::arith::OrIOp::create(rewriter, loc, combined1, xSign);
 
-    mlir::Value res = rewriter.create<mlir::arith::BitcastOp>(loc, f16Type, combined);
+    mlir::Value res = mlir::arith::BitcastOp::create(rewriter, loc, f16Type, combined);
 
     rewriter.replaceOp(op, res);
     return mlir::success();
@@ -244,77 +245,77 @@ mlir::LogicalResult Asinhfp16(mlir::math::AsinhOp op, mlir::PatternRewriter& rew
     float cq1 = -3.49466800689697265625e-2f;
     float cq0 = 5.84384240210056304931640625e-3f;
 
-    mlir::Value x32 = rewriter.create<mlir::arith::ExtFOp>(loc, f32Type, input);
+    mlir::Value x32 = mlir::arith::ExtFOp::create(rewriter, loc, f32Type, input);
 
-    auto poly0 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, cp0));
-    auto poly1 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, cp1));
-    auto poly2 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, cp2));
-    auto poly3 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, cp3));
+    auto poly0 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, cp0));
+    auto poly1 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, cp1));
+    auto poly2 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, cp2));
+    auto poly3 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, cp3));
 
-    auto pq0 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, cq0));
-    auto pq1 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, cq1));
-    auto pq2 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, cq2));
-    auto pq3 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, cq3));
-    auto pq4 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, cq4));
-    auto pq5 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, cq5));
-    auto pq6 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, cq6));
+    auto pq0 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, cq0));
+    auto pq1 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, cq1));
+    auto pq2 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, cq2));
+    auto pq3 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, cq3));
+    auto pq4 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, cq4));
+    auto pq5 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, cq5));
+    auto pq6 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, cq6));
 
-    auto vbig = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, big));
-    auto vln = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, ln2));
-    auto one = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, 1.0f));
-    auto halfone = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(f32Type, 0.5f));
-    auto abs = rewriter.create<mlir::math::AbsFOp>(loc, x32);  // abs(x)
+    auto vbig = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, big));
+    auto vln = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, ln2));
+    auto one = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, 1.0f));
+    auto halfone = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(f32Type, 0.5f));
+    auto abs = mlir::math::AbsFOp::create(rewriter, loc, x32);  // abs(x)
 
     // if |x| < 0.5; Asinh(x) = x * (1.0f + xx * (poly3 + xx * (poly2 + xx * (poly1 + xx * poly0))));
-    auto x2 = rewriter.create<mlir::arith::MulFOp>(loc, x32, x32);
-    auto p0 = rewriter.create<mlir::arith::MulFOp>(loc, x2, poly0);
-    auto p1 = rewriter.create<mlir::arith::AddFOp>(loc, p0, poly1);
-    auto p2 = rewriter.create<mlir::arith::MulFOp>(loc, x2, p1);
-    auto p3 = rewriter.create<mlir::arith::AddFOp>(loc, p2, poly2);
-    auto p4 = rewriter.create<mlir::arith::MulFOp>(loc, x2, p3);
-    auto p5 = rewriter.create<mlir::arith::AddFOp>(loc, p4, poly3);
-    auto p6 = rewriter.create<mlir::arith::MulFOp>(loc, x2, p5);
-    auto p7 = rewriter.create<mlir::arith::AddFOp>(loc, one, p6);
-    auto pu = rewriter.create<mlir::arith::MulFOp>(loc, x32, p7);
-    auto is_small = rewriter.create<mlir::arith::CmpFOp>(loc, mlir::arith::CmpFPredicate::OLT, abs, halfone);
+    auto x2 = mlir::arith::MulFOp::create(rewriter, loc, x32, x32);
+    auto p0 = mlir::arith::MulFOp::create(rewriter, loc, x2, poly0);
+    auto p1 = mlir::arith::AddFOp::create(rewriter, loc, p0, poly1);
+    auto p2 = mlir::arith::MulFOp::create(rewriter, loc, x2, p1);
+    auto p3 = mlir::arith::AddFOp::create(rewriter, loc, p2, poly2);
+    auto p4 = mlir::arith::MulFOp::create(rewriter, loc, x2, p3);
+    auto p5 = mlir::arith::AddFOp::create(rewriter, loc, p4, poly3);
+    auto p6 = mlir::arith::MulFOp::create(rewriter, loc, x2, p5);
+    auto p7 = mlir::arith::AddFOp::create(rewriter, loc, one, p6);
+    auto pu = mlir::arith::MulFOp::create(rewriter, loc, x32, p7);
+    auto is_small = mlir::arith::CmpFOp::create(rewriter, loc, mlir::arith::CmpFPredicate::OLT, abs, halfone);
 
     // if |x| < 1.0; Asinh(x) = copysignf(pq6 + xAbs * (pq5 + xAbs * (pq4 + xAbs * (pq3 + xAbs * (pq2 + xAbs * (pq1 +
     // xAbs * pq0))))),x)
-    auto absminhalf = rewriter.create<mlir::arith::SubFOp>(loc, abs, halfone);
-    auto q0 = rewriter.create<mlir::arith::MulFOp>(loc, absminhalf, pq0);
-    auto q1 = rewriter.create<mlir::arith::AddFOp>(loc, q0, pq1);
-    auto q2 = rewriter.create<mlir::arith::MulFOp>(loc, absminhalf, q1);
-    auto q3 = rewriter.create<mlir::arith::AddFOp>(loc, q2, pq2);
-    auto q4 = rewriter.create<mlir::arith::MulFOp>(loc, absminhalf, q3);
-    auto q5 = rewriter.create<mlir::arith::AddFOp>(loc, q4, pq3);
-    auto q6 = rewriter.create<mlir::arith::MulFOp>(loc, absminhalf, q5);
-    auto q7 = rewriter.create<mlir::arith::AddFOp>(loc, q6, pq4);
-    auto q8 = rewriter.create<mlir::arith::MulFOp>(loc, absminhalf, q7);
-    auto q9 = rewriter.create<mlir::arith::AddFOp>(loc, q8, pq5);
-    auto q10 = rewriter.create<mlir::arith::MulFOp>(loc, absminhalf, q9);
-    auto q11 = rewriter.create<mlir::arith::AddFOp>(loc, q10, pq6);
-    auto qu = rewriter.create<mlir::math::CopySignOp>(loc, q11, x32);
-    auto is_one = rewriter.create<mlir::arith::CmpFOp>(loc, mlir::arith::CmpFPredicate::OLT, abs, one);
+    auto absminhalf = mlir::arith::SubFOp::create(rewriter, loc, abs, halfone);
+    auto q0 = mlir::arith::MulFOp::create(rewriter, loc, absminhalf, pq0);
+    auto q1 = mlir::arith::AddFOp::create(rewriter, loc, q0, pq1);
+    auto q2 = mlir::arith::MulFOp::create(rewriter, loc, absminhalf, q1);
+    auto q3 = mlir::arith::AddFOp::create(rewriter, loc, q2, pq2);
+    auto q4 = mlir::arith::MulFOp::create(rewriter, loc, absminhalf, q3);
+    auto q5 = mlir::arith::AddFOp::create(rewriter, loc, q4, pq3);
+    auto q6 = mlir::arith::MulFOp::create(rewriter, loc, absminhalf, q5);
+    auto q7 = mlir::arith::AddFOp::create(rewriter, loc, q6, pq4);
+    auto q8 = mlir::arith::MulFOp::create(rewriter, loc, absminhalf, q7);
+    auto q9 = mlir::arith::AddFOp::create(rewriter, loc, q8, pq5);
+    auto q10 = mlir::arith::MulFOp::create(rewriter, loc, absminhalf, q9);
+    auto q11 = mlir::arith::AddFOp::create(rewriter, loc, q10, pq6);
+    auto qu = mlir::math::CopySignOp::create(rewriter, loc, q11, x32);
+    auto is_one = mlir::arith::CmpFOp::create(rewriter, loc, mlir::arith::CmpFPredicate::OLT, abs, one);
 
     // copysignf(log(xAbs) + ln2, x);                              for |x| > big
-    auto logf = rewriter.create<mlir::math::LogOp>(loc, abs, mlir::arith::FastMathFlags::afn);  // log(xAbs)
-    auto tvalue = rewriter.create<mlir::arith::AddFOp>(loc, logf, vln);                         // log(xAbs) + ln2
-    auto bigvalue = rewriter.create<mlir::math::CopySignOp>(loc, tvalue, x32);
+    auto logf = mlir::math::LogOp::create(rewriter, loc, abs, mlir::arith::FastMathFlags::afn);  // log(xAbs)
+    auto tvalue = mlir::arith::AddFOp::create(rewriter, loc, logf, vln);                         // log(xAbs) + ln2
+    auto bigvalue = mlir::math::CopySignOp::create(rewriter, loc, tvalue, x32);
 
-    auto is_big = rewriter.create<mlir::arith::CmpFOp>(loc, mlir::arith::CmpFPredicate::OGT, abs, vbig);
+    auto is_big = mlir::arith::CmpFOp::create(rewriter, loc, mlir::arith::CmpFPredicate::OGT, abs, vbig);
 
     // copysignf(log(xAbs + sqrtf(x*x + 1.0f)), x);       for |x| <= big
-    auto fma = rewriter.create<mlir::math::FmaOp>(loc, abs, abs, one);                              // x^2+1
-    auto sqrtVal = rewriter.create<mlir::math::SqrtOp>(loc, fma, mlir::arith::FastMathFlags::afn);  // sqrt(x^2 + 1)
-    auto tsum = rewriter.create<mlir::arith::AddFOp>(loc, sqrtVal, abs);
-    auto tmed = rewriter.create<mlir::math::LogOp>(loc, tsum, mlir::arith::FastMathFlags::afn);
-    auto med = rewriter.create<mlir::math::CopySignOp>(loc, tmed, x32);
+    auto fma = mlir::math::FmaOp::create(rewriter, loc, abs, abs, one);                              // x^2+1
+    auto sqrtVal = mlir::math::SqrtOp::create(rewriter, loc, fma, mlir::arith::FastMathFlags::afn);  // sqrt(x^2 + 1)
+    auto tsum = mlir::arith::AddFOp::create(rewriter, loc, sqrtVal, abs);
+    auto tmed = mlir::math::LogOp::create(rewriter, loc, tsum, mlir::arith::FastMathFlags::afn);
+    auto med = mlir::math::CopySignOp::create(rewriter, loc, tmed, x32);
 
-    auto vt1 = rewriter.create<mlir::arith::SelectOp>(loc, is_small, pu, qu);
-    auto vt2 = rewriter.create<mlir::arith::SelectOp>(loc, is_one, vt1, med);
-    auto res32 = rewriter.create<mlir::arith::SelectOp>(loc, is_big, bigvalue, vt2).getResult();
+    auto vt1 = mlir::arith::SelectOp::create(rewriter, loc, is_small, pu, qu);
+    auto vt2 = mlir::arith::SelectOp::create(rewriter, loc, is_one, vt1, med);
+    auto res32 = mlir::arith::SelectOp::create(rewriter, loc, is_big, bigvalue, vt2).getResult();
 
-    mlir::Value res = rewriter.create<mlir::arith::TruncFOp>(loc, opType, res32).getResult();
+    mlir::Value res = mlir::arith::TruncFOp::create(rewriter, loc, opType, res32).getResult();
 
     rewriter.replaceOp(op, res);
     return mlir::success();
@@ -337,54 +338,54 @@ mlir::LogicalResult Acoshfp16(mlir::math::AcoshOp op, mlir::PatternRewriter& rew
     float big = 255.75f;
     auto nan16 = llvm::APFloat::getQNaN(llvm::APFloat::IEEEhalf());
 
-    auto vbig = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), big));
-    auto vln = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), ln2));
-    auto one = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 1.0f));
-    auto mone = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), -1.0f));
-    auto nan = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), nan16));
-    auto onep2 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 1.2f));
+    auto vbig = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), big));
+    auto vln = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), ln2));
+    auto one = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), 1.0f));
+    auto mone = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), -1.0f));
+    auto nan = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), nan16));
+    auto onep2 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), 1.2f));
 
-    auto poly1 = rewriter.create<mlir::arith::ConstantOp>(
-            loc, rewriter.getFloatAttr(input.getType(), -0.08331299f));  // -1/12
-    auto poly2 = rewriter.create<mlir::arith::ConstantOp>(
-            loc, rewriter.getFloatAttr(input.getType(), 0.018753052f));  // 3/160
-    auto poly3 = rewriter.create<mlir::arith::ConstantOp>(
-            loc, rewriter.getFloatAttr(input.getType(), -0.005580902f));  // -5/896
-    auto two = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 2.0f));
+    auto poly1 = mlir::arith::ConstantOp::create(rewriter, loc,
+                                                 rewriter.getFloatAttr(input.getType(), -0.08331299f));  // -1/12
+    auto poly2 = mlir::arith::ConstantOp::create(rewriter, loc,
+                                                 rewriter.getFloatAttr(input.getType(), 0.018753052f));  // 3/160
+    auto poly3 = mlir::arith::ConstantOp::create(rewriter, loc,
+                                                 rewriter.getFloatAttr(input.getType(), -0.005580902f));  // -5/896
+    auto two = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), 2.0f));
 
     // x < 1 return NaN
-    auto is_small = rewriter.create<mlir::arith::CmpFOp>(loc, mlir::arith::CmpFPredicate::OLT, input, one);
+    auto is_small = mlir::arith::CmpFOp::create(rewriter, loc, mlir::arith::CmpFPredicate::OLT, input, one);
 
     // x < 1.2f
-    auto xmin1 = rewriter.create<mlir::arith::AddFOp>(loc, input, mone);  // x - 1
-    auto p0 = rewriter.create<mlir::arith::MulFOp>(loc, xmin1, poly3);
-    auto p1 = rewriter.create<mlir::arith::AddFOp>(loc, p0, poly2);
-    auto p2 = rewriter.create<mlir::arith::MulFOp>(loc, p1, xmin1);
-    auto p3 = rewriter.create<mlir::arith::AddFOp>(loc, p2, poly1);
-    auto p4 = rewriter.create<mlir::arith::MulFOp>(loc, p3, xmin1);
-    auto pu = rewriter.create<mlir::arith::AddFOp>(loc, p4, one);
+    auto xmin1 = mlir::arith::AddFOp::create(rewriter, loc, input, mone);  // x - 1
+    auto p0 = mlir::arith::MulFOp::create(rewriter, loc, xmin1, poly3);
+    auto p1 = mlir::arith::AddFOp::create(rewriter, loc, p0, poly2);
+    auto p2 = mlir::arith::MulFOp::create(rewriter, loc, p1, xmin1);
+    auto p3 = mlir::arith::AddFOp::create(rewriter, loc, p2, poly1);
+    auto p4 = mlir::arith::MulFOp::create(rewriter, loc, p3, xmin1);
+    auto pu = mlir::arith::AddFOp::create(rewriter, loc, p4, one);
 
-    auto v2u = rewriter.create<mlir::arith::MulFOp>(loc, xmin1, two);
-    auto s2u = rewriter.create<mlir::math::SqrtOp>(loc, v2u, mlir::arith::FastMathFlags::afn);
-    auto v_lt12 = rewriter.create<mlir::arith::MulFOp>(loc, s2u, pu);
-    auto is_lt12 = rewriter.create<mlir::arith::CmpFOp>(loc, mlir::arith::CmpFPredicate::OLT, input, onep2);
+    auto v2u = mlir::arith::MulFOp::create(rewriter, loc, xmin1, two);
+    auto s2u = mlir::math::SqrtOp::create(rewriter, loc, v2u, mlir::arith::FastMathFlags::afn);
+    auto v_lt12 = mlir::arith::MulFOp::create(rewriter, loc, s2u, pu);
+    auto is_lt12 = mlir::arith::CmpFOp::create(rewriter, loc, mlir::arith::CmpFPredicate::OLT, input, onep2);
 
     // x < big, to avoid x*x overflows
-    auto logf = rewriter.create<mlir::math::LogOp>(loc, input, mlir::arith::FastMathFlags::afn);  // log(x)
-    auto bigvalue = rewriter.create<mlir::arith::AddFOp>(loc, logf, vln);                         // log(x) + ln2
-    auto is_over = rewriter.create<mlir::arith::CmpFOp>(loc, mlir::arith::CmpFPredicate::OGT, input, vbig);
+    auto logf = mlir::math::LogOp::create(rewriter, loc, input, mlir::arith::FastMathFlags::afn);  // log(x)
+    auto bigvalue = mlir::arith::AddFOp::create(rewriter, loc, logf, vln);                         // log(x) + ln2
+    auto is_over = mlir::arith::CmpFOp::create(rewriter, loc, mlir::arith::CmpFPredicate::OGT, input, vbig);
 
     // rest
-    auto xplus1 = rewriter.create<mlir::arith::AddFOp>(loc, input, one);      // x + 1
-    auto mulsqrt = rewriter.create<mlir::arith::MulFOp>(loc, xmin1, xplus1);  // (x - 1)(x + 1)
-    auto sqrtVal = rewriter.create<mlir::math::SqrtOp>(loc, mulsqrt,
-                                                       mlir::arith::FastMathFlags::afn);  // sqrt((x - 1)(x + 1))
-    auto addSqrt = rewriter.create<mlir::arith::AddFOp>(loc, input, sqrtVal);             // x + sqrt(x^2 - 1)
-    auto rest = rewriter.create<mlir::math::LogOp>(loc, addSqrt);
+    auto xplus1 = mlir::arith::AddFOp::create(rewriter, loc, input, one);      // x + 1
+    auto mulsqrt = mlir::arith::MulFOp::create(rewriter, loc, xmin1, xplus1);  // (x - 1)(x + 1)
+    auto sqrtVal = mlir::math::SqrtOp::create(rewriter, loc, mulsqrt,
+                                              mlir::arith::FastMathFlags::afn);  // sqrt((x - 1)(x + 1))
+    auto addSqrt = mlir::arith::AddFOp::create(rewriter, loc, input, sqrtVal);   // x + sqrt(x^2 - 1)
+    auto rest = mlir::math::LogOp::create(rewriter, loc, addSqrt);
 
-    auto vsmall = rewriter.create<mlir::arith::SelectOp>(loc, is_lt12, v_lt12, rest);    // x < 1.2f
-    auto over = rewriter.create<mlir::arith::SelectOp>(loc, is_over, bigvalue, vsmall);  // x > big
-    auto res = rewriter.create<mlir::arith::SelectOp>(loc, is_small, nan, over);         // x < 1
+    auto vsmall = mlir::arith::SelectOp::create(rewriter, loc, is_lt12, v_lt12, rest);    // x < 1.2f
+    auto over = mlir::arith::SelectOp::create(rewriter, loc, is_over, bigvalue, vsmall);  // x > big
+    auto res = mlir::arith::SelectOp::create(rewriter, loc, is_small, nan, over);         // x < 1
 
     rewriter.replaceOp(op, res);
     return mlir::success();
@@ -396,8 +397,8 @@ static mlir::LogicalResult NegF(mlir::arith::NegFOp op, mlir::PatternRewriter& r
     mlir::Value input = op.getOperand();
     mlir::Type opType = input.getType();
 
-    auto zeroConst = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(opType, 0.0));  // Const 0
-    mlir::Value res = rewriter.create<mlir::arith::SubFOp>(loc, zeroConst, input);                       // -x = 0-x
+    auto zeroConst = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(opType, 0.0));  // Const 0
+    mlir::Value res = mlir::arith::SubFOp::create(rewriter, loc, zeroConst, input);                       // -x = 0-x
 
     rewriter.replaceOp(op, res);
     return mlir::success();

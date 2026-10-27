@@ -2523,6 +2523,60 @@ func.func @GroupedMatMulAssignedSOG(%arg0:  tensor<4x1x32x64x1xf16, {order =#GNH
 
 // -----
 
+// CHECK-LABEL: @GroupQuantCorrectionAssignedSOB
+func.func @GroupQuantCorrectionAssignedSOB(%actOut: tensor<8x96x1x1xf16>, %actIn: tensor<8x1x1x64xf16>,
+                                           %scales: tensor<8x96x1x1xf16>, %zp: tensor<8x96x1x1xui2>)
+        -> tensor<8x96x1x1xf16> {
+    %0 = VPU.GroupQuantCorrection(%actOut, %actIn, %scales, %zp)
+        : tensor<8x96x1x1xf16>, tensor<8x1x1x64xf16>, tensor<8x96x1x1xf16>, tensor<8x96x1x1xui2>
+        -> tensor<8x96x1x1xf16>
+    return %0 : tensor<8x96x1x1xf16>
+
+    // CHECK:      [[GQC:%.+]] = VPU.GroupQuantCorrection([[ACT_OUT:%.+]], [[ACT_IN:%.+]], [[SCALES:%.+]], [[ZP:%.+]]) {
+    // CHECK-SAME:   multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverBatch>}
+    // CHECK-SAME:   : tensor<8x96x1x1xf16>, tensor<8x1x1x64xf16>, tensor<8x96x1x1xf16>, tensor<8x96x1x1xui2>
+    // CHECK-SAME:   -> tensor<8x96x1x1xf16>
+    // CHECK:      return [[GQC]] : tensor<8x96x1x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @GroupQuantCorrectionAssignedSOK
+func.func @GroupQuantCorrectionAssignedSOK(%actOut: tensor<1x8208x1x1xf16>, %actIn: tensor<1x1x1x64xf16>,
+                                           %scales: tensor<1x8208x1x1xf16>, %zp: tensor<1x8208x1x1xui2>)
+        -> tensor<1x8208x1x1xf16> {
+    %0 = VPU.GroupQuantCorrection(%actOut, %actIn, %scales, %zp)
+        : tensor<1x8208x1x1xf16>, tensor<1x1x1x64xf16>, tensor<1x8208x1x1xf16>, tensor<1x8208x1x1xui2>
+        -> tensor<1x8208x1x1xf16>
+    return %0 : tensor<1x8208x1x1xf16>
+
+    // CHECK:      [[GQC:%.+]] = VPU.GroupQuantCorrection([[ACT_OUT:%.+]], [[ACT_IN:%.+]], [[SCALES:%.+]], [[ZP:%.+]]) {
+    // CHECK-SAME:   multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>}
+    // CHECK-SAME:   : tensor<1x8208x1x1xf16>, tensor<1x1x1x64xf16>, tensor<1x8208x1x1xf16>, tensor<1x8208x1x1xui2>
+    // CHECK-SAME:   -> tensor<1x8208x1x1xf16>
+    // CHECK:      return [[GQC]] : tensor<1x8208x1x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @GroupQuantCorrectionWithUnalignedChannelsAssignedClustering
+func.func @GroupQuantCorrectionWithUnalignedChannelsAssignedClustering(
+        %actOut: tensor<1x8209x1x1xf16>, %actIn: tensor<1x1x1x64xf16>, %scales: tensor<1x8209x1x1xf16>,
+        %zp: tensor<1x8209x1x1xui2>) -> tensor<1x8209x1x1xf16> {
+    %0 = VPU.GroupQuantCorrection(%actOut, %actIn, %scales, %zp)
+        : tensor<1x8209x1x1xf16>, tensor<1x1x1x64xf16>, tensor<1x8209x1x1xf16>, tensor<1x8209x1x1xui2>
+        -> tensor<1x8209x1x1xf16>
+    return %0 : tensor<1x8209x1x1xf16>
+
+    // CHECK:      [[GQC:%.+]] = VPU.GroupQuantCorrection([[ACT_OUT:%.+]], [[ACT_IN:%.+]], [[SCALES:%.+]], [[ZP:%.+]]) {
+    // CHECK-SAME:   multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>}
+    // CHECK-SAME:   : tensor<1x8209x1x1xf16>, tensor<1x1x1x64xf16>, tensor<1x8209x1x1xf16>, tensor<1x8209x1x1xui2>
+    // CHECK-SAME:   -> tensor<1x8209x1x1xf16>
+    // CHECK:      return [[GQC]] : tensor<1x8209x1x1xf16>
+}
+
+// -----
+
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #CHW = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 

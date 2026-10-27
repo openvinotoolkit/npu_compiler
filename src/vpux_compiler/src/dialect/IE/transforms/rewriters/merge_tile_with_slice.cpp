@@ -125,7 +125,7 @@ mlir::LogicalResult MergeTileWithReshapeSlice::matchAndRewrite(IE::TileOp tileOp
     auto tileOutShape = getShape(tileOp.getOutput());
 
     if (tileInShape.size() != rank4D || tileOutShape.size() != rank4D) {
-        return matchFailed(rewriter, tileOp, "Input is not 4D");
+        return matchFailed(_log, rewriter, tileOp, "Input is not 4D");
     }
 
     auto repeatDim = IE::getSingleDiffAxis(tileInShape, tileOutShape);
@@ -134,16 +134,16 @@ mlir::LogicalResult MergeTileWithReshapeSlice::matchAndRewrite(IE::TileOp tileOp
     }
 
     if (!tileOp->hasOneUse()) {
-        return matchFailed(rewriter, tileOp, "Tile has more than one user");
+        return matchFailed(_log, rewriter, tileOp, "Tile has more than one user");
     }
 
     auto reshapeOp = mlir::dyn_cast<IE::ReshapeOp>(*tileOp.getOutput().getUsers().begin());
     if (reshapeOp == nullptr) {
-        return matchFailed(rewriter, tileOp, "Tile user is not reshape");
+        return matchFailed(_log, rewriter, tileOp, "Tile user is not reshape");
     }
     auto reshapeOutShape = getShape(reshapeOp.getOutput());
     if (reshapeOutShape.size() != rank4D) {
-        return matchFailed(rewriter, tileOp, "Reshape is not 4D");
+        return matchFailed(_log, rewriter, tileOp, "Reshape is not 4D");
     }
 
     SmallVector<int64_t> mergeDim;
@@ -155,17 +155,17 @@ mlir::LogicalResult MergeTileWithReshapeSlice::matchAndRewrite(IE::TileOp tileOp
 
     // two adjecent dims merged and reshape to 1xN or Nx1 like: 2x3x4x5 -> 1x6x4x5 or 6x1x4x5
     if (mergeDim.size() != 2) {
-        return matchFailed(rewriter, tileOp, "Can only support merge two dims");
+        return matchFailed(_log, rewriter, tileOp, "Can only support merge two dims");
     }
 
     if ((mergeDim.back() - mergeDim.front()) != 1) {
-        return matchFailed(rewriter, tileOp, "Merge dims should be adjecent");
+        return matchFailed(_log, rewriter, tileOp, "Merge dims should be adjecent");
     }
 
     const auto mergedValue = tileOutShape[Dim(mergeDim.front())] * tileOutShape[Dim(mergeDim.back())];
     if ((reshapeOutShape[Dim(mergeDim.front())] != 1 || reshapeOutShape[Dim(mergeDim.back())] != mergedValue) &&
         (reshapeOutShape[Dim(mergeDim.back())] != 1 || reshapeOutShape[Dim(mergeDim.front())] != mergedValue)) {
-        return matchFailed(rewriter, tileOp, "Merge dims do not meet requirement");
+        return matchFailed(_log, rewriter, tileOp, "Merge dims do not meet requirement");
     }
 
     mlir::Value sliceParent = reshapeOp.getOutput();
@@ -182,17 +182,17 @@ mlir::LogicalResult MergeTileWithReshapeSlice::matchAndRewrite(IE::TileOp tileOp
     for (auto user : sliceParent.getUsers()) {
         auto sliceOp = mlir::dyn_cast<IE::SliceOp>(user);
         if (sliceOp == nullptr) {
-            return matchFailed(rewriter, tileOp, "Reshape user is not a slice");
+            return matchFailed(_log, rewriter, tileOp, "Reshape user is not a slice");
         }
         if (!doesSliceMeetRequirement(sliceOp, tileOp, mergeDim, repeatDim.value().ind())) {
-            return matchFailed(rewriter, tileOp, "Slice does not meet requirement");
+            return matchFailed(_log, rewriter, tileOp, "Slice does not meet requirement");
         }
     }
 
     mlir::Value tileInput = tileOp.getInput();
     if (transposeOp) {
-        auto newTranspose = rewriter.create<IE::TransposeOp>(transposeOp->getLoc(), tileInput, nullptr,
-                                                             transposeOp.getOrderValueAttr());
+        auto newTranspose = IE::TransposeOp::create(rewriter, transposeOp->getLoc(), tileInput, nullptr,
+                                                    transposeOp.getOrderValueAttr());
         tileInput = newTranspose.getOutput();
     }
 
@@ -208,9 +208,9 @@ mlir::LogicalResult MergeTileWithReshapeSlice::matchAndRewrite(IE::TileOp tileOp
         if (iterator != sliceMap.end()) {
             rewriter.replaceOp(sliceOp, iterator->second);
         } else {
-            auto newSlice = rewriter.create<IE::SliceOp>(sliceOp->getLoc(), tileInput,
-                                                         getIntArrayAttr(getContext(), newSliceOffset),
-                                                         getIntArrayAttr(getContext(), newSliceSize));
+            auto newSlice = IE::SliceOp::create(rewriter, sliceOp->getLoc(), tileInput,
+                                                getIntArrayAttr(getContext(), newSliceOffset),
+                                                getIntArrayAttr(getContext(), newSliceSize));
             rewriter.replaceOp(sliceOp, newSlice.getResult());
             sliceMap.insert(std::make_pair(mapKey, newSlice.getResult()));
         }
@@ -293,7 +293,7 @@ mlir::LogicalResult MergeTileWithSlice::matchAndRewrite(IE::TileOp tileOp, mlir:
 
     for (auto user : tileOp.getOutput().getUsers()) {
         auto sliceOp = mlir::dyn_cast<IE::SliceOp>(user);
-        VPUX_THROW_UNLESS(sliceOp != nullptr, "Cannot find user Slice op");
+        VPUX_THROW_WHEN(sliceOp == nullptr, "Cannot find user Slice op");
         sliceOp->getResult(0).replaceAllUsesWith(tileOp.getInput());
     }
 

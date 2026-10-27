@@ -129,7 +129,7 @@ std::optional<mlir::Type> vpux::Const::backInferElemTypeAffineReshape(
 
 std::optional<vpux::DimsOrder> vpux::Const::inferAffineReshapeOutputLayout(const DimArr& inPerm,
                                                                            mlir::ArrayAttr dimMapAttr) {
-    VPUX_THROW_UNLESS(dimMapAttr != nullptr, "dimMapAttr is nullptr");
+    VPUX_THROW_WHEN(dimMapAttr == nullptr, "dimMapAttr is nullptr");
     const auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(dimMapAttr);
     SmallVector<vpux::Dim> perm;
 

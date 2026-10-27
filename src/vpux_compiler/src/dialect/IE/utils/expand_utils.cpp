@@ -159,7 +159,7 @@ mlir::Value generateZeroConst(mlir::Location loc, vpux::NDTypeInterface inType, 
         eleAttr = Const::createConstContent(dataType, buffer);
     };
     outputBuffer.mutate(getDataAttr);
-    return rewriter.create<Const::DeclareOp>(loc, padType, Const::ContentAttr::get(eleAttr)).getOutput();
+    return Const::DeclareOp::create(rewriter, loc, padType, Const::ContentAttr::get(eleAttr)).getOutput();
 }
 
 mlir::Value concatWithZeroConst(mlir::Location loc, mlir::Value filter, ShapeRef subInput, int64_t sliceChannelOffset,
@@ -185,7 +185,7 @@ mlir::Value concatWithZeroConst(mlir::Location loc, mlir::Value filter, ShapeRef
     if (secondPadShape[Dims4D::Filter::IC.ind()] != 0) {
         concatInput.push_back(generateZeroConst(loc, filterType, ShapeRef(secondPadShape), rewriter));
     }
-    auto concatOp = rewriter.create<IE::ConcatOp>(loc, concatInput, Dims4D::Filter::IC);
+    auto concatOp = IE::ConcatOp::create(rewriter, loc, concatInput, Dims4D::Filter::IC);
 
     return concatOp.getOutput();
 }

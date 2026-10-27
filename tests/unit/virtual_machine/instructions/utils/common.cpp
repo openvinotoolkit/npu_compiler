@@ -6,7 +6,7 @@
 #include "common.hpp"
 #include "bytecode_builder.hpp"
 #include "npu_bytecode_utils/type_section.hpp"
-#include "npu_interpreter_runtime/virtual_machine.h"
+#include "vm_runtime/virtual_machine.h"
 #include "vm_value_helpers.hpp"
 
 #include <llvm/Support/FormatVariadic.h>
@@ -116,7 +116,7 @@ npu_vm_result utils::VirtualMachineInstructionTest::loadEntrypoint(const std::ve
     if (const auto status = npu_vm_new_engine(&engine); status != NPU_VM_SUCCESS) {
         return status;
     }
-    return npu_vm_load_module(engine, module);
+    return npu_vm_load_module(engine, /*moduleParams*/ nullptr, module);
 }
 
 npu_vm_result utils::VirtualMachineInstructionTest::callWithResults(const char* funcName,

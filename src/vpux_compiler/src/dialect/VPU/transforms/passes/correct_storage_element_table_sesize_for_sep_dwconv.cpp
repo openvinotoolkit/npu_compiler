@@ -107,8 +107,8 @@ bool SeSizeRewriter::updateSETableForUser(VPU::StorageElementTableOp origOp, mli
 
     nestedLog.trace("Updating seSize for {0}", origOp->getLoc());
     auto dataShapeAttr = getIntArrayAttr(origOp.getContext(), getShape(groupSparseTensor.getData()).raw());
-    auto newStorageElementTableOp = rewriter.create<VPU::StorageElementTableOp>(
-            origOp->getLoc(), dataShapeAttr, origOp.getDataElemTypeAttr(), seSizeAttr,
+    auto newStorageElementTableOp = VPU::StorageElementTableOp::create(
+            rewriter, origOp->getLoc(), dataShapeAttr, origOp.getDataElemTypeAttr(), seSizeAttr,
             getIntAttr(origOp.getContext(), seDepth), groupSparseTensor.getSeAttr().value(), nullptr, nullptr);
 
     rewriter.replaceUsesWithIf(origOp.getOutput(), newStorageElementTableOp, [&](mlir::OpOperand& operand) {

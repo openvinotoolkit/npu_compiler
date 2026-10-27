@@ -5,13 +5,24 @@
 
 #pragma once
 
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/utils/core/string_ref.hpp"
 
 namespace vpux {
 namespace VPUMI40XX {
 enum class DmaNnSrcType { DDR, CMX_NN, Count };
+
+// Config attribute-name keys for task-descriptor binary-size constraints;
+// set by SetupTaskDescriptorConstraints, read by VPUMI40XX passes and utils.
+constexpr StringRef TASK_BINARY_SIZE_DPU_INVARIANT_ATTR = "config.TaskBinarySizeDPUInvariant";
+constexpr StringRef TASK_BINARY_SIZE_DPU_VARIANT_ATTR = "config.TaskBinarySizeDPUVariant";
+constexpr StringRef TASK_BINARY_SIZE_ACT_KERNEL_INVOCATION_ATTR = "config.TaskBinarySizeActKernelInvocation";
+constexpr StringRef TASK_BINARY_SIZE_ACT_KERNEL_RANGE_ATTR = "config.TaskBinarySizeActKernelRange";
+constexpr StringRef TASK_BINARY_SIZE_M2I_ATTR = "config.TaskBinarySizeM2I";
+constexpr StringRef TASK_BINARY_SIZE_DMA_ATTR = "config.TaskBinarySizeDMA";
 
 //
 // TaskMetadata Utils
@@ -116,7 +127,7 @@ void reindexTaskLinkAttrForDMA(VPURegMapped::TaskOpInterface head);
 //
 // Resolve Task Location utils
 //
-size_t getTaskBinarySize(VPURegMapped::TaskType taskType, config::ArchKind arch);
+size_t getTaskBinarySizeConstraint(mlir::func::FuncOp netFunc, VPURegMapped::TaskType taskType);
 
 VPURegMapped::TaskType convertExecutorKindToExecutableTaskType(config::ExecutorKind kind);
 

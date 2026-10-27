@@ -11,6 +11,7 @@
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/Pass/Pass.h>
 
+#include <cstdint>
 #include <memory>
 
 namespace vpux {
@@ -51,9 +52,24 @@ std::unique_ptr<mlir::Pass> createAddBarrierConfigurationOps(
         WorkloadManagementBarrierProgrammingMode WorkloadManagementBarrierProgrammingMode =
                 WorkloadManagementBarrierProgrammingMode::LEGACY,
         Logger log = Logger::global());
-
 std::unique_ptr<mlir::Pass> createUpdateEnqueueDMAInputAndOutput(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUpdateFetchDMAForSkipDMAsPass(Logger log = Logger::global());
+
+// TaskDescriptorConstraintsPassArgs — binary sizes of task descriptors for one architecture,
+// passed to createSetupTaskDescriptorConstraintsPass from each arch's conversion pipeline.
+
+struct TaskDescriptorConstraintsPassArgs {
+    size_t dpuInvariant = 0;
+    size_t dpuVariant = 0;
+    size_t actKernelInvocation = 0;
+    size_t actKernelRange = 0;
+    size_t dma = 0;
+    size_t m2i = 0;
+};
+
+std::unique_ptr<mlir::Pass> createSetupTaskDescriptorConstraintsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createSetupTaskDescriptorConstraintsPass(const TaskDescriptorConstraintsPassArgs& args,
+                                                                     Logger log = Logger::global());
 
 //
 // Registration

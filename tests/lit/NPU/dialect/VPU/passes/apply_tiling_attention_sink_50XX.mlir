@@ -6,8 +6,7 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform% allow-custom-values=true" --apply-tiling --canonicalize %s | FileCheck %s
 // REQUIRES: platform-NPU5010
 
-// The DPU storage auxiliary buffer size is architecture specific (NPU5010 packs the MatMul
-// weight tables), so this scenario is split per platform.
+// The DPU storage auxiliary buffer size accounts for NPU5010's packed MatMul weight tables.
 
 // The sink carries one logit per attention head, packed along its C axis (64 heads here).
 // The output distributes those heads across N (kv-group) and C (head-in-group), so the

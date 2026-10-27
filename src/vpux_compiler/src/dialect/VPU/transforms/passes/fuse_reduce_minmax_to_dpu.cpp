@@ -235,13 +235,14 @@ void FuseReduceMinMaxToDpuPass::safeRunOnFunc() {
         if (auto convOp = mlir::dyn_cast<VPU::NCEConvolutionOp>(parentOp)) {
             _log.trace("Fusing Reduce{0} with NCEConvolutionOp", fusedReduceKind);
 
-            auto newConvOp = builder.create<VPU::NCEConvolutionOp>(
-                    convOp.getLoc(), convOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
+            auto newConvOp = VPU::NCEConvolutionOp::create(
+                    builder, convOp.getLoc(), convOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
                     reduceTensorMinMaxType, convOp.getInput(), convOp.getFilter(), convOp.getWeightsTable(),
                     convOp.getWeightTableScale(), convOp.getWeightTableBias(), convOp.getWeightZeroPoints(),
                     convOp.getStridesAttr(), convOp.getPadAttr(), convOp.getPpeAttr(), convOp.getMpeEngineAttr(),
                     convOp.getRawFilterShape(), convOp.getStaticRawFilterShape(), convOp.getMultiClusterStrategyAttr(),
-                    convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr(), axesValue);
+                    convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr(), convOp.getS2dd2sConfigAttr(),
+                    axesValue);
 
             auto reduceNceOutput = selectReduceResult(newConvOp.getReduceTensorMinMax(), newConvOp.getReduceXyMax(),
                                                       newConvOp.getReduceXyMin());
@@ -253,8 +254,8 @@ void FuseReduceMinMaxToDpuPass::safeRunOnFunc() {
         if (auto matMulOp = mlir::dyn_cast<VPU::NCEMatMulOp>(parentOp)) {
             _log.trace("Fusing Reduce{0} with NCEMatMulOp", fusedReduceKind);
 
-            auto newMatMulOp = builder.create<VPU::NCEMatMulOp>(
-                    matMulOp.getLoc(), matMulOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
+            auto newMatMulOp = VPU::NCEMatMulOp::create(
+                    builder, matMulOp.getLoc(), matMulOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
                     reduceTensorMinMaxType, matMulOp.getInput(), matMulOp.getWeights(), matMulOp.getWeightsTable(),
                     matMulOp.getWeightTableScale(), matMulOp.getWeightTableBias(), matMulOp.getWeightZeroPoints(),
                     matMulOp.getStridesAttr(), matMulOp.getPadAttr(), matMulOp.getPpeAttr(),
@@ -272,8 +273,8 @@ void FuseReduceMinMaxToDpuPass::safeRunOnFunc() {
             _log.trace("Fusing Reduce{0} with NCEMaxPoolOp", fusedReduceKind);
 
             // Create new NCEMaxPoolOp with reduce output
-            auto newMaxPoolOp = builder.create<VPU::NCEMaxPoolOp>(
-                    maxPoolOp->getLoc(), maxPoolOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
+            auto newMaxPoolOp = VPU::NCEMaxPoolOp::create(
+                    builder, maxPoolOp->getLoc(), maxPoolOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
                     reduceTensorMinMaxType, maxPoolOp.getInput(), maxPoolOp.getWeightsTable(),
                     maxPoolOp.getWeightTableScale(), maxPoolOp.getWeightTableBias(), maxPoolOp.getKernelSizeAttr(),
                     maxPoolOp.getStridesAttr(), maxPoolOp.getPadAttr(), maxPoolOp.getPpeAttr(),
@@ -291,8 +292,8 @@ void FuseReduceMinMaxToDpuPass::safeRunOnFunc() {
         if (auto eltwiseOp = mlir::dyn_cast<VPU::NCEEltwiseOp>(parentOp)) {
             _log.trace("Fusing Reduce{0} with NCEEltwiseOp", fusedReduceKind);
 
-            auto newEltwiseOp = builder.create<VPU::NCEEltwiseOp>(
-                    eltwiseOp->getLoc(), eltwiseOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
+            auto newEltwiseOp = VPU::NCEEltwiseOp::create(
+                    builder, eltwiseOp->getLoc(), eltwiseOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
                     reduceTensorMinMaxType, eltwiseOp.getInput1(), eltwiseOp.getInput2(),
                     eltwiseOp.getWeightTableScale(), eltwiseOp.getWeightTableBias(), eltwiseOp.getOpTypeAttr(),
                     eltwiseOp.getPpeAttr(), eltwiseOp.getMpeEngineAttr(), eltwiseOp.getMultiClusterStrategyAttr(),
@@ -309,14 +310,14 @@ void FuseReduceMinMaxToDpuPass::safeRunOnFunc() {
         if (auto dwConvOp = mlir::dyn_cast<VPU::NCEDepthConvolutionOp>(parentOp)) {
             _log.trace("Fusing Reduce{0} with NCEDepthConvolutionOp", fusedReduceKind);
 
-            auto newDwConvOp = builder.create<VPU::NCEDepthConvolutionOp>(
-                    dwConvOp.getLoc(), dwConvOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
+            auto newDwConvOp = VPU::NCEDepthConvolutionOp::create(
+                    builder, dwConvOp.getLoc(), dwConvOp.getOutput().getType(), reduceXyMaxType, reduceXyMinType,
                     reduceTensorMinMaxType, dwConvOp.getInput(), dwConvOp.getFilter(), dwConvOp.getWeightsTable(),
                     dwConvOp.getWeightTableDataPtr(), dwConvOp.getWeightTableScale(), dwConvOp.getWeightTableBias(),
                     dwConvOp.getStridesAttr(), dwConvOp.getPadAttr(), dwConvOp.getPpeAttr(),
                     dwConvOp.getMpeEngineAttr(), dwConvOp.getRawFilterShape(), dwConvOp.getStaticRawFilterShape(),
                     dwConvOp.getMultiClusterStrategyAttr(), dwConvOp.getOutputPaddingAttr(),
-                    dwConvOp.getInputPaddingAttr(), axesValue);
+                    dwConvOp.getInputPaddingAttr(), /*s2dd2s_config=*/nullptr, axesValue);
 
             auto replacementValue = selectReduceResult(newDwConvOp.getReduceTensorMinMax(),
                                                        newDwConvOp.getReduceXyMax(), newDwConvOp.getReduceXyMin());

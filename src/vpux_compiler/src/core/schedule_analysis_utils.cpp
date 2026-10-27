@@ -199,7 +199,7 @@ void vpux::printScheduleStatistics(mlir::func::FuncOp& netFunc, AsyncDepsInfo& d
                 // check if dependency is causing the stall
                 auto execOpIdx = depsInfo.getIndex(execOp);
                 int64_t eraliestExecutionStartCycle = 0;
-                for (auto depIdx : depsInfo.getOpDeps(execOpIdx)) {
+                for (auto depIdx : depsInfo.getOpDepsUnordered(execOpIdx)) {
                     auto depExecOp = depsInfo.getExecuteOpAtIndex(depIdx);
                     if (!depExecOp->hasAttr(cycleEnd)) {
                         ++firstAsyncExecOp;
@@ -404,7 +404,7 @@ void vpux::createTracingJSON(mlir::func::FuncOp& netFunc, MemLiveRangeInfo& live
 
     std::error_code EC;
     llvm::raw_fd_ostream OS(finalPath, EC, llvm::sys::fs::OF_Text);
-    VPUX_THROW_UNLESS(!EC, "cannot open '{}' ({})", finalPath, EC.message());
+    VPUX_THROW_WHEN(EC, "cannot open '{}' ({})", finalPath, EC.message());
 
     // pretty-print
     OS << llvm::formatv("{0:2}", llvm::json::Value(std::move(schedule)));

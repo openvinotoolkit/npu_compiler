@@ -106,7 +106,7 @@ Const::DeclareOp ReshapeGroupConvInput::broadcastConst(mlir::Value activation, i
                                  .reshape(weightShape)
                                  .get();
     }
-    return rewriter.create<Const::DeclareOp>(activation.getLoc(), newContentAttr.getType(), std::move(newContentAttr));
+    return Const::DeclareOp::create(rewriter, activation.getLoc(), newContentAttr.getType(), std::move(newContentAttr));
 }
 
 IE::ShapeCastOp ReshapeGroupConvInput::reshapeOutput(IE::GroupConvolutionOp origOp, mlir::Value convOutput,
@@ -218,10 +218,11 @@ mlir::LogicalResult ReshapeGroupConvInput::matchAndRewrite(IE::GroupConvolutionO
         bias = mlir::cast<mlir::TypedValue<mlir::RankedTensorType>>(
                 broadcastConst(bias, newInputShape[Dims4D::Act::C.ind()], Dims4D::Filter::IC, rewriter).getOutput());
     }
-    auto newGroupConv = rewriter.create<IE::GroupConvolutionOp>(
-            convOp.getLoc(), input, weights, bias, convOp.getStrides(), convOp.getPadsBegin(), convOp.getPadsEnd(),
-            convOp.getDilations(), getIntAttr(rewriter.getContext(), newInputShape[Dims4D::Act::C.ind()]),
-            convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
+    auto newGroupConv = IE::GroupConvolutionOp::create(
+            rewriter, convOp.getLoc(), input, weights, bias, convOp.getStrides(), convOp.getPadsBegin(),
+            convOp.getPadsEnd(), convOp.getDilations(),
+            getIntAttr(rewriter.getContext(), newInputShape[Dims4D::Act::C.ind()]), convOp.getPostOpAttr(),
+            convOp.getClampAttr(), convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr());
     auto newInShape = getShape(input);
     auto origOutputType = mlir::cast<vpux::NDTypeInterface>(convOp.getType());
     newGroupConv.getOutput().setType(mlir::cast<mlir::RankedTensorType>(origOutputType.changeShape(newInShape)));
@@ -331,9 +332,8 @@ mlir::LogicalResult SliceGroupConvInput::matchAndRewrite(IE::GroupConvolutionOp 
 
         SmallVector<int64_t> staticSizes(inputShape.begin(), inputShape.end());
         staticSizes[Dims4D::Act::C.ind()] = 1;
-        auto sliceInput =
-                rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "input_{0}", i), preReorder.getInput(),
-                                             getIntArrayAttr(ctx, staticOffsets), getIntArrayAttr(ctx, staticSizes));
+        auto sliceInput = IE::SliceOp::create(rewriter, takeOpLoc(origOp, "input_{0}", i), preReorder.getInput(),
+                                              getIntArrayAttr(ctx, staticOffsets), getIntArrayAttr(ctx, staticSizes));
 
         auto preInOrder = DimsOrder::fromValue(preReorder.getInput());
         const auto inMemShape = preInOrder.toMemoryOrder(getShape(sliceInput.getResult()));
@@ -343,8 +343,8 @@ mlir::LogicalResult SliceGroupConvInput::matchAndRewrite(IE::GroupConvolutionOp 
             return mlir::failure();
         }
 
-        auto permuteCast = rewriter.create<IE::PermuteCastOp>(
-                origOp->getLoc(), sliceInput.getResult(),
+        auto permuteCast = IE::PermuteCastOp::create(
+                rewriter, origOp->getLoc(), sliceInput.getResult(),
                 mlir::AffineMapAttr::get(DimsOrder::fromValue(preReorder.getOutput()).toAffineMap(ctx)),
                 mlir::AffineMapAttr::get(permutation));
 
@@ -368,10 +368,10 @@ mlir::LogicalResult SliceGroupConvInput::matchAndRewrite(IE::GroupConvolutionOp 
                                                            getIntArrayAttr(ctx, biasStaticSizes));
         }
 
-        auto newGroupConv = rewriter.create<IE::GroupConvolutionOp>(
-                takeOpLoc(origOp, "{0}", i), permuteCast.getOutput(), sliceWeight, biasValue, origOp.getStrides(),
-                origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations(), getIntAttr(ctx, 1),
-                origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(),
+        auto newGroupConv = IE::GroupConvolutionOp::create(
+                rewriter, takeOpLoc(origOp, "{0}", i), permuteCast.getOutput(), sliceWeight, biasValue,
+                origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations(),
+                getIntAttr(ctx, 1), origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getOutputPaddingAttr(),
                 origOp.getInputPaddingAttr());
         auto groupOutputType = mlir::cast<vpux::NDTypeInterface>(newGroupConv.getOutput().getType());
         newGroupConv.getOutput().setType(mlir::cast<mlir::RankedTensorType>(
@@ -380,7 +380,7 @@ mlir::LogicalResult SliceGroupConvInput::matchAndRewrite(IE::GroupConvolutionOp 
         values.push_back(newGroupConv.getOutput());
     }
 
-    auto newConcat = rewriter.create<IE::ConcatOp>(origOp->getLoc(), values, Dim(Dims4D::Act::C.ind()));
+    auto newConcat = IE::ConcatOp::create(rewriter, origOp->getLoc(), values, Dim(Dims4D::Act::C.ind()));
     rewriter.replaceOp(origOp, newConcat.getOutput());
 
     return mlir::success();

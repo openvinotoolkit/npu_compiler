@@ -37,8 +37,7 @@ class ConvWithActivationQuantizedTest :
         public VpuOv2LayerTest,
         public testing::WithParamInterface<ConvActivationQuantParams> {
     void configure_model() override {
-        // #E-210493 - to remove quant-dequant-removal=false when proper solution is found
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-sprlut=true quant-dequant-removal=false";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-sprlut=true";
     }
 
     void SetUp() override {
@@ -56,10 +55,10 @@ class ConvWithActivationQuantizedTest :
                                  ->get_default_output();
         }
 
-        auto weights = buildWeights(lastOutput.get_shape(), 0.5f);
+        auto weights = buildWeights(lastOutput.get_shape(), 0.51f);
         if (quantParams.weightsQuant.has_value()) {
-            lastOutput = utils::makeFakeQuantize(lastOutput, ov::element::f16, 256, *quantParams.weightsQuant)
-                                 ->get_default_output();
+            weights = utils::makeFakeQuantize(weights, ov::element::f16, 256, *quantParams.weightsQuant)
+                              ->get_default_output();
         }
 
         lastOutput = buildConv(lastOutput, weights);
@@ -124,8 +123,7 @@ public:
 
 class ConvWithSwishQuantizedTest : public VpuOv2LayerTest, public testing::WithParamInterface<ConvSwishQuantParams> {
     void configure_model() override {
-        // #E-210493 - to remove quant-dequant-removal=false when proper solution is found
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-sprlut=true quant-dequant-removal=false";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-sprlut=true";
     }
 
     void SetUp() override {
@@ -143,10 +141,10 @@ class ConvWithSwishQuantizedTest : public VpuOv2LayerTest, public testing::WithP
                                  ->get_default_output();
         }
 
-        auto weights = buildWeights(lastOutput.get_shape(), 0.5f);
+        auto weights = buildWeights(lastOutput.get_shape(), 0.51f);
         if (quantParams.weightsQuant.has_value()) {
-            lastOutput = utils::makeFakeQuantize(lastOutput, ov::element::f16, 256, *quantParams.weightsQuant)
-                                 ->get_default_output();
+            weights = utils::makeFakeQuantize(weights, ov::element::f16, 256, *quantParams.weightsQuant)
+                              ->get_default_output();
         }
 
         lastOutput = buildConv(lastOutput, weights);
@@ -216,6 +214,7 @@ TEST_P(ConvWithSwishQuantizedTest, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(ConvWithActivationQuantizedTest, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
@@ -232,10 +231,15 @@ const std::vector<utils::ActivationTypes> activations = {utils::Tanh, utils::Sig
 const std::vector<float> betas = {1.0f, 1.7f, 10.0f};
 
 const std::vector<ConvQuantParams> quantParams = {
-        ConvQuantParams{FakeQuantizeParams({0.f}, {100.f}, {0.f}, {100.f}), std::nullopt, std::nullopt},
-        ConvQuantParams{std::nullopt, FakeQuantizeParams({0.f}, {100.f}, {0.f}, {100.f}), std::nullopt},
+        // Output FQ added so the FakeQuantize fuses into the Convolution PPE (clamp/scale) instead
+        // of becoming a strippable boundary Quantize/Dequantize
+        ConvQuantParams{FakeQuantizeParams({0.f}, {100.f}, {0.f}, {100.f}), std::nullopt,
+                        FakeQuantizeParams({-1.f}, {1.f}, {-1.f}, {1.f})},
+        ConvQuantParams{std::nullopt, FakeQuantizeParams({0.f}, {100.f}, {0.f}, {100.f}),
+                        FakeQuantizeParams({-1.f}, {1.f}, {-1.f}, {1.f})},
         ConvQuantParams{FakeQuantizeParams({0.f}, {100.f}, {0.f}, {100.f}),
-                        FakeQuantizeParams({0.f}, {100.f}, {0.f}, {100.f}), std::nullopt},
+                        FakeQuantizeParams({0.f}, {100.f}, {0.f}, {100.f}),
+                        FakeQuantizeParams({-1.f}, {1.f}, {-1.f}, {1.f})},
 
         ConvQuantParams{std::nullopt, std::nullopt, FakeQuantizeParams({-1.f}, {1.f}, {-1.f}, {1.f})},
         ConvQuantParams{FakeQuantizeParams({0.f}, {100.f}, {0.f}, {100.f}),
@@ -247,7 +251,7 @@ const std::vector<ConvQuantParams> quantParams = {
                                             0.0f, 0.0f, 0.0f, 0.0f},
                                            {0.53f, 0.47f, 0.51f, 0.52f, 0.48f, 0.49f, 0.51f, 0.48f, 0.52f, 0.51f, 0.53f,
                                             0.47f, 0.51f, 0.49f, 0.5f, 0.49f}),
-                        std::nullopt},
+                        FakeQuantizeParams({-1.f}, {1.f}, {-1.f}, {1.f})},
 };
 
 INSTANTIATE_TEST_SUITE_P(smoke_convActivation, ConvWithActivationQuantizedTest,

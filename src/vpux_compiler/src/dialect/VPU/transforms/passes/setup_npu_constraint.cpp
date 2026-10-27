@@ -78,13 +78,13 @@ void addConstraint(mlir::OpBuilder optionsBuilder, config::PipelineOptionsOp pip
         if (constraintValue.empty()) {
             return;
         }
-        optionsBuilder.create<config::OptionOp>(optionsBuilder.getUnknownLoc(), constraintAttr,
-                                                getIntArrayAttr(ctx, constraintValue));
+        config::OptionOp::create(optionsBuilder, optionsBuilder.getUnknownLoc(), constraintAttr,
+                                 getIntArrayAttr(ctx, constraintValue));
 
     } else {
         mlir::IntegerType sizeType = mlir::IntegerType::get(ctx, sizeof(void*) * 8, mlir::IntegerType::Unsigned);
-        optionsBuilder.create<config::OptionOp>(optionsBuilder.getUnknownLoc(), constraintAttr,
-                                                mlir::IntegerAttr::get(sizeType, constraintValue));
+        config::OptionOp::create(optionsBuilder, optionsBuilder.getUnknownLoc(), constraintAttr,
+                                 mlir::IntegerAttr::get(sizeType, constraintValue));
     }
 }
 
@@ -101,8 +101,8 @@ void addConstraint<bool>(mlir::OpBuilder optionsBuilder, config::PipelineOptions
 
     auto* ctx = optionsBuilder.getContext();
     const auto constraintAttr = mlir::StringAttr::get(ctx, constraintName);
-    optionsBuilder.create<config::OptionOp>(optionsBuilder.getUnknownLoc(), constraintAttr,
-                                            mlir::BoolAttr::get(ctx, constraintValue));
+    config::OptionOp::create(optionsBuilder, optionsBuilder.getUnknownLoc(), constraintAttr,
+                             mlir::BoolAttr::get(ctx, constraintValue));
 }
 
 mlir::LogicalResult SetupNpuConstraintPass::initializeOptions(
@@ -168,6 +168,8 @@ void SetupNpuConstraintPass::safeRunOnModule() {
                   _allowCustomValues);
     addConstraint(optionsBuilder, pipelineOptionsOp, config::BARRIER_FIFO_ADDR, barrierFifoAddr, _allowCustomValues);
     addConstraint(optionsBuilder, pipelineOptionsOp, config::BARRIER_FIFO_DEPTH, barrierFifoDepth, _allowCustomValues);
+    addConstraint(optionsBuilder, pipelineOptionsOp, config::BARRIER_FIFO_DUMMY_ENTRY,
+                  static_cast<int64_t>(regConfig.getBarrierFifoDummyEntry()), _allowCustomValues);
 
     // Get Maximum available space in CMX Metadata for various descriptor types
     auto maxVariants = vpux::VPU::getDefaultTaskListCount(VPU::TaskType::DPUVariant, arch);
@@ -177,7 +179,7 @@ void SetupNpuConstraintPass::safeRunOnModule() {
     auto numShvExecutorsPerTile = [&] {
         auto tileOp = config::getTileExecutor(moduleOp);
         auto executorKind = config::ExecutorKind::SHAVE_ACT;
-        VPUX_THROW_UNLESS(tileOp != nullptr, "Expected tileOp executor in order to query {0} executor.", executorKind);
+        VPUX_THROW_WHEN(tileOp == nullptr, "Expected tileOp executor in order to query {0} executor.", executorKind);
         VPUX_THROW_UNLESS(tileOp.hasSubExecutor(executorKind), "Expected tileOp contain executor of type {0}.",
                           executorKind);
         return supportsSwFifoPerShave ? static_cast<size_t>(tileOp.getSubExecutor(executorKind).getCount())

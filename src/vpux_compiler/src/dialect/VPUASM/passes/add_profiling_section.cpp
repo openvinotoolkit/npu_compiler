@@ -51,12 +51,12 @@ void AddProfilingSection::safeRunOnModule() {
                       profilingMetadataOps.size());
     auto metadataOp = profilingMetadataOps[0];
 
-    auto profilingSection = builder.create<ELF::CreateProfilingSectionOp>(elfMain.getLoc(), ".profiling", 1,
-                                                                          ELF::SectionFlagsAttr::SHF_ALLOC);
+    auto profilingSection = ELF::CreateProfilingSectionOp::create(builder, elfMain.getLoc(), ".profiling", 1,
+                                                                  ELF::SectionFlagsAttr::SHF_ALLOC);
 
     builder.setInsertionPointToEnd(&profilingSection.getContent().emplaceBlock());
-    auto op = builder.create<VPUASM::ProfilingMetadataOp>(metadataOp.getLoc(), metadataOp.getSymNameAttr(),
-                                                          metadataOp.getMetadataAttr());
+    auto op = VPUASM::ProfilingMetadataOp::create(builder, metadataOp.getLoc(), metadataOp.getSymNameAttr(),
+                                                  metadataOp.getMetadataAttr());
 
     auto actualAlignment = builder.getIntegerAttr(builder.getIntegerType(64, false), op.getAlignmentRequirements(arch));
     profilingSection.setSecAddrAlignAttr(actualAlignment);

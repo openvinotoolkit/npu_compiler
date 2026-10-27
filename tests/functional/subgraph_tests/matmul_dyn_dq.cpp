@@ -16,6 +16,20 @@ struct DynDQShapes {
     const bool _transposeB;
 };
 using DynDQParams = std::tuple<ov::element::Type, ov::element::Type, DynDQShapes>;
+
+std::string getDynDQTestCaseName(const testing::TestParamInfo<DynDQParams>& test) {
+    const std::string sep = "_";
+    std::ostringstream result;
+    result << "TestKind" << ov::test::utils::testKind(__FILE__) << sep;
+    result << "TestIdx=" << test.index << sep;
+    const auto& [_matmulOpType, _weightsType, shapes] = test.param;
+    result << "WeightsType=" << _weightsType << sep;
+    result << "MatmulOpType=" << _matmulOpType << sep;
+    result << "InShape=" << shapes._input << sep;
+    result << "WeightShape=" << shapes._weightShape << sep;
+    result << "ScaleShape=" << shapes._scaleShape;
+    return result.str();
+}
 }  // namespace
 
 namespace ov::test::subgraph {
@@ -75,18 +89,8 @@ public:
                                                "MatMulWithDynDQ");
     }
 
-    static std::string getTestCaseName(const testing::TestParamInfo<DynDQParams>& obj) {
-        const std::string sep = "_";
-        std::ostringstream result;
-        result << "TestKind" << ov::test::utils::testKind(__FILE__) << sep;
-        result << "TestIdx=" << obj.index << sep;
-        const auto& [_matmulOpType, _weightsType, shapes] = obj.param;
-        result << "WeightsType=" << _weightsType << sep;
-        result << "MatmulOpType=" << _matmulOpType << sep;
-        result << "InShape=" << shapes._input << sep;
-        result << "WeightShape=" << shapes._weightShape << sep;
-        result << "ScaleShape=" << shapes._scaleShape;
-        return result.str();
+    static std::string getTestCaseName(const testing::TestParamInfo<DynDQParams>& test) {
+        return getDynDQTestCaseName(test);
     };
 };
 
@@ -132,5 +136,90 @@ INSTANTIATE_TEST_SUITE_P(DynDQ_FP32_NF4, MatMulWithDynDQTestCommon,
                          ::testing::Combine(::testing::Values(ov::element::f32), ::testing::Values(ov::element::nf4),
                                             ::testing::ValuesIn(testShapes)),
                          MatMulWithDynDQTestCommon::getTestCaseName);
+
+class MatMulWithDynDQAsymTestCommon : public VpuOv2LayerTest, public testing::WithParamInterface<DynDQParams> {
+    void configure_model() override {
+        configuration[ov::intel_npu::compiler_dynamic_quantization.name()] = "YES";
+    }
+
+public:
+    void SetUp() override {
+        /* creates subgraph
+
+        weights(as arg)   ZeroPoint(as arg)
+                |               |
+         Convert(fp16)     Convert(fp16)
+                    \         /
+                    Subtract      QuantScale(as arg)
+                        \             /
+                          Multiply
+                             |
+           Input         Convert(optional)
+               \         /
+                 Matmul
+                    |
+                 Output
+        */
+
+        rel_threshold = 0.03f;
+
+        const auto& [_matmulOpType, _weightsType, shapes] = GetParam();
+
+        const std::vector<ov::Shape> inInferenceShapes = {shapes._input};
+        const ov::test::InputShape inShape = {shapes._input, inInferenceShapes};
+        const std::vector<ov::Shape> wInferenceShapes = {shapes._weightShape};
+        const ov::test::InputShape wShape = {shapes._weightShape, wInferenceShapes};
+        const std::vector<ov::Shape> scaleInferenceShapes = {shapes._scaleShape};
+        const ov::test::InputShape scaleShape = {shapes._scaleShape, scaleInferenceShapes};
+        init_input_shapes({inShape, wShape, scaleShape, scaleShape});
+
+        const auto input = std::make_shared<ov::opset1::Parameter>(_matmulOpType, inputDynamicShapes.at(0));
+        const auto weights = std::make_shared<ov::opset1::Parameter>(_weightsType, inputDynamicShapes.at(1));
+        const auto quantScale = std::make_shared<ov::opset1::Parameter>(ov::element::f16, inputDynamicShapes.at(2));
+        const auto zeroPoint = std::make_shared<ov::opset1::Parameter>(_weightsType, inputDynamicShapes.at(3));
+        const auto convert0 = std::make_shared<ov::opset1::Convert>(weights->output(0), ov::element::f16);
+        const auto zpConvert = std::make_shared<ov::opset1::Convert>(zeroPoint->output(0), ov::element::f16);
+        const auto subtract = std::make_shared<ov::opset1::Subtract>(convert0->output(0), zpConvert->output(0));
+        const auto mul = std::make_shared<ov::opset1::Multiply>(subtract->output(0), quantScale->output(0));
+
+        std::vector<int64_t> shapePatternValues(shapes._reshapeShape.begin(), shapes._reshapeShape.end());
+        const auto shapePattern = std::make_shared<ov::opset1::Constant>(
+                ov::element::i64, ov::Shape({shapes._reshapeShape.size()}), shapePatternValues);
+        const auto reshape = std::make_shared<ov::opset1::Reshape>(mul->output(0), shapePattern, false);
+        const auto convert1 = std::make_shared<ov::opset1::Convert>(reshape->output(0), _matmulOpType);
+
+        const auto matmul = std::make_shared<ov::opset1::MatMul>(
+                input->output(0), _matmulOpType == ov::element::f16 ? reshape->output(0) : convert1->output(0), false,
+                shapes._transposeB);
+
+        const auto scales = ov::opset1::Constant::create(_matmulOpType, {1}, std::vector<float>{2.f});
+        const auto staticScaleMultiply = std::make_shared<ov::opset1::Multiply>(matmul->output(0), scales);
+
+        const auto results = ov::ResultVector{std::make_shared<ov::opset1::Result>(staticScaleMultiply->output(0))};
+        function = std::make_shared<ov::Model>(results, ov::ParameterVector{input, weights, quantScale, zeroPoint},
+                                               "MatMulWithDynDQAsym");
+    }
+
+    static std::string getTestCaseName(const testing::TestParamInfo<DynDQParams>& test) {
+        return getDynDQTestCaseName(test);
+    };
+};
+
+TEST_P(MatMulWithDynDQAsymTestCommon, NPU5010_DebugTestKindSubgraph) {
+    setDefaultHardwareMode();
+    run(Platform::NPU5010);
+}
+
+const std::vector<DynDQShapes> testShapesAsymInt8 = {
+        /*case1=*/{/*_input=*/{1, 1, 8},
+                   /*_weightShape=*/{16, 8},
+                   /*_scaleShape=*/{16, 1},
+                   /*_reshapeShape=*/{16, 8},
+                   /*_transposeB=*/true}};
+
+INSTANTIATE_TEST_SUITE_P(DynDQAsym_FP32_INT8, MatMulWithDynDQAsymTestCommon,
+                         ::testing::Combine(::testing::Values(ov::element::f32), ::testing::Values(ov::element::i8),
+                                            ::testing::ValuesIn(testShapesAsymInt8)),
+                         MatMulWithDynDQAsymTestCommon::getTestCaseName);
 
 }  // namespace ov::test::subgraph

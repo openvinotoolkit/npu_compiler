@@ -5,11 +5,11 @@
 
 #include "vpux/compiler/frontend/IE.hpp"
 #include "vpux/compiler/core/attributes/dims_order.hpp"
-#include "vpux/compiler/core/types/quantile_float/dialect.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/import/batch_norm.hpp"
+#include "vpux/compiler/dialect/IE/IR/import/embedding_segments_sum.hpp"
 #include "vpux/compiler/dialect/IE/IR/import/gather.hpp"
 #include "vpux/compiler/dialect/IE/IR/import/reshape.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
@@ -83,19 +83,14 @@
 #include <openvino/core/rt_info/weightless_caching_attributes.hpp>
 #include <openvino/core/type.hpp>
 #include <openvino/core/type/element_type.hpp>
-#include <openvino/op/gated_delta_net.hpp>
 #include <openvino/op/identity.hpp>
 #include <openvino/op/istft.hpp>
-#include <openvino/op/loop.hpp>
 #include <openvino/op/stft.hpp>
 #include <openvino/op/strided_slice.hpp>
 #include <openvino/opsets/opset14.hpp>
 #include <openvino/opsets/opset15.hpp>
 #include <openvino/pass/constant_folding.hpp>
 #include <openvino/pass/manager.hpp>
-#include <openvino/pass/pattern/matcher.hpp>
-#include <openvino/pass/pattern/op/optional.hpp>
-#include <openvino/pass/pattern/op/wrap_type.hpp>
 #include <openvino/pass/serialize.hpp>
 
 #include <transformations/common_optimizations/add_fake_quantize_fusion.hpp>
@@ -244,11 +239,8 @@ public:
         VPUX_THROW("Attribute {0} can't be processed", name);
     }
 
-    // The remaining adapter methods fall back on the void adapter if not implemented
-    // Only string attr that is supported is "kernel_path"
-    void on_adapter(const std::string& name, ov::ValueAccessor<std::string>& adapter) override {
-        VPUX_THROW_WHEN(name != "kernel_path", "String attribute {0} is not supported", name);
-        _kernelPathAttr = mlir::StringAttr::get(_ctx, adapter.get());
+    void on_adapter(const std::string& name, ov::ValueAccessor<std::string>&) override {
+        VPUX_THROW("String attribute {0} is not supported", name);
     }
 
     void on_adapter(const std::string& name, ov::ValueAccessor<bool>& adapter) override {
@@ -319,7 +311,6 @@ public:
 
 public:
     // Gets final Attr Dictionary containing all registered valid Operator attributes
-    // kernel_path is ommited
     mlir::DictionaryAttr getAttrDict() {
         std::vector<mlir::NamedAttribute> sortedAttrs;
 
@@ -332,16 +323,10 @@ public:
         return mlir::DictionaryAttr::getWithSorted(_ctx, sortedAttrs);
     }
 
-    mlir::StringAttr getKernelPath() {
-        return _kernelPathAttr;
-    }
-
 private:
     mlir::NamedAttribute getNamedAttr(const std::string& name, mlir::Attribute valAttr) {
         return mlir::NamedAttribute(mlir::StringAttr::get(_ctx, name), valAttr);
     }
-
-    mlir::StringAttr _kernelPathAttr = nullptr;
 
     // Ordered map with int key to ensure ordering of attributes
     std::map<uint64_t, mlir::NamedAttribute> _attrs = {};
@@ -652,8 +637,6 @@ mlir::Type importPrecision(mlir::MLIRContext* ctx, const ov::element::Type& prec
     case ov::element::Type_t::boolean:
         return getBool8Type(ctx);
     case ov::element::Type_t::nf4: {
-        // Ensure QuantileDialect is loaded before creating QuantileType types
-        ctx->loadDialect<vpux::type::QuantileDialect>();
         return vpux::type::NF4Type::get(ctx, getUInt4Type(ctx), mlir::Float16Type::get(ctx), {});
     }
     default:
@@ -711,9 +694,9 @@ SmallVector<int64_t> getDynamicQuantizeReductionAxes(
         axes.push_back(checked_cast<int64_t>(ind));
     }
 
-    VPUX_THROW_UNLESS(!axes.empty(),
-                      "nGraph DynamicQuantize node '{0}' requires at least one reduced dimension for import",
-                      origNode->get_friendly_name());
+    VPUX_THROW_WHEN(axes.empty(),
+                    "nGraph DynamicQuantize node '{0}' requires at least one reduced dimension for import",
+                    origNode->get_friendly_name());
 
     return axes;
 }
@@ -724,21 +707,7 @@ mlir::Value convertToElemType(mlir::OpBuilder& builder, mlir::Location loc, mlir
         return input;
     }
 
-    return builder.create<IE::ConvertOp>(loc, input, mlir::TypeAttr::get(elemType)).getOutput();
-}
-
-template <typename ReduceOp>
-mlir::Value buildDynamicQuantizeReduction(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
-                                          ArrayRef<int64_t> reductionAxes, StringRef locSuffix) {
-    auto value = input;
-    for (const auto indexedAxis : reductionAxes | indexed) {
-        const auto axisAttr = getIntArrayAttr(builder.getContext(), SmallVector<int64_t>{indexedAxis.value()});
-        value = builder.create<ReduceOp>(appendLoc(loc, "{0}_axis_{1}", locSuffix, indexedAxis.index()), value,
-                                         axisAttr, true)
-                        .getOutput();
-    }
-
-    return value;
+    return IE::ConvertOp::create(builder, loc, input, mlir::TypeAttr::get(elemType)).getOutput();
 }
 
 }  // namespace
@@ -814,15 +783,15 @@ void NGraphImporter::extractPrecisionInfo(mlir::OpBuilder& moduleBuilder, const 
 
     auto* ctx = moduleBuilder.getContext();
     if (!precReqOp.has_value()) {
-        precReqOp = moduleBuilder.create<net::PrecisionRequirementOp>(mlir::UnknownLoc::get(ctx));
+        precReqOp = net::PrecisionRequirementOp::create(moduleBuilder, mlir::UnknownLoc::get(ctx));
         precReqOp.value().getPrecisionInfo().emplaceBlock();
     }
     auto precBuilder =
             mlir::OpBuilder::atBlockBegin(&precReqOp.value().getPrecisionInfo().front(), moduleBuilder.getListener());
     const auto opName = origNode->get_friendly_name();
     const auto opType = op->getName();
-    precBuilder.create<net::PrecisionInfoOp>(mlir::UnknownLoc::get(ctx), mlir::StringAttr::get(ctx, opName),
-                                             mlir::StringAttr::get(ctx, opType.getStringRef()));
+    net::PrecisionInfoOp::create(precBuilder, mlir::UnknownLoc::get(ctx), mlir::StringAttr::get(ctx, opName),
+                                 mlir::StringAttr::get(ctx, opType.getStringRef()));
 }
 
 //
@@ -862,7 +831,7 @@ mlir::func::FuncOp NGraphImporter::buildMainFunc(mlir::OpBuilder& moduleBuilder,
 
     const auto funcLoc = vpux::createLayerLocation(_ctx, "main", "Func");
     const auto funcType = mlir::FunctionType::get(_ctx, ArrayRef(inputTypes), ArrayRef(outputTypes));
-    auto func = moduleBuilder.create<mlir::func::FuncOp>(funcLoc, funcName, funcType);
+    auto func = mlir::func::FuncOp::create(moduleBuilder, funcLoc, funcName, funcType);
 
     OpBuilderLogger builderLog(_log.nest());
     auto builder = mlir::OpBuilder::atBlockBegin(func.addEntryBlock(), &builderLog);
@@ -932,7 +901,7 @@ mlir::func::FuncOp NGraphImporter::buildMainFunc(mlir::OpBuilder& moduleBuilder,
     }
 
     const auto retLoc = createLayerLocation(_ctx, "output", "Output");
-    auto returnOp = builder.create<mlir::func::ReturnOp>(retLoc, ArrayRef(funcOutputs));
+    auto returnOp = mlir::func::ReturnOp::create(builder, retLoc, ArrayRef(funcOutputs));
 
     _log.trace("Inserted func.return at {0}", returnOp->getLoc());
 
@@ -1024,7 +993,7 @@ void NGraphImporter::buildBlockFromRegion(mlir::Location loc, mlir::OpBuilder& b
 
         blockOutputs.push_back(resultInputs[0]);
     }
-    builder.create<IE::YieldOp>(loc, blockOutputs);
+    IE::YieldOp::create(builder, loc, blockOutputs);
 }
 
 void NGraphImporter::buildBlockFromBody(mlir::Location loc, mlir::OpBuilder& builder, mlir::Block* block) {
@@ -1087,7 +1056,7 @@ void NGraphImporter::buildBlockFromBody(mlir::Location loc, mlir::OpBuilder& bui
 
         blockOutputs.push_back(resultInputs[0]);
     }
-    builder.create<IE::LoopTerminatorOp>(loc, blockOutputs);
+    IE::LoopTerminatorOp::create(builder, loc, blockOutputs);
 }
 
 SmallVector<mlir::Type> NGraphImporter::getRegionResults() {
@@ -1156,7 +1125,7 @@ mlir::Operation* NGraphImporter::parseNodeAsStub(mlir::OpBuilder& builder, const
         outputTypes.push_back(type);
     }
 
-    auto op = builder.create<IE::StubOp>(createLocation(origNode), outputTypes, inputs);
+    auto op = IE::StubOp::create(builder, createLocation(origNode), outputTypes, inputs);
     addOutputs(origNode, op);
     return op;
 }
@@ -1178,17 +1147,17 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
         VPUX_THROW("nGraph BatchToSpace node '{0}' has non-constant attribute inputs", origNode->get_friendly_name());
     }
 
-    auto op = builder.create<IE::BatchToSpace>(createLocation(origNode), inputs[0],
-                                               getIntArrayAttr(builder.getContext(), blockShape.value()),
-                                               getIntArrayAttr(builder.getContext(), cropsBegin.value()),
-                                               getIntArrayAttr(builder.getContext(), cropsEnd.value()));
+    auto op = IE::BatchToSpace::create(builder, createLocation(origNode), inputs[0],
+                                       getIntArrayAttr(builder.getContext(), blockShape.value()),
+                                       getIntArrayAttr(builder.getContext(), cropsBegin.value()),
+                                       getIntArrayAttr(builder.getContext(), cropsEnd.value()));
     addOutputs(origNode, op);
     return op;
 }
 
 namespace {
 mlir::RankedTensorType patchQuantileTypeForConstImport(mlir::RankedTensorType tensorType) {
-    if (auto quantile = mlir::dyn_cast<vpux::type::QuantileType>(tensorType.getElementType())) {
+    if (auto quantile = mlir::dyn_cast<mlir::quant::QuantileType>(tensorType.getElementType())) {
         VPUX_THROW_UNLESS(mlir::isa<mlir::IntegerType>(quantile.getStorageType()),
                           "Thus far only int storage type is supported in quantile-float");
         return mlir::cast<mlir::RankedTensorType>(tensorType.cloneWith(std::nullopt, quantile.getStorageType()));
@@ -1267,15 +1236,15 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     Const::ContentSetup contentSetup(value, value.getType());
 
     auto dataType = importPrecision(_ctx, origNode->get_output_element_type(0));
-    if (vpux::Const::isSubByte(bitWidth) || mlir::isa<vpux::type::QuantileType>(dataType)) {
+    if (vpux::Const::isSubByte(bitWidth) || mlir::isa<mlir::quant::QuantileType>(dataType)) {
         mlir::Type conversionType =
                 dataType.isSignedInteger() ? getSInt8Type(builder.getContext()) : getUInt8Type(builder.getContext());
         contentSetup = contentSetup.convertElemType(conversionType).castElemType(dataType);
         tensorType = mlir::RankedTensorType::get(tensorType.getShape(), dataType);
     }
 
-    auto op = builder.create<Const::DeclareOp>(createLocation(origNode), tensorType,
-                                               Const::ContentAttr::get(value, contentSetup));
+    auto op = Const::DeclareOp::create(builder, createLocation(origNode), tensorType,
+                                       Const::ContentAttr::get(value, contentSetup));
     addOutputs(origNode, op);
     return op;
 }
@@ -1292,7 +1261,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto dstType = importPrecision(_ctx, origNode->get_destination_type());
     const auto dstTypeAttr = mlir::TypeAttr::get(dstType);
 
-    auto op = builder.create<IE::ConvertOp>(createLocation(origNode), inputs[0], dstTypeAttr);
+    auto op = IE::ConvertOp::create(builder, createLocation(origNode), inputs[0], dstTypeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1306,7 +1275,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph ConvertLike node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::ConvertLikeOp>(createLocation(origNode), inputs[0], inputs[1]);
+    auto op = IE::ConvertLikeOp::create(builder, createLocation(origNode), inputs[0], inputs[1]);
     addOutputs(origNode, op);
     return op;
 }
@@ -1323,7 +1292,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto axis = origNode->get_axis();
     const auto axisAttr = getIntAttr(_ctx, axis);
 
-    auto op = builder.create<IE::SoftMaxOp>(createLocation(origNode), inputs[0], axisAttr, nullptr);
+    auto op = IE::SoftMaxOp::create(builder, createLocation(origNode), inputs[0], axisAttr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1340,7 +1309,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto axis = origNode->get_axis();
     const auto axisAttr = getIntAttr(_ctx, axis);
 
-    auto op = builder.create<IE::LogSoftmaxOp>(createLocation(origNode), inputs[0], axisAttr, nullptr);
+    auto op = IE::LogSoftmaxOp::create(builder, createLocation(origNode), inputs[0], axisAttr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1364,7 +1333,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     auto repeats_values = to_small_vector(repeatsContent.getValues<int64_t>());
     const auto repeatsAttr = getIntArrayAttr(builder.getContext(), repeats_values);
 
-    auto op = builder.create<IE::TileOp>(createLocation(origNode), inputs[0], repeatsAttr);
+    auto op = IE::TileOp::create(builder, createLocation(origNode), inputs[0], repeatsAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1378,7 +1347,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::ReLUOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::ReLUOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -1395,7 +1364,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto num_splits = origNode->get_num_splits();
     const auto numSplitsAttr = getIntAttr(_ctx, num_splits);
 
-    auto op = builder.create<IE::SplitOp>(createLocation(origNode), inputs[0], inputs[1], numSplitsAttr, nullptr);
+    auto op = IE::SplitOp::create(builder, createLocation(origNode), inputs[0], inputs[1], numSplitsAttr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1411,8 +1380,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::PowerOp>(createLocation(origNode), inputs[0], inputs[1],
-                                          importBroadcastType(autob.m_type));
+    auto op = IE::PowerOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                  importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -1428,8 +1397,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::MultiplyOp>(createLocation(origNode), inputs[0], inputs[1],
-                                             importBroadcastType(autob.m_type), nullptr, nullptr, nullptr, nullptr);
+    auto op = IE::MultiplyOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                     importBroadcastType(autob.m_type), nullptr, nullptr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1443,8 +1412,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::MatMulOp>(createLocation(origNode), inputs[0], inputs[1], origNode->get_transpose_a(),
-                                           origNode->get_transpose_b());
+    auto op = IE::MatMulOp::create(builder, createLocation(origNode), inputs[0], inputs[1], origNode->get_transpose_a(),
+                                   origNode->get_transpose_b());
     addOutputs(origNode, op);
     return op;
 }
@@ -1482,8 +1451,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto attrPadsEnd = getIntArrayAttr(_ctx, padsEnd);
     const auto attrDilation = getIntArrayAttr(_ctx, dilations);
 
-    auto op = builder.create<IE::ConvolutionOp>(createLocation(origNode), inputs[0], inputs[1], attrStride,
-                                                attrPadsBegin, attrPadsEnd, attrDilation);
+    auto op = IE::ConvolutionOp::create(builder, createLocation(origNode), inputs[0], inputs[1], attrStride,
+                                        attrPadsBegin, attrPadsEnd, attrDilation);
     addOutputs(origNode, op);
     return op;
 }
@@ -1502,13 +1471,13 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto attrPadsEnd = getIntArrayAttr(_ctx, origNode->get_pads_end());
     const auto attrDilation = getIntArrayAttr(_ctx, origNode->get_dilations());
 
-    auto op = builder.create<IE::GroupConvolutionOp>(createLocation(origNode), inputs[0], inputs[1], nullptr,
-                                                     attrStride, attrPadsBegin, attrPadsEnd, attrDilation,
-                                                     /*groups=*/nullptr,
-                                                     /*post_op=*/nullptr,
-                                                     /*clamp=*/nullptr,
-                                                     /*outputPadding=*/nullptr,
-                                                     /*inputPadding=*/nullptr);
+    auto op = IE::GroupConvolutionOp::create(builder, createLocation(origNode), inputs[0], inputs[1], nullptr,
+                                             attrStride, attrPadsBegin, attrPadsEnd, attrDilation,
+                                             /*groups=*/nullptr,
+                                             /*post_op=*/nullptr,
+                                             /*clamp=*/nullptr,
+                                             /*outputPadding=*/nullptr,
+                                             /*inputPadding=*/nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1525,11 +1494,11 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto attrNumGroups = builder.getI32IntegerAttr(static_cast<int32_t>(origNode->get_num_groups()));
     const auto attrEpsilon = builder.getF32FloatAttr(origNode->get_epsilon());
 
-    auto op = builder.create<IE::GroupNormalizationOp>(createLocation(origNode),
-                                                       inputs[0],  // input
-                                                       inputs[1],  // scale
-                                                       inputs[2],  // bias
-                                                       attrNumGroups, attrEpsilon);
+    auto op = IE::GroupNormalizationOp::create(builder, createLocation(origNode),
+                                               inputs[0],  // input
+                                               inputs[1],  // scale
+                                               inputs[2],  // bias
+                                               attrNumGroups, attrEpsilon);
 
     addOutputs(origNode, op);
     return op;
@@ -1552,9 +1521,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto attrOutputPadding = getIntArrayAttr(_ctx, origNode->get_output_padding());
 
     auto optionalOutputShapeInput = inputs.size() == 2 ? nullptr : inputs[2];
-    auto op = builder.create<IE::ConvolutionBackpropDataOp>(createLocation(origNode), inputs[0], inputs[1],
-                                                            optionalOutputShapeInput, attrStride, attrPadsBegin,
-                                                            attrPadsEnd, attrDilation, attrOutputPadding);
+    auto op = IE::ConvolutionBackpropDataOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                                    optionalOutputShapeInput, attrStride, attrPadsBegin, attrPadsEnd,
+                                                    attrDilation, attrOutputPadding);
     addOutputs(origNode, op);
     return op;
 }
@@ -1576,9 +1545,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto attrOutputPadding = getIntArrayAttr(_ctx, origNode->get_output_padding());
 
     auto optionalOutputShapeInput = inputs.size() == 2 ? nullptr : inputs[2];
-    auto op = builder.create<IE::GroupConvolutionBackpropDataOp>(createLocation(origNode), inputs[0], inputs[1],
-                                                                 optionalOutputShapeInput, attrStride, attrPadsBegin,
-                                                                 attrPadsEnd, attrDilation, attrOutputPadding);
+    auto op = IE::GroupConvolutionBackpropDataOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                                         optionalOutputShapeInput, attrStride, attrPadsBegin,
+                                                         attrPadsEnd, attrDilation, attrOutputPadding);
     addOutputs(origNode, op);
     return op;
 }
@@ -1600,9 +1569,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto attrRoundingType = importRoundingType(origNode->get_rounding_type());
     const auto attrExcludePads = origNode->get_exclude_pad() ? mlir::UnitAttr::get(_ctx) : nullptr;
 
-    auto op = builder.create<IE::AvgPoolOp>(createLocation(origNode), inputs[0], nullptr, attrKernelSize, attrStride,
-                                            attrPadsBegin, attrPadsEnd, attrRoundingType, attrExcludePads, nullptr,
-                                            nullptr, nullptr, nullptr, nullptr);
+    auto op = IE::AvgPoolOp::create(builder, createLocation(origNode), inputs[0], nullptr, attrKernelSize, attrStride,
+                                    attrPadsBegin, attrPadsEnd, attrRoundingType, attrExcludePads, nullptr, nullptr,
+                                    nullptr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1625,9 +1594,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto attrRoundingType = importRoundingType(origNode->get_rounding_type());
     const auto attrExcludePads = origNode->get_exclude_pad() ? mlir::UnitAttr::get(_ctx) : nullptr;
 
-    auto op = builder.create<IE::AvgPool16Op>(createLocation(origNode), inputs[0], attrKernelSize, attrStride,
-                                              attrDilations, attrPadsBegin, attrPadsEnd, attrRoundingType,
-                                              attrExcludePads, nullptr, nullptr, nullptr, nullptr, nullptr);
+    auto op = IE::AvgPool16Op::create(builder, createLocation(origNode), inputs[0], attrKernelSize, attrStride,
+                                      attrDilations, attrPadsBegin, attrPadsEnd, attrRoundingType, attrExcludePads,
+                                      nullptr, nullptr, nullptr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1648,9 +1617,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto attrRoundingType = importRoundingType(origNode->get_rounding_type());
 
-    auto op = builder.create<IE::MaxPoolOp>(createLocation(origNode), inputs[0], nullptr, attrKernelSize, attrStride,
-                                            attrPadsBegin, attrPadsEnd, attrRoundingType, nullptr, nullptr, nullptr,
-                                            nullptr, nullptr);
+    auto op = IE::MaxPoolOp::create(builder, createLocation(origNode), inputs[0], nullptr, attrKernelSize, attrStride,
+                                    attrPadsBegin, attrPadsEnd, attrRoundingType, nullptr, nullptr, nullptr, nullptr,
+                                    nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1675,9 +1644,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto axisAttr = getIntAttr(_ctx, origNode->get_axis());
 
-    auto op = builder.create<IE::MaxPool8Op>(createLocation(origNode), inputs[0], attrKernelSize, attrStride,
-                                             attrDilation, attrPadsBegin, attrPadsEnd, attrRoundingType, dstTypeAttr,
-                                             axisAttr);
+    auto op = IE::MaxPool8Op::create(builder, createLocation(origNode), inputs[0], attrKernelSize, attrStride,
+                                     attrDilation, attrPadsBegin, attrPadsEnd, attrRoundingType, dstTypeAttr, axisAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1702,9 +1670,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto axisAttr = getIntAttr(_ctx, origNode->get_axis());
 
-    auto op = builder.create<IE::MaxPool8Op>(createLocation(origNode), inputs[0], attrKernelSize, attrStride,
-                                             attrDilation, attrPadsBegin, attrPadsEnd, attrRoundingType, dstTypeAttr,
-                                             axisAttr);
+    auto op = IE::MaxPool8Op::create(builder, createLocation(origNode), inputs[0], attrKernelSize, attrStride,
+                                     attrDilation, attrPadsBegin, attrPadsEnd, attrRoundingType, dstTypeAttr, axisAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1718,7 +1685,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::AdaptiveAvgPoolOp>(createLocation(origNode), inputs[0], inputs[1]);
+    auto op = IE::AdaptiveAvgPoolOp::create(builder, createLocation(origNode), inputs[0], inputs[1]);
     addOutputs(origNode, op);
     return op;
 }
@@ -1734,7 +1701,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto dstTypeAttr = mlir::TypeAttr::get(importPrecision(_ctx, origNode->get_index_element_type()));
 
-    auto op = builder.create<IE::AdaptiveMaxPoolOp>(createLocation(origNode), inputs[0], inputs[1], dstTypeAttr);
+    auto op = IE::AdaptiveMaxPoolOp::create(builder, createLocation(origNode), inputs[0], inputs[1], dstTypeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -1749,8 +1716,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::AddOp>(
-            createLocation(origNode), inputs[0], inputs[1], importBroadcastType(autob.m_type),
+    auto op = IE::AddOp::create(
+            builder, createLocation(origNode), inputs[0], inputs[1], importBroadcastType(autob.m_type),
             /*post_op=*/nullptr, /*clamp=*/nullptr, /*outputPadding*/ nullptr, /*inputPadding*/ nullptr);
     addOutputs(origNode, op);
     return op;
@@ -1767,8 +1734,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::DivideOp>(createLocation(origNode), inputs[0], inputs[1],
-                                           importBroadcastType(autob.m_type));
+    auto op = IE::DivideOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                   importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -1784,8 +1751,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::SquaredDifferenceOp>(createLocation(origNode), inputs[0], inputs[1],
-                                                      importBroadcastType(autob.m_type));
+    auto op = IE::SquaredDifferenceOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                              importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -1801,8 +1768,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::FloorModOp>(createLocation(origNode), inputs[0], inputs[1],
-                                             importBroadcastType(autob.m_type));
+    auto op = IE::FloorModOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                     importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -1817,8 +1784,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::ModOp>(createLocation(origNode), inputs[0], inputs[1],
-                                        importBroadcastType(autob.m_type));
+    auto op = IE::ModOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -1832,8 +1799,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph ShuffleChannels node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::ShuffleChannelsOp>(createLocation(origNode), inputs[0], origNode->get_axis(),
-                                                    origNode->get_group());
+    auto op = IE::ShuffleChannelsOp::create(builder, createLocation(origNode), inputs[0], origNode->get_axis(),
+                                            origNode->get_group());
     addOutputs(origNode, op);
     return op;
 }
@@ -1858,8 +1825,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_WHEN(mlir::failed(axis), "nGraph Gather node '{0}' has non-constant axis '{1}'",
                     origNode->get_friendly_name(), inputs[2]);
     const auto axisValue = getIntAttr(_ctx, *axis);
-    auto op = builder.create<IE::GatherOp>(loc, inputs[0], inputs[1], axisValue, normBatchDims,
-                                           getIntAttr(_ctx, idxRank));
+    auto op = IE::GatherOp::create(builder, loc, inputs[0], inputs[1], axisValue, normBatchDims,
+                                   getIntAttr(_ctx, idxRank));
     addOutputs(origNode, op);
     return op;
 }
@@ -1875,8 +1842,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     auto batchDims = origNode->get_batch_dims();
 
-    auto op =
-            builder.create<IE::GatherNDOp>(createLocation(origNode), inputs[0], inputs[1], getIntAttr(_ctx, batchDims));
+    auto op = IE::GatherNDOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                     getIntAttr(_ctx, batchDims));
     addOutputs(origNode, op);
     return op;
 }
@@ -1890,7 +1857,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 4, "nGraph GatherTree node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::GatherTreeOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3]);
+    auto op = IE::GatherTreeOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3]);
     addOutputs(origNode, op);
     return op;
 }
@@ -1906,8 +1873,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       origNode->get_friendly_name(), inputs.size());
 
     auto secondInput = inputs.size() == 1 ? nullptr : inputs[1];
-    auto op = builder.create<IE::YuvToRgbOp>(createLocation(origNode), inputs[0], secondInput, nullptr,
-                                             IE::ColorFmt::NV12, IE::ColorFmt::RGB, builder.getF32FloatAttr(1.0f));
+    auto op = IE::YuvToRgbOp::create(builder, createLocation(origNode), inputs[0], secondInput, nullptr,
+                                     IE::ColorFmt::NV12, IE::ColorFmt::RGB, builder.getF32FloatAttr(1.0f));
 
     addOutputs(origNode, op);
     return op;
@@ -1924,8 +1891,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       origNode->get_friendly_name(), inputs.size());
 
     auto secondInput = inputs.size() == 1 ? nullptr : inputs[1];
-    auto op = builder.create<IE::YuvToRgbOp>(createLocation(origNode), inputs[0], secondInput, nullptr,
-                                             IE::ColorFmt::NV12, IE::ColorFmt::BGR, builder.getF32FloatAttr(1.0f));
+    auto op = IE::YuvToRgbOp::create(builder, createLocation(origNode), inputs[0], secondInput, nullptr,
+                                     IE::ColorFmt::NV12, IE::ColorFmt::BGR, builder.getF32FloatAttr(1.0f));
 
     addOutputs(origNode, op);
     return op;
@@ -1943,9 +1910,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     auto secondInput = inputs.size() == 1 ? nullptr : inputs[1];
     auto thirdInput = inputs.size() == 1 ? nullptr : inputs[2];
-    IE::YuvToRgbOp op =
-            builder.create<IE::YuvToRgbOp>(createLocation(origNode), inputs[0], secondInput, thirdInput,
-                                           IE::ColorFmt::I420, IE::ColorFmt::RGB, builder.getF32FloatAttr(1.0f));
+    IE::YuvToRgbOp op = IE::YuvToRgbOp::create(builder, createLocation(origNode), inputs[0], secondInput, thirdInput,
+                                               IE::ColorFmt::I420, IE::ColorFmt::RGB, builder.getF32FloatAttr(1.0f));
 
     addOutputs(origNode, op);
     return op;
@@ -1963,9 +1929,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     auto secondInput = inputs.size() == 1 ? nullptr : inputs[1];
     auto thirdInput = inputs.size() == 1 ? nullptr : inputs[2];
-    IE::YuvToRgbOp op =
-            builder.create<IE::YuvToRgbOp>(createLocation(origNode), inputs[0], secondInput, thirdInput,
-                                           IE::ColorFmt::I420, IE::ColorFmt::BGR, builder.getF32FloatAttr(1.0f));
+    IE::YuvToRgbOp op = IE::YuvToRgbOp::create(builder, createLocation(origNode), inputs[0], secondInput, thirdInput,
+                                               IE::ColorFmt::I420, IE::ColorFmt::BGR, builder.getF32FloatAttr(1.0f));
 
     addOutputs(origNode, op);
     return op;
@@ -1981,9 +1946,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       origNode->get_friendly_name(), inputs.size());
 
     const auto shapeConstant = dynamic_cast<ov::opset7::Constant*>(origNode->input_value(0).get_node());
-    VPUX_THROW_UNLESS(shapeConstant != nullptr,
-                      "nGraph RandomUniform node '{0}' must have Constant shape input in order to infer output shape.",
-                      origNode->get_friendly_name());
+    VPUX_THROW_WHEN(shapeConstant == nullptr,
+                    "nGraph RandomUniform node '{0}' must have Constant shape input in order to infer output shape.",
+                    origNode->get_friendly_name());
     const auto shapeValues = shapeConstant->cast_vector<int64_t>();
     const auto shapeAttr = getIntArrayAttr(_ctx, shapeValues);
 
@@ -1991,8 +1956,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto globalSeedAttr = getIntAttr(_ctx, origNode->get_global_seed());
     const auto opSeedAttr = getIntAttr(_ctx, origNode->get_op_seed());
 
-    auto op = builder.create<IE::RandomUniformOp>(createLocation(origNode), inputs[1], inputs[2], shapeAttr,
-                                                  outputTypeAttr, globalSeedAttr, opSeedAttr);
+    auto op = IE::RandomUniformOp::create(builder, createLocation(origNode), inputs[1], inputs[2], shapeAttr,
+                                          outputTypeAttr, globalSeedAttr, opSeedAttr);
 
     addOutputs(origNode, op);
     return op;
@@ -2013,8 +1978,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     // OneHot-1 doesn't support negative_indices_mode attribute, default to IGNORE_NEGATIVE
     auto defaultOneHotMode = IE::OneHotModeAttr::get(_ctx, IE::OneHotMode::IGNORE_NEGATIVE);
     IE::OneHotOp op =
-            builder.create<IE::OneHotOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3], nullptr,
-                                         nullptr, nullptr, axisAttr, defaultOneHotMode, nullptr, outElemTypeAttr);
+            IE::OneHotOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3], nullptr,
+                                 nullptr, nullptr, axisAttr, defaultOneHotMode, nullptr, outElemTypeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2031,9 +1996,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto axisAttr = getIntAttr(_ctx, origNode->get_axis());
     const auto outElemTypeAttr = mlir::TypeAttr::get(importPrecision(_ctx, origNode->get_element_type()));
 
-    IE::OneHotOp op = builder.create<IE::OneHotOp>(
-            createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3], nullptr, nullptr, nullptr, axisAttr,
-            importOneHotMode(origNode->get_negative_indices_mode()), nullptr, outElemTypeAttr);
+    IE::OneHotOp op = IE::OneHotOp::create(
+            builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3], nullptr, nullptr, nullptr,
+            axisAttr, importOneHotMode(origNode->get_negative_indices_mode()), nullptr, outElemTypeAttr);
 
     addOutputs(origNode, op);
     return op;
@@ -2055,8 +2020,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     }
     const auto& [gammaAttr, betaAttr, meanAttr, varAttr] = *parsedAttrs;
 
-    auto op = builder.create<IE::BatchNormInferenceOp>(createLocation(origNode), inputs[0], gammaAttr, betaAttr,
-                                                       meanAttr, varAttr, epsAttr);
+    auto op = IE::BatchNormInferenceOp::create(builder, createLocation(origNode), inputs[0], gammaAttr, betaAttr,
+                                               meanAttr, varAttr, epsAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2075,7 +2040,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     origAxis = (origAxis < 0) ? (origAxis + rank) : origAxis;
     auto axis = getIntAttr(_ctx, origAxis);
 
-    auto op = builder.create<IE::GatherElementsOp>(createLocation(origNode), inputs[0], inputs[1], axis);
+    auto op = IE::GatherElementsOp::create(builder, createLocation(origNode), inputs[0], inputs[1], axis);
     addOutputs(origNode, op);
     return op;
 }
@@ -2089,7 +2054,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 3, "nGraph ScatterNDUpdate node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::ScatterNDUpdateOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2]);
+    auto op = IE::ScatterNDUpdateOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2108,7 +2073,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       "nGraph ScatterNDUpdate node '{0}' has unsupported reduction type '{1}'",
                       origNode->get_friendly_name(), static_cast<int>(reduction));
 
-    auto op = builder.create<IE::ScatterNDUpdateOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2]);
+    auto op = IE::ScatterNDUpdateOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2122,8 +2087,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 4, "nGraph ScatterUpdate node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::ScatterUpdateOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
-                                                  nullptr);
+    auto op = IE::ScatterUpdateOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
+                                          nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2140,8 +2105,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto reductionTypeAttr = importScatterElementsUpdateReductionType(origNode->get_reduction());
     const auto useInitValAttr = mlir::BoolAttr::get(_ctx, origNode->get_use_init_val());
-    auto op = builder.create<IE::ScatterElementsUpdateOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2],
-                                                          inputs[3], nullptr, reductionTypeAttr, useInitValAttr);
+    auto op = IE::ScatterElementsUpdateOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2],
+                                                  inputs[3], nullptr, reductionTypeAttr, useInitValAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2159,8 +2124,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto defaultReductionTypeAttr =
             importScatterElementsUpdateReductionType(ov::op::v12::ScatterElementsUpdate::Reduction::NONE);
     auto useInitValAttr = mlir::BoolAttr::get(_ctx, true);
-    auto op = builder.create<IE::ScatterElementsUpdateOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2],
-                                                          inputs[3], nullptr, defaultReductionTypeAttr, useInitValAttr);
+    auto op = IE::ScatterElementsUpdateOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2],
+                                                  inputs[3], nullptr, defaultReductionTypeAttr, useInitValAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2179,7 +2144,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
         const auto loc = createLocation(origNode);
         const auto parsedShape = vpux::IE::Reshape::parseOutShape(loc, inputs, origNode->get_special_zero());
         VPUX_THROW_WHEN(mlir::failed(parsedShape), "Failed to import IE.ReshapeOp with static shape");
-        op = builder.create<IE::ReshapeOp>(loc, inputs[0], getIntArrayAttr(builder.getContext(), parsedShape.value()));
+        op = IE::ReshapeOp::create(builder, loc, inputs[0], getIntArrayAttr(builder.getContext(), parsedShape.value()));
     } else {
         const auto outputPartialShape = origNode->output(0).get_partial_shape();
 
@@ -2215,8 +2180,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
         }
         const auto outputBoundsAttr = getIntArrayAttr(builder.getContext(), outputBounds);
 
-        op = builder.create<IE::DynamicReshapeOp>(createLocation(origNode), inputs[0], inputs[1], outputShapeAttr,
-                                                  outputBoundsAttr);
+        op = IE::DynamicReshapeOp::create(builder, createLocation(origNode), inputs[0], inputs[1], outputShapeAttr,
+                                          outputBoundsAttr);
     }
     addOutputs(origNode, op);
     return op;
@@ -2233,8 +2198,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::MinimumOp>(createLocation(origNode), inputs[0], inputs[1],
-                                            importBroadcastType(autob.m_type));
+    auto op = IE::MinimumOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                    importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -2250,8 +2215,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::MaximumOp>(createLocation(origNode), inputs[0], inputs[1],
-                                            importBroadcastType(autob.m_type));
+    auto op = IE::MaximumOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                    importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -2270,7 +2235,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto minAttr = getFPAttr(_ctx, min);
     const auto maxAttr = getFPAttr(_ctx, max);
 
-    auto op = builder.create<IE::ClampOp>(createLocation(origNode), inputs[0], minAttr, maxAttr);
+    auto op = IE::ClampOp::create(builder, createLocation(origNode), inputs[0], minAttr, maxAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2287,8 +2252,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto& proposalParam = origNode->get_attrs();
     const auto proposalParamAttr = importProposalAttrs(proposalParam);
 
-    auto op = builder.create<IE::ProposalOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2],
-                                             proposalParamAttr);
+    auto op = IE::ProposalOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2],
+                                     proposalParamAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2303,8 +2268,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph Reverse node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::ReverseOp>(createLocation(origNode), inputs[0], inputs[1], nullptr,
-                                            importReverseMode(origNode->get_mode()));
+    auto op = IE::ReverseOp::create(builder, createLocation(origNode), inputs[0], inputs[1], nullptr,
+                                    importReverseMode(origNode->get_mode()));
 
     addOutputs(origNode, op);
     return op;
@@ -2330,7 +2295,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph Squeeze node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::UnsqueezeOp>(createLocation(origNode), inputs[0], inputs[1], nullptr);
+    auto op = IE::UnsqueezeOp::create(builder, createLocation(origNode), inputs[0], inputs[1], nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2353,8 +2318,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     const auto biasAttr = getFPAttr(_ctx, bias);
     const auto sizeAttr = getIntAttr(_ctx, size);
 
-    auto op = builder.create<IE::LRNOp>(createLocation(origNode), inputs[0], inputs[1], nullptr, alphaAttr, betaAttr,
-                                        biasAttr, sizeAttr);
+    auto op = IE::LRNOp::create(builder, createLocation(origNode), inputs[0], inputs[1], nullptr, alphaAttr, betaAttr,
+                                biasAttr, sizeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2386,14 +2351,14 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
         axesMapping = inputs[2];
 
         auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(axesMapping.getType());
-        VPUX_THROW_UNLESS(ndType != nullptr, "Broadcast axes_mapping must be NDTypeInterface");
+        VPUX_THROW_WHEN(ndType == nullptr, "Broadcast axes_mapping must be NDTypeInterface");
         VPUX_THROW_UNLESS(ndType.getRank() == 1, "Broadcast axes_mapping must be 1D got rank {0}", ndType.getRank());
 
         auto elemType = ndType.getElementType();
         if (!elemType.isInteger(32) && !elemType.isInteger(64)) {
             auto i64Type = mlir::IntegerType::get(builder.getContext(), 64);
             auto castType = ndType.changeElemType(i64Type);
-            axesMapping = builder.create<IE::ConvertOp>(createLocation(origNode), castType, axesMapping).getOutput();
+            axesMapping = IE::ConvertOp::create(builder, createLocation(origNode), castType, axesMapping).getOutput();
         }
     }
 
@@ -2403,13 +2368,14 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
         const auto outputBounds = origNode->output(0).get_partial_shape().get_max_shape();
         const auto outputBoundsAttr = getIntArrayAttr(builder.getContext(), outputBounds);
 
-        IE::DynamicBroadcastOp op = builder.create<IE::DynamicBroadcastOp>(
-                createLocation(origNode), inputs[0], inputs[1], axesMapping, mode, outputShapeAttr, outputBoundsAttr);
+        IE::DynamicBroadcastOp op =
+                IE::DynamicBroadcastOp::create(builder, createLocation(origNode), inputs[0], inputs[1], axesMapping,
+                                               mode, outputShapeAttr, outputBoundsAttr);
         addOutputs(origNode, op);
         return op;
     } else {
         IE::BroadcastOp op =
-                builder.create<IE::BroadcastOp>(createLocation(origNode), inputs[0], inputs[1], axesMapping, mode);
+                IE::BroadcastOp::create(builder, createLocation(origNode), inputs[0], inputs[1], axesMapping, mode);
         addOutputs(origNode, op);
         return op;
     }
@@ -2433,14 +2399,15 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
         const auto outputBoundsAttr = getIntArrayAttr(builder.getContext(), outputBounds);
 
         auto thirdInput = inputs.size() >= 3 ? inputs[2] : nullptr;
-        IE::DynamicBroadcastOp op = builder.create<IE::DynamicBroadcastOp>(
-                createLocation(origNode), inputs[0], inputs[1], thirdInput, mode, outputShapeAttr, outputBoundsAttr);
+        IE::DynamicBroadcastOp op =
+                IE::DynamicBroadcastOp::create(builder, createLocation(origNode), inputs[0], inputs[1], thirdInput,
+                                               mode, outputShapeAttr, outputBoundsAttr);
         addOutputs(origNode, op);
         return op;
     } else {
         auto thirdInput = inputs.size() >= 3 ? inputs[2] : nullptr;
         IE::BroadcastOp op =
-                builder.create<IE::BroadcastOp>(createLocation(origNode), inputs[0], inputs[1], thirdInput, mode);
+                IE::BroadcastOp::create(builder, createLocation(origNode), inputs[0], inputs[1], thirdInput, mode);
         addOutputs(origNode, op);
         return op;
     }
@@ -2461,8 +2428,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(outputTypeAttr == mlir::TypeAttr::get(importPrecision(_ctx, ov::element::i32)),
                       "nGraph Bucketize output_type attribute '{0}' should have only SI32 type", outputTypeAttr);
 
-    auto op = builder.create<IE::BucketizeOp>(createLocation(origNode), inputs[0], inputs[1], outputTypeAttr,
-                                              withRightBoundAttr);
+    auto op = IE::BucketizeOp::create(builder, createLocation(origNode), inputs[0], inputs[1], outputTypeAttr,
+                                      withRightBoundAttr);
 
     addOutputs(origNode, op);
     return op;
@@ -2483,7 +2450,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                     origNode->get_friendly_name(), inputs[1]);
     const auto keepDims = origNode->get_keep_dims();
     const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
-    auto op = builder.create<IE::ReduceMaxOp>(loc, inputs[0], axesValue, keepDims);
+    auto op = IE::ReduceMaxOp::create(builder, loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2503,7 +2470,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                     origNode->get_friendly_name(), inputs[1]);
     const auto keepDims = origNode->get_keep_dims();
     const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
-    auto op = builder.create<IE::ReduceMeanOp>(loc, inputs[0], axesValue, keepDims, nullptr, nullptr);
+    auto op = IE::ReduceMeanOp::create(builder, loc, inputs[0], axesValue, keepDims, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2523,7 +2490,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                     origNode->get_friendly_name(), inputs[1]);
     const auto keepDims = origNode->get_keep_dims();
     const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
-    auto op = builder.create<IE::ReduceLogicalOrOp>(loc, inputs[0], axesValue, keepDims);
+    auto op = IE::ReduceLogicalOrOp::create(builder, loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2543,7 +2510,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                     origNode->get_friendly_name(), inputs[1]);
     const auto keepDims = origNode->get_keep_dims();
     const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
-    auto op = builder.create<IE::ReduceLogicalAndOp>(loc, inputs[0], axesValue, keepDims);
+    auto op = IE::ReduceLogicalAndOp::create(builder, loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2563,7 +2530,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                     origNode->get_friendly_name(), inputs[1]);
     const auto keepDims = origNode->get_keep_dims();
     const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
-    auto op = builder.create<IE::ReduceProdOp>(loc, inputs[0], axesValue, keepDims);
+    auto op = IE::ReduceProdOp::create(builder, loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2583,7 +2550,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                     origNode->get_friendly_name(), inputs[1]);
     const auto keepDims = origNode->get_keep_dims();
     const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
-    auto op = builder.create<IE::ReduceSumOp>(loc, inputs[0], axesValue, keepDims, nullptr, nullptr);
+    auto op = IE::ReduceSumOp::create(builder, loc, inputs[0], axesValue, keepDims, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2603,7 +2570,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                     origNode->get_friendly_name(), inputs[1]);
     const auto keepDims = origNode->get_keep_dims();
     const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
-    auto op = builder.create<IE::ReduceMinOp>(loc, inputs[0], axesValue, keepDims);
+    auto op = IE::ReduceMinOp::create(builder, loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2623,7 +2590,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                     origNode->get_friendly_name(), inputs[1]);
     const auto keepDims = origNode->get_keep_dims();
     const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
-    auto op = builder.create<IE::ReduceL1Op>(loc, inputs[0], axesValue, keepDims);
+    auto op = IE::ReduceL1Op::create(builder, loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2643,7 +2610,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                     origNode->get_friendly_name(), inputs[1]);
     const auto keepDims = origNode->get_keep_dims();
     const auto axesValue = getIntArrayAttr(builder.getContext(), *axes);
-    auto op = builder.create<IE::ReduceL2Op>(loc, inputs[0], axesValue, keepDims);
+    auto op = IE::ReduceL2Op::create(builder, loc, inputs[0], axesValue, keepDims);
     addOutputs(origNode, op);
     return op;
 }
@@ -2657,7 +2624,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Sigmoid node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::SigmoidOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::SigmoidOp::create(builder, createLocation(origNode), inputs[0]);
 
     addOutputs(origNode, op);
     return op;
@@ -2674,8 +2641,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto modeAttr = importGridSampleMode(origNode->get_attributes().mode);
     const auto paddingModeAttr = importGridSamplePaddingMode(origNode->get_attributes().padding_mode);
 
-    auto op = builder.create<IE::GridSampleOp>(createLocation(origNode), inputs[0], inputs[1], alignCornersAttr,
-                                               modeAttr, paddingModeAttr);
+    auto op = IE::GridSampleOp::create(builder, createLocation(origNode), inputs[0], inputs[1], alignCornersAttr,
+                                       modeAttr, paddingModeAttr);
 
     addOutputs(origNode, op);
     return op;
@@ -2704,15 +2671,15 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
         const auto shapeTensor =
                 Const::createConst(builder, createLocation(origNode), dataType, ArrayRef(outputShapeValues));
-        op = builder.create<IE::DynamicReshapeOp>(createLocation(origNode), inputs[0], shapeTensor, outputShapeAttr,
-                                                  outputBoundsAttr);
+        op = IE::DynamicReshapeOp::create(builder, createLocation(origNode), inputs[0], shapeTensor, outputShapeAttr,
+                                          outputBoundsAttr);
         addOutputs(origNode, op);
     } else {
         if (inputs.size() == 2) {
-            op = builder.create<IE::SqueezeOp>(createLocation(origNode), inputs[0], inputs[1], nullptr);
+            op = IE::SqueezeOp::create(builder, createLocation(origNode), inputs[0], inputs[1], nullptr);
             addOutputs(origNode, op);
         } else {
-            op = builder.create<IE::SqueezeOp>(createLocation(origNode), inputs[0], nullptr, nullptr);
+            op = IE::SqueezeOp::create(builder, createLocation(origNode), inputs[0], nullptr, nullptr);
             addOutputs(origNode, op);
         }
     }
@@ -2729,7 +2696,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph Transpose node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::TransposeOp>(createLocation(origNode), inputs[0], inputs[1], nullptr);
+    auto op = IE::TransposeOp::create(builder, createLocation(origNode), inputs[0], inputs[1], nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2742,7 +2709,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Tan node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::TanOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::TanOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2756,7 +2723,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Tanh node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::TanhOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::TanhOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2769,7 +2736,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Sin node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::SinOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::SinOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2782,7 +2749,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Cos node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::CosOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::CosOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2795,7 +2762,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Sqrt node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::SqrtOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::SqrtOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2808,7 +2775,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Sinh node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::SinhOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::SinhOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2821,7 +2788,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Cosh node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::CoshOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::CoshOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2834,7 +2801,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Asinh node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::AsinhOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::AsinhOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2847,7 +2814,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Acosh node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::AcoshOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::AcoshOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2860,7 +2827,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Atanh node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::AtanhOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::AtanhOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2874,7 +2841,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 3, "nGraph Roll node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::RollOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2]);
+    auto op = IE::RollOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2886,7 +2853,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Log node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::LogOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::LogOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2901,7 +2868,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 3, "nGraph Selu node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::SeluOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], nullptr, nullptr);
+    auto op = IE::SeluOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], nullptr, nullptr);
 
     addOutputs(origNode, op);
     return op;
@@ -2915,7 +2882,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Gelu node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::GeluOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::GeluOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2931,7 +2898,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     const auto alpha = origNode->get_alpha();
     const auto alphaAttr = getFPAttr(_ctx, alpha);
 
-    auto op = builder.create<IE::EluOp>(createLocation(origNode), inputs[0], alphaAttr);
+    auto op = IE::EluOp::create(builder, createLocation(origNode), inputs[0], alphaAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -2945,7 +2912,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph HSwish node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::HSwishOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::HSwishOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2958,7 +2925,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Floor node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::FloorOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::FloorOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2971,7 +2938,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Round node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::RoundOp>(createLocation(origNode), inputs[0], importRoundMode(origNode->get_mode()));
+    auto op = IE::RoundOp::create(builder, createLocation(origNode), inputs[0], importRoundMode(origNode->get_mode()));
     addOutputs(origNode, op);
     return op;
 }
@@ -2985,7 +2952,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Mish node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::MishOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::MishOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -2998,7 +2965,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Erf node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::ErfOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::ErfOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -3012,7 +2979,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph ErfInv node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::ErfInvOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::ErfInvOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -3031,9 +2998,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto levelsAttr = getIntAttr(_ctx, origNode->get_levels());
 
     // ov FakeQuantize does not support low FP types, nullptr is passed.
-    auto op = builder.create<IE::FakeQuantizeOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
-                                                 inputs[4], levelsAttr, /*lowFpType=*/nullptr,
-                                                 importBroadcastType(autob.m_type));
+    auto op =
+            IE::FakeQuantizeOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
+                                       inputs[4], levelsAttr, /*lowFpType=*/nullptr, importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -3066,7 +3033,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto scale = inputs[1];
     const auto shift = (inputs.size() == 3) ? inputs[2] : nullptr;
     const auto op =
-            builder.create<IE::FakeConvertOp>(createLocation(origNode), data, scale, shift, destinationTypeAttr);
+            IE::FakeConvertOp::create(builder, createLocation(origNode), data, scale, shift, destinationTypeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3079,7 +3046,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Exp node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::ExpOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::ExpOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -3099,9 +3066,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     auto attrShrinkAxisMask = getIntArrayAttr(_ctx, origNode->get_shrink_axis_mask());
     auto attrEllipsisAxisMask = getIntArrayAttr(_ctx, origNode->get_ellipsis_mask());
 
-    auto op = builder.create<IE::StridedSliceOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
-                                                 nullptr, nullptr, nullptr, attrBeginMask, attrEndMask, attrNewAxisMask,
-                                                 attrShrinkAxisMask, attrEllipsisAxisMask);
+    auto op = IE::StridedSliceOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
+                                         nullptr, nullptr, nullptr, attrBeginMask, attrEndMask, attrNewAxisMask,
+                                         attrShrinkAxisMask, attrEllipsisAxisMask);
     addOutputs(origNode, op);
     return op;
 }
@@ -3119,8 +3086,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto spatialScaleAttr = getFPAttr(_ctx, origNode->get_spatial_scale());
     const auto method = importROIPoolingMethod(origNode->get_method());
 
-    auto op = builder.create<IE::ROIPoolingOp>(createLocation(origNode), inputs[0], inputs[1], outputSize,
-                                               spatialScaleAttr, method);
+    auto op = IE::ROIPoolingOp::create(builder, createLocation(origNode), inputs[0], inputs[1], outputSize,
+                                       spatialScaleAttr, method);
     addOutputs(origNode, op);
     return op;
 }
@@ -3141,8 +3108,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto poolingMode = importROIAlignMethod(origNode->get_mode());
     const auto alignedMode = importROIAlignAlignedMethod(origNode->get_aligned_mode());
 
-    auto op = builder.create<IE::ROIAlignOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], pooled_h,
-                                             pooled_w, sampling_ratio, spatialScaleAttr, poolingMode, alignedMode);
+    auto op = IE::ROIAlignOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], pooled_h,
+                                     pooled_w, sampling_ratio, spatialScaleAttr, poolingMode, alignedMode);
     addOutputs(origNode, op);
     return op;
 }
@@ -3162,8 +3129,8 @@ mlir::Operation* NGraphImporter::parseNode(
 
     const auto expDetectronROIFeatureExtractAttr = importExpDetectronROIFeatureExtractAttrs(origNode->get_attrs());
 
-    auto op = builder.create<IE::ExperimentalDetectronROIFeatureExtractorOp>(createLocation(origNode), inputs,
-                                                                             expDetectronROIFeatureExtractAttr);
+    auto op = IE::ExperimentalDetectronROIFeatureExtractorOp::create(builder, createLocation(origNode), inputs,
+                                                                     expDetectronROIFeatureExtractAttr);
 
     addOutputs(origNode, op);
     return op;
@@ -3181,7 +3148,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto axis = origNode->get_axis();
     const auto axisAttr = getIntAttr(_ctx, axis);
 
-    auto op = builder.create<IE::ConcatOp>(createLocation(origNode), inputs, axisAttr);
+    auto op = IE::ConcatOp::create(builder, createLocation(origNode), inputs, axisAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3200,13 +3167,13 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     IE::InterpolateOp op;
     if (inputs.size() == 3) {
-        op = builder.create<IE::InterpolateOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], nullptr,
-                                               nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, interpolateAttr,
-                                               nullptr, nullptr);
+        op = IE::InterpolateOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], nullptr,
+                                       nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, interpolateAttr, nullptr,
+                                       nullptr);
     } else {
-        op = builder.create<IE::InterpolateOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
-                                               nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, interpolateAttr,
-                                               nullptr, nullptr);
+        op = IE::InterpolateOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
+                                       nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, interpolateAttr, nullptr,
+                                       nullptr);
     }
 
     addOutputs(origNode, op);
@@ -3227,8 +3194,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto sortTypeAttr = importTopKSortType(origNode->get_sort_type());
     const auto indexElementTypeAttr = mlir::TypeAttr::get(importPrecision(_ctx, origNode->get_index_element_type()));
 
-    auto op = builder.create<IE::TopKOp>(createLocation(origNode), inputs[0], inputs[1], nullptr, axisAttr, modeAttr,
-                                         sortTypeAttr, indexElementTypeAttr);
+    auto op = IE::TopKOp::create(builder, createLocation(origNode), inputs[0], inputs[1], nullptr, axisAttr, modeAttr,
+                                 sortTypeAttr, indexElementTypeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3247,8 +3214,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto sortTypeAttr = importTopKSortType(origNode->get_sort_type());
     const auto indexElementTypeAttr = mlir::TypeAttr::get(importPrecision(_ctx, origNode->get_index_element_type()));
 
-    auto op = builder.create<IE::TopKOp>(createLocation(origNode), inputs[0], inputs[1], nullptr, axisAttr, modeAttr,
-                                         sortTypeAttr, indexElementTypeAttr);
+    auto op = IE::TopKOp::create(builder, createLocation(origNode), inputs[0], inputs[1], nullptr, axisAttr, modeAttr,
+                                 sortTypeAttr, indexElementTypeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3271,8 +3238,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto axisEndAttr = getIntAttr(_ctx, origNode->get_end_axis());
     const auto anchorsAttr = getFPArrayAttr(_ctx, origNode->get_anchors());
 
-    auto op = builder.create<IE::RegionYoloOp>(createLocation(origNode), inputs[0], coordAttr, classesAttr, regionsAttr,
-                                               doSoftmaxAttr, maskAttr, axisAttr, axisEndAttr, anchorsAttr);
+    auto op = IE::RegionYoloOp::create(builder, createLocation(origNode), inputs[0], coordAttr, classesAttr,
+                                       regionsAttr, doSoftmaxAttr, maskAttr, axisAttr, axisEndAttr, anchorsAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3296,7 +3263,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto strideAttr = getIntAttr(_ctx, strides.front());
 
-    auto op = builder.create<IE::ReorgYoloOp>(createLocation(origNode), inputs[0], strideAttr);
+    auto op = IE::ReorgYoloOp::create(builder, createLocation(origNode), inputs[0], strideAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3315,11 +3282,11 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     IE::DetectionOutputOp op;
     if (inputs.size() == 3) {
-        op = builder.create<IE::DetectionOutputOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], nullptr,
-                                                   nullptr, detectionOutputAttr);
+        op = IE::DetectionOutputOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], nullptr,
+                                           nullptr, detectionOutputAttr);
     } else {
-        op = builder.create<IE::DetectionOutputOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
-                                                   inputs[4], detectionOutputAttr);
+        op = IE::DetectionOutputOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2],
+                                           inputs[3], inputs[4], detectionOutputAttr);
     }
     addOutputs(origNode, op);
     return op;
@@ -3337,8 +3304,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto epsAttr = getFPAttr(_ctx, origNode->get_eps());
     const auto epsModeAttr = importEpsMode(origNode->get_eps_mode());
 
-    auto op = builder.create<IE::NormalizeL2Op>(createLocation(origNode), inputs[0], inputs[1], nullptr, epsAttr,
-                                                epsModeAttr);
+    auto op = IE::NormalizeL2Op::create(builder, createLocation(origNode), inputs[0], inputs[1], nullptr, epsAttr,
+                                        epsModeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3357,9 +3324,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto exclusiveAttr = origNode->is_exclusive() ? mlir::UnitAttr::get(_ctx) : nullptr;
     const auto reverseAttr = origNode->is_reverse() ? mlir::UnitAttr::get(_ctx) : nullptr;
 
-    auto op = builder.create<IE::CumSumOp>(createLocation(origNode), inputs[0],
-                                           (inputs.size() == 2) ? inputs[1] : nullptr, nullptr, exclusiveAttr,
-                                           reverseAttr);
+    auto op = IE::CumSumOp::create(builder, createLocation(origNode), inputs[0],
+                                   (inputs.size() == 2) ? inputs[1] : nullptr, nullptr, exclusiveAttr, reverseAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3376,9 +3342,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
 
     const auto outputTypeAttr = mlir::TypeAttr::get(importPrecision(_ctx, origNode->get_out_type()));
 
-    auto op = builder.create<IE::EyeOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2],
-                                        (inputs.size() == 4) ? inputs[3] : nullptr, nullptr, nullptr, nullptr,
-                                        outputTypeAttr);
+    auto op = IE::EyeOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2],
+                                (inputs.size() == 4) ? inputs[3] : nullptr, nullptr, nullptr, nullptr, outputTypeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3395,8 +3360,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     const auto across_channelsAttr = mlir::BoolAttr::get(_ctx, origNode->get_across_channels());
     const auto epsAttr = getFPAttr(_ctx, origNode->get_eps());
 
-    auto op = builder.create<IE::MVNOp>(createLocation(origNode), inputs[0], across_channelsAttr,
-                                        normalize_varianceAttr, epsAttr);
+    auto op = IE::MVNOp::create(builder, createLocation(origNode), inputs[0], across_channelsAttr,
+                                normalize_varianceAttr, epsAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3414,8 +3379,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     const auto epsAttr = getFPAttr(_ctx, origNode->get_eps());
     const auto epsModeAttr = importMvnEpsMode(origNode->get_eps_mode());
 
-    auto op = builder.create<IE::MVN6Op>(createLocation(origNode), inputs[0], nullptr /*scale*/, nullptr /*bias*/,
-                                         inputs[1], nullptr, normalize_varianceAttr, epsAttr, epsModeAttr);
+    auto op = IE::MVN6Op::create(builder, createLocation(origNode), inputs[0], nullptr /*scale*/, nullptr /*bias*/,
+                                 inputs[1], nullptr, normalize_varianceAttr, epsAttr, epsModeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3429,7 +3394,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph PRelu node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::PReluOp>(createLocation(origNode), inputs[0], inputs[1]);
+    auto op = IE::PReluOp::create(builder, createLocation(origNode), inputs[0], inputs[1]);
     addOutputs(origNode, op);
     return op;
 }
@@ -3444,9 +3409,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     vpux::IE::SwishOp op;
 
     if (inputs.size() == 1) {
-        op = builder.create<IE::SwishOp>(createLocation(origNode), inputs[0], nullptr, nullptr);
+        op = IE::SwishOp::create(builder, createLocation(origNode), inputs[0], nullptr, nullptr);
     } else if (inputs.size() == 2) {
-        op = builder.create<IE::SwishOp>(createLocation(origNode), inputs[0], inputs[1], nullptr);
+        op = IE::SwishOp::create(builder, createLocation(origNode), inputs[0], inputs[1], nullptr);
     } else {
         VPUX_THROW("nGraph Swish node '{0}' has unsupported number of inputs '{1}'", origNode->get_friendly_name(),
                    inputs.size());
@@ -3466,7 +3431,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
 
     const auto biasAttr = getFPAttr(_ctx, origNode->get_bias());
 
-    auto op = builder.create<IE::GRNOp>(createLocation(origNode), inputs[0], biasAttr);
+    auto op = IE::GRNOp::create(builder, createLocation(origNode), inputs[0], biasAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3480,7 +3445,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Negative node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::NegativeOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::NegativeOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -3494,7 +3459,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Sign node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::SignOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::SignOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -3508,8 +3473,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph CTCGreedyDecoder node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::CTCGreedyDecoderOp>(createLocation(origNode), inputs[0], inputs[1],
-                                                     origNode->get_ctc_merge_repeated());
+    auto op = IE::CTCGreedyDecoderOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                             origNode->get_ctc_merge_repeated());
     addOutputs(origNode, op);
     return op;
 }
@@ -3522,12 +3487,12 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto inputs = getInputs(origNode);
     mlir::Operation* op;
     if (inputs.size() == 3) {
-        op = builder.create<IE::CTCGreedyDecoderSeqLenOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2],
-                                                          origNode->get_merge_repeated());
+        op = IE::CTCGreedyDecoderSeqLenOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2],
+                                                  origNode->get_merge_repeated());
         addOutputs(origNode, op);
     } else if (inputs.size() == 2) {
-        op = builder.create<IE::CTCGreedyDecoderSeqLenOp>(createLocation(origNode), inputs[0], inputs[1],
-                                                          /*blankIndex*/ nullptr, origNode->get_merge_repeated());
+        op = IE::CTCGreedyDecoderSeqLenOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                                  /*blankIndex*/ nullptr, origNode->get_merge_repeated());
         addOutputs(origNode, op);
     } else {
         VPUX_THROW("nGraph CTCGreedyDecoderSeqLen node '{0}' has unsupported number of inputs '{1}'",
@@ -3555,15 +3520,15 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
         outputBoundsAttr = getIntArrayAttr(builder.getContext(), outputBounds);
     }
     if (inputs.size() == 4) {
-        op = builder.create<IE::PadOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3], nullptr,
-                                       nullptr, nullptr, importPadMode(origNode->get_pad_mode()), nullptr, nullptr,
-                                       outputShapeAttr, outputBoundsAttr);
+        op = IE::PadOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3], nullptr,
+                               nullptr, nullptr, importPadMode(origNode->get_pad_mode()), nullptr, nullptr,
+                               outputShapeAttr, outputBoundsAttr);
 
         addOutputs(origNode, op);
     } else if (inputs.size() == 3) {
-        op = builder.create<IE::PadOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], nullptr, nullptr,
-                                       nullptr, nullptr, importPadMode(origNode->get_pad_mode()), nullptr, nullptr,
-                                       outputShapeAttr, outputBoundsAttr);
+        op = IE::PadOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], nullptr, nullptr,
+                               nullptr, nullptr, importPadMode(origNode->get_pad_mode()), nullptr, nullptr,
+                               outputShapeAttr, outputBoundsAttr);
         addOutputs(origNode, op);
     } else {
         VPUX_THROW("nGraph Pad node '{0}' has unsupported number of inputs '{1}'", origNode->get_friendly_name(),
@@ -3592,8 +3557,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto hiddenSizeAttr = getIntAttr(_ctx, origNode->get_hidden_size());
 
     // create the IE::LSTMCellOp with 6 inputs, ignoring the 7th input
-    auto op = builder.create<IE::LSTMCellOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
-                                             inputs[4], inputs[5], hiddenSizeAttr);
+    auto op = IE::LSTMCellOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
+                                     inputs[4], inputs[5], hiddenSizeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3616,8 +3581,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto hiddenSizeAttr = getIntAttr(_ctx, origNode->get_hidden_size());
 
-    auto op = builder.create<IE::LSTMCellOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
-                                             inputs[4], inputs[5], hiddenSizeAttr);
+    auto op = IE::LSTMCellOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
+                                     inputs[4], inputs[5], hiddenSizeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3654,8 +3619,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     if (!hasDynamicInputs && !hasDynamicOutputs && seqLenNodeConst != nullptr) {
         auto seqLenValues = seqLenNodeConst->cast_vector<uint32_t>();
 
-        VPUX_THROW_UNLESS(
-                seqLenValues.size() > 0,
+        VPUX_THROW_WHEN(
+                seqLenValues.empty(),
                 "nGraph LSTMSequence node '{0}' has unsupported sequenceLengths input. It must contain more than "
                 "0 elements",
                 origNode->get_friendly_name());
@@ -3669,11 +3634,11 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                           origNode->get_friendly_name());
         const auto seqLenAttr = getIntAttr(_ctx, checked_cast<uint32_t>(seqLenValues[0]));
 
-        op = builder.create<IE::LSTMSequenceOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], nullptr,
-                                                inputs[4], inputs[5], inputs[6], seqLenAttr, directionAttr);
+        op = IE::LSTMSequenceOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], nullptr,
+                                        inputs[4], inputs[5], inputs[6], seqLenAttr, directionAttr);
     } else if (seqLenParam != nullptr || hasDynamicInputs || hasDynamicOutputs) {
-        op = builder.create<IE::LSTMSequenceOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
-                                                inputs[4], inputs[5], inputs[6], nullptr, directionAttr);
+        op = IE::LSTMSequenceOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
+                                        inputs[4], inputs[5], inputs[6], nullptr, directionAttr);
     } else {
         VPUX_THROW("nGraph LSTMSequence node '{0}' has unsupported input type", origNode->get_friendly_name());
     }
@@ -3693,8 +3658,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::SubtractOp>(createLocation(origNode), inputs[0], inputs[1],
-                                             importBroadcastType(autob.m_type), nullptr, nullptr, nullptr, nullptr);
+    auto op = IE::SubtractOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                     importBroadcastType(autob.m_type), nullptr, nullptr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3710,8 +3675,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::AndOp>(createLocation(origNode), inputs[0], inputs[1],
-                                        importBroadcastType(autob.m_type));
+    auto op = IE::AndOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -3725,7 +3690,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Ceiling node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::CeilingOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::CeilingOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -3741,8 +3706,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::EqualOp>(createLocation(origNode), inputs[0], inputs[1],
-                                          importBroadcastType(autob.m_type));
+    auto op = IE::EqualOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                  importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -3758,8 +3723,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::SelectOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2],
-                                           importBroadcastType(autob.m_type));
+    auto op = IE::SelectOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2],
+                                   importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -3789,9 +3754,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto boxEncodingAttr = importBoxEncodingType(center_point_box);
     const auto sortResultDescendingAttr = origNode->get_sort_result_descending() ? mlir::UnitAttr::get(_ctx) : nullptr;
 
-    auto op = builder.create<IE::NonMaxSuppressionOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2],
-                                                      inputs[3], inputs[4], softNmsSigma, boxEncodingAttr,
-                                                      sortResultDescendingAttr, nullptr, nullptr, nullptr, nullptr);
+    auto op = IE::NonMaxSuppressionOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2],
+                                              inputs[3], inputs[4], softNmsSigma, boxEncodingAttr,
+                                              sortResultDescendingAttr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3808,9 +3773,9 @@ mlir::Operation* NGraphImporter::parseNode(
     const auto softNmsSigma = inputs.size() == 6 ? inputs[5] : nullptr;
     const auto boxEncodingAttr = importBoxEncodingType(origNode->m_center_point_box);
     const auto sortResultDescendingAttr = origNode->m_sort_result_descending ? mlir::UnitAttr::get(_ctx) : nullptr;
-    auto op = builder.create<IE::NonMaxSuppressionOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2],
-                                                      inputs[3], inputs[4], softNmsSigma, boxEncodingAttr,
-                                                      sortResultDescendingAttr, nullptr, nullptr, nullptr, nullptr);
+    auto op = IE::NonMaxSuppressionOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2],
+                                              inputs[3], inputs[4], softNmsSigma, boxEncodingAttr,
+                                              sortResultDescendingAttr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3824,9 +3789,10 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       origNode->get_friendly_name(), inputs.size());
 
     const auto fuseQkL2Norm = origNode->get_fuse_qk_l2norm() ? mlir::UnitAttr::get(_ctx) : nullptr;
-    auto op = builder.create<IE::GatedDeltaNetOp>(
-            createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3], inputs[4], inputs[5], fuseQkL2Norm,
-            getFPAttr(_ctx, origNode->get_q_l2_norm_eps()), getFPAttr(_ctx, origNode->get_k_l2_norm_eps()));
+    auto op = IE::GatedDeltaNetOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
+                                          inputs[4], inputs[5], fuseQkL2Norm,
+                                          getFPAttr(_ctx, origNode->get_q_l2_norm_eps()),
+                                          getFPAttr(_ctx, origNode->get_k_l2_norm_eps()));
     addOutputs(origNode, op);
     return op;
 }
@@ -3847,9 +3813,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(attrs.output_storage_type == ov::op::internal::DynamicQuantize::OutputStorageType::Planar,
                       "nGraph DynamicQuantize node '{0}' supports only planar output storage in NPU frontend",
                       origNode->get_friendly_name());
-    VPUX_THROW_UNLESS(!attrs.precomputed_reduction,
-                      "nGraph DynamicQuantize node '{0}' does not support precomputed reduction in NPU frontend",
-                      origNode->get_friendly_name());
+    VPUX_THROW_WHEN(attrs.precomputed_reduction,
+                    "nGraph DynamicQuantize node '{0}' does not support precomputed reduction in NPU frontend",
+                    origNode->get_friendly_name());
     VPUX_THROW_UNLESS(attrs.quantization_dt.is_integral_number() && attrs.quantization_dt.bitwidth() == 8,
                       "nGraph DynamicQuantize node '{0}' supports only 8-bit integer quantization, got '{1}'",
                       origNode->get_friendly_name(), attrs.quantization_dt);
@@ -3868,25 +3834,25 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       "nGraph DynamicQuantize node '{0}' supports only f32/f16 input in NPU frontend, got '{1}'",
                       origNode->get_friendly_name(), inputType.getElementType());
 
-    // Keep the import aligned with the existing DynamicQuantize subgraph pipeline:
-    // ov::op::internal::DynamicQuantize carries reduction axes and f16-facing types, while the compiler path
-    // still expects explicit min/max handling and f32 kernel tensors. A direct 1:1 import can replace this after kernel
-    // support covers internal reduction and f16.
+    // ov::op::internal::DynamicQuantize computes the reduction (min/max) internally over the reduction axes.
+    // The NPU DynamicQuantize op mirrors this: min/max are left absent and the SW kernel derives the range from
+    // the input using the reduction axes. The explicit-min/max path (fused decomposed subgraph) is unaffected.
     const auto loc = createLocation(origNode);
     const auto fp32Type = mlir::Float32Type::get(_ctx);
     const auto dqInput = convertToElemType(builder, appendLoc(loc, "input_to_fp32"), inputs[0], fp32Type);
 
     const auto reductionAxes = getDynamicQuantizeReductionAxes(origNode);
-    auto minValue = buildDynamicQuantizeReduction<IE::ReduceMinOp>(builder, loc, dqInput, reductionAxes, "reduce_min");
-    auto maxValue = buildDynamicQuantizeReduction<IE::ReduceMaxOp>(builder, loc, dqInput, reductionAxes, "reduce_max");
+    const auto axesValueAttr = getIntArrayAttr(_ctx, reductionAxes);
 
     const auto dstElemTypeAttr = mlir::TypeAttr::get(importPrecision(_ctx, attrs.quantization_dt));
     const auto outputType = importTensor(origNode->get_output_partial_shape(0), origNode->get_output_element_type(0));
-    const auto scaleType = minValue.getType();
+    // The IE op emits an f32 scale internally; convert to the requested scale type afterwards.
+    const auto scaleType = importTensor(origNode->get_output_partial_shape(1), ov::element::f32);
     const auto zeroPointType =
             importTensor(origNode->get_output_partial_shape(2), origNode->get_output_element_type(2));
-    auto dqOp = builder.create<IE::DynamicQuantizeOp>(loc, mlir::TypeRange{outputType, scaleType, zeroPointType},
-                                                      dqInput, minValue, maxValue, dstElemTypeAttr);
+    const SmallVector<mlir::Type> resultTypes{outputType, scaleType, zeroPointType};
+    auto dqOp = IE::DynamicQuantizeOp::create(builder, loc, resultTypes, dqInput, /*min=*/mlir::Value(),
+                                              /*max=*/mlir::Value(), axesValueAttr, dstElemTypeAttr);
 
     const auto scaleElemType = importPrecision(_ctx, attrs.scale_dt);
     auto scaleOutput = convertToElemType(builder, appendLoc(loc, "scale_to_orig_type"), dqOp.getScale(), scaleElemType);
@@ -3904,7 +3870,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 2, "nGraph RMSNorm node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::RMSOp>(createLocation(origNode), inputs[0], inputs[1], epsilon);
+    auto op = IE::RMSOp::create(builder, createLocation(origNode), inputs[0], inputs[1], epsilon);
     addOutputs(origNode, op);
     return op;
 }
@@ -3919,7 +3885,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       origNode->get_friendly_name(), inputs.size());
 
     const auto modeAttr = importRoPEMode(origNode->get_config());
-    auto op = builder.create<IE::RoPEOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], modeAttr);
+    auto op = IE::RoPEOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], modeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -3960,8 +3926,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     auto causal = origNode->get_causal() ? mlir::UnitAttr::get(_ctx) : nullptr;
 
-    auto op = builder.create<IE::SDPAOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], attentionMask,
-                                         scale, sink, causal);
+    auto op = IE::SDPAOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], attentionMask,
+                                 scale, sink, causal);
     addOutputs(origNode, op);
     return op;
 }
@@ -3990,9 +3956,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     auto isHeadAttr = mlir::BoolAttr::get(ctx, config.is_head);
     auto isTailAttr = mlir::BoolAttr::get(ctx, config.is_tail);
     auto seqLenPadding = getIntAttr(ctx, 0);
-    auto op =
-            builder.create<IE::FlashSDPAOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
-                                            inputs[4], inputs[5], attentionMask, isHeadAttr, isTailAttr, seqLenPadding);
+    auto op = IE::FlashSDPAOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
+                                      inputs[4], inputs[5], attentionMask, isHeadAttr, isTailAttr, seqLenPadding);
 
     addOutputs(origNode, op);
     return op;
@@ -4025,7 +3990,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto seqAttr = getIntAttr(_ctx, origNode->get_sequence_axis());
     const auto batchAttr = getIntAttr(_ctx, origNode->get_batch_axis());
 
-    auto op = builder.create<IE::ReverseSequenceOp>(createLocation(origNode), inputs[0], inputs[1], seqAttr, batchAttr);
+    auto op =
+            IE::ReverseSequenceOp::create(builder, createLocation(origNode), inputs[0], inputs[1], seqAttr, batchAttr);
 
     addOutputs(origNode, op);
     return op;
@@ -4040,7 +4006,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph SoftPlus node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::SoftPlusOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::SoftPlusOp::create(builder, createLocation(origNode), inputs[0]);
 
     addOutputs(origNode, op);
     return op;
@@ -4055,7 +4021,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph SoftSign node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::SoftSignOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::SoftSignOp::create(builder, createLocation(origNode), inputs[0]);
 
     addOutputs(origNode, op);
     return op;
@@ -4072,8 +4038,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::LessOp>(createLocation(origNode), inputs[0], inputs[1],
-                                         importBroadcastType(autob.m_type));
+    auto op = IE::LessOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                 importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -4089,8 +4055,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::LessEqualOp>(createLocation(origNode), inputs[0], inputs[1],
-                                              importBroadcastType(autob.m_type));
+    auto op = IE::LessEqualOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                      importBroadcastType(autob.m_type));
 
     addOutputs(origNode, op);
     return op;
@@ -4107,8 +4073,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::GreaterOp>(createLocation(origNode), inputs[0], inputs[1],
-                                            importBroadcastType(autob.m_type));
+    auto op = IE::GreaterOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                    importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -4124,8 +4090,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::GreaterEqualOp>(createLocation(origNode), inputs[0], inputs[1],
-                                                 importBroadcastType(autob.m_type));
+    auto op = IE::GreaterEqualOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                         importBroadcastType(autob.m_type));
 
     addOutputs(origNode, op);
     return op;
@@ -4142,8 +4108,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::NotEqualOp>(createLocation(origNode), inputs[0], inputs[1],
-                                             importBroadcastType(autob.m_type));
+    auto op = IE::NotEqualOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                     importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -4159,8 +4125,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto blockSizeAttr = getIntAttr(_ctx, origNode->get_block_size());
 
-    auto op = builder.create<IE::DepthToSpaceOp>(createLocation(origNode), inputs[0], blockSizeAttr,
-                                                 importDepthToSpaceMode(origNode->get_mode()));
+    auto op = IE::DepthToSpaceOp::create(builder, createLocation(origNode), inputs[0], blockSizeAttr,
+                                         importDepthToSpaceMode(origNode->get_mode()));
     addOutputs(origNode, op);
     return op;
 }
@@ -4176,8 +4142,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::BitwiseAndOp>(createLocation(origNode), inputs[0], inputs[1],
-                                               importBroadcastType(autob.m_type));
+    auto op = IE::BitwiseAndOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                       importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -4193,8 +4159,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::BitwiseOrOp>(createLocation(origNode), inputs[0], inputs[1],
-                                              importBroadcastType(autob.m_type));
+    auto op = IE::BitwiseOrOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                      importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -4210,8 +4176,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::BitwiseXorOp>(createLocation(origNode), inputs[0], inputs[1],
-                                               importBroadcastType(autob.m_type));
+    auto op = IE::BitwiseXorOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                       importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -4228,9 +4194,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     auto inputType = mlir::cast<vpux::NDTypeInterface>(inputs[0].getType());
     mlir::Operation* op;
     if (inputType.getElementType().isSignlessInteger()) {
-        op = builder.create<IE::LogicalNotOp>(createLocation(origNode), inputs[0]);
+        op = IE::LogicalNotOp::create(builder, createLocation(origNode), inputs[0]);
     } else {
-        op = builder.create<IE::BitwiseNotOp>(createLocation(origNode), inputs[0]);
+        op = IE::BitwiseNotOp::create(builder, createLocation(origNode), inputs[0]);
     }
 
     addOutputs(origNode, op);
@@ -4248,8 +4214,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::BitwiseRightShiftOp>(createLocation(origNode), inputs[0], inputs[1],
-                                                      importBroadcastType(autob.m_type));
+    auto op = IE::BitwiseRightShiftOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                              importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -4265,8 +4231,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::BitwiseLeftShiftOp>(createLocation(origNode), inputs[0], inputs[1],
-                                                     importBroadcastType(autob.m_type));
+    auto op = IE::BitwiseLeftShiftOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                             importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -4280,7 +4246,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::LogicalNotOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::LogicalNotOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -4296,8 +4262,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::LogicalOrOp>(createLocation(origNode), inputs[0], inputs[1],
-                                              importBroadcastType(autob.m_type));
+    auto op = IE::LogicalOrOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                      importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -4313,8 +4279,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto& autob = origNode->get_autob();
 
-    auto op = builder.create<IE::LogicalXorOp>(createLocation(origNode), inputs[0], inputs[1],
-                                               importBroadcastType(autob.m_type));
+    auto op = IE::LogicalXorOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                       importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
     return op;
 }
@@ -4332,7 +4298,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto blockSizeAttr = getIntAttr(_ctx, origNode->get_block_size());
     const auto modeAttr = importSpaceToDepthMode(origNode->get_mode());
 
-    auto op = builder.create<IE::SpaceToDepthOp>(createLocation(origNode), inputs[0], blockSizeAttr, modeAttr);
+    auto op = IE::SpaceToDepthOp::create(builder, createLocation(origNode), inputs[0], blockSizeAttr, modeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4347,8 +4313,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 4, "nGraph SpaceToBatch node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::SpaceToBatch>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
-                                               nullptr, nullptr, nullptr);
+    auto op = IE::SpaceToBatch::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
+                                       nullptr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4367,8 +4333,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto ratesAttr = getIntArrayAttr(_ctx, origNode->get_rates());
     const auto autoPadAttr = importPadType(origNode->get_auto_pad());
 
-    auto op = builder.create<IE::ExtractImagePatchesOp>(createLocation(origNode), inputs[0], sizesAttr, stridesAttr,
-                                                        ratesAttr, autoPadAttr);
+    auto op = IE::ExtractImagePatchesOp::create(builder, createLocation(origNode), inputs[0], sizesAttr, stridesAttr,
+                                                ratesAttr, autoPadAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4381,7 +4347,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Abs node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::AbsOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::AbsOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -4395,7 +4361,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph HSigmoid node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::HSigmoidOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::HSigmoidOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -4409,7 +4375,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Atan node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::AtanOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::AtanOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -4423,7 +4389,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Asin node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::AsinOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::AsinOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -4437,7 +4403,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph Acos node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::AcosOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::AcosOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -4457,8 +4423,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto spatialBinsY = getIntAttr(_ctx, origNode->get_spatial_bins_y());
     const auto mode = importPSROIPoolingMode(origNode->get_mode());
 
-    auto op = builder.create<IE::PSROIPoolingOp>(createLocation(origNode), inputs[0], inputs[1], outputDim,
-                                                 spatialScale, groupSize, spatialBinsX, spatialBinsY, mode);
+    auto op = IE::PSROIPoolingOp::create(builder, createLocation(origNode), inputs[0], inputs[1], outputDim,
+                                         spatialScale, groupSize, spatialBinsX, spatialBinsY, mode);
     addOutputs(origNode, op);
     return op;
 }
@@ -4472,8 +4438,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 3, "nGraph HardSigmoid node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::HardSigmoidOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], nullptr,
-                                                nullptr);
+    auto op = IE::HardSigmoidOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], nullptr,
+                                        nullptr);
 
     addOutputs(origNode, op);
     return op;
@@ -4488,8 +4454,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     IE::EmbeddingBagOffsetsSumOp op;
     mlir::Value defaultIndex = (inputs.size() >= 4) ? inputs[3] : nullptr;
     mlir::Value weights = (inputs.size() >= 5) ? inputs[4] : nullptr;
-    op = builder.create<IE::EmbeddingBagOffsetsSumOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2],
-                                                      defaultIndex, weights, nullptr, nullptr, nullptr, nullptr);
+    op = IE::EmbeddingBagOffsetsSumOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2],
+                                              defaultIndex, weights, nullptr, nullptr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4503,13 +4469,15 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(inputs.size() == 4 || inputs.size() == 5 || inputs.size() == 6,
                       "nGraph EmbeddingSegmentsSum node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
+    const auto loc = createLocation(origNode);
+    const auto numSegments = IE::EmbeddingSegmentsSum::parseNumSegments(loc, inputs);
+    VPUX_THROW_WHEN(mlir::failed(numSegments), "nGraph EmbeddingSegmentsSum node '{0}' has non-constant num_segments",
+                    origNode->get_friendly_name());
+    const auto defaultIndex = IE::EmbeddingSegmentsSum::parseDefaultIndex(inputs);
 
-    mlir::Value defaultIndex = (inputs.size() >= 5) ? inputs[4] : nullptr;
     mlir::Value weights = (inputs.size() >= 6) ? inputs[5] : nullptr;
-    auto op = builder.create<IE::EmbeddingSegmentsSumOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2],
-                                                         inputs[3], defaultIndex, weights, nullptr, nullptr, nullptr,
-                                                         nullptr, nullptr);
-
+    auto op = IE::EmbeddingSegmentsSumOp::create(builder, loc, inputs[0], inputs[1], inputs[2], weights, nullptr,
+                                                 nullptr, *numSegments, defaultIndex, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4525,7 +4493,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       origNode->get_friendly_name(), inputs.size());
 
     mlir::Value weights = (inputs.size() == 3) ? inputs[2] : nullptr;
-    auto op = builder.create<IE::EmbeddingBagPackedSumOp>(createLocation(origNode), inputs[0], inputs[1], weights);
+    auto op = IE::EmbeddingBagPackedSumOp::create(builder, createLocation(origNode), inputs[0], inputs[1], weights);
     addOutputs(origNode, op);
     return op;
 }
@@ -4541,7 +4509,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto nameAttr = mlir::StringAttr::get(_ctx, origNode->get_variable_id());
 
-    auto op = builder.create<IE::AssignOp>(createLocation(origNode), inputs[0], nameAttr);
+    auto op = IE::AssignOp::create(builder, createLocation(origNode), inputs[0], nameAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4557,7 +4525,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto nameAttr = mlir::StringAttr::get(_ctx, origNode->get_variable_id());
 
-    auto op = builder.create<IE::AssignOp>(createLocation(origNode), inputs[0], nameAttr);
+    auto op = IE::AssignOp::create(builder, createLocation(origNode), inputs[0], nameAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4573,7 +4541,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto nameAttr = mlir::StringAttr::get(_ctx, origNode->get_variable_id());
 
-    auto op = builder.create<IE::ReadValueOp>(createLocation(origNode), inputs[0], nameAttr, nullptr, nullptr);
+    auto op = IE::ReadValueOp::create(builder, createLocation(origNode), inputs[0], nameAttr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4599,8 +4567,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
         inputTensor = inputs[0];
     }
 
-    auto op = builder.create<IE::ReadValueOp>(createLocation(origNode), inputTensor, nameAttr,
-                                              mlir::TypeAttr::get(elementType), getIntArrayAttr(_ctx, shape));
+    auto op = IE::ReadValueOp::create(builder, createLocation(origNode), inputTensor, nameAttr,
+                                      mlir::TypeAttr::get(elementType), getIntArrayAttr(_ctx, shape));
     addOutputs(origNode, op);
     return op;
 }
@@ -4627,8 +4595,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto shouldLinearBeforeResetAttr = origNode->get_linear_before_reset() ? mlir::UnitAttr::get(_ctx) : nullptr;
 
     auto biasesInput = inputs.size() == 5 ? inputs[4] : nullptr;
-    auto op = builder.create<IE::GRUCellOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
-                                            biasesInput, hiddenSizeAttr, shouldLinearBeforeResetAttr, clipAttr);
+    auto op = IE::GRUCellOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3],
+                                    biasesInput, hiddenSizeAttr, shouldLinearBeforeResetAttr, clipAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4650,14 +4618,14 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       origNode->get_activations());
 
     const auto seqLenConstant = dynamic_cast<ov::opset7::Constant*>(origNode->input_value(2).get_node());
-    VPUX_THROW_UNLESS(seqLenConstant != nullptr,
-                      "nGraph GRUSequence node '{0}' has unsupported sequenceLengths input. It must be a Constant node",
-                      origNode->get_friendly_name());
+    VPUX_THROW_WHEN(seqLenConstant == nullptr,
+                    "nGraph GRUSequence node '{0}' has unsupported sequenceLengths input. It must be a Constant node",
+                    origNode->get_friendly_name());
     const auto seqLenValues = seqLenConstant->cast_vector<uint32_t>();
-    VPUX_THROW_UNLESS(seqLenValues.size() > 0,
-                      "nGraph GRUSequence node '{0}' has unsupported sequenceLengths input. It must contain more than "
-                      "0 elements",
-                      origNode->get_friendly_name());
+    VPUX_THROW_WHEN(seqLenValues.empty(),
+                    "nGraph GRUSequence node '{0}' has unsupported sequenceLengths input. It must contain more than "
+                    "0 elements",
+                    origNode->get_friendly_name());
     const auto isAllLensSame =
             std::all_of(seqLenValues.cbegin(), seqLenValues.cend(), [&seqLenValues](const auto item) {
                 return seqLenValues[0] == item;
@@ -4678,9 +4646,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto clipAttr = getFPAttr(_ctx, origNode->get_clip());
     const auto shouldLinearBeforeResetAttr = origNode->get_linear_before_reset() ? mlir::UnitAttr::get(_ctx) : nullptr;
 
-    auto op = builder.create<IE::GRUSequenceOp>(createLocation(origNode), inputs[0], inputs[1], inputs[3], inputs[4],
-                                                inputs[5], hiddenSizeAttr, seqLenAttr, directionAttr,
-                                                shouldLinearBeforeResetAttr, clipAttr);
+    auto op = IE::GRUSequenceOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[3], inputs[4],
+                                        inputs[5], hiddenSizeAttr, seqLenAttr, directionAttr,
+                                        shouldLinearBeforeResetAttr, clipAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4705,9 +4673,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto mode = importDeformablePSROIPoolingMode(origNode->get_mode());
 
     mlir::Value inputTransformations = (inputs.size() == 3) ? inputs[2] : nullptr;
-    auto op = builder.create<IE::DeformablePSROIPoolingOp>(createLocation(origNode), inputs[0], inputs[1],
-                                                           inputTransformations, outputDim, spatialScale, groupSize,
-                                                           spatialBinsX, spatialBinsY, transStd, partSize, mode);
+    auto op = IE::DeformablePSROIPoolingOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                                   inputTransformations, outputDim, spatialScale, groupSize,
+                                                   spatialBinsX, spatialBinsY, transStd, partSize, mode);
     addOutputs(origNode, op);
     return op;
 }
@@ -4719,8 +4687,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     VPUX_THROW_UNLESS(((inputs.size() == 2) || (inputs.size() == 3)),
                       "nGraph Interpolate node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
-    auto op = builder.create<IE::DFTOp>(createLocation(origNode), inputs[0], inputs[1],
-                                        (inputs.size() == 3) ? inputs[2] : nullptr, nullptr, nullptr);
+    auto op = IE::DFTOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                (inputs.size() == 3) ? inputs[2] : nullptr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4733,8 +4701,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(((inputs.size() == 2) || (inputs.size() == 3)),
                       "nGraph Interpolate node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
-    auto op = builder.create<IE::RDFTOp>(createLocation(origNode), inputs[0], inputs[1],
-                                         (inputs.size() == 3) ? inputs[2] : nullptr, nullptr, nullptr);
+    auto op = IE::RDFTOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                 (inputs.size() == 3) ? inputs[2] : nullptr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4747,8 +4715,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(((inputs.size() == 2) || (inputs.size() == 3)),
                       "nGraph Interpolate node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
-    auto op = builder.create<IE::IDFTOp>(createLocation(origNode), inputs[0], inputs[1],
-                                         (inputs.size() == 3) ? inputs[2] : nullptr, nullptr, nullptr);
+    auto op = IE::IDFTOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                 (inputs.size() == 3) ? inputs[2] : nullptr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4763,8 +4731,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto transposeFramesAttr = origNode->get_transpose_frames() ? mlir::UnitAttr::get(_ctx) : nullptr;
 
-    auto op = builder.create<IE::STFTOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3], nullptr,
-                                         nullptr, transposeFramesAttr);
+    auto op = IE::STFTOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3], nullptr,
+                                 nullptr, transposeFramesAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4786,13 +4754,13 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
         signalLength = inputs[4];
     }
 
-    auto op = builder.create<IE::ISTFTOp>(createLocation(origNode),
-                                          inputs[0],     // data
-                                          inputs[1],     // window
-                                          inputs[2],     // frame_size
-                                          inputs[3],     // frame_step
-                                          signalLength,  // signal_length (optional)
-                                          centerAttr, normalizedAttr);
+    auto op = IE::ISTFTOp::create(builder, createLocation(origNode),
+                                  inputs[0],     // data
+                                  inputs[1],     // window
+                                  inputs[2],     // frame_size
+                                  inputs[3],     // frame_step
+                                  signalLength,  // signal_length (optional)
+                                  centerAttr, normalizedAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4805,8 +4773,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     VPUX_THROW_UNLESS(((inputs.size() == 2) || (inputs.size() == 3)),
                       "nGraph Interpolate node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
-    auto op = builder.create<IE::IRDFTOp>(createLocation(origNode), inputs[0], inputs[1],
-                                          (inputs.size() == 3) ? inputs[2] : nullptr, nullptr, nullptr);
+    auto op = IE::IRDFTOp::create(builder, createLocation(origNode), inputs[0], inputs[1],
+                                  (inputs.size() == 3) ? inputs[2] : nullptr, nullptr, nullptr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4832,12 +4800,12 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
         auto step = constStep->cast_vector<float>();
         auto outPrecision = origNode->get_output_element_type(0);
         auto rangeOutputAttr = calRangeOutputAttr(start[0], stop[0], step[0], outputType, outPrecision);
-        auto constOp = builder.create<Const::DeclareOp>(createLocation(origNode), outputType,
-                                                        Const::ContentAttr::get(rangeOutputAttr));
+        auto constOp = Const::DeclareOp::create(builder, createLocation(origNode), outputType,
+                                                Const::ContentAttr::get(rangeOutputAttr));
         addOutputs(origNode, constOp);
     }
     const auto outElemTypeAttr = mlir::TypeAttr::get(importPrecision(_ctx, origNode->get_output_type()));
-    auto op = builder.create<IE::RangeOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], outElemTypeAttr);
+    auto op = IE::RangeOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2], outElemTypeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4852,7 +4820,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       origNode->get_friendly_name(), inputs.size());
 
     const auto outElemTypeAttr = mlir::TypeAttr::get(importPrecision(_ctx, origNode->get_output_type()));
-    auto op = builder.create<IE::NonZeroOp>(createLocation(origNode), inputs[0], outElemTypeAttr);
+    auto op = IE::NonZeroOp::create(builder, createLocation(origNode), inputs[0], outElemTypeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4873,7 +4841,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     SmallVector<mlir::Type> results;
     results.append(importerThen.getRegionResults());
 
-    auto op = builder.create<IE::IfOp>(location, results, inputs);
+    auto op = IE::IfOp::create(builder, location, results, inputs);
     addOutputs(origNode, op);
 
     auto thenBlock = &op.getThenBranch().emplaceBlock();
@@ -4897,7 +4865,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     const auto outElemTypeAttr =
             mlir::TypeAttr::get(importPrecision(builder.getContext(), origNode->output(0).get_element_type()));
-    auto op = builder.create<IE::ShapeOfOp>(createLocation(origNode), inputs[0], outElemTypeAttr);
+    auto op = IE::ShapeOfOp::create(builder, createLocation(origNode), inputs[0], outElemTypeAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -4971,9 +4939,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto concatOutputDescs = mlir::ArrayAttr::get(ctx, concatOutputVector);
     const auto invariantOutputDescs = mlir::ArrayAttr::get(ctx, invariantOutputVector);
 
-    auto op = builder.create<IE::TensorIteratorOp>(location, results, inputs, numIterationsAttr, sliceInputDescs,
-                                                   invariantInputDescs, feedbackInputDescs, concatOutputDescs,
-                                                   invariantOutputDescs);
+    auto op = IE::TensorIteratorOp::create(builder, location, results, inputs, numIterationsAttr, sliceInputDescs,
+                                           invariantInputDescs, feedbackInputDescs, concatOutputDescs,
+                                           invariantOutputDescs);
     addOutputs(origNode, op);
 
     auto bodyModuleBlock = &op.getBodyModule().emplaceBlock();
@@ -5056,9 +5024,9 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto concatOutputDescs = mlir::ArrayAttr::get(ctx, concatOutputVector);
     const auto invariantOutputDescs = mlir::ArrayAttr::get(ctx, invariantOutputVector);
 
-    auto op = builder.create<IE::LoopOp>(location, results, inputs, numIterationsAttr, currentIterIndexAttr,
-                                         execCondIndexAttr, sliceInputDescs, invariantInputDescs, feedbackInputDescs,
-                                         concatOutputDescs, invariantOutputDescs);
+    auto op = IE::LoopOp::create(builder, location, results, inputs, numIterationsAttr, currentIterIndexAttr,
+                                 execCondIndexAttr, sliceInputDescs, invariantInputDescs, feedbackInputDescs,
+                                 concatOutputDescs, invariantOutputDescs);
     addOutputs(origNode, op);
 
     auto bodyModuleBlock = &op.getBodyModule().emplaceBlock();
@@ -5078,7 +5046,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                       origNode->get_friendly_name(), inputs.size());
 
     const auto adjointAttr = origNode->get_adjoint() ? mlir::UnitAttr::get(_ctx) : nullptr;
-    const auto op = builder.create<IE::InverseOp>(createLocation(origNode), inputs[0], adjointAttr);
+    const auto op = IE::InverseOp::create(builder, createLocation(origNode), inputs[0], adjointAttr);
     addOutputs(origNode, op);
     return op;
 }
@@ -5105,10 +5073,10 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     auto attrGroupValue = (attrGroup == nullptr) ? builder.getIntegerAttr(builder.getIntegerType(32), 1) : attrGroup;
     auto deformableGroupValue = (attrDeformableGroup == nullptr) ? builder.getIntegerAttr(builder.getIntegerType(32), 1)
                                                                  : attrDeformableGroup;
-    auto op = builder.create<IE::DeformableConvolutionOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2],
-                                                          (inputs.size() == 4) ? inputs[3] : nullptr, attrStride,
-                                                          attrPadsBegin, attrPadsEnd, attrDilation, attrGroupValue,
-                                                          deformableGroupValue, attrBilinearInterpolationPad);
+    auto op = IE::DeformableConvolutionOp::create(builder, createLocation(origNode), inputs[0], inputs[1], inputs[2],
+                                                  (inputs.size() == 4) ? inputs[3] : nullptr, attrStride, attrPadsBegin,
+                                                  attrPadsEnd, attrDilation, attrGroupValue, deformableGroupValue,
+                                                  attrBilinearInterpolationPad);
     addOutputs(origNode, op);
     return op;
 }
@@ -5124,21 +5092,20 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 
     // Assumed to be always constant
     const auto axisNode = ov::as_type_ptr<ov::op::v0::Constant>(origNode->input_value(1).get_node_shared_ptr());
-    VPUX_THROW_UNLESS(axisNode != nullptr,
-                      "nGraph VariadicSplit node '{0}' has unsupported axis input. It must be a Constant node.",
-                      origNode->get_friendly_name());
+    VPUX_THROW_WHEN(axisNode == nullptr,
+                    "nGraph VariadicSplit node '{0}' has unsupported axis input. It must be a Constant node.",
+                    origNode->get_friendly_name());
     const auto axis = axisNode->cast_vector<int64_t>().front();
 
     const auto splitLengthsNode = ov::as_type_ptr<ov::op::v0::Constant>(origNode->input_value(2).get_node_shared_ptr());
-    VPUX_THROW_UNLESS(
-            splitLengthsNode != nullptr,
-            "nGraph VariadicSplit node '{0}' has unsupported split_lengths input. It must be a Constant node.",
-            origNode->get_friendly_name());
+    VPUX_THROW_WHEN(splitLengthsNode == nullptr,
+                    "nGraph VariadicSplit node '{0}' has unsupported split_lengths input. It must be a Constant node.",
+                    origNode->get_friendly_name());
     const auto splitLengths = splitLengthsNode->cast_vector<int64_t>();
 
     const auto input = inputs[0];
-    auto op = builder.create<IE::VariadicSplitOp>(createLocation(origNode), input, axis,
-                                                  getIntArrayAttr(builder, splitLengths));
+    auto op = IE::VariadicSplitOp::create(builder, createLocation(origNode), input, axis,
+                                          getIntArrayAttr(builder, splitLengths));
 
     addOutputs(origNode, op);
     return op;
@@ -5150,8 +5117,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
     const auto input = inputs[0];
     // The implementation of IsNaN using NotEqualOp with the same input compared to itself is a clever approach, as NaN
     // values are not equal to themselves by IEEE 754 standard.
-    auto op = builder.create<IE::NotEqualOp>(createLocation(origNode), input, input,
-                                             IE::AutoBroadcastTypeAttr::get(_ctx, IE::AutoBroadcastType::NUMPY));
+    auto op = IE::NotEqualOp::create(builder, createLocation(origNode), input, input,
+                                     IE::AutoBroadcastTypeAttr::get(_ctx, IE::AutoBroadcastType::NUMPY));
     addOutputs(origNode, op);
     return op;
 }
@@ -5159,7 +5126,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                                            const std::shared_ptr<ov::opset10::IsInf>& origNode) {
     const auto inputs = getInputs(origNode);
-    auto op = builder.create<IE::IsInfOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::IsInfOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -5167,7 +5134,7 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
 mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder,
                                            const std::shared_ptr<ov::opset10::IsFinite>& origNode) {
     const auto inputs = getInputs(origNode);
-    auto op = builder.create<IE::IsFiniteOp>(createLocation(origNode), inputs[0]);
+    auto op = IE::IsFiniteOp::create(builder, createLocation(origNode), inputs[0]);
     addOutputs(origNode, op);
     return op;
 }
@@ -5187,9 +5154,6 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
     auto opUniqueIdStrAttr = mlir::StringAttr::get(_ctx, customOpName);
 
     auto dictAttr = collector.getAttrDict();
-    auto kernelPathAttr = collector.getKernelPath();
-    VPUX_THROW_UNLESS(kernelPathAttr != nullptr,
-                      "Node {0} doesn't respect Custom Operator format or is an unrecognized operator.", customOpName);
 
     auto outputsSize = origNode->get_output_size();
     SmallVector<mlir::Type> outputTypes;
@@ -5198,9 +5162,8 @@ mlir::Operation* NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::
         outputTypes.push_back(type);
     }
 
-    auto op = builder.create<Shave::ExternalKernelOp>(createLocation(origNode), mlir::TypeRange(outputTypes),
-                                                      mlir::ValueRange(inputs), dictAttr, opUniqueIdStrAttr,
-                                                      kernelPathAttr);
+    auto op = Shave::ExternalKernelOp::create(builder, createLocation(origNode), mlir::TypeRange(outputTypes),
+                                              mlir::ValueRange(inputs), dictAttr, opUniqueIdStrAttr);
 
     addOutputs(origNode, op);
     return op;
@@ -5907,6 +5870,31 @@ static bool skipMarkDequantization(const std::shared_ptr<const ov::Node>& node) 
     return false;
 }
 
+static bool skipMixedPrecisionU16QDQ(const std::shared_ptr<const ov::Node>& node) {
+    auto multiply = ov::as_type_ptr<const ov::op::v1::Multiply>(node);
+    if (multiply == nullptr || multiply->get_output_element_type(0) != ov::element::f16) {
+        return false;
+    }
+
+    auto dequantInput = multiply->input_value(0).get_node_shared_ptr();
+    if (auto subtract = ov::as_type_ptr<const ov::op::v1::Subtract>(dequantInput)) {
+        dequantInput = subtract->input_value(0).get_node_shared_ptr();
+    }
+
+    auto convertToFp16 = ov::as_type_ptr<const ov::op::v0::Convert>(dequantInput);
+    if (convertToFp16 == nullptr || convertToFp16->get_output_element_type(0) != ov::element::f16) {
+        return false;
+    }
+
+    auto convertToU16 = ov::as_type_ptr<const ov::op::v0::Convert>(convertToFp16->input_value(0).get_node_shared_ptr());
+    if (convertToU16 == nullptr || convertToU16->get_output_element_type(0) != ov::element::u16) {
+        return false;
+    }
+
+    auto fq = ov::as_type_ptr<const ov::op::v0::FakeQuantize>(convertToU16->input_value(0).get_node_shared_ptr());
+    return fq != nullptr && fq->get_input_element_type(0) == ov::element::f32;
+}
+
 static bool skipKeepConstAndDecompressionForNodeWS(const std::shared_ptr<const ov::Node>& node) {
     assert(ov::is_type<ov::op::v0::Convert>(node) &&
            "Unexpected node type: this method should be called only for Convert nodes within the "
@@ -6181,80 +6169,6 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager, const Impor
     manager.register_pass<ov::pass::StridesOptimization>();
 }
 
-namespace {
-namespace pattern = ov::pass::pattern;
-
-// Matches the body pattern of a GatedDeltaNet recurrent loop.
-// This is a local copy of matches_linear_attention_loop from OV's fuse_gated_delta_net.cpp.
-// TODO: Request OV to expose matches_linear_attention_loop as a public API, then replace this.
-bool isGatedDeltaNetLoop(const std::shared_ptr<ov::Node>& node) {
-    auto loop = ov::as_type_ptr<ov::op::v5::Loop>(node);
-    if (!loop) {
-        return false;
-    }
-    if (loop->get_input_size() < 9 || loop->get_output_size() != 2) {
-        return false;
-    }
-
-    auto output_attn_buffer = pattern::any_input(pattern::shape_matches("[?, head_num, ?, v_head_size]"));
-    auto recurrent_state = pattern::any_input(pattern::shape_matches("[?, head_num, k_head_size, v_head_size]"));
-    auto beta = pattern::any_input(pattern::shape_matches("[?, head_num, 1]"));
-    auto gate = pattern::any_input(pattern::shape_matches("[?, head_num, 1]"));
-    auto value = pattern::any_input(pattern::shape_matches("[?, head_num, 1, value_head_size]"));
-    auto key = pattern::any_input(pattern::shape_matches("[?, head_num, 1, k_head_size]"));
-    auto query = pattern::any_input(pattern::shape_matches("[?, head_num, 1, k_head_size]"));
-    auto step_index = pattern::any_input();
-
-    auto step_index_unsqueeze = pattern::wrap_type<ov::op::v0::Unsqueeze>({step_index, 0});
-    auto gate_f32 = pattern::optional<ov::op::v0::Convert>({gate});
-
-    auto exp_gate = pattern::wrap_type<ov::op::v0::Exp>({gate_f32});
-    auto exp_gate_unsqueeze = pattern::wrap_type<ov::op::v0::Unsqueeze>({exp_gate, {-1}});
-    auto gated_state = pattern::wrap_type<ov::op::v1::Multiply>({recurrent_state, exp_gate_unsqueeze});
-
-    auto key_squeezed = pattern::wrap_type<ov::op::v0::Squeeze>({key, {2}});
-    auto key_unsqueeze = pattern::wrap_type<ov::op::v0::Unsqueeze>({key_squeezed, {-1}});
-
-    auto value_squeezed = pattern::wrap_type<ov::op::v0::Squeeze>({value, {2}});
-
-    auto projected_value = pattern::wrap_type<ov::op::v1::Multiply>({gated_state, key_unsqueeze});
-    auto projected_sum = pattern::wrap_type<ov::op::v1::ReduceSum>({projected_value, {-2}}, {{"keep_dims", false}});
-    auto delta = pattern::wrap_type<ov::op::v1::Subtract>({value_squeezed, projected_sum});
-
-    auto scaled_delta = pattern::wrap_type<ov::op::v1::Multiply>({delta, beta});
-    auto scaled_delta_unsqueeze = pattern::wrap_type<ov::op::v0::Unsqueeze>({scaled_delta, {-2}});
-    auto outer_update = pattern::wrap_type<ov::op::v1::Multiply>({key_unsqueeze, scaled_delta_unsqueeze});
-    auto updated_state = pattern::wrap_type<ov::op::v1::Add>({gated_state, outer_update});
-
-    auto query_squeezed = pattern::wrap_type<ov::op::v0::Squeeze>({query, 2});
-    auto query_unsqueeze = pattern::wrap_type<ov::op::v0::Unsqueeze>({query_squeezed, {-1}});
-    auto weighted_output = pattern::wrap_type<ov::op::v1::Multiply>({updated_state, query_unsqueeze});
-
-    auto output_reduce_sum = pattern::wrap_type<ov::op::v1::ReduceSum>({weighted_output, {-2}}, {{"keep_dims", true}});
-    auto output_reduce_sum_fp16 = pattern::optional<ov::op::v0::Convert>({output_reduce_sum});
-    auto scatter_update_output = pattern::wrap_type<ov::op::v3::ScatterUpdate>(
-            {output_attn_buffer, step_index_unsqueeze, output_reduce_sum_fp16, 2});
-    auto output_result = pattern::wrap_type<ov::op::v0::Result>({scatter_update_output});
-
-    auto updated_state_fp16 = pattern::optional<ov::op::v0::Convert>({updated_state});
-    auto state_result = pattern::wrap_type<ov::op::v0::Result>({updated_state_fp16});
-
-    pattern::Matcher loop_output_matcher(std::move(output_result));
-    pattern::Matcher loop_state_matcher(std::move(state_result));
-    auto body = loop->get_function();
-    const auto& body_results = body->get_results();
-
-    if (!loop_output_matcher.match(body_results[2]->output(0))) {
-        return false;
-    }
-    if (!loop_state_matcher.match(body_results[1]->output(0))) {
-        return false;
-    }
-    return true;
-}
-
-}  // namespace
-
 void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, mlir::TimingScope& rootTiming,
                                    const ImportNetworkConfig& importCfg) {
     auto scopeTiming = rootTiming.nest("Common nGraph passes");
@@ -6294,28 +6208,23 @@ void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, m
             });
     manager.register_pass<ov::pass::SharedOpOptimization>();
     manager.register_pass<ov::pass::ConvertQuantizeDequantize>();
-    // Skip GatedDeltaNet fusion for decode models (seq_len == 1):
-    // keeping the original loop graph yields better NPU performance for single-token inference.
-    {
-        bool hasNonDecodeLoop = false;
-        for (const auto& op : netGraph->get_ordered_ops()) {
-            if (!isGatedDeltaNetLoop(op)) {
-                continue;
-            }
-            // Query input is at index 2 in the GDN loop pattern, shape: [batch, head_num, seq_len, head_size]
-            auto qShape = op->get_input_partial_shape(2);
-            if (qShape.rank().is_static() && qShape.rank().get_length() == 4) {
-                auto seqDim = qShape[2];
-                if (!seqDim.is_static() || seqDim.get_length() > 1) {
-                    hasNonDecodeLoop = true;
-                    break;
-                }
+    passConfig->set_callback<ov::pass::ConvertQuantizeDequantize>(
+            [](const std::shared_ptr<const ov::Node>& node) -> bool {
+                return skipMixedPrecisionU16QDQ(node);
+            });
+    manager.register_pass<ov::pass::GatedDeltaNetFusion>();
+    passConfig->set_callback<ov::pass::FuseGDNLoop>([](const std::shared_ptr<const ov::Node>& node) -> bool {
+        // Skip fusion for decode (seq_len==1): the original loop graph is faster on NPU.
+        // Loop query input is at index 2, shape: [batch, head_num, seq_len, head_size]
+        auto queryShape = node->input(2).get_partial_shape();
+        if (queryShape.rank().is_static() && queryShape.rank().get_length() == 4) {
+            auto seqDim = queryShape[2];
+            if (seqDim.is_static() && seqDim.get_length() == 1) {
+                return true;
             }
         }
-        if (hasNonDecodeLoop) {
-            manager.register_pass<ov::pass::GatedDeltaNetFusion>();
-        }
-    }
+        return false;
+    });
     manager.register_pass<ov::pass::ConstantFolding>();
     manager.register_pass<ov::pass::ConvertScatterElementsUpdate12ToScatterElementsUpdate3>();
     manager.register_pass<ov::pass::ConvertInterpolate1ToInterpolate4>();
@@ -6417,12 +6326,12 @@ net::DataInfoOp createDataInfoOp(mlir::OpBuilder infoBuilder, mlir::MLIRContext*
 
     const auto tensorNamesAttr = createTensorNamesAttr(ctx, originalNode);
 
-    return infoBuilder.create<net::DataInfoOp>(loc, primaryNameAttr, userTypeAttr,
-                                               /*OptionalAttr originalShape*/ originalShapeAttr,
-                                               /*OptionalAttr friendlyName*/ friendlyNameAttr,
-                                               /*OptionalAttr inputName*/ inputNameAttr,
-                                               /*OptionalAttr tensorNames*/ tensorNamesAttr,
-                                               /*profilingSectionsCount=*/0);
+    return net::DataInfoOp::create(infoBuilder, loc, primaryNameAttr, userTypeAttr,
+                                   /*OptionalAttr originalShape*/ originalShapeAttr,
+                                   /*OptionalAttr friendlyName*/ friendlyNameAttr,
+                                   /*OptionalAttr inputName*/ inputNameAttr,
+                                   /*OptionalAttr tensorNames*/ tensorNamesAttr,
+                                   /*profilingSectionsCount=*/0);
 }
 
 template <typename NodeT>
@@ -6451,7 +6360,7 @@ void addNetworkInfoOp(mlir::OpBuilder& builder, mlir::FlatSymbolRefAttr mainFunc
 
     auto* ctx = builder.getContext();
 
-    auto netInfo = builder.create<net::NetworkInfoOp>(mlir::UnknownLoc::get(ctx), mainFuncName, enableProfiling);
+    auto netInfo = net::NetworkInfoOp::create(builder, mlir::UnknownLoc::get(ctx), mainFuncName, enableProfiling);
     net::setupSections(netInfo, enableProfiling);
 
     VPUX_THROW_UNLESS(parameters.size() == originalParameters.size(),
@@ -6499,7 +6408,7 @@ void addSparsityStatistics(const std::shared_ptr<ov::Model>& model, mlir::Module
     auto builder = mlir::OpBuilder::atBlockBegin(module.getBody(), &builderLog);
     auto* ctx = builder.getContext();
 
-    auto statsOp = builder.create<net::SparsityStatisticsOp>(mlir::UnknownLoc::get(ctx));
+    auto statsOp = net::SparsityStatisticsOp::create(builder, mlir::UnknownLoc::get(ctx));
     statsOp.getSparsityInfo().emplaceBlock();
 
     auto statsBuilder = mlir::OpBuilder::atBlockBegin(&statsOp.getSparsityInfo().front(), builder.getListener());
@@ -6518,7 +6427,7 @@ void addSparsityStatistics(const std::shared_ptr<ov::Model>& model, mlir::Module
         const auto nameAttr = mlir::StringAttr::get(ctx, nodeName);
         const auto inputAttr = getIntAttr(ctx, portId);
         const auto ratioAttr = getFPAttr(ctx, ratio);
-        statsBuilder.create<net::SparsityInfoOp>(mlir::UnknownLoc::get(ctx), nameAttr, inputAttr, ratioAttr);
+        net::SparsityInfoOp::create(statsBuilder, mlir::UnknownLoc::get(ctx), nameAttr, inputAttr, ratioAttr);
     }
 }
 
@@ -6547,9 +6456,6 @@ mlir::OwningOpRef<mlir::ModuleOp> vpux::IE::importNetwork(
     log.setName("IE::FrontEnd::importNetwork");
 
     log.trace("Load IE::FrontEnd dependent Dialects");
-    // BuiltInDialect with BuiltInTypes will be initialized when MLIRContext is initialized.
-    // Therefore, we should also explicitly initialize QuantileDialect asap.
-    ctx->loadDialect<vpux::type::QuantileDialect>();
     ctx->loadDialect<IE::IEDialect>();
     ctx->loadDialect<Shave::ShaveDialect>();
 

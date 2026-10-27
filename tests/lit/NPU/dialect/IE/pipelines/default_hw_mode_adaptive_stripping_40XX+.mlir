@@ -77,7 +77,7 @@ module @MultiplyFQFusion {
 
         return %add2 : tensor<1x64x256x64xf32>
 
-        // CHECK-DAG:   [[BIAS:%.+]] = const.Declare tensor<1x64x256x64x{{[^:]+}}, {order = #NHWC}> = dense<2.000000e+00>
+        // CHECK-DAG:   [[BIAS:%.+]] = const.Declare tensor<1x64x256x64x!qElemType, {order = #NHWC}> = dense<2.000000e+00>
         // CHECK:       [[CONVERT1:%.+]] = IE.Convert([[ARG0]])
         // CHECK-NEXT:  [[PERMUTE_QUANT:%.+]] = IE.PermuteQuantize([[CONVERT1]])
 

@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/core/feasible_memory_scheduler.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
+#include "vpux/compiler/core/dma_cost_model_utils.hpp"
 #include "vpux/compiler/core/profiling.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
@@ -251,6 +252,7 @@ FeasibleMemoryScheduler::QueueType FeasibleMemoryScheduler::getQueueType(operati
 bool areMultipleDmaPortsNeeded(mlir::Value buffer) {
     if (auto distType = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(buffer.getType())) {
         auto mode = distType.getDistribution().getMode().getValue();
+        // E#228872 : missing SEGMENTED|OVERLAPPED combination case
         if (mode == VPU::DistributionMode::SEGMENTED || mode == VPU::DistributionMode::OVERLAPPED) {
             return true;
         }
@@ -365,7 +367,7 @@ FeasibleMemoryScheduler::QueueAndCycleType FeasibleMemoryScheduler::getCurrentCy
     }
 
     // check if operation cycle begin delayed by dependencies
-    for (const auto& dep : _depsInfo.getOpDeps(opIdx)) {
+    for (const auto& dep : _depsInfo.getOpDepsUnordered(opIdx)) {
         earliestBeginCycle = std::max(earliestBeginCycle, _opIdxEndCycleMap[dep]);
     }
     return QueueAndCycleType{queueType, std::move(executorInstanceMask), earliestBeginCycle};
@@ -425,15 +427,28 @@ void FeasibleMemoryScheduler::alignExecutors(size_t nextAvailableCycle) {
     }
 }
 
-size_t FeasibleMemoryScheduler::spilledOperationCycleCost(mlir::Value spilledBuffer) {
-    if (_spillBufferCycleCost.find(spilledBuffer) != _spillBufferCycleCost.end()) {
+size_t FeasibleMemoryScheduler::spilledOperationCycleCost(mlir::Value spilledBuffer,
+                                                          vpux::DmaDirectionType dmaDirection) {
+    const auto cacheKey = std::make_pair(spilledBuffer, dmaDirection);
+    auto it = _spillBufferCycleCost.find(cacheKey);
+    if (it != _spillBufferCycleCost.end()) {
         // reuse calculated cycles
-        return _spillBufferCycleCost[spilledBuffer];
+        return it->second;
     }
-    // get and store cost of buffer spill
-    _spillBufferCycleCost[spilledBuffer] =
-            getDMACost(spilledBuffer, spilledBuffer, _archKind, _vpuDevice, _costModel, _numDMAPorts);
-    return _spillBufferCycleCost[spilledBuffer];
+
+    // Multi-cluster (SEGMENTED/OVERLAPPED) buffers are priced with their real spill direction.
+    // WORKAROUND, TBFIXED (E#228695): a non-multi-cluster buffer is instead priced as CMX_TO_CMX, which is
+    // what this cost resolved to before the DMA cost refactoring. Pricing it by the real direction (DDR->CMX and
+    // vice versa) would be the correct choice (a spill does reach DRAM, and VPUNN charges
+    // DDR-touching transfers more than CMX->CMX) but it makes those spills more expensive, which shifts the scheduler
+    // timeline and forces additional CMX evictions, which causes several regressions. Drop the special case together
+    // with the scheduler work that absorbs the shift and fix the issue.
+    const auto isMultiClusterBuffer = areMultipleDmaPortsNeeded(spilledBuffer);
+    const auto pricingDmaDirection = isMultiClusterBuffer ? dmaDirection : vpux::DmaDirectionType::CMX_TO_CMX;
+
+    auto cost = getDMACost(spilledBuffer, _archKind, _vpuDevice, _costModel, _numDMAPorts, pricingDmaDirection);
+    _spillBufferCycleCost[cacheKey] = cost;
+    return cost;
 }
 
 size_t FeasibleMemoryScheduler::operationCycleCost(operationIdxType opIdx) {
@@ -464,7 +479,7 @@ bool FeasibleMemoryScheduler::isDataOp(operationIdxType opIdx) {
     }
 
     // TODO: E93697 extend DataOp scheduling to schedule its dependencies
-    for (const auto& depIdx : _depsInfo.getOpDeps(opIdx)) {
+    for (const auto& depIdx : _depsInfo.getOpDepsUnordered(opIdx)) {
         if (isDataOp(depIdx)) {
             return false;
         }
@@ -482,10 +497,10 @@ bool FeasibleMemoryScheduler::isDataOp(operationIdxType opIdx) {
 
 // Compute operation that depends only on constants and function inputs.
 bool FeasibleMemoryScheduler::isNoInputDepComputeOp(operationIdxType opIdx) {
-    auto opDeps = _depsInfo.getOpDeps(opIdx);
-    for (auto& dep : opDeps) {
+    const auto& opDeps = _depsInfo.getOpDepsUnordered(opIdx);
+    for (const auto& dep : opDeps) {
         // Depends on data op which has no other dependencies
-        if (!_isDataOp[dep] || !_depsInfo.getOpDeps(dep).empty()) {
+        if (!_isDataOp[dep] || !_depsInfo.getOpDepsUnordered(dep).empty()) {
             return false;
         }
     }
@@ -665,7 +680,7 @@ SmallVector<mlir::Value> FeasibleMemoryScheduler::sortUsedBuffers(mlir::DenseSet
 
         // finally position in IR
         const auto parentOp = val1.buffer.getDefiningOp();
-        VPUX_THROW_UNLESS(parentOp != nullptr, "Block arguments are not supported");
+        VPUX_THROW_WHEN(parentOp == nullptr, "Block arguments are not supported");
         return parentOp->isBeforeInBlock(val2.buffer.getDefiningOp());
     });
 
@@ -683,10 +698,9 @@ size_t FeasibleMemoryScheduler::scheduleSpilledOpBuffer(operationIdxType opIdx, 
     _log.nest().trace("Scheduling spilled op:'{0}' at cycle {1}", opIdx, queueAndCycle.cycle);
     // also store the buffer spilled
     const auto spilledReadBuffer = buffer;
-    VPUX_THROW_UNLESS(_readySpilledOps.find(spilledReadBuffer) != _readySpilledOps.end(),
-                      "Failed to find spill buffer");
+    VPUX_THROW_WHEN(_readySpilledOps.find(spilledReadBuffer) == _readySpilledOps.end(), "Failed to find spill buffer");
     _readySpilledOps.erase(spilledReadBuffer);
-    VPUX_THROW_UNLESS(_spillBufferMap.find(opIdx) != _spillBufferMap.end(), "Failed to find spill opIdx");
+    VPUX_THROW_WHEN(_spillBufferMap.find(opIdx) == _spillBufferMap.end(), "Failed to find spill opIdx");
     if (_spillBufferMap[opIdx].size() > 1) {
         _spillBufferMap[opIdx].erase(spilledReadBuffer);
     } else {
@@ -694,7 +708,7 @@ size_t FeasibleMemoryScheduler::scheduleSpilledOpBuffer(operationIdxType opIdx, 
     }
     // update representation in scan handler
     _scan.handler().removeDynamicSpill(spilledReadBuffer);
-    const auto opCycleCost = spilledOperationCycleCost(spilledReadBuffer);
+    const auto opCycleCost = spilledOperationCycleCost(spilledReadBuffer, vpux::DmaDirectionType::DDR_TO_CMX);
     const auto nextAvailableCycle = queueAndCycle.cycle + opCycleCost;
     // update current cycle directly
     updateCurrentCycleForExecutor(queueAndCycle.queueType, queueAndCycle.execMask, nextAvailableCycle);
@@ -723,14 +737,14 @@ mlir::DenseSet<mlir::Value> FeasibleMemoryScheduler::getBuffersToAllocateForOp(o
     auto usedBuffers = getNonAliveBuffersUsedByOperation(opIdx);
 
     mlir::DenseSet<mlir::Value> buffersToAllocate(usedBuffers.begin(), usedBuffers.end());
-    for (const auto& dep : _depsInfo.getOpDeps(opIdx)) {
+    for (const auto& dep : _depsInfo.getOpDepsUnordered(opIdx)) {
         if (_opIdxEndCycleMap.find(dep) != _opIdxEndCycleMap.end()) {
             // op was scheduled
             continue;
         }
 
-        VPUX_THROW_UNLESS(_readyDataOps.find(dep) != _readyDataOps.end(),
-                          "Failed to get buffers - operation not ready '{0}'", dep);
+        VPUX_THROW_WHEN(_readyDataOps.find(dep) == _readyDataOps.end(),
+                        "Failed to get buffers - operation not ready '{0}'", dep);
         auto depBuffers = getBuffersToAllocateForOp(dep);
         buffersToAllocate.insert(depBuffers.begin(), depBuffers.end());
     }
@@ -748,20 +762,20 @@ size_t FeasibleMemoryScheduler::scheduleDependencies(operationIdxType opIdx) {
         }
         // special case for spilled reads
         auto bufferProducer = _bufferProducer.find(val);
-        VPUX_THROW_UNLESS(bufferProducer != _bufferProducer.end(), "Failed to find buffer producer for '{0}'", val);
+        VPUX_THROW_WHEN(bufferProducer == _bufferProducer.end(), "Failed to find buffer producer for '{0}'", val);
         scheduleSpilledOpBuffer(bufferProducer->second, val);
     }
 
     // schedule required dependencies order based on earliest scheduling cycle and IR order
     std::map<size_t, std::set<operationIdxType>> sortedDemandList;
-    for (const auto& depIdx : _depsInfo.getOpDeps(opIdx)) {
+    for (const auto& depIdx : _depsInfo.getOpDepsUnordered(opIdx)) {
         if (_opIdxEndCycleMap.find(depIdx) != _opIdxEndCycleMap.end()) {
             // op was scheduled
             continue;
         }
 
-        VPUX_THROW_UNLESS(_readyDataOps.find(depIdx) != _readyDataOps.end(),
-                          "Failed to schedule dependencies - operation not ready '{0}'", depIdx);
+        VPUX_THROW_WHEN(_readyDataOps.find(depIdx) == _readyDataOps.end(),
+                        "Failed to schedule dependencies - operation not ready '{0}'", depIdx);
         const auto cycleBegin = getCurrentCycleAndExecutorInstanceMask(depIdx).cycle;
         sortedDemandList[cycleBegin].insert(depIdx);
     }
@@ -1130,7 +1144,6 @@ std::vector<size_t> FeasibleMemoryScheduler::getReadyLoopOps() {
         if (_computeRegionsSchedule.loopRegionInd.count(opIdx)) {
             continue;
         }
-
         auto op = _depsInfo.getExecuteOpAtIndex(opIdx);
         for (auto& buffer : _liveRangeInfo.getUsedBuffers(op)) {
             if (aliveVals.count(buffer)) {
@@ -1173,7 +1186,7 @@ std::vector<size_t> FeasibleMemoryScheduler::getReadyLoopOps() {
         // Check deps for 1st loop
         for (const auto& opInfo : computeRegion.schedulingLoop->loopBodies[0]) {
             // some deps can be added for compute op ordering
-            for (const auto& depIdx : _depsInfo.getOpDeps(opInfo.opIdx)) {
+            for (const auto& depIdx : _depsInfo.getOpDepsUnordered(opInfo.opIdx)) {
                 if (loopOps.count(depIdx) || _opIdxEndCycleMap.count(depIdx) || _readyDataOps.count(depIdx)) {
                     continue;
                 }
@@ -1283,7 +1296,7 @@ std::tuple<size_t, size_t, size_t> FeasibleMemoryScheduler::getScheduledInfo(con
         lastScheduledOp = std::max(lastScheduledOp, allocInfo.opIdx);
         lastScheduledLevel = std::max(lastScheduledLevel, _opLevelVec[allocInfo.opIdx]);
         auto findPtr = _opIdxEndCycleMap.find(allocInfo.opIdx);
-        VPUX_THROW_UNLESS(findPtr != _opIdxEndCycleMap.end(), "Failed to find scheduled op '{0}'", allocInfo.opIdx);
+        VPUX_THROW_WHEN(findPtr == _opIdxEndCycleMap.end(), "Failed to find scheduled op '{0}'", allocInfo.opIdx);
         lastScheduledCycle = std::max(lastScheduledCycle, findPtr->second);
     }
     return std::make_tuple(lastScheduledOp, lastScheduledLevel, lastScheduledCycle);
@@ -1357,7 +1370,7 @@ size_t FeasibleMemoryScheduler::applyIterationSchedule(const IterationSchedule& 
 
             // memory will be re-used, need to spill for all future uses
             auto it = _bufferProducer.find(buffer);
-            VPUX_THROW_UNLESS(it != _bufferProducer.end(), "Buffer not scheduled yet, invalid eviction candidate");
+            VPUX_THROW_WHEN(it == _bufferProducer.end(), "Buffer not scheduled yet, invalid eviction candidate");
             auto executeOpIdx = it->second;
             // in special case of multiple output buffers store output idx
             auto outputIdx = getOpBufferOutputIdx(executeOpIdx, buffer);
@@ -1387,8 +1400,8 @@ size_t FeasibleMemoryScheduler::applyIterationSchedule(const IterationSchedule& 
 
             if (_scan.handler().isDynamicSpill(buffer)) {
                 auto bufferProducer = _bufferProducer.find(buffer);
-                VPUX_THROW_UNLESS(bufferProducer != _bufferProducer.end(), "Failed to find buffer producer for '{0}'",
-                                  buffer);
+                VPUX_THROW_WHEN(bufferProducer == _bufferProducer.end(), "Failed to find buffer producer for '{0}'",
+                                buffer);
                 _log.nest(3).trace("Need to read spilled buffer of op {0}", bufferProducer->second);
                 const auto nextAvailableCycle = scheduleSpilledOpBuffer(bufferProducer->second, buffer);
                 loopCycleEnd = std::max(loopCycleEnd, nextAvailableCycle);
@@ -1426,7 +1439,7 @@ size_t FeasibleMemoryScheduler::applyIterationSchedule(const IterationSchedule& 
             } else if (_readyDMAOps.count(opIdx)) {
                 _readyDMAOps.erase(opIdx);
             } else {
-                for (auto dep : _depsInfo.getOpDeps(opIdx)) {
+                for (auto dep : _depsInfo.getOpDepsUnordered(opIdx)) {
                     _log.nest().trace("Dep {0}", dep);
                 }
                 VPUX_THROW("Loop op not ready {0}", opIdx);
@@ -1456,7 +1469,40 @@ std::optional<vpux::AddressType> FeasibleMemoryScheduler::prepareLoopRegion(cons
         buffersToAllocate.insert(shared);
     }
 
-    // 2. Try to fit shared + loop demand
+    // 2. Schedule and allocate loop dependencies that produce non-shared buffers
+    //    (e.g. DATA_IN DMAs whose PC candidate was downgraded to TEMPORARY by
+    //    the loop allocator). Their CMX outputs must be live and placed before
+    //    we validate the shared + reserved-zone fit; dependencies feeding
+    //    sharedExternalBuffers are deferred to step 4 so their outputs can
+    //    land in the reserved zone.
+    for (auto& opIdx : computeRegion.dependencies) {
+        if (_opIdxEndCycleMap.count(opIdx)) {
+            continue;
+        }
+        auto depNonAliveBuffers = getNonAliveBuffersUsedByOperation(opIdx);
+        if (depNonAliveBuffers.empty()) {
+            continue;
+        }
+        const auto feedsSharedBuffer = llvm::any_of(depNonAliveBuffers, [&](mlir::Value buf) {
+            return scheduleResult.sharedExternalBuffers.count(buf) != 0;
+        });
+        if (feedsSharedBuffer) {
+            continue;
+        }
+        mlir::DenseSet<mlir::Value> depBuffersToAllocate(depNonAliveBuffers.begin(), depNonAliveBuffers.end());
+        if (!canAllocBuffers(depBuffersToAllocate)) {
+            _log.nest().trace("Non-shared dependency {0} does not fit, abort loop preparation", opIdx);
+            return std::nullopt;
+        }
+        _log.nest().trace("Schedule non-shared dependency {0}", opIdx);
+        scheduleOp(opIdx);
+        if (_readyDataOps.count(opIdx)) {
+            _readyDataOps.erase(opIdx);
+        }
+        sortAndAllocateBuffers(depBuffersToAllocate);
+    }
+
+    // 3. Try to fit shared + loop demand
     _log.nest().trace("totalFreeSize {0}", _scan.totalFreeSize());
     _log.nest().trace("maxFreeSize {0}", _scan.maxFreeSize());
     _log.nest().trace("Need to allocate reserve {0} with alignment {1}", scheduleResult.reservedSize,
@@ -1474,7 +1520,7 @@ std::optional<vpux::AddressType> FeasibleMemoryScheduler::prepareLoopRegion(cons
     SmallVector<operationIdxType> readyOps;
     drainAndCollectReadyOps(readyOps);
 
-    // 3. Schedule pre-loop dependencies
+    // 4. Schedule remaining pre-loop dependencies (those feeding shared buffers)
     for (auto& opIdx : computeRegion.dependencies) {
         if (_opIdxEndCycleMap.count(opIdx)) {
             _log.nest(2).trace("Already scheduled dependency {0}", opIdx);
@@ -1488,7 +1534,7 @@ std::optional<vpux::AddressType> FeasibleMemoryScheduler::prepareLoopRegion(cons
         }
     }
 
-    // 4. Schedule spills
+    // 5. Schedule spills
     // Use ordered set to guarantee deterministic insertion of spill ops
     for (const auto& val : vpux::ValueOrderedSet{buffersToAllocate.begin(), buffersToAllocate.end()}) {
         if (_scan.handler().isAlive(val)) {
@@ -1502,17 +1548,17 @@ std::optional<vpux::AddressType> FeasibleMemoryScheduler::prepareLoopRegion(cons
         }
         // special case for spilled reads
         auto bufferProducer = _bufferProducer.find(val);
-        VPUX_THROW_UNLESS(bufferProducer != _bufferProducer.end(), "Failed to find buffer producer for '{0}'", val);
+        VPUX_THROW_WHEN(bufferProducer == _bufferProducer.end(), "Failed to find buffer producer for '{0}'", val);
         _log.nest(2).trace("scheduleSpilledOpBuffer {0}", bufferProducer->second);
         scheduleSpilledOpBuffer(bufferProducer->second, val);
     }
 
-    // 5. Allocate memory
+    // 6. Allocate memory
     const auto reserveOffset = sortAndAllocateBuffersWithReservedSize(buffersToAllocate, scheduleResult.reservedSize,
                                                                       scheduleResult.baseAlignment);
     _log.nest(2).trace("reserveOffset '{0}'", reserveOffset);
 
-    // 6. Drain remaining heap after dependency scheduling
+    // 7. Drain remaining heap after dependency scheduling
     drainAndCollectReadyOps(readyOps);
     distributeReadyOps(readyOps);
 
@@ -1609,12 +1655,16 @@ void FeasibleMemoryScheduler::scheduleComputeOps() {
 
         _log.trace("Loop region {0}", idx);
 
+        // Global deps should be scheduled before the first loop iteration
+        const auto lastGlobalDep = llvm::max_element(computeRegion.dependencies);
+        const auto insertionPoint = lastGlobalDep == computeRegion.dependencies.end() ? 0 : *lastGlobalDep;
+
         // Check deps for 1st loop
         for (const auto& opInfo : computeRegion.schedulingLoop->loopBodies[0]) {
             // some deps can be added for compute op ordering
             if (opInfo.allocationType == AllocationType::COMPUTE) {
                 const auto queueType = getQueueType(opInfo.opIdx);
-                loopNextIdx[queueType] = opInfo.opIdx;
+                loopNextIdx[queueType] = std::max(opInfo.opIdx, insertionPoint);
                 break;
             }
         }
@@ -1807,15 +1857,14 @@ void FeasibleMemoryScheduler::scheduleComputeOps() {
     // find DMA ops to schedule
     SmallVector<operationIdxType> DMAOpIdxToSchedule;
     for (auto& readyOpIdx : _readyDMAOps) {
-        auto operationBuffers = getBuffersToAllocateForOp(readyOpIdx);
-        operationBuffers.insert(buffersToAllocate.begin(), buffersToAllocate.end());
-        if (!canAllocBuffers(operationBuffers)) {
+        // Loop-owned DMA operations, including CMX2CMX DATA_UPDATE, are scheduled inside the loop.
+        if (_computeRegionsSchedule.loopRegionInd.count(readyOpIdx)) {
             continue;
         }
 
-        // Skip operations belonging to loop regions
-        // Loop operations are handled separately by scheduleLoopRegions()
-        if (_computeRegionsSchedule.loopRegionInd.count(readyOpIdx)) {
+        auto operationBuffers = getBuffersToAllocateForOp(readyOpIdx);
+        operationBuffers.insert(buffersToAllocate.begin(), buffersToAllocate.end());
+        if (!canAllocBuffers(operationBuffers)) {
             continue;
         }
 
@@ -1884,8 +1933,8 @@ size_t FeasibleMemoryScheduler::getEarliestComputeBeginCycle(operationIdxType op
 }
 
 void FeasibleMemoryScheduler::evictActiveOp(EvictionCandidate evictionCandidate) {
-    VPUX_THROW_UNLESS(_opIdxEndCycleMap.find(evictionCandidate.bufferWriterIdx_) != _opIdxEndCycleMap.end(),
-                      "Attempt to evict a non-scheduled operation");
+    VPUX_THROW_WHEN(_opIdxEndCycleMap.find(evictionCandidate.bufferWriterIdx_) == _opIdxEndCycleMap.end(),
+                    "Attempt to evict a non-scheduled operation");
 
     _readySpilledOps[evictionCandidate.buffer_] = evictionCandidate.bufferWriterIdx_;
     _spillBufferMap[evictionCandidate.bufferWriterIdx_].insert(evictionCandidate.buffer_);
@@ -1979,8 +2028,8 @@ FeasibleMemoryScheduler::chooseCandidateForEvictionToSupportPrefetch(
     // Iterate over all alive buffers to find the best candidate for eviction
     for (const auto buffer : llvm::reverse(sortedAliveBuffers)) {
         // Ensure the buffer has been scheduled
-        VPUX_THROW_UNLESS(bufferProducer.find(buffer) != bufferProducer.end(),
-                          "Buffer not scheduled yet, invalid eviction candidate");
+        VPUX_THROW_WHEN(bufferProducer.find(buffer) == bufferProducer.end(),
+                        "Buffer not scheduled yet, invalid eviction candidate");
 
         auto executeOpIdx = bufferProducer[buffer];
         // Check if the buffer is in use
@@ -2052,8 +2101,8 @@ FeasibleMemoryScheduler::EvictionCandidate FeasibleMemoryScheduler::chooseCandid
     _evictionCandidatesCache.clear();
     // sort buffers using eviction priority
     for (const auto& buffer : aliveBuffers) {
-        VPUX_THROW_UNLESS(_bufferProducer.find(buffer) != _bufferProducer.end(),
-                          "Buffer not scheduled yet, invalid eviction candidate");
+        VPUX_THROW_WHEN(_bufferProducer.find(buffer) == _bufferProducer.end(),
+                        "Buffer not scheduled yet, invalid eviction candidate");
         auto executeOpIdx = _bufferProducer[buffer];
         auto priority = evictionPriority(executeOpIdx, buffer);
         auto earliestConsumerIdx = getEarliestConsumerIdx(executeOpIdx);
@@ -2124,7 +2173,7 @@ size_t FeasibleMemoryScheduler::performEvictionAndScheduling(const EvictionCandi
     const auto queueAndCycle =
             getCurrentCycleAndExecutorInstanceMaskForSpill(evictionCandidate.buffer_, spillType, depEndCycle);
     // find operation end cycle
-    const auto opCycleCost = spilledOperationCycleCost(evictionCandidate.buffer_);
+    const auto opCycleCost = spilledOperationCycleCost(evictionCandidate.buffer_, vpux::DmaDirectionType::CMX_TO_DDR);
     const auto nextAvailableCycle = queueAndCycle.cycle + opCycleCost;
 
     // add with a spilled write state
@@ -2326,7 +2375,7 @@ void FeasibleMemoryScheduler::doInitSetup() {
         }
 
         _opLevelVec[computeOpIdx] = level;
-        for (const auto& depInd : _depsInfo.getOpDeps(computeOpIdx)) {
+        for (const auto& depInd : _depsInfo.getOpDepsUnordered(computeOpIdx)) {
             if (_opLevelVec[depInd] != 0) {
                 continue;
             }
@@ -2625,7 +2674,7 @@ vpux::AddressType FeasibleMemoryScheduler::sortAndAllocateBuffersWithReservedSiz
                                                      Partitioner::Direction::Up);
     }
 
-    VPUX_THROW_UNLESS(reservedBegin != std::numeric_limits<AddressType>::max(),
-                      "Failed to statically allocate '{0}' memory", _memKind);
+    VPUX_THROW_WHEN(reservedBegin == std::numeric_limits<AddressType>::max(),
+                    "Failed to statically allocate '{0}' memory", _memKind);
     return reservedBegin;
 }

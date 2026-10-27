@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPU/utils/tiling_algorithm/scf_tiling/scf_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tiling_algorithm/tiling_context.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tiling_pass_config_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_cost_strategy_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
@@ -39,8 +40,12 @@ namespace {
 
 class SCFVerticalFusionPass final : public VPU::impl::SCFVerticalFusionBase<SCFVerticalFusionPass> {
 public:
-    SCFVerticalFusionPass(bool enableDynamicDimAlignment, const VFMergeConfiguration vfConf, Logger log)
-            : _enableDynamicDimAlignment(enableDynamicDimAlignment), _vfMergeConfiguration(vfConf) {
+    SCFVerticalFusionPass(bool enableDynamicDimAlignment, const VFMergeConfiguration vfConf,
+                          const VFMergeCostMode costMode, Logger log)
+            : _enableDynamicDimAlignment(enableDynamicDimAlignment),
+              _vfMergeConfiguration(vfConf),
+              _costMode(costMode),
+              _enableOutputTileAdjustmentForSW(costMode == VFMergeCostMode::POWER) {
         Base::initLogger(std::move(log), Base::getArgumentName());
     }
 
@@ -51,6 +56,8 @@ private:
 
     bool _enableDynamicDimAlignment = false;
     VFMergeConfiguration _vfMergeConfiguration;
+    VFMergeCostMode _costMode = VFMergeCostMode::PERFORMANCE;
+    bool _enableOutputTileAdjustmentForSW = false;
 };
 
 mlir::LogicalResult SCFVerticalFusionPass::initialize(mlir::MLIRContext* ctx) {
@@ -68,13 +75,17 @@ mlir::LogicalResult SCFVerticalFusionPass::initialize(mlir::MLIRContext* ctx) {
                    _vfMergeConfiguration, vfMergeConfiguration.getValue());
         _vfMergeConfiguration = vfMergeConfiguration.getValue();
     }
+    if (vfMergeCostModeOpt.hasValue()) {
+        _costMode = vfMergeCostModeOpt.getValue();
+        _enableOutputTileAdjustmentForSW = _costMode == VFMergeCostMode::POWER;
+    }
     return mlir::success();
 }
 
-// prioretize merging operations, assuming that merged blocks are more benefitial
+// prioritize merging operations, assuming that merged blocks are more beneficial
 struct GreedyVFConfiguration : MergeConfiguration {
-    GreedyVFConfiguration(Logger log) {
-        splitGetter = [log](VPU::VF::v2::VFConfig& config, DimArrRef allowedDims) -> VPU::VF::v2::VFCase {
+    GreedyVFConfiguration(const VFMergeCostMode costMode, Logger log) {
+        splitGetter = [costMode, log](VPU::VF::v2::VFConfig& config, DimArrRef allowedDims) -> VPU::VF::v2::VFCase {
             auto vfSplit = VPU::VF::v2::getVFSplitForSCF(config, allowedDims);
             auto outputs = config.getOutputs();
             if (outputs.empty()) {
@@ -88,7 +99,7 @@ struct GreedyVFConfiguration : MergeConfiguration {
                             "Expected single result for the last operation in the config, got {0}",
                             lastOp->getNumResults());
             auto outputType = mlir::cast<vpux::NDTypeInterface>(lastOp->getResult(0).getType());
-            return VPU::VF::v2::computeVFSCFCase(outputType, vfSplit, config, lastOp, log);
+            return VPU::VF::v2::computeVFSCFCase(outputType, vfSplit, config, lastOp, costMode, log);
         };
         mergeDecision = [](VPU::VF::v2::VFCase& vfCase) -> bool {
             return vfCase.isInitialized();
@@ -100,12 +111,14 @@ struct GreedyVFConfiguration : MergeConfiguration {
     }
 };
 
-// analize more split options and choose the most optimal one based on the cost function
+// analyze more split options and choose the most optimal one based on the cost function
 // make decision to merge based on cost comparison between merged and non-merged cases
 struct CostBasedVFConfiguration : MergeConfiguration {
-    CostBasedVFConfiguration(const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log) {
-        splitGetter = [&costFunction, log](VPU::VF::v2::VFConfig& config,
-                                           DimArrRef allowedDims) -> VPU::VF::v2::VFCase {
+    CostBasedVFConfiguration(const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, const VFMergeCostMode costMode,
+                             bool enableOutputTileAdjustmentForSW, Logger log) {
+        const auto costStrategy = VPU::VF::v2::VFCostStrategyFactory::create(costMode);
+        splitGetter = [&costFunction, costMode, enableOutputTileAdjustmentForSW, log](
+                              VPU::VF::v2::VFConfig& config, DimArrRef allowedDims) -> VPU::VF::v2::VFCase {
             if (config.getOperationsForTiling().empty()) {
                 return VPU::VF::v2::VFCase(config, {});
             }
@@ -120,7 +133,7 @@ struct CostBasedVFConfiguration : MergeConfiguration {
                 if (split.size() > 1) {
                     return VPU::MIN_REQUIRED_TILES;
                 }
-                return VPU::VF::v2::getTilingLimit(dim, config) > 1 ? VPU::MIN_REQUIRED_TILES : 1;
+                return getMinTilingNumber(dim, config);
             };
 
             const auto getMaxTiles = [&](auto dim, const VPU::VF::v2::VFSplit& split) -> int64_t {
@@ -132,9 +145,9 @@ struct CostBasedVFConfiguration : MergeConfiguration {
                 return maxTiles;
             };
 
-            auto bestCase =
-                    VPU::VF::v2::findBestVFCaseFromSplits(config, splits, getMinTiles, getMaxTiles, costFunction, log,
-                                                          config.getOutputs().back()->getContext());
+            auto bestCase = VPU::VF::v2::findBestVFCaseFromSplits(
+                    config, splits, getMinTiles, getMaxTiles, costFunction, enableOutputTileAdjustmentForSW, log,
+                    config.getOutputs().back()->getContext(), nullptr, costMode);
 
             if (!bestCase.has_value()) {
                 return VPU::VF::v2::VFCase(config, {});
@@ -144,30 +157,30 @@ struct CostBasedVFConfiguration : MergeConfiguration {
 
         // Sum of the standalone (unfused) costs of the given operations, each tiled with its own
         // assigned strategy. Used as the no-fusion reference for profitability decisions.
-        const auto baselineOfOps = [&costFunction](ArrayRef<mlir::Operation*> ops) -> StrategyCost {
-            return std::accumulate(
-                    ops.begin(), ops.end(), StrategyCost{0}, [&costFunction](StrategyCost acc, mlir::Operation* op) {
-                        SmallVector<int64_t> tilingDims;
-                        if (auto tilingStrategyAttr =
-                                    mlir::dyn_cast_or_null<mlir::ArrayAttr>(op->getAttr(tilingStrategy))) {
-                            tilingDims = parseIntArrayAttr<int64_t>(tilingStrategyAttr);
-                        }
-                        return acc + VPU::VF::v2::extractBaselineCost(op, ShapeRef(tilingDims), costFunction,
-                                                                      Logger::global());
-                    });
+        const auto baselineOfOps = [&costFunction, costStrategy](ArrayRef<mlir::Operation*> ops) -> StrategyCost {
+            return std::accumulate(ops.begin(), ops.end(), StrategyCost{0}, [&](StrategyCost acc, mlir::Operation* op) {
+                SmallVector<int64_t> tilingDims;
+                if (auto tilingStrategyAttr = mlir::dyn_cast_or_null<mlir::ArrayAttr>(op->getAttr(tilingStrategy))) {
+                    tilingDims = parseIntArrayAttr<int64_t>(tilingStrategyAttr);
+                }
+                return acc + VPU::VF::v2::extractBaselineCost(op, ShapeRef(tilingDims), costFunction, Logger::global(),
+                                                              costStrategy);
+            });
         };
         const auto computeBaselineCost = [baselineOfOps](VPU::VF::v2::VFCase& vfCase) -> StrategyCost {
             return baselineOfOps(vfCase.getConfig().getOperationsForTiling());
         };
 
-        mergeDecision = [&costFunction, log, computeBaselineCost](VPU::VF::v2::VFCase& vfCase) -> bool {
+        mergeDecision = [&costFunction, enableOutputTileAdjustmentForSW, log,
+                         computeBaselineCost](VPU::VF::v2::VFCase& vfCase) -> bool {
             if (!vfCase.isInitialized()) {
                 return false;
             }
 
             const auto baselineCost = computeBaselineCost(vfCase);
 
-            return VPU::VF::v2::isVFMergeProfitable(vfCase, baselineCost, 0, costFunction, log);
+            return VPU::VF::v2::isVFMergeProfitable(vfCase, baselineCost, 0, costFunction,
+                                                    enableOutputTileAdjustmentForSW, log);
         };
         viewLikePolicy = [](mlir::Operation* op) -> bool {
             return VPU::VF::v2::isViewLikeOpVFCompatible(op);
@@ -178,10 +191,10 @@ struct CostBasedVFConfiguration : MergeConfiguration {
         // group is not greater than the current fused cost plus the standalone cost of the newly
         // added operations (merged <= previous + new). Mirrors the pairwise merge-profitability of the
         // default (non-SCF) VF path.
-        selectBetterCase = [&costFunction, log, baselineOfOps](VPU::VF::v2::VFCase& current,
-                                                               VPU::VF::v2::VFCase& candidate) -> bool {
+        selectBetterCase = [&costFunction, enableOutputTileAdjustmentForSW, log, baselineOfOps](
+                                   VPU::VF::v2::VFCase& current, VPU::VF::v2::VFCase& candidate) -> bool {
             const auto fusedCost = [&](VPU::VF::v2::VFCase& vfCase) -> int64_t {
-                return checked_cast<int64_t>(vfCase.getCost(costFunction, log));
+                return checked_cast<int64_t>(vfCase.getCost(costFunction, enableOutputTileAdjustmentForSW, log));
             };
 
             const auto& currentOps = current.getConfig().getVFOperations();
@@ -236,11 +249,11 @@ void SCFVerticalFusionPass::safeRunOnFunc() {
         auto layerCostModel =
                 VPU::LayerCostModelAnalysis::getOrCreateLayerCostModel(maybeLayerCostModelAnalysis, &ctx, _log);
         costFunction = std::make_unique<VPU::LayerVPUNNCost>(func, layerCostModel, _log);
-        mergeConfig = CostBasedVFConfiguration(costFunction, _log);
+        mergeConfig = CostBasedVFConfiguration(costFunction, _costMode, _enableOutputTileAdjustmentForSW, _log);
         break;
     }
     case VFMergeConfiguration::GREEDY:
-        mergeConfig = GreedyVFConfiguration(_log);
+        mergeConfig = GreedyVFConfiguration(_costMode, _log);
         break;
     default:
         VPUX_THROW("Unsupported VF merge configuration");
@@ -283,6 +296,7 @@ void SCFVerticalFusionPass::safeRunOnFunc() {
 //
 
 std::unique_ptr<mlir::Pass> VPU::createSCFVerticalFusionPass(const VFMergeConfiguration vfConf,
-                                                             bool enableDynamicDimAlignment, Logger log) {
-    return std::make_unique<SCFVerticalFusionPass>(enableDynamicDimAlignment, vfConf, log);
+                                                             bool enableDynamicDimAlignment,
+                                                             const VFMergeCostMode costMode, Logger log) {
+    return std::make_unique<SCFVerticalFusionPass>(enableDynamicDimAlignment, vfConf, costMode, log);
 }

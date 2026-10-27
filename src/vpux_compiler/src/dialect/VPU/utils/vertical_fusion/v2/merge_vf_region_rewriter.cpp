@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduling_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_cost_strategy_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
@@ -125,10 +126,13 @@ SmallVector<MergeTilingPolicyType> getSupportedMergeTilingPolicyTypes() {
 MergeVFRegionRewriter::MergeVFRegionRewriter(mlir::MLIRContext* ctx, bool enableVerticalFusionPipelining,
                                              bool enablePrefetchTiling,
                                              const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log,
-                                             VFCacheAnalysis& cache)
+                                             VFCacheAnalysis& cache, VFMergeCostMode costMode)
         : MergeVFRegionBaseRewriter<VFCase>(ctx, enableVerticalFusionPipelining, enablePrefetchTiling, costFunction,
                                             log),
-          _cache(cache) {
+          _cache(cache),
+          _costMode(costMode),
+          _enableOutputTileAdjustmentForSW(costMode == VFMergeCostMode::POWER),
+          _costStrategy(VFCostStrategyFactory::create(costMode)) {
     const auto policyTypes = getSupportedMergeTilingPolicyTypes();
     _tilingPolicies.reserve(policyTypes.size());
     llvm::copy(llvm::map_range(policyTypes,
@@ -154,7 +158,7 @@ StrategyCost MergeVFRegionRewriter::extractVFCost(VFConfig& vfConfig) const {
     }
 
     if (vfSplit.empty() || operations.size() == 1) {
-        return extractBaselineCost(operations.back(), ShapeRef(tilingDims), _vpunnCostFunction, _log);
+        return extractBaselineCost(operations.back(), ShapeRef(tilingDims), _vpunnCostFunction, _log, _costStrategy);
     }
 
     auto vfCase = VFCase(vfConfig, vfSplit);
@@ -162,7 +166,7 @@ StrategyCost MergeVFRegionRewriter::extractVFCost(VFConfig& vfConfig) const {
     auto scenario = detectScenario(vfConfig);
 
     vfCase.setScheduling(std::move(scenario));
-    return vfCase.getCost(_vpunnCostFunction, _log);
+    return vfCase.getCost(_vpunnCostFunction, _enableOutputTileAdjustmentForSW, _log);
 }
 
 StrategyCost MergeVFRegionRewriter::getOriginalVFCost(VPU::VerticalFusionOp vfOp) const {
@@ -173,9 +177,9 @@ StrategyCost MergeVFRegionRewriter::getOriginalVFCost(VPU::VerticalFusionOp vfOp
 bool MergeVFRegionRewriter::isMCStrategyAligned(VPU::VerticalFusionOp currentOp, VPU::VerticalFusionOp prevOp) const {
     // Get input arg of current vf region corresponding to previous vf op
     const auto currInputArgs = getLinkedArgumentsBetweenVFOps(currentOp, prevOp);
-    VPUX_THROW_UNLESS(!currInputArgs.empty(),
-                      "No corresponding input argument found for current VF region {0} with previous VF region {1}",
-                      currentOp, prevOp);
+    VPUX_THROW_WHEN(currInputArgs.empty(),
+                    "No corresponding input argument found for current VF region {0} with previous VF region {1}",
+                    currentOp, prevOp);
 
     // Here we check whether the MC strategies are aligned between the previous VF output and all
     // compute consumers in the current VF region. The check accounts for view-like ops (e.g. PermuteCast,
@@ -315,7 +319,7 @@ bool MergeVFRegionRewriter::checkOtherVFInput(VPU::VerticalFusionOp currentOp, V
 }
 
 MergeVFRegionRewriter::IVFSchedulingPtr MergeVFRegionRewriter::detectScenario(VFConfig& vfConfig) const {
-    VFSchedulingFactory costFactory(_enablePrefetchTiling);
+    VFSchedulingFactory costFactory(_enablePrefetchTiling, _costStrategy);
     auto scenarioKind = vfConfig.getSubgraph().getScenario().has_value() ? vfConfig.getSubgraph().getScenario().value()
                         : _enablePrefetchTiling                          ? VFScenario::WEIGHTS_PREFETCHING
                                                                          : VFScenario::MINIMAL;
@@ -470,7 +474,6 @@ std::optional<VFCase> MergeVFRegionRewriter::findVFTiling(VPU::VerticalFusionOp 
 
     const SplitFilterFn splitFilter = [&](Dim dim, const VFSplit&) -> bool {
         std::unordered_map<mlir::Operation*, vpux::Dim> curOpDimMap;
-
         if (mlir::failed(backInferVFTilingDim(currentConfig, dim, curOpDimMap))) {
             return true;
         }
@@ -494,7 +497,8 @@ std::optional<VFCase> MergeVFRegionRewriter::findVFTiling(VPU::VerticalFusionOp 
                 [&](Dim dim, const VFSplit& split) {
                     return tilingPolicy.getMaximalNumber(dim, split, vfConfig);
                 },
-                _vpunnCostFunction, _log, mergedOp.getContext(), splitFilter);
+                _vpunnCostFunction, _enableOutputTileAdjustmentForSW, _log, mergedOp.getContext(), splitFilter,
+                _costMode);
     };
 
     auto splits = tilingPolicy.getSplits(dimsToCheck, allowedDims, vfConfig, preVFSplit, curVFSplit);
@@ -535,7 +539,8 @@ bool MergeVFRegionRewriter::checkVFCostFunction(VPU::VerticalFusionOp prevOp, VP
         // calculate correct cost.
         // The IR will change back when the setter is destroyed.
         VPU::VFSubgraphUserSetter setter(currentOp, mergedCase.getConfig().getSubgraph());
-        if (!isVFMergeProfitable(mergedCase, prevCost, currentCost, _vpunnCostFunction, _log)) {
+        if (!isVFMergeProfitable(mergedCase, prevCost, currentCost, _vpunnCostFunction,
+                                 _enableOutputTileAdjustmentForSW, _log)) {
             return false;
         }
     }

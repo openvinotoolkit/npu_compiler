@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU50XX/dialect/VPU/utils/cost_model_factory.hpp"
+#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"  // for getVPUDeviceType
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model_data.hpp"
 #include "vpux/utils/core/array_ref.hpp"
 #include "vpux/utils/core/error.hpp"
@@ -71,13 +72,16 @@ void vpux::VPU::arch50xx::CostModelFactory::ensureBundledCostModels() const {
     bool isFastModel = false;  // no fast model for npu50xx
     const auto costModelData = getCostModelData(isFastModel, _platformOpt);
     const auto costModelCacheData = getCostModelCacheData(_platformOpt);
+    const config::ArchKind archKind = config::ArchKind::NPU50XX;
+    const VPUNN::VPUDevice device =
+            _platformOpt.has_value() ? getVPUDeviceType(_platformOpt.value()) : getVPUDeviceType(archKind);
     _costModel = std::make_shared<VPUNN::VPUCostModel>(
-            costModelData.data(), costModelData.size(), /*copy_model_data*/ false, /*profile*/ false, VPUNN_CACHE_SIZE,
-            /*batch_size*/ 1, costModelCacheData.data(), costModelCacheData.size());
+            device, costModelData.data(), costModelData.size(), /*copy_model_data*/ false, /*profile*/ false,
+            VPUNN_CACHE_SIZE, /*batch_size*/ 1, costModelCacheData.data(), costModelCacheData.size());
     _layerCostModel = std::make_shared<VPUNN::VPULayerCostModel>(_costModel);
 
-    VPUX_THROW_UNLESS(_costModel != nullptr && _layerCostModel != nullptr,
-                      "Failed to create bundled cost models for NPU50 architecture");
+    VPUX_THROW_WHEN(_costModel == nullptr || _layerCostModel == nullptr,
+                    "Failed to create bundled cost models for NPU50 architecture");
 }
 
 }  // namespace arch50xx

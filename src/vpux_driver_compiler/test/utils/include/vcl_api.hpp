@@ -33,7 +33,6 @@ namespace VCLTest {
     vcl_symbol_statement(vclLogHandleGetString)                \
     vcl_symbol_statement(vclAllocatedExecutableCreate4)        \
     vcl_symbol_statement(vclAllocatedExecutableCreate2)        \
-    vcl_symbol_statement(vclAllocatedExecutableCreate)         \
     vcl_symbol_statement(vclExecutableGetCompatibilityString)  \
     vcl_symbol_statement(vclGetCompilerSupportedOptions)       \
     vcl_symbol_statement(vclGetCompilerIsOptionSupported)      \

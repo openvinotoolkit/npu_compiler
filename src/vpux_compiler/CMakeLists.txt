@@ -122,6 +122,8 @@ get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 target_link_libraries(mlir-dependencies
     INTERFACE
         ${conversion_libs}
+        # Arith's ValueBoundsOpInterface model; Affine/SCF/Tensor's ship in-dialect.
+        MLIRArithValueBoundsOpInterfaceImpl
         MLIRExecutionEngine
         MLIROptLib)
 target_include_directories(mlir-dependencies

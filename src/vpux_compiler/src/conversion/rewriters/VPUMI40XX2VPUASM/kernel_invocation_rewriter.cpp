@@ -60,10 +60,10 @@ mlir::FailureOr<SymbolizationResult> KernelInvocationRewriter::symbolize(
 
     mlir::SymbolRefAttr nextLink = findNextInvocationSymRef(op);
 
-    auto newOp = rewriter.create<VPUASM::ActKernelInvocationOp>(
-            op.getLoc(), symName, taskIdx, taskLocation, nextLink, kernelRange, kernelData, kernelParams, waitAttr,
-            updateAttr, profilingData, op.getTileAttr(), op.getStartAfterAttr(), op.getCleanAfterAttr(),
-            kernelIndexAttr);
+    auto newOp = VPUASM::ActKernelInvocationOp::create(rewriter, op.getLoc(), symName, taskIdx, taskLocation, nextLink,
+                                                       kernelRange, kernelData, kernelParams, waitAttr, updateAttr,
+                                                       profilingData, op.getTileAttr(), op.getStartAfterAttr(),
+                                                       op.getCleanAfterAttr(), kernelIndexAttr);
 
     rewriter.eraseOp(op);
 

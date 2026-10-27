@@ -24,7 +24,7 @@ net.NetworkInfo entryPoint : @barrier_counters inputsInfo : {
 } outputsInfo : {
   DataInfo "output_0" : tensor<1x64x32x514xf16>
 }
-func.func nested @barrier_counters(%arg0: memref<1x64x32x514xf16, @DDR>, %arg1: memref<1x64x32x514xf16, @DDR>) -> memref<1x64x32x514xf16, @DDR> {
+func.func @barrier_counters(%arg0: memref<1x64x32x514xf16, @DDR>, %arg1: memref<1x64x32x514xf16, @DDR>) -> memref<1x64x32x514xf16, @DDR> {
   %26 = VPURT.DeclareVirtualBarrier  -> !VPURT.Barrier
   %29 = VPURT.DeclareVirtualBarrier  -> !VPURT.Barrier
   %30 = VPURT.DeclareVirtualBarrier  -> !VPURT.Barrier

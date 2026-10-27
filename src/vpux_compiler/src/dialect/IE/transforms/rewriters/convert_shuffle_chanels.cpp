@@ -39,7 +39,7 @@ mlir::LogicalResult ShuffleChannelsOpConverter::matchAndRewrite(IE::ShuffleChann
     const auto axis = origOp.getAxis();
     const auto group = origOp.getGroup();
     if (group <= 0) {
-        return matchFailed(rewriter, origOp, "Unsupported group size: {0}", group);
+        return matchFailed(_log, rewriter, origOp, "Unsupported group size: {0}", group);
     }
 
     // Compute 1st shape ( e.g. for inputShape = {N,C,H,W}, axis=1
@@ -70,12 +70,12 @@ mlir::LogicalResult ShuffleChannelsOpConverter::matchAndRewrite(IE::ShuffleChann
         }
     }
     const auto shape1Attr = getIntArrayAttr(getContext(), shape1);
-    auto reShape1Op = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(), shape1Attr);
+    auto reShape1Op = IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_in"), origOp.getInput(), shape1Attr);
 
     auto permuteNdOrder = !fuseDimsHW ? SmallVector<uint32_t>{1, 0, 2, 3} : SmallVector<uint32_t>{0, 2, 1, 3};
     const auto permutationMap = mlir::AffineMap::getPermutationMap(ArrayRef(permuteNdOrder), getContext());
-    auto transpOp = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"), reShape1Op.getOutput(), nullptr,
-                                                     mlir::AffineMapAttr::get(permutationMap));
+    auto transpOp = IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_in"), reShape1Op.getOutput(),
+                                            nullptr, mlir::AffineMapAttr::get(permutationMap));
 
     const auto outShapeAttr = getIntArrayAttr(getContext(), outShape);
     auto outReshape = rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, transpOp.getOutput(), outShapeAttr);

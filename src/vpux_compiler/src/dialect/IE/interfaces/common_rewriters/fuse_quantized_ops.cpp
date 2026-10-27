@@ -42,8 +42,8 @@ IE::GroupConvolutionOp FuseWithGroupConv::createNewConvBasedOp(IE::QuantizeOp qu
     auto userSize = std::distance(users.begin(), users.end());
     auto newLoc = takeOpLoc(grConvOp, "{0}", userSize);
 
-    auto newGroupConv = rewriter.create<IE::GroupConvolutionOp>(
-            newLoc, quantizeOp.getType(), newInput, newWeights, grConvOp.getBias(), grConvOp.getStrides(),
+    auto newGroupConv = IE::GroupConvolutionOp::create(
+            rewriter, newLoc, quantizeOp.getType(), newInput, newWeights, grConvOp.getBias(), grConvOp.getStrides(),
             grConvOp.getPadsBegin(), grConvOp.getPadsEnd(), grConvOp.getDilations(), grConvOp.getGroupsAttr(),
             grConvOp.getPostOpAttr(), grConvOp.getClampAttr(), grConvOp.getOutputPaddingAttr(),
             grConvOp.getInputPaddingAttr());
@@ -67,8 +67,8 @@ IE::TransposedConvolutionOp FuseWithTransposedConv::createNewConvBasedOp(IE::Qua
     auto userSize = std::distance(users.begin(), users.end());
     auto newLoc = takeOpLoc(transposedConvOp, "{0}", userSize);
 
-    auto newTransposedConv = rewriter.create<IE::TransposedConvolutionOp>(
-            newLoc, quantizeOp.getType(), newInput, newWeights, transposedConvOp.getOutputShape(),
+    auto newTransposedConv = IE::TransposedConvolutionOp::create(
+            rewriter, newLoc, quantizeOp.getType(), newInput, newWeights, transposedConvOp.getOutputShape(),
             transposedConvOp.getBias(), transposedConvOp.getStrides(), transposedConvOp.getPadsBegin(),
             transposedConvOp.getPadsEnd(), transposedConvOp.getDilations(),
             transposedConvOp.getSpatialOutputPaddingAttr(), transposedConvOp.getPostOpAttr(),
@@ -186,7 +186,7 @@ mlir::LogicalResult FuseWithSlice::matchAndRewrite(IE::QuantizeOp quantizeOp, ml
     }
 
     if (!isLegalFuseOp(sliceOp, quantizeOp)) {
-        return matchFailed(rewriter, sliceOp, "Quantize op cannot fuse into op {0} at {1}", sliceOp->getName(),
+        return matchFailed(_log, rewriter, sliceOp, "Quantize op cannot fuse into op {0} at {1}", sliceOp->getName(),
                            sliceOp->getLoc());
     }
 
@@ -222,7 +222,7 @@ mlir::LogicalResult FuseWithTile::matchAndRewrite(IE::QuantizeOp quantizeOp, mli
     }
 
     if (!isLegalFuseOp(tileOp, quantizeOp)) {
-        return matchFailed(rewriter, tileOp, "Quantize op cannot fuse into op {0} at {1}", tileOp->getName(),
+        return matchFailed(_log, rewriter, tileOp, "Quantize op cannot fuse into op {0} at {1}", tileOp->getName(),
                            tileOp->getLoc());
     }
 

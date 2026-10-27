@@ -48,10 +48,10 @@ mlir::LogicalResult ReduceToNCE<ConcreteOp>::matchAndRewrite(ConcreteOp origOp, 
     auto mpeEngineAttr =
             mlir::cast<VPU::MPEEngineAttr>(mpeEngineInterface.getMPEEngineWithZP(/*weightZp=*/nullptr, activationZp));
 
-    auto nceOp = rewriter.create<VPU::NCEReduceOp>(origOp->getLoc(), origOp.getType(), origOp.getInput(), axes, ppeAttr,
-                                                   mpeEngineAttr, VPU::ReduceTypeAttr::get(ctx, _opType),
-                                                   /*multiClusterStrategy=*/nullptr, origOp.getOutputPaddingAttr(),
-                                                   origOp.getInputPaddingAttr());
+    auto nceOp = VPU::NCEReduceOp::create(rewriter, origOp->getLoc(), origOp.getType(), origOp.getInput(), axes,
+                                          ppeAttr, mpeEngineAttr, VPU::ReduceTypeAttr::get(ctx, _opType),
+                                          /*multiClusterStrategy=*/nullptr, origOp.getOutputPaddingAttr(),
+                                          origOp.getInputPaddingAttr());
 
     rewriter.replaceOp(origOp, nceOp.getOutput());
     return mlir::success();

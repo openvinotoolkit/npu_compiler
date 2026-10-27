@@ -113,8 +113,8 @@ mlir::LogicalResult ConvertScaleShiftToDWPass::ScaleShiftOpConverter::matchAndRe
             const auto lowFpTypeAttr = inputFq.getLowFpTypeAttr();
             const auto levelsAttr = lowFpTypeAttr == nullptr ? getIntAttr(rewriter, 255) : nullptr;
             auto newFqOp =
-                    rewriter.create<IE::FakeQuantizeOp>(origOp->getLoc(), weights, weights, weights, weights, weights,
-                                                        levelsAttr, lowFpTypeAttr, inputFq.getAutoBroadcastAttr());
+                    IE::FakeQuantizeOp::create(rewriter, origOp->getLoc(), weights, weights, weights, weights, weights,
+                                               levelsAttr, lowFpTypeAttr, inputFq.getAutoBroadcastAttr());
             weights = newFqOp.getOutput();
         }
     }
@@ -126,7 +126,7 @@ mlir::LogicalResult ConvertScaleShiftToDWPass::ScaleShiftOpConverter::matchAndRe
         if (origBiasShape[Dims4D::Act::C] == 1) {
             const SmallVector<int64_t> biasShape = {1, outShape[Dims4D::Act::C], kernelSize, kernelSize};
             const auto biaseShapeAttr = getIntArrayAttr(origOp.getContext(), biasShape);
-            auto dwConvBias = rewriter.create<IE::ReshapeOp>(origOp->getLoc(), biases, biaseShapeAttr);
+            auto dwConvBias = IE::ReshapeOp::create(rewriter, origOp->getLoc(), biases, biaseShapeAttr);
             biases = dwConvBias.getOutput();
         }
     }

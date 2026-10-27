@@ -72,8 +72,8 @@ std::tuple<mlir::Value, Shape> insertExpandToAlign(mlir::PatternRewriter& rewrit
 
     const mlir::Type outputType = inputType.changeShape(expandedShape);
     auto ctx = rewriter.getContext();
-    auto expandOp = rewriter.create<VPU::ExpandOp>(input.getLoc(), outputType, input, getIntArrayAttr(ctx, padsBegin),
-                                                   getIntArrayAttr(ctx, padsEnd));
+    auto expandOp = VPU::ExpandOp::create(rewriter, input.getLoc(), outputType, input, getIntArrayAttr(ctx, padsBegin),
+                                          getIntArrayAttr(ctx, padsEnd));
     return std::make_tuple(expandOp.getOutput(), expandedShape);
 }
 
@@ -105,8 +105,7 @@ std::tuple<mlir::Value, Shape> insertAlignmentReshape(mlir::PatternRewriter& rew
     VPUX_THROW_WHEN(newShape.totalSize() != totalElements,
                     "New shape '{0}' doesnt contain same number of elements as original '{1}'", newShape, inputShape);
     const auto ctx = input.getContext();
-    auto reshapeOp =
-            rewriter.create<VPU::AffineReshapeOp>(input.getLoc(), inputType.changeShape(newShape), input,
+    auto reshapeOp = VPU::AffineReshapeOp::create(rewriter, input.getLoc(), inputType.changeShape(newShape), input,
                                                   getIdentityDimPermutation(ctx), getIntArrayAttr(ctx, newShape));
     return std::make_tuple(reshapeOp.getOutput(), newShape);
 }
@@ -131,7 +130,7 @@ mlir::LogicalResult rewriteSparsityOpWithEltwiseOp(mlir::PatternRewriter& rewrit
             /*zeroPoint=*/0, /*storageTypeMin=*/0, /*storageTypeMax=*/255);
     auto quantizedPerAxis = mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inputType.getElementType());
     if (quantizedPerAxis) {
-        auto quantCastOp = rewriter.create<VPU::QuantizeCastOp>(origOp->getLoc(), input, defaultQuantElemType);
+        auto quantCastOp = VPU::QuantizeCastOp::create(rewriter, origOp->getLoc(), input, defaultQuantElemType);
         input = quantCastOp.getOutput();
         inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
         outputType = outputType.changeElemType(defaultQuantElemType);
@@ -201,14 +200,13 @@ mlir::LogicalResult rewriteSparsityOpWithEltwiseOp(mlir::PatternRewriter& rewrit
                                      ? mlir::cast<mlir::ArrayAttr>(origOp->getAttr(VPU::OUTPUT_PADDING_ATTR_NAME))
                                      : nullptr;
 
-    auto nceOp = rewriter.create<VPU::NCEEltwiseOp>(origOp->getLoc(), outputType, /*reduce_xy_max=*/nullptr,
-                                                    /*reduce_xy_min=*/nullptr, /*reduce_tensor_min_max=*/nullptr, input,
-                                                    input,
-                                                    /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
-                                                    VPU::EltwiseTypeAttr::get(ctx, opType), ppeAttr, mpeEngineAttr,
-                                                    /*multi_cluster_strategyAttr=*/nullptr,
-                                                    /*is_inplace*/ nullptr, outputPaddingAttr, inputPaddingAttr,
-                                                    /*axes_value=*/nullptr);
+    auto nceOp = VPU::NCEEltwiseOp::create(rewriter, origOp->getLoc(), outputType, /*reduce_xy_max=*/nullptr,
+                                           /*reduce_xy_min=*/nullptr, /*reduce_tensor_min_max=*/nullptr, input, input,
+                                           /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
+                                           VPU::EltwiseTypeAttr::get(ctx, opType), ppeAttr, mpeEngineAttr,
+                                           /*multi_cluster_strategyAttr=*/nullptr,
+                                           /*is_inplace*/ nullptr, outputPaddingAttr, inputPaddingAttr,
+                                           /*axes_value=*/nullptr);
 
     auto newOutput = nceOp.getOutput();
 
@@ -231,7 +229,7 @@ mlir::LogicalResult rewriteSparsityOpWithEltwiseOp(mlir::PatternRewriter& rewrit
 
     if (quantizedPerAxis) {
         auto quantCastOp =
-                rewriter.create<VPU::QuantizeCastOp>(origOp->getLoc(), newOutput, originalOutputType.getElementType());
+                VPU::QuantizeCastOp::create(rewriter, origOp->getLoc(), newOutput, originalOutputType.getElementType());
         newOutput = quantCastOp.getOutput();
     }
 
@@ -267,12 +265,12 @@ mlir::Value createFilter(mlir::PatternRewriter& rewriter, mlir::Location loc, vp
 
     auto filterContentAttr =
             Const::ContentAttr::get(dataAttr, contentAttrSetup.clone().sparsify(/*compressOutputType=*/false));
-    auto filterConstOp = rewriter.create<Const::DeclareOp>(loc, filterType, std::move(filterContentAttr));
+    auto filterConstOp = Const::DeclareOp::create(rewriter, loc, filterType, std::move(filterContentAttr));
 
     // The sparsity map is introduced to avoid the compute with the numerous zero values in the filter
     auto sparsityMapContentAttr = Const::ContentAttr::get(dataAttr, contentAttrSetup.clone().getSparsityMap());
-    auto sparsityMapConstOp =
-            rewriter.create<Const::DeclareOp>(loc, sparsityMapContentAttr.getType(), std::move(sparsityMapContentAttr));
+    auto sparsityMapConstOp = Const::DeclareOp::create(rewriter, loc, sparsityMapContentAttr.getType(),
+                                                       std::move(sparsityMapContentAttr));
 
     auto contentAttr = Const::ContentAttr::get(dataAttr, std::move(contentAttrSetup));
     const auto numNonSparseElements = vpux::countNonSparseElementsPerOC(contentAttr.fold(), elemType);
@@ -284,8 +282,8 @@ mlir::Value createFilter(mlir::PatternRewriter& rewriter, mlir::Location loc, vp
     auto sparsityCompressionAttr = VPU::SparsityCompressionAttr::get(ctx, axisAttr, numElemsAttr, alignmentAttr);
 
     auto groupOp =
-            rewriter.create<VPU::GroupSparseTensorOp>(loc, filterConstOp.getOutput(), sparsityMapConstOp.getOutput(),
-                                                      /*is_weights=*/true, sparsityCompressionAttr);
+            VPU::GroupSparseTensorOp::create(rewriter, loc, filterConstOp.getOutput(), sparsityMapConstOp.getOutput(),
+                                             /*is_weights=*/true, sparsityCompressionAttr);
 
     return groupOp.getOutput();
 }
@@ -317,7 +315,7 @@ mlir::LogicalResult rewriteSparsityOpWithConv(mlir::PatternRewriter& rewriter, m
 
     auto quantizedPerAxis = mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inputType.getElementType());
     if (quantizedPerAxis) {
-        auto quantCastOp = rewriter.create<VPU::QuantizeCastOp>(origOp->getLoc(), input, defaultQuantElemType);
+        auto quantCastOp = VPU::QuantizeCastOp::create(rewriter, origOp->getLoc(), input, defaultQuantElemType);
         input = quantCastOp.getOutput();
         inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
         outputType = outputType.changeElemType(defaultQuantElemType);
@@ -398,14 +396,15 @@ mlir::LogicalResult rewriteSparsityOpWithConv(mlir::PatternRewriter& rewriter, m
                                      ? mlir::cast<mlir::ArrayAttr>(origOp->getAttr(VPU::OUTPUT_PADDING_ATTR_NAME))
                                      : nullptr;
 
-    auto nceOp = rewriter.create<VPU::NCEConvolutionOp>(
-            origOp->getLoc(), outputType,
+    auto nceOp = VPU::NCEConvolutionOp::create(
+            rewriter, origOp->getLoc(), outputType,
             /*reduceXyMax*/ nullptr, /*reduceXyMin*/ nullptr,
             /*reduceGlobalMinMax*/ nullptr, input, filter, weightsTable,
             /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr,
             /*weight_zero_points=*/nullptr, stridesAttr, padAttr, ppeAttr, mpeEngineAttr,
             /*rawFilterShape=*/mlir::ValueRange{}, parseIntArrayAttr<int64_t>(rawFilterShape),
             /*multi_cluster_strategyAttr=*/nullptr, outputPaddingAttr, inputPaddingAttr,
+            /*s2dd2s_config*/ nullptr,
             /*axes_value=*/nullptr);
 
     auto newOutput = nceOp.getOutput();
@@ -416,14 +415,14 @@ mlir::LogicalResult rewriteSparsityOpWithConv(mlir::PatternRewriter& rewriter, m
         SmallVector<int64_t> offsets(origOutputShape.size(), 0);
         SmallVector<int64_t> sizes(origOutputShape.begin(), origOutputShape.end());
 
-        auto sliceOp = rewriter.create<VPU::SliceOp>(origOp->getLoc(), maybeRequantizedOutputType, newOutput,
-                                                     getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes));
+        auto sliceOp = VPU::SliceOp::create(rewriter, origOp->getLoc(), maybeRequantizedOutputType, newOutput,
+                                            getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes));
         newOutput = sliceOp.getResult();
     }
 
     if (quantizedPerAxis) {
         auto quantCastOp =
-                rewriter.create<VPU::QuantizeCastOp>(origOp->getLoc(), newOutput, originalOutputType.getElementType());
+                VPU::QuantizeCastOp::create(rewriter, origOp->getLoc(), newOutput, originalOutputType.getElementType());
         newOutput = quantCastOp.getOutput();
     }
 
@@ -518,7 +517,7 @@ mlir::LogicalResult RewriteSparsify::matchAndRewrite(VPU::SparsifyOp sparsifyOp,
 
     const auto sparsityMap = createActSparsityMap(rewriter, sparsifyOp.getInput().getType());
     auto groupedView =
-            rewriter.create<VPU::GroupSparseTensorOp>(sparsifyOp.getLoc(), sparsifyOp.getInput(), sparsityMap);
+            VPU::GroupSparseTensorOp::create(rewriter, sparsifyOp.getLoc(), sparsifyOp.getInput(), sparsityMap);
     // GroupSparseTensorOp result have new type, so cant just replaceOpWithNewOp
     sparsifyOp.getOutput().replaceAllUsesWith(groupedView->getResult(0));
     rewriter.eraseOp(sparsifyOp);

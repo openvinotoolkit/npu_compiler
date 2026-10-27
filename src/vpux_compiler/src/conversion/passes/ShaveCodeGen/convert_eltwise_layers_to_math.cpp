@@ -69,31 +69,31 @@ mlir::Value emitLinalgRegion(SrcOp op, mlir::ValueRange args, llvm::ArrayRef<mli
 template <>
 mlir::Value emitLinalgRegion<IE::LogOp>(IE::LogOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
                                         mlir::PatternRewriter& rewriter) {
-    return rewriter.create<mlir::math::LogOp>(op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
+    return mlir::math::LogOp::create(rewriter, op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
 }
 
 template <>
 mlir::Value emitLinalgRegion<IE::ExpOp>(IE::ExpOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
                                         mlir::PatternRewriter& rewriter) {
-    return rewriter.create<mlir::math::ExpOp>(op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
+    return mlir::math::ExpOp::create(rewriter, op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
 }
 
 template <>
 mlir::Value emitLinalgRegion<IE::SqrtOp>(IE::SqrtOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
                                          mlir::PatternRewriter& rewriter) {
-    return rewriter.create<mlir::math::SqrtOp>(op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
+    return mlir::math::SqrtOp::create(rewriter, op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
 }
 
 template <>
 mlir::Value emitLinalgRegion<IE::TanhOp>(IE::TanhOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
                                          mlir::PatternRewriter& rewriter) {
-    return rewriter.create<mlir::math::TanhOp>(op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
+    return mlir::math::TanhOp::create(rewriter, op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
 }
 
 template <>
 mlir::Value emitLinalgRegion<IE::AtanOp>(IE::AtanOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
                                          mlir::PatternRewriter& rewriter) {
-    return rewriter.create<mlir::math::AtanOp>(op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
+    return mlir::math::AtanOp::create(rewriter, op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
 }
 
 // Bitwise layers
@@ -102,20 +102,20 @@ template <>
 mlir::Value emitLinalgRegion<IE::BitwiseAndOp>(IE::BitwiseAndOp op, mlir::ValueRange args,
                                                llvm::ArrayRef<mlir::Type> resultTypes,
                                                mlir::PatternRewriter& rewriter) {
-    return rewriter.create<mlir::arith::AndIOp>(op->getLoc(), resultTypes, args);
+    return mlir::arith::AndIOp::create(rewriter, op->getLoc(), resultTypes, args);
 }
 
 template <>
 mlir::Value emitLinalgRegion<IE::BitwiseOrOp>(IE::BitwiseOrOp op, mlir::ValueRange args,
                                               llvm::ArrayRef<mlir::Type> resultTypes, mlir::PatternRewriter& rewriter) {
-    return rewriter.create<mlir::arith::OrIOp>(op->getLoc(), resultTypes, args);
+    return mlir::arith::OrIOp::create(rewriter, op->getLoc(), resultTypes, args);
 }
 
 template <>
 mlir::Value emitLinalgRegion<IE::BitwiseXorOp>(IE::BitwiseXorOp op, mlir::ValueRange args,
                                                llvm::ArrayRef<mlir::Type> resultTypes,
                                                mlir::PatternRewriter& rewriter) {
-    return rewriter.create<mlir::arith::XOrIOp>(op->getLoc(), resultTypes, args);
+    return mlir::arith::XOrIOp::create(rewriter, op->getLoc(), resultTypes, args);
 }
 
 template <>
@@ -125,8 +125,8 @@ mlir::Value emitLinalgRegion<IE::BitwiseNotOp>(IE::BitwiseNotOp op, mlir::ValueR
     // Do this as a xor with ~0 since there is no bitwise not operator in arith.
     auto allOnesAttr =
             rewriter.getIntegerAttr(resultTypes[0], llvm::APInt::getAllOnes(resultTypes[0].getIntOrFloatBitWidth()));
-    auto allOnes = rewriter.create<mlir::arith::ConstantOp>(op->getLoc(), allOnesAttr);
-    return rewriter.create<mlir::arith::XOrIOp>(op->getLoc(), resultTypes, args[0], allOnes);
+    auto allOnes = mlir::arith::ConstantOp::create(rewriter, op->getLoc(), allOnesAttr);
+    return mlir::arith::XOrIOp::create(rewriter, op->getLoc(), resultTypes, args[0], allOnes);
 }
 
 // Logical and select layers
@@ -137,28 +137,28 @@ static mlir::Value emitNotEqualZero(mlir::Value val, mlir::PatternRewriter& rewr
     // select layers for converting input values to bool (i1).
     if (mlir::isa<mlir::FloatType>(val.getType())) {
         auto zeroAttr = rewriter.getFloatAttr(val.getType(), 0.);
-        mlir::Value zero = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), zeroAttr);
-        return rewriter.create<mlir::arith::CmpFOp>(val.getLoc(), mlir::arith::CmpFPredicate::ONE, val, zero,
-                                                    mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
+        mlir::Value zero = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), zeroAttr);
+        return mlir::arith::CmpFOp::create(rewriter, val.getLoc(), mlir::arith::CmpFPredicate::ONE, val, zero,
+                                           mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
     }
     auto zeroAttr = rewriter.getIntegerAttr(val.getType(), 0);
-    mlir::Value zero = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), zeroAttr);
+    mlir::Value zero = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), zeroAttr);
 
-    return rewriter.create<mlir::arith::CmpIOp>(val.getLoc(), mlir::arith::CmpIPredicate::ne, val, zero);
+    return mlir::arith::CmpIOp::create(rewriter, val.getLoc(), mlir::arith::CmpIPredicate::ne, val, zero);
 }
 
 static mlir::Value convertFromBool(mlir::Value val, mlir::Type ty, mlir::PatternRewriter& rewriter) {
     if (mlir::isa<mlir::FloatType>(ty)) {
-        return rewriter.create<mlir::arith::UIToFPOp>(val.getLoc(), ty, val);
+        return mlir::arith::UIToFPOp::create(rewriter, val.getLoc(), ty, val);
     }
-    return rewriter.create<mlir::arith::ExtUIOp>(val.getLoc(), ty, val);
+    return mlir::arith::ExtUIOp::create(rewriter, val.getLoc(), ty, val);
 }
 
 template <>
 mlir::Value emitLinalgRegion<IE::SelectOp>(IE::SelectOp op, mlir::ValueRange args,
                                            llvm::ArrayRef<mlir::Type> resultTypes, mlir::PatternRewriter& rewriter) {
     auto compare = emitNotEqualZero(args[0], rewriter);
-    return rewriter.create<mlir::arith::SelectOp>(op->getLoc(), resultTypes[0], compare, args[1], args[2]);
+    return mlir::arith::SelectOp::create(rewriter, op->getLoc(), resultTypes[0], compare, args[1], args[2]);
 }
 
 template <>
@@ -167,8 +167,8 @@ mlir::Value emitLinalgRegion<IE::LogicalNotOp>(IE::LogicalNotOp op, mlir::ValueR
                                                mlir::PatternRewriter& rewriter) {
     auto compare = emitNotEqualZero(args[0], rewriter);
     auto oneAttr = rewriter.getIntegerAttr(compare.getType(), 1);
-    mlir::Value one = rewriter.create<mlir::arith::ConstantOp>(op->getLoc(), oneAttr);  // i1 1
-    auto logicalRes = rewriter.create<mlir::arith::XOrIOp>(op->getLoc(), compare, one);
+    mlir::Value one = mlir::arith::ConstantOp::create(rewriter, op->getLoc(), oneAttr);  // i1 1
+    auto logicalRes = mlir::arith::XOrIOp::create(rewriter, op->getLoc(), compare, one);
     return convertFromBool(logicalRes, resultTypes[0], rewriter);
 }
 
@@ -177,7 +177,7 @@ mlir::Value emitEltwiseLogical(mlir::Operation* op, mlir::ValueRange args, llvm:
                                mlir::PatternRewriter& rewriter) {
     auto lhsCompare = emitNotEqualZero(args[0], rewriter);
     auto rhsCompare = emitNotEqualZero(args[1], rewriter);
-    auto logicalRes = rewriter.create<LogicalOp>(op->getLoc(), lhsCompare, rhsCompare);
+    auto logicalRes = LogicalOp::create(rewriter, op->getLoc(), lhsCompare, rhsCompare);
     return convertFromBool(logicalRes, resultTypes[0], rewriter);
 }
 
@@ -208,20 +208,19 @@ static mlir::Value emitCmp(mlir::Operation* op, mlir::ValueRange args, llvm::Arr
     auto elTy = mlir::cast<NDTypeInterface>(op->getOperand(0).getType()).getElementType();
     mlir::Value cmpVal = nullptr;
     if (mlir::isa<mlir::FloatType>(elTy)) {
-        cmpVal = rewriter.create<mlir::arith::CmpFOp>(
-                op->getLoc(), fpP, args[0], args[1],
-                mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
+        cmpVal = mlir::arith::CmpFOp::create(rewriter, op->getLoc(), fpP, args[0], args[1],
+                                             mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
     } else if (elTy.isSignedInteger()) {
-        cmpVal = rewriter.create<mlir::arith::CmpIOp>(op->getLoc(), signedP, args[0], args[1]);
+        cmpVal = mlir::arith::CmpIOp::create(rewriter, op->getLoc(), signedP, args[0], args[1]);
     } else {
-        cmpVal = rewriter.create<mlir::arith::CmpIOp>(op->getLoc(), unsignedP, args[0], args[1]);
+        cmpVal = mlir::arith::CmpIOp::create(rewriter, op->getLoc(), unsignedP, args[0], args[1]);
     }
 
     if (mlir::isa<mlir::FloatType>(resultTypes[0])) {
-        return rewriter.create<mlir::arith::UIToFPOp>(op->getLoc(), resultTypes[0], cmpVal);
+        return mlir::arith::UIToFPOp::create(rewriter, op->getLoc(), resultTypes[0], cmpVal);
     }
 
-    return rewriter.create<mlir::arith::ExtUIOp>(op->getLoc(), resultTypes[0], cmpVal);
+    return mlir::arith::ExtUIOp::create(rewriter, op->getLoc(), resultTypes[0], cmpVal);
 }
 
 template <>
@@ -273,11 +272,11 @@ mlir::Value emitLinalgRegion<IE::SquaredDifferenceOp>(IE::SquaredDifferenceOp op
                                                       mlir::PatternRewriter& rewriter) {
     auto loc = op->getLoc();
     if (mlir::isa<mlir::FloatType>(args[0].getType())) {
-        auto sub = rewriter.create<mlir::arith::SubFOp>(loc, resultTypes, args);
-        return rewriter.create<mlir::arith::MulFOp>(loc, sub.getType(), sub, sub);
+        auto sub = mlir::arith::SubFOp::create(rewriter, loc, resultTypes, args);
+        return mlir::arith::MulFOp::create(rewriter, loc, sub.getType(), sub, sub);
     }
-    auto sub = rewriter.create<mlir::arith::SubIOp>(loc, resultTypes, args);
-    return rewriter.create<mlir::arith::MulIOp>(loc, sub.getType(), sub, sub);
+    auto sub = mlir::arith::SubIOp::create(rewriter, loc, resultTypes, args);
+    return mlir::arith::MulIOp::create(rewriter, loc, sub.getType(), sub, sub);
 }
 
 // Clamp/ReLU/LeakyRelu
@@ -303,33 +302,33 @@ static mlir::Value emitClamp(mlir::Value val, mlir::Type elTy, double min, doubl
         maxF.convertToInteger(maxI, llvm::APFloat::rmTowardNegative, &isExact);
 
         // Construct the min/max constants.
-        auto minCt = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(val.getType(), minI));
-        auto maxCt = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(val.getType(), maxI));
+        auto minCt = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(val.getType(), minI));
+        auto maxCt = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(val.getType(), maxI));
 
         auto cmpPred = isSigned ? mlir::arith::CmpIPredicate::sle : mlir::arith::CmpIPredicate::ule;
 
         // Compute max(input, min_limit).
-        auto cmpMin = rewriter.create<mlir::arith::CmpIOp>(loc, cmpPred, val, minCt);
-        auto lowClamped = rewriter.create<mlir::arith::SelectOp>(loc, val.getType(), cmpMin, minCt, val);
+        auto cmpMin = mlir::arith::CmpIOp::create(rewriter, loc, cmpPred, val, minCt);
+        auto lowClamped = mlir::arith::SelectOp::create(rewriter, loc, val.getType(), cmpMin, minCt, val);
 
         // Compute min(max(input, min_limit), max_limit).
-        auto cmpMax = rewriter.create<mlir::arith::CmpIOp>(loc, cmpPred, maxCt, lowClamped);
-        return rewriter.create<mlir::arith::SelectOp>(loc, val.getType(), cmpMax, maxCt, lowClamped);
+        auto cmpMax = mlir::arith::CmpIOp::create(rewriter, loc, cmpPred, maxCt, lowClamped);
+        return mlir::arith::SelectOp::create(rewriter, loc, val.getType(), cmpMax, maxCt, lowClamped);
     }
 
     // Construct the min/max constants.
-    auto minCt = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(val.getType(), min));
-    auto maxCt = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(val.getType(), max));
+    auto minCt = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(val.getType(), min));
+    auto maxCt = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(val.getType(), max));
     auto fmFlags = mlir::arith::FastMathFlags::nsz | mlir::arith::FastMathFlags::nnan;
 
     // Compute max(input, min_limit).
-    auto cmpMin = rewriter.create<mlir::arith::CmpFOp>(loc, mlir::arith::CmpFPredicate::OLE, val, minCt, fmFlags);
-    auto lowClamped = rewriter.create<mlir::arith::SelectOp>(loc, val.getType(), cmpMin, minCt, val);
+    auto cmpMin = mlir::arith::CmpFOp::create(rewriter, loc, mlir::arith::CmpFPredicate::OLE, val, minCt, fmFlags);
+    auto lowClamped = mlir::arith::SelectOp::create(rewriter, loc, val.getType(), cmpMin, minCt, val);
 
     // Compute min(max(input, min_limit), max_limit).
     auto cmpMax =
-            rewriter.create<mlir::arith::CmpFOp>(loc, mlir::arith::CmpFPredicate::OLE, lowClamped, maxCt, fmFlags);
-    return rewriter.create<mlir::arith::SelectOp>(loc, val.getType(), cmpMax, lowClamped, maxCt);
+            mlir::arith::CmpFOp::create(rewriter, loc, mlir::arith::CmpFPredicate::OLE, lowClamped, maxCt, fmFlags);
+    return mlir::arith::SelectOp::create(rewriter, loc, val.getType(), cmpMax, lowClamped, maxCt);
 }
 
 template <>
@@ -344,21 +343,21 @@ static mlir::Value emitLeakyReLU(mlir::Value val, double slope, mlir::PatternRew
     // Compute this as max(in, 0) + slope * min(in, 0)
     auto loc = val.getLoc();
     auto zeroAttr = rewriter.getFloatAttr(val.getType(), 0.);
-    mlir::Value zero = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), zeroAttr);
+    mlir::Value zero = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), zeroAttr);
 
-    auto cmp = rewriter.create<mlir::arith::CmpFOp>(val.getLoc(), mlir::arith::CmpFPredicate::OLE, val, zero,
-                                                    mlir::arith::FastMathFlags::nsz | mlir::arith::FastMathFlags::nnan);
-    auto max = rewriter.create<mlir::arith::SelectOp>(loc, val.getType(), cmp, zero, val);
+    auto cmp = mlir::arith::CmpFOp::create(rewriter, val.getLoc(), mlir::arith::CmpFPredicate::OLE, val, zero,
+                                           mlir::arith::FastMathFlags::nsz | mlir::arith::FastMathFlags::nnan);
+    auto max = mlir::arith::SelectOp::create(rewriter, loc, val.getType(), cmp, zero, val);
 
     if (slope == 0.) {
         return max;
     }
 
-    auto min = rewriter.create<mlir::arith::SelectOp>(loc, cmp, val, zero);
+    auto min = mlir::arith::SelectOp::create(rewriter, loc, cmp, val, zero);
     auto slopeAttr = rewriter.getFloatAttr(val.getType(), slope);
-    auto slopeCt = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), slopeAttr);
-    auto mul = rewriter.create<mlir::arith::MulFOp>(loc, min, slopeCt);
-    return rewriter.create<mlir::arith::AddFOp>(loc, max, mul);
+    auto slopeCt = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), slopeAttr);
+    auto mul = mlir::arith::MulFOp::create(rewriter, loc, min, slopeCt);
+    return mlir::arith::AddFOp::create(rewriter, loc, max, mul);
 }
 
 template <>
@@ -387,13 +386,13 @@ mlir::Value emitLinalgRegion<IE::EluOp>(IE::EluOp op, mlir::ValueRange args, llv
     auto elemType = mlir::cast<mlir::FloatType>(resultTypes[0]);
 
     // Create constants
-    auto zero = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, 0.0));
-    auto one = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, 1.0));
+    auto zero = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(elemType, 0.0));
+    auto one = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(elemType, 1.0));
 
     // Access alpha (x attribute)
     auto xAttr = op.getXAttr();
     const double alpha = xAttr.getValue().convertToDouble();
-    auto alphaConst = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, alpha));
+    auto alphaConst = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(elemType, alpha));
 
     // Use afn (approximate functions) flag for exp
     auto fmFlags = mlir::arith::FastMathFlagsAttr::get(rewriter.getContext(), mlir::arith::FastMathFlags::afn);
@@ -401,17 +400,17 @@ mlir::Value emitLinalgRegion<IE::EluOp>(IE::EluOp op, mlir::ValueRange args, llv
             rewriter.getContext(), mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
 
     // Compute min and max using vector operations
-    auto min = rewriter.create<mlir::arith::MinimumFOp>(loc, input, zero, fmFlagsMinMax);
-    auto max = rewriter.create<mlir::arith::MaximumFOp>(loc, input, zero, fmFlagsMinMax);
+    auto min = mlir::arith::MinimumFOp::create(rewriter, loc, input, zero, fmFlagsMinMax);
+    auto max = mlir::arith::MaximumFOp::create(rewriter, loc, input, zero, fmFlagsMinMax);
 
     // Compute exponential of min (negative values only)
-    auto expMin = rewriter.create<mlir::math::ExpOp>(loc, min, fmFlags);
+    auto expMin = mlir::math::ExpOp::create(rewriter, loc, min, fmFlags);
 
     // Combine: max + alpha * (exp(min) - 1)
-    auto expSub = rewriter.create<mlir::arith::SubFOp>(loc, expMin, one);
-    auto scaled = rewriter.create<mlir::arith::MulFOp>(loc, alphaConst, expSub);
+    auto expSub = mlir::arith::SubFOp::create(rewriter, loc, expMin, one);
+    auto scaled = mlir::arith::MulFOp::create(rewriter, loc, alphaConst, expSub);
 
-    return rewriter.create<mlir::arith::AddFOp>(loc, max, scaled);
+    return mlir::arith::AddFOp::create(rewriter, loc, max, scaled);
 }
 
 // Gelu
@@ -429,25 +428,25 @@ mlir::Value emitLinalgRegion<IE::GeluOp>(IE::GeluOp op, mlir::ValueRange args, l
 
     // Create constants with proper type
     auto sqrt2_div_pi =
-            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), SQRT2_DIV_PI_VAL));
-    auto mul_fitting_const = rewriter.create<mlir::arith::ConstantOp>(
-            loc, rewriter.getFloatAttr(input.getType(), MUL_FITTING_CONST_VAL));
-    auto one = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 1.0));
-    auto half = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 0.5));
+            mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), SQRT2_DIV_PI_VAL));
+    auto mul_fitting_const = mlir::arith::ConstantOp::create(
+            rewriter, loc, rewriter.getFloatAttr(input.getType(), MUL_FITTING_CONST_VAL));
+    auto one = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), 1.0));
+    auto half = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), 0.5));
 
     // Use afn (approximate functions) flag for tanh
     auto fmFlags = mlir::arith::FastMathFlagsAttr::get(rewriter.getContext(), mlir::arith::FastMathFlags::afn);
 
     // Computes
-    auto square = rewriter.create<mlir::arith::MulFOp>(loc, input, input);
-    auto scaled_square = rewriter.create<mlir::arith::MulFOp>(loc, mul_fitting_const, square);
-    auto scaled_base = rewriter.create<mlir::arith::AddFOp>(loc, sqrt2_div_pi, scaled_square);
-    auto scaled_input = rewriter.create<mlir::arith::MulFOp>(loc, input, scaled_base);
-    auto tanh_result = rewriter.create<mlir::math::TanhOp>(loc, scaled_input, fmFlags);
-    auto tanh_plus_one = rewriter.create<mlir::arith::AddFOp>(loc, one, tanh_result);
-    auto gelu_intermediate = rewriter.create<mlir::arith::MulFOp>(loc, input, tanh_plus_one);
+    auto square = mlir::arith::MulFOp::create(rewriter, loc, input, input);
+    auto scaled_square = mlir::arith::MulFOp::create(rewriter, loc, mul_fitting_const, square);
+    auto scaled_base = mlir::arith::AddFOp::create(rewriter, loc, sqrt2_div_pi, scaled_square);
+    auto scaled_input = mlir::arith::MulFOp::create(rewriter, loc, input, scaled_base);
+    auto tanh_result = mlir::math::TanhOp::create(rewriter, loc, scaled_input, fmFlags);
+    auto tanh_plus_one = mlir::arith::AddFOp::create(rewriter, loc, one, tanh_result);
+    auto gelu_intermediate = mlir::arith::MulFOp::create(rewriter, loc, input, tanh_plus_one);
 
-    return rewriter.create<mlir::arith::MulFOp>(loc, gelu_intermediate, half);
+    return mlir::arith::MulFOp::create(rewriter, loc, gelu_intermediate, half);
 }
 
 // Selu
@@ -462,8 +461,8 @@ mlir::Value emitLinalgRegion<IE::SeluOp>(IE::SeluOp op, mlir::ValueRange args, l
     auto elemType = mlir::cast<mlir::FloatType>(resultTypes[0]);
 
     // Create constants
-    auto zero = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, 0.0));
-    auto one = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, 1.0));
+    auto zero = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(elemType, 0.0));
+    auto one = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(elemType, 1.0));
 
     // Get alpha and lambda from the operation's attributes
     auto alphaAttr = op.getAlphaValueAttr();
@@ -477,8 +476,8 @@ mlir::Value emitLinalgRegion<IE::SeluOp>(IE::SeluOp op, mlir::ValueRange args, l
     double alphaVal = alphaAttr.getValue().convertToDouble();
     double lambdaVal = lambdaAttr.getValue().convertToDouble();
 
-    auto alpha = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, alphaVal));
-    auto lambda = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, lambdaVal));
+    auto alpha = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(elemType, alphaVal));
+    auto lambda = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(elemType, lambdaVal));
 
     // Use afn (approximate functions) flag for exp
     auto fmFlags = mlir::arith::FastMathFlagsAttr::get(rewriter.getContext(), mlir::arith::FastMathFlags::afn);
@@ -486,19 +485,19 @@ mlir::Value emitLinalgRegion<IE::SeluOp>(IE::SeluOp op, mlir::ValueRange args, l
             rewriter.getContext(), mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
 
     // Compute min and max using vector operations
-    auto min = rewriter.create<mlir::arith::MinimumFOp>(loc, input, zero, fmFlagsMinMax);
-    auto max = rewriter.create<mlir::arith::MaximumFOp>(loc, input, zero, fmFlagsMinMax);
+    auto min = mlir::arith::MinimumFOp::create(rewriter, loc, input, zero, fmFlagsMinMax);
+    auto max = mlir::arith::MaximumFOp::create(rewriter, loc, input, zero, fmFlagsMinMax);
 
     // Compute exponential of min (negative values only)
-    auto expMin = rewriter.create<mlir::math::ExpOp>(loc, min, fmFlags);
+    auto expMin = mlir::math::ExpOp::create(rewriter, loc, min, fmFlags);
 
     // Compute SELU components
-    auto exp_minus_one = rewriter.create<mlir::arith::SubFOp>(loc, expMin, one);
-    auto alpha_multiply = rewriter.create<mlir::arith::MulFOp>(loc, alpha, exp_minus_one);
-    auto sum_max = rewriter.create<mlir::arith::AddFOp>(loc, max, alpha_multiply);
+    auto exp_minus_one = mlir::arith::SubFOp::create(rewriter, loc, expMin, one);
+    auto alpha_multiply = mlir::arith::MulFOp::create(rewriter, loc, alpha, exp_minus_one);
+    auto sum_max = mlir::arith::AddFOp::create(rewriter, loc, max, alpha_multiply);
 
     // Scale by lambda
-    return rewriter.create<mlir::arith::MulFOp>(loc, lambda, sum_max);
+    return mlir::arith::MulFOp::create(rewriter, loc, lambda, sum_max);
 }
 
 // Prelu
@@ -511,17 +510,17 @@ mlir::Value emitLinalgRegion<IE::PReluOp>(IE::PReluOp op, mlir::ValueRange args,
     auto input = args[0];
 
     mlir::Type elemType = args[0].getType();
-    auto zero = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, 0.0));
+    auto zero = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(elemType, 0.0));
 
     auto fmFlagsMinMax = mlir::arith::FastMathFlagsAttr::get(
             rewriter.getContext(), mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
 
     // Computes PReLU activation: max(input, 0) + slope * min(input, 0)
-    auto min = rewriter.create<mlir::arith::MinimumFOp>(loc, input, zero, fmFlagsMinMax);
-    auto max = rewriter.create<mlir::arith::MaximumFOp>(loc, input, zero, fmFlagsMinMax);
+    auto min = mlir::arith::MinimumFOp::create(rewriter, loc, input, zero, fmFlagsMinMax);
+    auto max = mlir::arith::MaximumFOp::create(rewriter, loc, input, zero, fmFlagsMinMax);
 
-    auto slopeMulMin = rewriter.create<mlir::arith::MulFOp>(loc, min, args[1]);
-    return rewriter.create<mlir::arith::AddFOp>(loc, max, slopeMulMin);
+    auto slopeMulMin = mlir::arith::MulFOp::create(rewriter, loc, min, args[1]);
+    return mlir::arith::AddFOp::create(rewriter, loc, max, slopeMulMin);
 }
 
 // Add/Sub/Mul
@@ -531,9 +530,9 @@ mlir::Value emitEltwiseWithPostOp(mlir::Operation* op, mlir::ValueRange args, ll
                                   mlir::PatternRewriter& rewriter) {
     mlir::Value val = nullptr;
     if (mlir::isa<mlir::FloatType>(args[0].getType())) {
-        val = rewriter.create<SrcFOp>(op->getLoc(), resultTypes, args);
+        val = SrcFOp::create(rewriter, op->getLoc(), resultTypes, args);
     } else {
-        val = rewriter.create<SrcIOp>(op->getLoc(), resultTypes, args);
+        val = SrcIOp::create(rewriter, op->getLoc(), resultTypes, args);
     }
     if (auto postOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(op)) {
         auto clampAttr = postOp.getClampAttr();
@@ -593,12 +592,12 @@ mlir::Value emitLinalgRegion<IE::DivideOp>(IE::DivideOp op, mlir::ValueRange arg
         // the division to a multiplication when doing an inner broadcast).
         // SW layers also make (explicit) use of this.
         auto attr = mlir::arith::FastMathFlagsAttr::get(rewriter.getContext(), mlir::arith::FastMathFlags::arcp);
-        return rewriter.create<mlir::arith::DivFOp>(loc, resultTypes, args[0], args[1], attr);
+        return mlir::arith::DivFOp::create(rewriter, loc, resultTypes, args[0], args[1], attr);
     }
     if (elTy.isSignedInteger()) {
-        return rewriter.create<mlir::arith::DivSIOp>(loc, resultTypes, args);
+        return mlir::arith::DivSIOp::create(rewriter, loc, resultTypes, args);
     }
-    return rewriter.create<mlir::arith::DivUIOp>(loc, resultTypes, args);
+    return mlir::arith::DivUIOp::create(rewriter, loc, resultTypes, args);
 }
 
 // Min/Max layers
@@ -612,12 +611,12 @@ mlir::Value emitMinOrMax(mlir::Operation* op, mlir::ValueRange args, llvm::Array
         // so it should be okay to have nnan/nsz.
         auto attr = mlir::arith::FastMathFlagsAttr::get(
                 rewriter.getContext(), mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
-        return rewriter.create<FPOp>(loc, resultTypes, args[0], args[1], attr);
+        return FPOp::create(rewriter, loc, resultTypes, args[0], args[1], attr);
     }
     if (elTy.isSignedInteger()) {
-        return rewriter.create<SIOp>(loc, resultTypes, args);
+        return SIOp::create(rewriter, loc, resultTypes, args);
     }
-    return rewriter.create<UIOp>(loc, resultTypes, args);
+    return UIOp::create(rewriter, loc, resultTypes, args);
 }
 
 mlir::Value emitMin(mlir::Operation* op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
@@ -655,16 +654,16 @@ mlir::Value emitF16ViaF32ThenTrunc(mlir::Operation* op, mlir::ValueRange args, l
     if (mlir::isa<mlir::Float16Type>(elTy)) {
         // f16 -> fp32
         auto f32Type = mlir::Float32Type::get(rewriter.getContext());
-        auto extArg = rewriter.create<mlir::arith::ExtFOp>(args[0].getLoc(), f32Type, args[0]);
+        auto extArg = mlir::arith::ExtFOp::create(rewriter, args[0].getLoc(), f32Type, args[0]);
 
         // Creating the operation in fp32
-        auto genOp = rewriter.create<OpT>(op->getLoc(), f32Type, extArg);
+        auto genOp = OpT::create(rewriter, op->getLoc(), f32Type, extArg);
         auto f16Type = mlir::Float16Type::get(rewriter.getContext());
-        return rewriter.create<mlir::arith::TruncFOp>(op->getLoc(), f16Type, genOp);
+        return mlir::arith::TruncFOp::create(rewriter, op->getLoc(), f16Type, genOp);
     }
 
     // Non-F16: direct call operation
-    return rewriter.create<OpT>(op->getLoc(), resultTypes, args[0]);
+    return OpT::create(rewriter, op->getLoc(), resultTypes, args[0]);
 }
 
 // Erf layer
@@ -682,9 +681,9 @@ mlir::Value emitLinalgRegion<IE::RoundOp>(IE::RoundOp op, mlir::ValueRange args,
     auto modeAttr = op.getMode();
 
     if (modeAttr == IE::RoundMode::HALF_TO_EVEN) {
-        return rewriter.create<mlir::math::RoundEvenOp>(loc, resultTypes, args[0]);
+        return mlir::math::RoundEvenOp::create(rewriter, loc, resultTypes, args[0]);
     }
-    return rewriter.create<mlir::math::RoundOp>(loc, resultTypes, args[0]);
+    return mlir::math::RoundOp::create(rewriter, loc, resultTypes, args[0]);
 }
 
 // Sin layer
@@ -710,15 +709,15 @@ mlir::Value emitLinalgRegion<IE::CoshOp>(IE::CoshOp op, mlir::ValueRange args, l
     auto loc = op->getLoc();
     auto input = args.front();
     auto zeroConst =
-            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 0.0));  // Const 0
+            mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), 0.0));  // Const 0
     auto halfConst =
-            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 0.5));  // Const 0.5
-    auto xExp = rewriter.create<mlir::math::ExpOp>(loc, input, mlir::arith::FastMathFlags::afn);         // exp(X)
-    auto negX = rewriter.create<mlir::arith::SubFOp>(loc, zeroConst, input);                             // -x = 0-x
-    auto expNegX = rewriter.create<mlir::math::ExpOp>(loc, negX, mlir::arith::FastMathFlags::afn);       // exp(-x)
-    auto expSum = rewriter.create<mlir::arith::AddFOp>(loc, xExp, expNegX);  // exp(x) + exp(-x)
+            mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), 0.5));  // Const 0.5
+    auto xExp = mlir::math::ExpOp::create(rewriter, loc, input, mlir::arith::FastMathFlags::afn);         // exp(X)
+    auto negX = mlir::arith::SubFOp::create(rewriter, loc, zeroConst, input);                             // -x = 0-x
+    auto expNegX = mlir::math::ExpOp::create(rewriter, loc, negX, mlir::arith::FastMathFlags::afn);       // exp(-x)
+    auto expSum = mlir::arith::AddFOp::create(rewriter, loc, xExp, expNegX);  // exp(x) + exp(-x)
 
-    return rewriter.create<mlir::arith::MulFOp>(loc, expSum, halfConst);
+    return mlir::arith::MulFOp::create(rewriter, loc, expSum, halfConst);
 }
 
 // tan(x) = sin(x) / cos(x)
@@ -731,7 +730,7 @@ mlir::Value emitLinalgRegion<IE::TanOp>(IE::TanOp op, mlir::ValueRange args, llv
     auto sinX = emitF16ViaF32ThenTrunc<mlir::math::SinOp>(op, args, resultTypes, rewriter);
     auto cosX = emitF16ViaF32ThenTrunc<mlir::math::CosOp>(op, args, resultTypes, rewriter);
 
-    return rewriter.create<mlir::arith::DivFOp>(loc, sinX, cosX);
+    return mlir::arith::DivFOp::create(rewriter, loc, sinX, cosX);
 }
 
 // atanh(x) = 0.5 * log((1 + x) / (1 - x))
@@ -744,18 +743,18 @@ mlir::Value emitLinalgRegion<IE::AtanhOp>(IE::AtanhOp op, mlir::ValueRange args,
     auto input = args.front();
 
     auto oneConst =
-            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 1.0));  // Const 1
+            mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), 1.0));  // Const 1
     auto halfConst =
-            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 0.5));  // Const 0.5
+            mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), 0.5));  // Const 0.5
 
-    auto onePlusX = rewriter.create<mlir::arith::AddFOp>(loc, oneConst, input);   // 1 + x
-    auto oneMinusX = rewriter.create<mlir::arith::SubFOp>(loc, oneConst, input);  // 1 - x
+    auto onePlusX = mlir::arith::AddFOp::create(rewriter, loc, oneConst, input);   // 1 + x
+    auto oneMinusX = mlir::arith::SubFOp::create(rewriter, loc, oneConst, input);  // 1 - x
 
-    auto divResult = rewriter.create<mlir::arith::DivFOp>(loc, onePlusX, oneMinusX);  // (1 + x) / (1 - x)
-    auto logResult = rewriter.create<mlir::math::LogOp>(loc, divResult,
-                                                        mlir::arith::FastMathFlags::afn);  // log((1 + x) / (1 - x))
+    auto divResult = mlir::arith::DivFOp::create(rewriter, loc, onePlusX, oneMinusX);  // (1 + x) / (1 - x)
+    auto logResult = mlir::math::LogOp::create(rewriter, loc, divResult,
+                                               mlir::arith::FastMathFlags::afn);  // log((1 + x) / (1 - x))
 
-    return rewriter.create<mlir::arith::MulFOp>(loc, logResult, halfConst);
+    return mlir::arith::MulFOp::create(rewriter, loc, logResult, halfConst);
 }
 
 // Sinh layer   sinh(x) = (exp(x) - exp(-x)) / 2
@@ -767,15 +766,15 @@ mlir::Value emitLinalgRegion<IE::SinhOp>(IE::SinhOp op, mlir::ValueRange args, l
     auto loc = op->getLoc();
     auto input = args.front();
     auto zeroConst =
-            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 0.0));  // Const 0
+            mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), 0.0));  // Const 0
     auto halfConst =
-            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 0.5));  // Const 0.5
-    auto expX = rewriter.create<mlir::math::ExpOp>(loc, input, mlir::arith::FastMathFlags::afn);         // exp(x)
-    auto negX = rewriter.create<mlir::arith::SubFOp>(loc, zeroConst, input);                             // -x = 0-x
-    auto expNegX = rewriter.create<mlir::math::ExpOp>(loc, negX, mlir::arith::FastMathFlags::afn);       // exp (-x)
-    auto diffExp = rewriter.create<mlir::arith::SubFOp>(loc, expX, expNegX);  // exp(x) - exp(-x)
+            mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), 0.5));  // Const 0.5
+    auto expX = mlir::math::ExpOp::create(rewriter, loc, input, mlir::arith::FastMathFlags::afn);         // exp(x)
+    auto negX = mlir::arith::SubFOp::create(rewriter, loc, zeroConst, input);                             // -x = 0-x
+    auto expNegX = mlir::math::ExpOp::create(rewriter, loc, negX, mlir::arith::FastMathFlags::afn);       // exp (-x)
+    auto diffExp = mlir::arith::SubFOp::create(rewriter, loc, expX, expNegX);  // exp(x) - exp(-x)
 
-    return rewriter.create<mlir::arith::MulFOp>(loc, diffExp, halfConst);
+    return mlir::arith::MulFOp::create(rewriter, loc, diffExp, halfConst);
 }
 
 // Negative layer
@@ -785,12 +784,12 @@ mlir::Value emitLinalgRegion<IE::NegativeOp>(IE::NegativeOp op, mlir::ValueRange
     auto loc = op.getLoc();
 
     if (mlir::isa<mlir::FloatType>(args[0].getType())) {
-        auto zero = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(args[0].getType(), 0.));
-        return rewriter.create<mlir::arith::SubFOp>(loc, resultTypes, mlir::ValueRange{zero, args[0]});
+        auto zero = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(args[0].getType(), 0.));
+        return mlir::arith::SubFOp::create(rewriter, loc, resultTypes, mlir::ValueRange{zero, args[0]});
     }
 
-    auto zero = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(args[0].getType(), 0));
-    return rewriter.create<mlir::arith::SubIOp>(loc, resultTypes, mlir::ValueRange{zero, args[0]});
+    auto zero = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(args[0].getType(), 0));
+    return mlir::arith::SubIOp::create(rewriter, loc, resultTypes, mlir::ValueRange{zero, args[0]});
 }
 
 // Callback type for emitting the linalg body for an operation.
@@ -939,15 +938,15 @@ static mlir::LogicalResult emitLinalgEltwiseHelper(mlir::Operation* op, EmitBody
     auto ndResultTy = mlir::cast<NDTypeInterface>(resultType);
     auto dOrder = DimsOrder::fromPermutation(ndResultTy.getDimsOrder().toPermutation());
     auto dstShape = dOrder.toMemoryOrder(ndResultTy.getShape()).raw();
-    mlir::Value outputTensor = rewriter.create<mlir::tensor::EmptyOp>(op->getLoc(), dstShape, linalgResultElTy);
+    mlir::Value outputTensor = mlir::tensor::EmptyOp::create(rewriter, op->getLoc(), dstShape, linalgResultElTy);
 
     llvm::SmallVector<mlir::utils::IteratorType> loopAttrs(rank, mlir::utils::IteratorType::parallel);
-    auto linalgOp = rewriter.create<mlir::linalg::GenericOp>(
-            op->getLoc(), outputTensor.getType(), convertedArgs, outputTensor, affineMaps, loopAttrs,
+    auto linalgOp = mlir::linalg::GenericOp::create(
+            rewriter, op->getLoc(), outputTensor.getType(), convertedArgs, outputTensor, affineMaps, loopAttrs,
             [&](mlir::OpBuilder& opBuilder, mlir::Location loc, mlir::ValueRange blockArgs) {
                 mlir::Value opResult =
                         callback(op, blockArgs.take_front(op->getNumOperands()), {linalgResultElTy}, rewriter);
-                opBuilder.create<mlir::linalg::YieldOp>(loc, opResult);
+                mlir::linalg::YieldOp::create(opBuilder, loc, opResult);
             });
     rewriter.replaceOp(op, linalgOp);
 
@@ -985,9 +984,9 @@ public:
         mlir::Operation* newOp = nullptr;
 
         if (mlir::isa<IE::QuantizeOp>(op)) {
-            newOp = rewriter.create<mlir::quant::QuantizeCastOp>(loc, quantType, adaptor.getOperands()[0]);
+            newOp = mlir::quant::QuantizeCastOp::create(rewriter, loc, quantType, adaptor.getOperands()[0]);
         } else if (mlir::isa<IE::DequantizeOp>(op)) {
-            newOp = rewriter.create<mlir::quant::DequantizeCastOp>(loc, quantType, adaptor.getOperands()[0]);
+            newOp = mlir::quant::DequantizeCastOp::create(rewriter, loc, quantType, adaptor.getOperands()[0]);
         } else {
             return mlir::failure();
         }
@@ -1011,19 +1010,19 @@ mlir::Value emitLinalgRegion<IE::ConvertOp>(IE::ConvertOp op, mlir::ValueRange a
     // Float to Int
     if (mlir::isa<mlir::FloatType>(inputTy) && mlir::isa<mlir::IntegerType>(outputTy)) {
         if (outputTy.isSignedInteger()) {
-            return rewriter.create<mlir::arith::FPToSIOp>(loc, resultTypes, args);
+            return mlir::arith::FPToSIOp::create(rewriter, loc, resultTypes, args);
         }
 
-        return rewriter.create<mlir::arith::FPToUIOp>(loc, resultTypes, args);
+        return mlir::arith::FPToUIOp::create(rewriter, loc, resultTypes, args);
     }
 
     // Int to Float
     if (mlir::isa<mlir::IntegerType>(inputTy) && mlir::isa<mlir::FloatType>(outputTy)) {
         if (inputTy.isSignedInteger()) {
-            return rewriter.create<mlir::arith::SIToFPOp>(loc, resultTypes, args);
+            return mlir::arith::SIToFPOp::create(rewriter, loc, resultTypes, args);
         }
 
-        return rewriter.create<mlir::arith::UIToFPOp>(loc, resultTypes, args);
+        return mlir::arith::UIToFPOp::create(rewriter, loc, resultTypes, args);
     }
 
     // Float to Float
@@ -1033,10 +1032,10 @@ mlir::Value emitLinalgRegion<IE::ConvertOp>(IE::ConvertOp op, mlir::ValueRange a
         }
 
         if (outputTy.getIntOrFloatBitWidth() > inputTy.getIntOrFloatBitWidth()) {
-            return rewriter.create<mlir::arith::ExtFOp>(loc, resultTypes, args);
+            return mlir::arith::ExtFOp::create(rewriter, loc, resultTypes, args);
         }
 
-        return rewriter.create<mlir::arith::TruncFOp>(loc, resultTypes, args);
+        return mlir::arith::TruncFOp::create(rewriter, loc, resultTypes, args);
     }
 
     // Int to Int
@@ -1047,14 +1046,14 @@ mlir::Value emitLinalgRegion<IE::ConvertOp>(IE::ConvertOp op, mlir::ValueRange a
 
         if (outputTy.getIntOrFloatBitWidth() > inputTy.getIntOrFloatBitWidth()) {
             if (inputTy.isSignedInteger()) {
-                return rewriter.create<mlir::arith::ExtSIOp>(loc, resultTypes, args);
+                return mlir::arith::ExtSIOp::create(rewriter, loc, resultTypes, args);
             }
 
-            return rewriter.create<mlir::arith::ExtUIOp>(loc, resultTypes, args);
+            return mlir::arith::ExtUIOp::create(rewriter, loc, resultTypes, args);
         }
 
         if (outputTy.getIntOrFloatBitWidth() < inputTy.getIntOrFloatBitWidth()) {
-            return rewriter.create<mlir::arith::TruncIOp>(loc, resultTypes, args);
+            return mlir::arith::TruncIOp::create(rewriter, loc, resultTypes, args);
         }
     }
 
@@ -1069,11 +1068,11 @@ mlir::Value emitLinalgRegion<IE::AbsOp>(IE::AbsOp op, mlir::ValueRange args, llv
     const auto elemType = args[0].getType();
 
     if (mlir::isa<mlir::FloatType>(elemType)) {
-        return rewriter.create<mlir::math::AbsFOp>(loc, resultTypes, args);
+        return mlir::math::AbsFOp::create(rewriter, loc, resultTypes, args);
     }
 
     if (mlir::isa<mlir::IntegerType>(elemType)) {
-        return rewriter.create<mlir::math::AbsIOp>(loc, resultTypes, args);
+        return mlir::math::AbsIOp::create(rewriter, loc, resultTypes, args);
     }
 
     VPUX_THROW("Unsupported element type '{0}' for IE::AbsOp", elemType);
@@ -1091,33 +1090,32 @@ mlir::Value emitLinalgRegion<IE::SignOp>(IE::SignOp op, mlir::ValueRange args, l
     auto val = args[0];
 
     auto zeroAttr = rewriter.getFloatAttr(val.getType(), 0.0);
-    mlir::Value zero = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), zeroAttr);
+    mlir::Value zero = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), zeroAttr);
     auto negAttr = rewriter.getFloatAttr(val.getType(), -1.0);
-    mlir::Value negOne = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), negAttr);
+    mlir::Value negOne = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), negAttr);
     auto posAttr = rewriter.getFloatAttr(val.getType(), 1.0);
-    mlir::Value posOne = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), posAttr);
+    mlir::Value posOne = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), posAttr);
 
     auto bitWidth = val.getType().getIntOrFloatBitWidth();
     auto intTy = mlir::IntegerType::get(val.getContext(), bitWidth);
-    auto casted = rewriter.create<mlir::arith::BitcastOp>(loc, intTy, val);
+    auto casted = mlir::arith::BitcastOp::create(rewriter, loc, intTy, val);
     llvm::APInt msbMaskVal = llvm::APInt::getSignMask(bitWidth);
-    auto msbMask = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(intTy, msbMaskVal));
-    auto signBit = rewriter.create<mlir::arith::AndIOp>(loc, casted, msbMask);
+    auto msbMask = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(intTy, msbMaskVal));
+    auto signBit = mlir::arith::AndIOp::create(rewriter, loc, casted, msbMask);
 
-    auto shift = rewriter.create<mlir::arith::ShLIOp>(
-            loc, casted, rewriter.create<mlir::arith::ConstantIntOp>(loc, 1, intTy.getWidth()));
+    auto shift = mlir::arith::ShLIOp::create(rewriter, loc, casted,
+                                             mlir::arith::ConstantIntOp::create(rewriter, loc, 1, intTy.getWidth()));
 
-    auto isZero =
-            rewriter.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::eq, shift,
-                                                 rewriter.create<mlir::arith::ConstantIntOp>(loc, 0, intTy.getWidth()));
+    auto isZero = mlir::arith::CmpIOp::create(rewriter, loc, mlir::arith::CmpIPredicate::eq, shift,
+                                              mlir::arith::ConstantIntOp::create(rewriter, loc, 0, intTy.getWidth()));
 
-    auto signHandled = rewriter.create<mlir::arith::SelectOp>(
-            loc,
-            rewriter.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::ne, signBit,
-                                                 rewriter.create<mlir::arith::ConstantIntOp>(loc, 0, intTy.getWidth())),
+    auto signHandled = mlir::arith::SelectOp::create(
+            rewriter, loc,
+            mlir::arith::CmpIOp::create(rewriter, loc, mlir::arith::CmpIPredicate::ne, signBit,
+                                        mlir::arith::ConstantIntOp::create(rewriter, loc, 0, intTy.getWidth())),
             negOne, posOne);
 
-    return rewriter.create<mlir::arith::SelectOp>(loc, isZero, zero, signHandled);
+    return mlir::arith::SelectOp::create(rewriter, loc, isZero, zero, signHandled);
 }
 
 // HSwish layer
@@ -1129,22 +1127,22 @@ mlir::Value emitLinalgRegion<IE::HSwishOp>(IE::HSwishOp op, mlir::ValueRange arg
     auto loc = op.getLoc();
     auto val = args[0];
     auto zeroAttr = rewriter.getFloatAttr(val.getType(), 0.0);
-    mlir::Value zero = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), zeroAttr);
+    mlir::Value zero = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), zeroAttr);
     auto threeAttr = rewriter.getFloatAttr(val.getType(), 3.0);
-    mlir::Value three = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), threeAttr);
+    mlir::Value three = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), threeAttr);
     auto sixAttr = rewriter.getFloatAttr(val.getType(), 6.0);
-    mlir::Value six = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), sixAttr);
+    mlir::Value six = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), sixAttr);
     auto divSixAttr = rewriter.getFloatAttr(val.getType(), 1.0 / 6.0);
-    mlir::Value divSix = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), divSixAttr);
+    mlir::Value divSix = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), divSixAttr);
     auto fmFlags = mlir::arith::FastMathFlagsAttr::get(
             rewriter.getContext(), mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
 
-    auto add = rewriter.create<mlir::arith::AddFOp>(loc, val, three);
-    auto max = rewriter.create<mlir::arith::MaximumFOp>(loc, add, zero, fmFlags);
-    auto min = rewriter.create<mlir::arith::MinimumFOp>(loc, max, six, fmFlags);
-    auto mul = rewriter.create<mlir::arith::MulFOp>(loc, min, divSix);
+    auto add = mlir::arith::AddFOp::create(rewriter, loc, val, three);
+    auto max = mlir::arith::MaximumFOp::create(rewriter, loc, add, zero, fmFlags);
+    auto min = mlir::arith::MinimumFOp::create(rewriter, loc, max, six, fmFlags);
+    auto mul = mlir::arith::MulFOp::create(rewriter, loc, min, divSix);
 
-    return rewriter.create<mlir::arith::MulFOp>(loc, val, mul);
+    return mlir::arith::MulFOp::create(rewriter, loc, val, mul);
 }
 
 // HSigmoid Layer
@@ -1156,21 +1154,21 @@ mlir::Value emitLinalgRegion<IE::HSigmoidOp>(IE::HSigmoidOp op, mlir::ValueRange
     auto loc = op.getLoc();
     auto val = args[0];
     auto zeroAttr = rewriter.getFloatAttr(val.getType(), 0.0);
-    mlir::Value zero = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), zeroAttr);
+    mlir::Value zero = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), zeroAttr);
     auto threeAttr = rewriter.getFloatAttr(val.getType(), 3.0);
-    mlir::Value three = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), threeAttr);
+    mlir::Value three = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), threeAttr);
     auto sixAttr = rewriter.getFloatAttr(val.getType(), 6.0);
-    mlir::Value six = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), sixAttr);
+    mlir::Value six = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), sixAttr);
     auto divSixAttr = rewriter.getFloatAttr(val.getType(), 1.0 / 6.0);
-    mlir::Value divSix = rewriter.create<mlir::arith::ConstantOp>(val.getLoc(), divSixAttr);
+    mlir::Value divSix = mlir::arith::ConstantOp::create(rewriter, val.getLoc(), divSixAttr);
     auto fmFlags = mlir::arith::FastMathFlagsAttr::get(
             rewriter.getContext(), mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
 
-    auto add = rewriter.create<mlir::arith::AddFOp>(loc, val, three);
-    auto max = rewriter.create<mlir::arith::MaximumFOp>(loc, add, zero, fmFlags);
-    auto min = rewriter.create<mlir::arith::MinimumFOp>(loc, max, six, fmFlags);
+    auto add = mlir::arith::AddFOp::create(rewriter, loc, val, three);
+    auto max = mlir::arith::MaximumFOp::create(rewriter, loc, add, zero, fmFlags);
+    auto min = mlir::arith::MinimumFOp::create(rewriter, loc, max, six, fmFlags);
 
-    return rewriter.create<mlir::arith::MulFOp>(loc, min, divSix);
+    return mlir::arith::MulFOp::create(rewriter, loc, min, divSix);
 }
 
 // SoftPlus
@@ -1181,8 +1179,8 @@ static mlir::Value createSoftPlusComputation(mlir::Location loc, mlir::Value inp
     double threshold_val = isFP16Conversion ? 11.0f : 20.0f;
 
     auto inputType = input.getType();
-    auto threshold = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(inputType, threshold_val));
-    auto one = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(inputType, 1.0));
+    auto threshold = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(inputType, threshold_val));
+    auto one = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(inputType, 1.0));
 
     // Use fast math flags to enable backend optimizations
     auto fmFlags = mlir::arith::FastMathFlagsAttr::get(rewriter.getContext(), mlir::arith::FastMathFlags::afn |
@@ -1190,15 +1188,15 @@ static mlir::Value createSoftPlusComputation(mlir::Location loc, mlir::Value inp
                                                                                       mlir::arith::FastMathFlags::ninf);
 
     // Compute SoftPlus: log(1 + exp(input)) for values below threshold
-    auto exp_result = rewriter.create<mlir::math::ExpOp>(loc, input, fmFlags);
-    auto one_plus_exp = rewriter.create<mlir::arith::AddFOp>(loc, one, exp_result);
-    auto softplus_result = rewriter.create<mlir::math::LogOp>(loc, one_plus_exp, fmFlags);
+    auto exp_result = mlir::math::ExpOp::create(rewriter, loc, input, fmFlags);
+    auto one_plus_exp = mlir::arith::AddFOp::create(rewriter, loc, one, exp_result);
+    auto softplus_result = mlir::math::LogOp::create(rewriter, loc, one_plus_exp, fmFlags);
 
     // Use linear function for values above threshold (x >= threshold)
     auto is_below_threshold =
-            rewriter.create<mlir::arith::CmpFOp>(loc, mlir::arith::CmpFPredicate::OLT, input, threshold);
+            mlir::arith::CmpFOp::create(rewriter, loc, mlir::arith::CmpFPredicate::OLT, input, threshold);
 
-    return rewriter.create<mlir::arith::SelectOp>(loc, is_below_threshold, softplus_result, input);
+    return mlir::arith::SelectOp::create(rewriter, loc, is_below_threshold, softplus_result, input);
 }
 
 template <>
@@ -1212,14 +1210,14 @@ mlir::Value emitLinalgRegion<IE::SoftPlusOp>(IE::SoftPlusOp op, mlir::ValueRange
     // For FP16, use FP16->FP32->FP16 pattern
     if (mlir::isa<mlir::Float16Type>(elTy)) {
         auto f32Type = mlir::Float32Type::get(rewriter.getContext());
-        auto extArg = rewriter.create<mlir::arith::ExtFOp>(loc, f32Type, input);
+        auto extArg = mlir::arith::ExtFOp::create(rewriter, loc, f32Type, input);
 
         // Create SoftPlus operation in fp32
         auto softplusF32 = createSoftPlusComputation(loc, extArg, rewriter, true);
 
         // Convert back to f16
         auto f16Type = mlir::Float16Type::get(rewriter.getContext());
-        return rewriter.create<mlir::arith::TruncFOp>(loc, f16Type, softplusF32);
+        return mlir::arith::TruncFOp::create(rewriter, loc, f16Type, softplusF32);
     }
 
     // Non-FP16: direct computation
@@ -1236,26 +1234,26 @@ mlir::Value emitLinalgRegion<IE::MishOp>(IE::MishOp op, mlir::ValueRange args, l
     auto input = args[0];
 
     // Create constants with proper type
-    auto one = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 1.0));
+    auto one = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(input.getType(), 1.0));
 
     // Afn (approximate functions) flag for exponential and tanh operations
     auto fmFlags = mlir::arith::FastMathFlagsAttr::get(rewriter.getContext(), mlir::arith::FastMathFlags::afn);
 
     // Mish(x) = x * tanh(ln(1 + e^x)), steps:
     // Compute e^x
-    auto exp_x = rewriter.create<mlir::math::ExpOp>(loc, input, fmFlags);
+    auto exp_x = mlir::math::ExpOp::create(rewriter, loc, input, fmFlags);
 
     // Compute 1 + e^x
-    auto one_plus_exp = rewriter.create<mlir::arith::AddFOp>(loc, one, exp_x);
+    auto one_plus_exp = mlir::arith::AddFOp::create(rewriter, loc, one, exp_x);
 
     // Compute ln(1 + e^x)
-    auto softplus = rewriter.create<mlir::math::LogOp>(loc, one_plus_exp, fmFlags);
+    auto softplus = mlir::math::LogOp::create(rewriter, loc, one_plus_exp, fmFlags);
 
     // Compute tanh(softplus)
-    auto tanh_softplus = rewriter.create<mlir::math::TanhOp>(loc, softplus, fmFlags);
+    auto tanh_softplus = mlir::math::TanhOp::create(rewriter, loc, softplus, fmFlags);
 
     // Compute x * tanh(softplus)
-    return rewriter.create<mlir::arith::MulFOp>(loc, input, tanh_softplus);
+    return mlir::arith::MulFOp::create(rewriter, loc, input, tanh_softplus);
 }
 
 enum class RoundMode { FLOOR, CEIL };
@@ -1274,105 +1272,106 @@ mlir::Value emitRoundRegion(mlir::Operation* op, mlir::ValueRange args, llvm::Ar
 
     auto i16Type = rewriter.getIntegerType(16);
 
-    auto signMask = rewriter.create<mlir::arith::ConstantOp>(
-            loc, rewriter.getIntegerAttr(i16Type, 1u << (FP16_TOTALBITS - 1)));                           // 0x8000
-    auto ones = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(i16Type, 0x3C00));  // FP16(1.0)
-    auto notSignMask = rewriter.create<mlir::arith::XOrIOp>(
-            loc, signMask, rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(i16Type, -1)));
+    auto signMask = mlir::arith::ConstantOp::create(
+            rewriter, loc, rewriter.getIntegerAttr(i16Type, 1u << (FP16_TOTALBITS - 1)));                  // 0x8000
+    auto ones = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(i16Type, 0x3C00));  // FP16(1.0)
+    auto notSignMask = mlir::arith::XOrIOp::create(
+            rewriter, loc, signMask,
+            mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(i16Type, -1)));
 
-    auto allOnes = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(i16Type, 0xFFFF));
-    auto zeroI16 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(i16Type, 0x0000));
-    auto oneI16 = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(i16Type, 0x0001));
+    auto allOnes = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(i16Type, 0xFFFF));
+    auto zeroI16 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(i16Type, 0x0000));
+    auto oneI16 = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(i16Type, 0x0001));
     auto shiftSign =
-            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(i16Type, FP16_TOTALBITS - 1));
+            mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(i16Type, FP16_TOTALBITS - 1));
     auto shiftFractBits =
-            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(i16Type, FP16_FRACTBITS));
-    auto biasVal = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(i16Type, FP16_BIAS));
-    auto greatIntMinusOne = rewriter.create<mlir::arith::ConstantOp>(
-            loc, rewriter.getIntegerAttr(i16Type, (FP16_GREATINT - 1) & 0xFFFF));
+            mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(i16Type, FP16_FRACTBITS));
+    auto biasVal = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(i16Type, FP16_BIAS));
+    auto greatIntMinusOne = mlir::arith::ConstantOp::create(
+            rewriter, loc, rewriter.getIntegerAttr(i16Type, (FP16_GREATINT - 1) & 0xFFFF));
     auto truncFractConst =
-            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(i16Type, 0xFC00));  // (~0x03FF)
+            mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(i16Type, 0xFC00));  // (~0x03FF)
 
-    auto xInt = rewriter.create<mlir::arith::BitcastOp>(loc, i16Type, input);
+    auto xInt = mlir::arith::BitcastOp::create(rewriter, loc, i16Type, input);
     // xSign = xInt & signMask
-    auto xSign = rewriter.create<mlir::arith::AndIOp>(loc, xInt, signMask);
+    auto xSign = mlir::arith::AndIOp::create(rewriter, loc, xInt, signMask);
     // xAbs = xInt & ~signMask
-    auto xAbs = rewriter.create<mlir::arith::AndIOp>(loc, xInt, notSignMask);
+    auto xAbs = mlir::arith::AndIOp::create(rewriter, loc, xInt, notSignMask);
     // xExpo = (xAbs >> 10) - 15
-    auto shifted = rewriter.create<mlir::arith::ShRSIOp>(loc, xAbs, shiftFractBits);
-    auto xExpo = rewriter.create<mlir::arith::SubIOp>(loc, shifted, biasVal);
+    auto shifted = mlir::arith::ShRSIOp::create(rewriter, loc, xAbs, shiftFractBits);
+    auto xExpo = mlir::arith::SubIOp::create(rewriter, loc, shifted, biasVal);
     // truncMask = (0xFC00 >> xExpo)
-    auto truncMask = rewriter.create<mlir::arith::ShRSIOp>(loc, truncFractConst, xExpo);
+    auto truncMask = mlir::arith::ShRSIOp::create(rewriter, loc, truncFractConst, xExpo);
 
     // isSign = xInt >> 15
-    auto isSign = rewriter.create<mlir::arith::ShRSIOp>(loc, xInt, shiftSign);
+    auto isSign = mlir::arith::ShRSIOp::create(rewriter, loc, xInt, shiftSign);
 
     // isZero = (xAbs - 1) >> 15
-    auto xAbsMinusOne = rewriter.create<mlir::arith::SubIOp>(loc, xAbs, oneI16);
-    auto isZero = rewriter.create<mlir::arith::ShRSIOp>(loc, xAbsMinusOne, shiftSign);
+    auto xAbsMinusOne = mlir::arith::SubIOp::create(rewriter, loc, xAbs, oneI16);
+    auto isZero = mlir::arith::ShRSIOp::create(rewriter, loc, xAbsMinusOne, shiftSign);
 
     // isSmall = ((xAbs - ones) >> 15) & ~isZero
-    auto xAbsMinusOnes = rewriter.create<mlir::arith::SubIOp>(loc, xAbs, ones);
-    auto isSmallShifted = rewriter.create<mlir::arith::ShRSIOp>(loc, xAbsMinusOnes, shiftSign);
-    auto notIsZero = rewriter.create<mlir::arith::XOrIOp>(loc, isZero, allOnes);
-    auto isSmall = rewriter.create<mlir::arith::AndIOp>(loc, isSmallShifted, notIsZero);
+    auto xAbsMinusOnes = mlir::arith::SubIOp::create(rewriter, loc, xAbs, ones);
+    auto isSmallShifted = mlir::arith::ShRSIOp::create(rewriter, loc, xAbsMinusOnes, shiftSign);
+    auto notIsZero = mlir::arith::XOrIOp::create(rewriter, loc, isZero, allOnes);
+    auto isSmall = mlir::arith::AndIOp::create(rewriter, loc, isSmallShifted, notIsZero);
 
     // isGreat = ((0x63FF - xAbs) >> 15)
-    auto diff = rewriter.create<mlir::arith::SubIOp>(loc, greatIntMinusOne, xAbs);
-    auto isGreat = rewriter.create<mlir::arith::ShRSIOp>(loc, diff, shiftSign);
+    auto diff = mlir::arith::SubIOp::create(rewriter, loc, greatIntMinusOne, xAbs);
+    auto isGreat = mlir::arith::ShRSIOp::create(rewriter, loc, diff, shiftSign);
 
     // isExact = isGreat | isZero
-    auto isExact = rewriter.create<mlir::arith::OrIOp>(loc, isGreat, isZero);
+    auto isExact = mlir::arith::OrIOp::create(rewriter, loc, isGreat, isZero);
 
     // isRoundMode (isFloor or isCeil)
-    auto isExactOrSmall = rewriter.create<mlir::arith::OrIOp>(loc, isExact, isSmall);
-    auto isRoundMode = rewriter.create<mlir::arith::XOrIOp>(loc, isExactOrSmall, allOnes);
+    auto isExactOrSmall = mlir::arith::OrIOp::create(rewriter, loc, isExact, isSmall);
+    auto isRoundMode = mlir::arith::XOrIOp::create(rewriter, loc, isExactOrSmall, allOnes);
 
     // xTrunc = (xAbs & truncMask)
-    auto xTrunc = rewriter.create<mlir::arith::AndIOp>(loc, xAbs, truncMask);
+    auto xTrunc = mlir::arith::AndIOp::create(rewriter, loc, xAbs, truncMask);
 
     // isInexact = mask(xTrunc != xAbs)
-    auto isEqual = rewriter.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::eq, xTrunc, xAbs);
-    auto isInexact = rewriter.create<mlir::arith::SelectOp>(loc, isEqual, zeroI16, allOnes);
+    auto isEqual = mlir::arith::CmpIOp::create(rewriter, loc, mlir::arith::CmpIPredicate::eq, xTrunc, xAbs);
+    auto isInexact = mlir::arith::SelectOp::create(rewriter, loc, isEqual, zeroI16, allOnes);
 
     mlir::Value adjustment;
     mlir::Value xSmall;
 
     if (mode == RoundMode::FLOOR) {
         // Floor: decrement for negative and inexact numbers
-        auto adjustmentCond = rewriter.create<mlir::arith::AndIOp>(loc, isSign, isInexact);
-        adjustment = rewriter.create<mlir::arith::AndIOp>(loc, adjustmentCond, ones);
+        auto adjustmentCond = mlir::arith::AndIOp::create(rewriter, loc, isSign, isInexact);
+        adjustment = mlir::arith::AndIOp::create(rewriter, loc, adjustmentCond, ones);
 
         // xSmall for floor: -1.0 for negative and small numbers
-        auto xSmallCond = rewriter.create<mlir::arith::AndIOp>(loc, isSign, isSmall);
-        xSmall = rewriter.create<mlir::arith::AndIOp>(loc, xSmallCond, ones);
+        auto xSmallCond = mlir::arith::AndIOp::create(rewriter, loc, isSign, isSmall);
+        xSmall = mlir::arith::AndIOp::create(rewriter, loc, xSmallCond, ones);
     } else {
         // Ceil: increment for positive and inexact numbers
-        auto notIsSign = rewriter.create<mlir::arith::XOrIOp>(loc, isSign, allOnes);
-        auto adjustmentCond = rewriter.create<mlir::arith::AndIOp>(loc, notIsSign, isInexact);
-        adjustment = rewriter.create<mlir::arith::AndIOp>(loc, adjustmentCond, ones);
+        auto notIsSign = mlir::arith::XOrIOp::create(rewriter, loc, isSign, allOnes);
+        auto adjustmentCond = mlir::arith::AndIOp::create(rewriter, loc, notIsSign, isInexact);
+        adjustment = mlir::arith::AndIOp::create(rewriter, loc, adjustmentCond, ones);
 
         // xSmall for ceil: +1.0 for positive and small numbers
-        auto xSmallCond = rewriter.create<mlir::arith::AndIOp>(loc, notIsSign, isSmall);
-        xSmall = rewriter.create<mlir::arith::AndIOp>(loc, xSmallCond, ones);
+        auto xSmallCond = mlir::arith::AndIOp::create(rewriter, loc, notIsSign, isSmall);
+        xSmall = mlir::arith::AndIOp::create(rewriter, loc, xSmallCond, ones);
     }
 
     // xRounded = xTrunc + adjustment (FP16)
-    auto xTruncFloat = rewriter.create<mlir::arith::BitcastOp>(loc, inputType, xTrunc);
-    auto adjustmentFloat = rewriter.create<mlir::arith::BitcastOp>(loc, inputType, adjustment);
-    auto xRoundedFloat = rewriter.create<mlir::arith::AddFOp>(loc, xTruncFloat, adjustmentFloat);
-    auto xRounded = rewriter.create<mlir::arith::BitcastOp>(loc, i16Type, xRoundedFloat);
+    auto xTruncFloat = mlir::arith::BitcastOp::create(rewriter, loc, inputType, xTrunc);
+    auto adjustmentFloat = mlir::arith::BitcastOp::create(rewriter, loc, inputType, adjustment);
+    auto xRoundedFloat = mlir::arith::AddFOp::create(rewriter, loc, xTruncFloat, adjustmentFloat);
+    auto xRounded = mlir::arith::BitcastOp::create(rewriter, loc, i16Type, xRoundedFloat);
 
     // Final result
-    auto exactPart = rewriter.create<mlir::arith::AndIOp>(loc, isExact, xInt);
-    auto roundPart = rewriter.create<mlir::arith::AndIOp>(loc, isRoundMode, xRounded);
-    auto smallPart = rewriter.create<mlir::arith::AndIOp>(loc, isSmall, xSmall);
+    auto exactPart = mlir::arith::AndIOp::create(rewriter, loc, isExact, xInt);
+    auto roundPart = mlir::arith::AndIOp::create(rewriter, loc, isRoundMode, xRounded);
+    auto smallPart = mlir::arith::AndIOp::create(rewriter, loc, isSmall, xSmall);
 
-    auto roundOrSmall = rewriter.create<mlir::arith::OrIOp>(loc, roundPart, smallPart);
-    auto signOrRoundSmall = rewriter.create<mlir::arith::OrIOp>(loc, xSign, roundOrSmall);
-    auto finalInt = rewriter.create<mlir::arith::OrIOp>(loc, exactPart, signOrRoundSmall);
+    auto roundOrSmall = mlir::arith::OrIOp::create(rewriter, loc, roundPart, smallPart);
+    auto signOrRoundSmall = mlir::arith::OrIOp::create(rewriter, loc, xSign, roundOrSmall);
+    auto finalInt = mlir::arith::OrIOp::create(rewriter, loc, exactPart, signOrRoundSmall);
 
-    return rewriter.create<mlir::arith::BitcastOp>(loc, inputType, finalInt);
+    return mlir::arith::BitcastOp::create(rewriter, loc, inputType, finalInt);
 }
 
 template <>
@@ -1387,7 +1386,7 @@ mlir::Value emitLinalgRegion<IE::FloorOp>(IE::FloorOp op, mlir::ValueRange args,
         return emitRoundRegion(op, args, resultTypes, rewriter, RoundMode::FLOOR);
     }
     // For other floating-point types, use the math library
-    return rewriter.create<mlir::math::FloorOp>(loc, input);
+    return mlir::math::FloorOp::create(rewriter, loc, input);
 }
 
 template <>
@@ -1402,7 +1401,7 @@ mlir::Value emitLinalgRegion<IE::CeilingOp>(IE::CeilingOp op, mlir::ValueRange a
         return emitRoundRegion(op, args, resultTypes, rewriter, RoundMode::CEIL);
     }
     // For other floating-point types, use the math library
-    return rewriter.create<mlir::math::CeilOp>(loc, input);
+    return mlir::math::CeilOp::create(rewriter, loc, input);
 }
 
 // Type conversion patterns
@@ -1424,25 +1423,27 @@ public:
 template <>
 mlir::Value emitLinalgRegion<IE::AsinhOp>(IE::AsinhOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
                                           mlir::PatternRewriter& rewriter) {
-    return rewriter.create<mlir::math::AsinhOp>(op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
+    return mlir::math::AsinhOp::create(rewriter, op->getLoc(), resultTypes[0], args[0],
+                                       mlir::arith::FastMathFlags::afn);
 }
 
 template <>
 mlir::Value emitLinalgRegion<IE::AcoshOp>(IE::AcoshOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
                                           mlir::PatternRewriter& rewriter) {
-    return rewriter.create<mlir::math::AcoshOp>(op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
+    return mlir::math::AcoshOp::create(rewriter, op->getLoc(), resultTypes[0], args[0],
+                                       mlir::arith::FastMathFlags::afn);
 }
 
 template <>
 mlir::Value emitLinalgRegion<IE::AsinOp>(IE::AsinOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
                                          mlir::PatternRewriter& rewriter) {
-    return rewriter.create<mlir::math::AsinOp>(op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
+    return mlir::math::AsinOp::create(rewriter, op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
 }
 
 template <>
 mlir::Value emitLinalgRegion<IE::AcosOp>(IE::AcosOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
                                          mlir::PatternRewriter& rewriter) {
-    return rewriter.create<mlir::math::AcosOp>(op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
+    return mlir::math::AcosOp::create(rewriter, op->getLoc(), resultTypes[0], args[0], mlir::arith::FastMathFlags::afn);
 }
 
 // Remove quantized types from capsule block arguments and yielded values by inserting storage casts.
@@ -1472,7 +1473,7 @@ static void stripQuantFromCapsuleSignature(IE::CodeGenCapsuleOp capsuleOp) {
         }
         const auto originalType = blockArg.getType();
         blockArg.setType(storageTensorType);
-        auto castBack = builder.create<mlir::quant::StorageCastOp>(capsuleOp.getLoc(), originalType, blockArg);
+        auto castBack = mlir::quant::StorageCastOp::create(builder, capsuleOp.getLoc(), originalType, blockArg);
         blockArg.replaceAllUsesExcept(castBack.getResult(), castBack.getOperation());
     }
 
@@ -1485,7 +1486,7 @@ static void stripQuantFromCapsuleSignature(IE::CodeGenCapsuleOp capsuleOp) {
             continue;
         }
 
-        auto castToStorage = builder.create<mlir::quant::StorageCastOp>(yieldOp.getLoc(), storageTensorType, operand);
+        auto castToStorage = mlir::quant::StorageCastOp::create(builder, yieldOp.getLoc(), storageTensorType, operand);
         yieldOp->setOperand(operandIdx, castToStorage.getResult());
     }
 }

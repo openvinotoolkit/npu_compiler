@@ -107,6 +107,7 @@ TEST_P(Squeeze15LayerTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(Squeeze15LayerTestCommon, NPU5020_HW) {
     setSkipCompilationCallback(skipCompilationCallback);
     setDefaultHardwareMode();

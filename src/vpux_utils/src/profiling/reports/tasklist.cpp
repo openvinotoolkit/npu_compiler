@@ -56,10 +56,6 @@ TaskList TaskList::selectSWtasks() const {
     return selectTasksOfType<TaskInfo::ExecType::SW>();
 }
 
-TaskList TaskList::selectM2Itasks() const {
-    return selectTasksOfType<TaskInfo::ExecType::M2I>();
-}
-
 TaskList TaskList::getSortedByStartTime() const {
     TaskList sorted(*this);
     sorted.sortByStartTime();

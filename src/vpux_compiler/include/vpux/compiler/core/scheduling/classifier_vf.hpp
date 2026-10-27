@@ -15,6 +15,16 @@
 
 namespace vpux {
 
+enum class ClassifierVFFallbackReason {
+    NONE,
+    EMPTY_OR_SINGLE_ITERATION,
+    EMPTY_TEMPLATE_BODY,
+    ITERATION_IDENTITY_MISMATCH,
+    PARTIAL_EXTERNAL_INPUT,
+    PARTIAL_EXTERNAL_OUTPUT,
+    PERSISTENT_FIT_REJECTED
+};
+
 // One entry per buffer used by classifyVFRegion().
 // In Phase 1, buffers are identified by SSA value only.
 
@@ -45,9 +55,27 @@ struct BufferRecord {
 
 // Pure analysis result for a single ComputeRegion of LoopType::VF
 struct ClassifierVFResult {
+    // External-equivalence group for one template buffer record.
+    // `templateBufferIdx` points into `buffers` and identifies the template anchor.
+    // `iterationValues` contains the corresponding per-iteration SSA values for the
+    // same logical buffer slot (one entry per iteration when identity holds).
+    struct ExternalBufferGroup {
+        size_t templateBufferIdx = std::numeric_limits<size_t>::max();
+        SmallVector<mlir::Value> iterationValues;
+    };
+
     SmallVector<BufferRecord> buffers;
     // SSA value -> index into `buffers`
     llvm::DenseMap<mlir::Value, size_t> valueToRecord;
+
+    // True if all iteration-equivalent SSA values for this slot were found in
+    // ComputeRegion::externalBuffers.
+    SmallVector<bool> explicitExternalTemplateBuffer;
+    // True if only some (not all) iteration-equivalent values were found external;
+    // unsupported and forces classifier fallback.
+    SmallVector<bool> partialExplicitExternalTemplateBuffer;
+    // Per-template grouped mapping of explicitly external values across iterations.
+    SmallVector<ExternalBufferGroup> explicitExternalGroups;
 
     // max concurrent TEMPORARY footprint
     vpux::AddressType temporaryPeakBytes = 0;
@@ -81,10 +109,12 @@ struct ClassifierVFResult {
     bool iterationIdentityHolds = true;
     // Set to false when the classifier encounters a structural pattern it cannot
     // model soundly (e.g. an external input/output that is not used by every
-    // iteration) or when persistent buffers cannot fit under the memory budget
-    // Downstream stages must treat the result as invalid and fall
-    // back to a safe path.
+    // iteration) or when persistent buffers cannot fit under the memory budget.
+    // Downstream stages must treat the result as invalid and fall back to a safe
+    // path. fallbackReason records the specific rejection cause so warning logs
+    // can explain why the fallback was triggered.
     bool classifierSupportedRegion = true;
+    ClassifierVFFallbackReason fallbackReason = ClassifierVFFallbackReason::NONE;
 
     // Persistent-fit estimate:
     // Build a candidate list of PERSISTENT_CANDIDATE buffers and estimate how many
@@ -117,6 +147,7 @@ struct ClassifierVFResult {
 
 llvm::StringRef stringifyBufferCategory(BufferCategory category);
 llvm::StringRef stringifyPrefetchHint(VFPrefetchHint hint);
+llvm::StringRef stringifyClassifierVFFallbackReason(ClassifierVFFallbackReason reason);
 
 inline llvm::raw_ostream& operator<<(llvm::raw_ostream& os, const ClassifierVFResult& classifierResult) {
     classifierResult.print(os);

@@ -108,13 +108,12 @@ mlir::LogicalResult TransposedConvolutionConversion::matchAndRewrite(IE::Transpo
     const auto dilY = dilationsVec[Dims4D::Dilation::Y.ind()];
     const auto dilX = dilationsVec[Dims4D::Dilation::X.ind()];
 
-    auto resultOP =
-            rewriter.create<IE::ConvolutionOp>(origOp.getLoc(), paddingOutput, origOp.getFilter(), origOp.getBias(),
-                                               /*scale*/ nullptr, /*zero_points*/ nullptr, strides, padsBegin, padsEnd,
-                                               dilations, origOp.getPostOpAttr(), origOp.getClampAttr(),
-                                               /*staticScale=*/nullptr, origOp.getOutputPaddingAttr(),
-                                               origOp.getInputPaddingAttr())
-                    .getOutput();
+    auto resultOP = IE::ConvolutionOp::create(
+                            rewriter, origOp.getLoc(), paddingOutput, origOp.getFilter(), origOp.getBias(),
+                            /*scale*/ nullptr, /*zero_points*/ nullptr, strides, padsBegin, padsEnd, dilations,
+                            origOp.getPostOpAttr(), origOp.getClampAttr(),
+                            /*staticScale=*/nullptr, origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr())
+                            .getOutput();
 
     const auto nceOutputShape = mlir::cast<vpux::NDTypeInterface>(resultOP.getType()).getShape();
     if (origOp.getOutputShape() != nullptr && nceOutputShape != outputShape) {
@@ -133,9 +132,8 @@ mlir::LogicalResult TransposedConvolutionConversion::matchAndRewrite(IE::Transpo
         offsets[Dims4D::Act::H.ind()] = padsBeginVector[Dims4D::PadsBegin::Top] - reducedPadTop;
         offsets[Dims4D::Act::W.ind()] = padsBeginVector[Dims4D::PadsBegin::Left] - reducedPadLeft;
 
-        resultOP = rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "slice_out"), resultOP,
-                                                getIntArrayAttr(getContext(), offsets),
-                                                getIntArrayAttr(getContext(), sizes))
+        resultOP = IE::SliceOp::create(rewriter, takeOpLoc(origOp, "slice_out"), resultOP,
+                                       getIntArrayAttr(getContext(), offsets), getIntArrayAttr(getContext(), sizes))
                            .getResult();
 
         const auto outputFQ = mlir::dyn_cast<IE::FakeQuantizeOp>(*(origOp.getOutput().user_begin()));

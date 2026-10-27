@@ -374,13 +374,15 @@ module @Test {
                 { clean_after = 0 : ui64, start_after = 0 : ui64, mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16> }
                 <{task_index = !VPURegMapped.Index<0:0:4>, task_location = @DeclareTaskBuffer_DPUInvariant_4,
                     input = @DeclareBuffer_ActIn, output = @DeclareBuffer_ActOut,
-                    nce_task_type = #VPUIP.nce_task_type<MAXPOOL>}>
+                    nce_task_type = #VPUIP.nce_task_type<CONV>}>
                 DPUCfg : {
                 ^bb0(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>,
                     %weight_table: memref<16x1x1x1xi64, {order = #NHWC}, [@CMX_NN, 0]>,
                     %act_out: memref<1x16x64x64xf16, {order = #NHWC}, [@CMX_NN, 0]>):
                 VPUIPDPU.IDUCfg {
                     VPUIPDPU.IDUInActivations in_activations(%act_in: memref<1x16x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+                    VPUIPDPU.IDUKernel kernel_x(1) kernel_y(1)
+                    VPUIPDPU.IDUWeights wmode(f16) wt_plt_cfg(TWO_BIT_PLT)
                 }
 
                 VPUIPDPU.ODUCfg {
@@ -392,6 +394,7 @@ module @Test {
                     VPUIPDPU.ODUMemoryMode mem_mode(MODE_DENSE)
                     VPUIPDPU.ODUCmxPorts cmx_ports(CMX_PORTS_ALL)
                 }
+                //CHECK: UINT wt_dense_opt_en = 1
                 //CHECK: UINT dtype = 5
                 //CHECK: UINT wcb_ac_mode = 0
                 //CHECK: UINT wcb_sp_mode = 0

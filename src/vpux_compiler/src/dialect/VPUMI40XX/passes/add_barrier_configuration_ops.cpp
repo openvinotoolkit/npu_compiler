@@ -7,7 +7,6 @@
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
-#include "vpux/compiler/dialect/VPUMI40XX/wlm_utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -74,16 +73,15 @@ public:
 
     void fillPhysicalBarrierUsage(int64_t nBarrs, SmallVector<size_t>& barrierUsageIndex,
                                   SmallVector<SmallVector<BarrierDesc>>& physicalBarriersUsage);
-    BarrierConfig getBarrierConfig(config::ArchKind arch, std::ostringstream& logStream,
-                                   SmallVector<size_t>& barrierUsageIndex,
+    BarrierConfig getBarrierConfig(std::ostringstream& logStream, SmallVector<size_t>& barrierUsageIndex,
                                    const SmallVector<SmallVector<BarrierDesc>>& physicalBarriersUsage,
-                                   const uint64_t& barrierFIFODepth,
+                                   const uint64_t& barrierFIFODepth, uint32_t barrierFifoDummyEntry,
                                    VPUMI40XX::NNDMAOp barrierProgrammingDMAOp = nullptr);
     VPUMI40XX::NNDMAOp createDMAsToProgramAllBarriers(
             mlir::OpBuilder& builder, SmallVector<size_t>& barrierUsageIndex,
             const SmallVector<SmallVector<BarrierDesc>>& physicalBarriersUsage, mlir::Operation* bufferInsertionPoint,
             mlir::Operation* cstInsertionPoint, mlir::Operation* dmaInsertionPoint, const uint64_t& barrierFifoAddr,
-            const uint64_t& barrierFIFODepth);
+            const uint64_t& barrierFIFODepth, uint32_t barrierFifoDummyEntry);
     VPUMI40XX::NNDMAOp createBarrierProgrammingDmaOp(mlir::OpBuilder& builder, const BarrierConfig& barrierConfig,
                                                      mlir::Operation* cstInsertionPoint,
                                                      mlir::Operation* bufferInsertionPoint,
@@ -130,7 +128,7 @@ Const::DeclareOp createConstant(mlir::OpBuilder& builder, mlir::Operation* inser
     auto memType = vpux::getMemRefType(ShapeRef(dataStorageType.getShape()), dataStorageType.getElementType());
     builder.setInsertionPoint(insertionPoint);
     auto configurationConstOp =
-            builder.create<Const::DeclareOp>(builder.getUnknownLoc(), memType, Const::ContentAttr::get(dataAttr));
+            Const::DeclareOp::create(builder, builder.getUnknownLoc(), memType, Const::ContentAttr::get(dataAttr));
 
     return configurationConstOp;
 }
@@ -158,8 +156,8 @@ VPUMI40XX::NNDMAOp AddBarrierConfigurationOps::createBarrierProgrammingDmaOp(
                "barrierFIFODepth={2}, fifoAddr={3:x}, barrierConfig Size={4}",
                firstPidInBuffer, totalPidsToProgram, barrierFIFODepth, fifoAddr, barrierConfig.size());
 
-    auto bufferOp = builder.create<VPURT::DeclareBufferOp>(builder.getUnknownLoc(), memType,
-                                                           VPURT::BufferSection::Register, fifoAddr);
+    auto bufferOp = VPURT::DeclareBufferOp::create(builder, builder.getUnknownLoc(), memType,
+                                                   VPURT::BufferSection::Register, fifoAddr);
 
     auto ctx = builder.getContext();
     // Legacy mode:
@@ -202,8 +200,8 @@ VPUMI40XX::NNDMAOp AddBarrierConfigurationOps::createBarrierProgrammingDmaOp(
             referenceDMAOp != nullptr ? referenceDMAOp.getWlmPageAttr() : vpux::getIntAttr(builder.getContext(), -1);
 
     builder.setInsertionPoint(dmaInsertionPoint);
-    return builder.create<VPUMI40XX::NNDMAOp>(
-            builder.getUnknownLoc(), indexAttr, /*taskLocation*/ nullptr, barrierConfigConstOp.getOutput(),
+    return VPUMI40XX::NNDMAOp::create(
+            builder, builder.getUnknownLoc(), indexAttr, /*taskLocation*/ nullptr, barrierConfigConstOp.getOutput(),
             bufferOp.getBuffer(), previousTask, waitBarriers, updateBarriers,
             /*startAfter*/ 0,
             /*cleanAfter*/ 0, false, false, false, 0, VPUIP::DMAAccMode::DISABLE, nullptr, nullptr,
@@ -291,9 +289,9 @@ void AddBarrierConfigurationOps::fillPhysicalBarrierUsage(
 //
 // The function updates barrierUsageIndex to track progress and avoid reprogramming barriers unnecessarily.
 BarrierConfig AddBarrierConfigurationOps::getBarrierConfig(
-        config::ArchKind arch, std::ostringstream& logStream, SmallVector<size_t>& barrierUsageIndex,
+        std::ostringstream& logStream, SmallVector<size_t>& barrierUsageIndex,
         const SmallVector<SmallVector<BarrierDesc>>& physicalBarriersUsage, const uint64_t& barrierFIFODepth,
-        VPUMI40XX::NNDMAOp barrierProgrammingDMAOp) {
+        uint32_t barrierFifoDummyEntry, VPUMI40XX::NNDMAOp barrierProgrammingDMAOp) {
     BarrierConfig barrierConfig;
     // Clear before adding new logs
     logStream.str("");
@@ -335,8 +333,7 @@ BarrierConfig AddBarrierConfigurationOps::getBarrierConfig(
                 ++startIndex;
             } else {
                 // Push an empty (unused) barrier entry
-                barrierConfig.push_back(config::isBarrierFifoDummyEntrySupported(arch) ? 0xFFFFFFFF
-                                                                                       : combineDescValues(0, 0, 0, 0));
+                barrierConfig.push_back(barrierFifoDummyEntry ? barrierFifoDummyEntry : combineDescValues(0, 0, 0, 0));
             }
         }
         logStream << "\n";
@@ -353,9 +350,8 @@ VPUMI40XX::NNDMAOp AddBarrierConfigurationOps::createDMAsToProgramAllBarriers(
         mlir::OpBuilder& builder, SmallVector<size_t>& barrierUsageIndex,
         const SmallVector<SmallVector<BarrierDesc>>& physicalBarriersUsage, mlir::Operation* bufferInsertionPoint,
         mlir::Operation* cstInsertionPoint, mlir::Operation* dmaInsertionPoint, const uint64_t& barrierFifoAddr,
-        const uint64_t& barrierFIFODepth) {
+        const uint64_t& barrierFIFODepth, uint32_t barrierFifoDummyEntry) {
     auto netFunc = getOperation();
-    auto arch = config::getArch(netFunc);
     auto dmaTaskOps = netFunc.getOps<VPUMI40XX::NNDMAOp>();
 
     std::ostringstream logStream;
@@ -370,8 +366,8 @@ VPUMI40XX::NNDMAOp AddBarrierConfigurationOps::createDMAsToProgramAllBarriers(
 
     // We can have this case for Non FWLM case, create explicit BarProgDMA at bootstrap
     if (placeholderBarProgDMAs.empty()) {
-        auto bootstrapConfig =
-                getBarrierConfig(arch, logStream, barrierUsageIndex, physicalBarriersUsage, barrierFIFODepth);
+        auto bootstrapConfig = getBarrierConfig(logStream, barrierUsageIndex, physicalBarriersUsage, barrierFIFODepth,
+                                                barrierFifoDummyEntry);
         bootstrapDMA = createBarrierProgrammingDmaOp(builder, bootstrapConfig, cstInsertionPoint, bufferInsertionPoint,
                                                      dmaInsertionPoint, /*nBarrs*/ physicalBarriersUsage.size(),
                                                      barrierFifoAddr, barrierFIFODepth);
@@ -392,8 +388,8 @@ VPUMI40XX::NNDMAOp AddBarrierConfigurationOps::createDMAsToProgramAllBarriers(
 
     // Step 2: Process DMA tasks
     for (auto dmaOp : placeholderBarProgDMAs) {
-        auto barrierConfig =
-                getBarrierConfig(arch, logStream, barrierUsageIndex, physicalBarriersUsage, barrierFIFODepth, dmaOp);
+        auto barrierConfig = getBarrierConfig(logStream, barrierUsageIndex, physicalBarriersUsage, barrierFIFODepth,
+                                              barrierFifoDummyEntry, dmaOp);
         auto reprogrammingDMAOp =
                 createBarrierProgrammingDmaOp(builder, barrierConfig, cstInsertionPoint, bufferInsertionPoint,
                                               /*dmaInsertionPoint*/ dmaOp, /*nBarrs*/ physicalBarriersUsage.size(),
@@ -436,6 +432,8 @@ void AddBarrierConfigurationOps::safeRunOnFunc() {
 
     auto barrierFIFOAddr = config::getConstraint(netFunc, config::BARRIER_FIFO_ADDR);
     auto barrierFIFODepth = config::getConstraint(netFunc, config::BARRIER_FIFO_DEPTH);
+    auto barrierFifoDummyEntry =
+            static_cast<uint32_t>(config::getConstraint(netFunc, config::BARRIER_FIFO_DUMMY_ENTRY));
 
     auto nBarrs = VPUIP::getNumAvailableBarriers(netFunc);
     // barrierUsageIndex keeps track of how many configurations of each pid has been programmed
@@ -445,16 +443,14 @@ void AddBarrierConfigurationOps::safeRunOnFunc() {
     SmallVector<SmallVector<BarrierDesc>> physicalBarriersUsage;
     fillPhysicalBarrierUsage(nBarrs, barrierUsageIndex, physicalBarriersUsage);
 
-    switch (_workloadManagementBarrierProgrammingMode) {
-    case WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED: {
-        auto firstDMAOp =
-                createDMAsToProgramAllBarriers(builder, barrierUsageIndex, physicalBarriersUsage, bufferInsertionPoint,
-                                               cstInsertionPoint, dmaInsertionPoint, barrierFIFOAddr, barrierFIFODepth);
+    if (_workloadManagementBarrierProgrammingMode != WorkloadManagementBarrierProgrammingMode::LEGACY &&
+        _workloadManagementBarrierProgrammingMode != WorkloadManagementBarrierProgrammingMode::UNKNOWN) {
+        auto firstDMAOp = createDMAsToProgramAllBarriers(builder, barrierUsageIndex, physicalBarriersUsage,
+                                                         bufferInsertionPoint, cstInsertionPoint, dmaInsertionPoint,
+                                                         barrierFIFOAddr, barrierFIFODepth, barrierFifoDummyEntry);
         VPUMI40XX::reindexList<VPUMI40XX::NNDMAOp>(mpi, firstDMAOp, 0, 0);
-    } break;
-    default:
-        VPUX_THROW("Unsupported Barrier Programing Mode: {0}", _workloadManagementBarrierProgrammingMode);
-        break;
+    } else {
+        VPUX_THROW("Unsupported Barrier Programming Mode: {0}", _workloadManagementBarrierProgrammingMode);
     }
 
     mpi.setWorkloadManagementBarrierProgrammingMode(static_cast<VPURegMapped::WorkloadManagementBarrierProgrammingMode>(

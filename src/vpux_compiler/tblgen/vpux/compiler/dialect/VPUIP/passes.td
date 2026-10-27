@@ -196,7 +196,7 @@ def OptimizeConcatViewCopies : PassBase<"optimize-concat-view-copies", "vpux::Fu
 
         - FuseGatherDMAWithSubViewCopy: Transforms a costly GatherDMAOp (with INDEXED mode) into Subview + CopyOps, reducing the amount of data copied.
           Turns subgraph:
-        NCE_i  (CMX, DUPLICATED|SEGMENTED or SEGMENTED (on K only))
+        NCE_i  (CMX, DUPLICATED/MULTICASTED or SEGMENTED (over C only))
             |
         Copy  (CMX → SubView of alloc_concat, DDR)       ← one per NCE
               \   /
@@ -205,9 +205,29 @@ def OptimizeConcatViewCopies : PassBase<"optimize-concat-view-copies", "vpux::Fu
                 -> GenericReshape  (K x gatherRowSize → 1 x K x gatherRowSize) -> Copy  (CMX -> DDR)
           into:
         For each row index r = indices[j]:
-            NCE_inputIdx  (CMX, DUPLICATED/SEGMENTED on K) -> [ExtractFlatSliceOp for SEGMENTED on K] ->
+            NCE_inputIdx  (CMX, DUPLICATED/MULTICASTED/SEGMENTED over C) -> [ExtractFlatSliceOp for SEGMENTED over C] ->
                     -> SubView [0, channelOffset, h, w][1, gatherRowSize, 1, 1] -> [GenericReshape + PermuteCast to match DDR dest dims] ->
                     -> Copy  (CMX → row-j slot of downstream alloc, DDR)
+
+        - FuseFlatSubViewWithCopy: Same block-diagonal extraction as FuseGatherDMAWithSubViewCopy, but for the
+          case where diagonal-row selection is expressed with strided SubViews instead of a GatherDMAOp. This
+          form is required on platforms whose GatherDMA element-size limit is smaller than the row size, making
+          the GatherDMA lowering illegal.
+          Turns subgraph:
+        NCE_i  (CMX, DUPLICATED/MULTICASTED or SEGMENTED (over C only))
+            |
+        Copy  (CMX → SubView of alloc_concat, DDR)       ← one per NCE
+              \   /
+          ConcatViewOp  (DDR, shape 1xCxHxW, NHWC) -> GenericReshape  (1xCx(H*W)x1) -> PermuteCast  (mem_perm=[d1,d3,d0,d2], (H*W)xCx1x1) ->
+                -> GenericReshape  (flat: numSpatial x totalChannels) ->
+                -> SubView  [spatialPosition, absoluteChannelOffset][1, gatherRowSize]  (one diagonal row) ->
+                -> Copy  (DDR → row slot of downstream alloc, DDR)
+          into (per diagonal row, with h = spatialPosition / width, w = spatialPosition % width):
+            NCE_inputIdx  (CMX, DUPLICATED/MULTICASTED/SEGMENTED over C) -> [ExtractFlatSliceOp for SEGMENTED over C] ->
+                    -> SubView [0, channelOffset, h, w][1, pieceSize, 1, 1] -> [GenericReshape + PermuteCast to match DDR dest dims] ->
+                    -> Copy  (CMX → row slot of downstream alloc, DDR)
+          When a row spans more than one NCE input, it is split into per-input pieces and the pieces are
+          reassembled with a ConcatViewOp into the same row slot.
     }];
 
     let constructor = "vpux::VPUIP::createOptimizeConcatViewCopiesPass()";
@@ -686,24 +706,6 @@ def DPUProfiling : PassBase<"dpu-profiling", "vpux::ModulePass"> {
 
 }
 
-//
-// M2IProfiling
-//
-
-def M2IProfiling : PassBase<"m2i-profiling", "vpux::ModulePass"> {
-    let summary = "M2I task profiling";
-
-    let description = [{
-        AI-generated summary
-
-        Allocates profiling buffer slots for M2I tasks and inserts timestamp capture operations.
-        Records start and end cycle counts for M2I media preprocessing tasks (resize, color
-        convert, normalize).
-    }];
-
-    let constructor = "vpux::VPUIP::createM2IProfilingPass()";
-}
-
 def LegalizeRepeatingFuncCalls : PassBase<"legalize-repeating-func-calls", "vpux::FunctionPass"> {
     let summary = "Ensure repeating func calls adhere to VPUIP constaints";
 
@@ -1041,7 +1043,7 @@ def FeasibleAllocation : PassBase<"feasible-allocation", "vpux::FunctionPass"> {
     let constructor = [{
         vpux::VPUIP::createFeasibleAllocationPass(
         [](vpux::StringRef memSpaceName) {
-            VPUX_THROW_UNLESS(!memSpaceName.empty(), "Missing memory space option");
+            VPUX_THROW_WHEN(memSpaceName.empty(), "Missing memory space option");
             return vpux::VPU::symbolizeEnum<VPU::MemoryKind>(memSpaceName);
         }, vpux::VPU::symbolizeEnum<VPU::MemoryKind>
         )
@@ -1310,7 +1312,7 @@ def GroupProfilingBuffers : PassBase<"group-profiling-buffers", "vpux::ModulePas
     let description = [{
         AI-generated summary
 
-        This pass merges individual per-engine profiling buffers (DPU, DMA, ActShave, M2I) into
+        This pass merges individual per-engine profiling buffers (DPU, DMA, ActShave) into
         a single combined profiling output buffer.
 
         The pass:
@@ -2321,36 +2323,30 @@ def ConvertDynamicMemrefsToBoundedBuffers : PassBase<"convert-dynamic-memrefs-to
 //
 
 def UngroupBoundedBuffersAsFuncArgs : PassBase<"ungroup-bounded-buffers-as-func-args", "vpux::ModulePass"> {
-    let summary = "Ungroup func inputs/outputs if they are VPUIP.BoundedBuffers";
+    let summary = "Ungroup func inputs/outputs if they are dynamic memrefs with bounds";
 
     let description = [{
-        In this pass each !VPUIP.BoundedBuffer function input/output argument is replaced by two separate
-        memref arguments representing data and dynamic_shape.
+        In this pass each dynamic memref with bounds function input/output
+        argument is replaced by two separate memref arguments representing data
+        and dynamic_shape. This includes changing the NetworkInfo I/O entries
+        accordingly.
+
         Pass also introduces two new operations:
-        - VPUIP.GroupBoundedBuffer that groups the input data and dynamic_shape memref arguments into !VPUIP.BoundedBuffer types at the begin of func
-        - VPUIP.UngroupBoundedBuffer that ungroups the !VPUIP.BoundedBuffer at the end of func into separate memref types for data and dynamic_shape.
-        Pass also makes changes in NetworkInfo accordinally
+            1. VPUIP.GroupBoundedBuffer that groups the input data and
+            dynamic_shape memref arguments into dynamic memrefs at the beginning
+            of func
+            2. VPUIP.UngroupBoundedBuffer that ungroups the dynamic memrefs at
+            the end of func into separate memref types for data and
+            dynamic_shape
+
+        This pass also handles host-compilation pipeline. In this case,
+        additionally to all of the above, the call-sites of NPU kernels in the
+        host code are adjusted to maintain legal IR. In particular, memory
+        allocations for newly introduced dynamic shape arguments are added to
+        the host IR.
     }];
 
     let constructor = "vpux::VPUIP::createUngroupBoundedBuffersAsFuncArgsPass()";
-    let dependentDialects = [
-        "vpux::VPUIP::VPUIPDialect"
-    ];
-}
-
-def UngroupHostBuffersAsFuncArgs : PassBase<"ungroup-host-buffers-as-func-args", "vpux::ModulePass"> {
-    let summary = "Expose hidden bounded-buffer shapes at func boundaries";
-
-    let description = [{
-        This pass is similar to UngroupBoundedBuffersAsFuncArgs, but targets hidden boundaries.
-        It detects hidden bounded-buffer boundaries introduced by one-shot bufferization,
-        where dynamic memref boundaries are represented by Group/Ungroup and ReinterpretCast
-        operations inside function bodies, and makes the shape explicit in function args/results.
-
-        This pass also updates call sites and NetworkInfo with shape DataInfo entries.
-    }];
-
-    let constructor = "vpux::VPUIP::createUngroupHostBuffersAsFuncArgsPass()";
     let dependentDialects = [
         "vpux::VPUIP::VPUIPDialect"
     ];
@@ -2679,24 +2675,6 @@ def DMATaskProfilingHwDdr : PassBase<"dma-task-profiling-hw-ddr", "vpux::ModuleP
 }
 
 //
-// ConstantDpuProfHwpBase
-//
-
-def ConstantDpuProfHwpBase : PassBase<"constant-dpu-prof-hwp-base", "vpux::FunctionPass"> {
-    let summary = "Sets single NCE HWP CMX base address";
-
-    let description = [{
-        In VPU4 NCE HWP CMX base address must remain the same for all DPU tasks since
-        HW may capture the address from a subsequent descriptor before storing the profiling
-        record for the task just completed. To prevent from such race condition NCE HWP CMX
-        base address for each NCE task will be 0 and profiling slot addressing will be
-        handled by workload_id.
-    }];
-
-    let constructor = "vpux::VPUIP::createConstantDpuProfHwpBasePass()";
-}
-
-//
 // Compress DMA for activations
 //
 
@@ -2741,7 +2719,8 @@ def OptimizeConvertDMAOp : PassBase<"optimize-convert-dma-op", "vpux::FunctionPa
           before ConvertDMA and replaces each SubView -> Copy pair with SubView -> ConvertDMA,
           eliminating the intermediate copies. Only applies to non-distributed, compact-stride
           inputs and excludes ReinterpretCast view ops. If there is no view-like operation, we
-          don't need to check input has stride or not.
+          don't need to check input has stride or not. It also handles a whole-tensor conversion
+          split into matching SubView -> ConvertDMA partitions before a single-use ConcatView.
     }];
 
     let constructor = "vpux::VPUIP::createOptimizeConvertDMAOpPass()";
@@ -3241,34 +3220,27 @@ def PrepareShaveSubmitDMAs :
 //
 
 def InsertShaveSubmitSkipDMAs : PassBase<"insert-shave-submit-skip-dmas", "vpux::FunctionPass"> {
-    let summary = "Insert barrier less SkipDMAs before release SyncDMAs created by split stage 1";
+    let summary = "Insert barrier-less SkipDMAs immediately after each SHV submit task";
 
     let description = [{
         Split stage 2 for SHV submit DMA legalization.
-        This pass performs the second half of SHV submit DMA legalization. It locates the per-queue
-        release SyncDMA tasks created by prepare-shave-submit-dmas and materializes
-        the SkipDMA operations for the corresponding logical SHAVE task immediately before those syncs.
+        This pass performs the second half of SHV submit DMA legalization. It locates all SHV tasks
+        that carry DMA descriptors (created by prepare-shave-submit-dmas) and materializes the
+        SkipDMA operations immediately after each SHV task in IR order.
 
-        SkipDMAs are inserted using operation order only. They do not receive barrier dependencies,
-        matching the original implementation where skip descriptors remained barrier-less and relied on
-        queue ordering after the synchronization point. The pass preserves the planned per-queue skip
-        ordering and copies the WLM page from the release SyncDMA anchor to every newly inserted SkipDMA.
+        SkipDMAs do not receive barrier dependencies. Correct ordering is guaranteed by two properties:
+        1. Barrier structure: the pipeline is ordered as GuardSync -> barrier -> SHV -> barrier ->
+           ReleaseSyncDMA, so any SkipDMA placed after the SHV task is implicitly after the guard sync
+           by virtue of barrier relationships alone.
+        2. The DMA enqueue logic recognizes the SkipDMA placed directly after an SHV task as having
+           an implicit dependency on that task and computes the correct hardware enqueue location.
 
-        Before choosing the final insertion anchor, the pass scans the same DMA queue backwards
-        from the release SyncDMA until it reaches the first preceding SyncDMA on that queue
-        (the sync boundary for the SHV submit flow).
-        If one or more EnqueueDMA ops are present in this interval, the earliest EnqueueDMA
-        (closest to SHV SyncDMA) becomes the insertion anchor instead of the release SyncDMA.
+        The pass copies the WLM page from the SHV task anchor to every newly inserted SkipDMA.
 
         A graph after split stage 2 looks like:
 
-        -> Fetch(Skip_list0_DDR) -|
-        -> Fetch(Skip_list1_DDR) -|-> BAR -> |-> SyncDMA(shv_sync, DDR) -> SkipDMA(list0_DDR), SkipDMA(list1_DDR) -> Release SyncDMA
-        -> Fetch(Skip_list0_CMX) -|          |-> SyncDMA(shv_sync, CMX) -> SkipDMA(list0_CMX), SkipDMA(list1_CMX) -> Release SyncDMA
-        -> Fetch(Skip_list1_CMX) -|          |
-                                             |-----------------------> SHV[list0](withDMA)
-                                             |-----------------------> SHV[list1](withDMA)
-
+        |-> SHV[list0](withDMA) -> SkipDMA(list0_DDR), SkipDMA(list0_CMX), ...
+        |-> SHV[list1](withDMA) -> SkipDMA(list1_DDR), SkipDMA(list1_CMX), ...
         Overall, the two split passes preserve the original SHV submit DMA legalization semantics
         while allowing fetch/sync preparation and SkipDMA materialization to be invoked separately.
     }];
@@ -3311,7 +3283,7 @@ def SplitLargeInvariants : PassBase<"split-large-invariants", "vpux::FunctionPas
         Option<
             "maxVariantCount", "max-variant-count",
             "int", "",
-            "To control available number (a half of maxVariantCount) of DPU variants per NCEClusterTask"
+            "Threshold number of DPU variants which triggers DPU invariant split"
         >
     ];
 }

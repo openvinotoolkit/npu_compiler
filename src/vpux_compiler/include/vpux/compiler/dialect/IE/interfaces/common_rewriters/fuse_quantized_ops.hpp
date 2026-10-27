@@ -517,9 +517,8 @@ public:
             return mlir::failure();
         }
         auto origLeakyRelu = mlir::cast<IE::LeakyReluOp>(lreluOp);
-        auto newLreluOp =
-                rewriter.create<IE::LeakyReluOp>(lreluOp->getLoc(), quantizeOp.getType(), deQuantOp->getOperand(0),
-                                                 origLeakyRelu.getNegativeSlopeAttr());
+        auto newLreluOp = IE::LeakyReluOp::create(rewriter, lreluOp->getLoc(), quantizeOp.getType(),
+                                                  deQuantOp->getOperand(0), origLeakyRelu.getNegativeSlopeAttr());
 
         rewriter.replaceOp(quantizeOp, newLreluOp->getResult(0));
 

@@ -30,6 +30,8 @@ void config::ConstraintsInitializer50XX::initialize(mlir::MLIRContext* context) 
     }
 
     constraints.maxKernelSize = arch50xx::DPU_MAX_KERNEL_SIZE;
+    constraints.legalRoPEConfigs = getDefaultLegalRoPEConfigs();
+    constraints.legalRoPEConfigs.push_back({8, 128});
 
     setNPUConstraints(context, constraints);
 }

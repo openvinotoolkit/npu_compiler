@@ -87,8 +87,6 @@ RawProfilingRecords getTaskOfType(const RawProfilingData& rawRecords, ExecutorTy
         return rawRecords.dpuTasks;
     case ExecutorType::ACTSHAVE:
         return rawRecords.swTasks;
-    case ExecutorType::M2I:
-        return rawRecords.m2iTasks;
     default:
         VPUX_THROW("Unsupported executor type");
     }

@@ -61,8 +61,8 @@ void addConstant(mlir::OpBuilder optionsBuilder, config::PipelineOptionsOp pipel
     auto* ctx = optionsBuilder.getContext();
     auto sizeType = mlir::Float32Type::get(ctx);
     const auto constantAttr = mlir::StringAttr::get(ctx, constantName);
-    optionsBuilder.create<config::OptionOp>(optionsBuilder.getUnknownLoc(), constantAttr,
-                                            mlir::FloatAttr::get(sizeType, constantValue));
+    config::OptionOp::create(optionsBuilder, optionsBuilder.getUnknownLoc(), constantAttr,
+                             mlir::FloatAttr::get(sizeType, constantValue));
 }
 
 mlir::LogicalResult SetupTilingConstraintPass::initializeOptions(

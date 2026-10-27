@@ -104,6 +104,7 @@ def Core_ReinterpretCastOp : Core_Op<"ReinterpretCast", [Pure, ViewLikeOpInterfa
     );
     let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
     let hasVerifier = 1;
+    let hasFolder = 1;
     let hasCanonicalizer = 1;
 
     let extraClassDeclaration = [{

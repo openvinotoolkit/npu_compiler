@@ -62,7 +62,7 @@ void WlmInsertDummyBarriersInPagesPass::safeRunOnFunc() {
         auto insertionPointOp = barrierInfo.getBarrierOpAtIndex(insertAfter);
 
         builder.setInsertionPointAfter(insertionPointOp);
-        auto newBarrierOp = builder.create<VPURT::DeclareVirtualBarrierOp>(insertionPointOp->getLoc());
+        auto newBarrierOp = VPURT::DeclareVirtualBarrierOp::create(builder, insertionPointOp->getLoc());
         barrierInfo.addNewBarrier(newBarrierOp);
         auto newBarrierIdx = barrierInfo.getIndex(newBarrierOp);
         barrierInfo.addProducer(newBarrierIdx, producer);

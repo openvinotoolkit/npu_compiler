@@ -20,6 +20,7 @@
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
+#include "vpux/compiler/dialect/VPU/utils/ppe_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -90,8 +91,8 @@ mlir::LogicalResult FloatOutGroupConvRewriter::matchAndRewrite(IE::GroupConvolut
         return mlir::failure();
     }
 
-    auto newGroupConv = rewriter.create<IE::GroupConvolutionOp>(
-            groupConvolutionOp->getLoc(), groupConvolutionOp.getType(), dequantizeType, filterDequantizeType,
+    auto newGroupConv = IE::GroupConvolutionOp::create(
+            rewriter, groupConvolutionOp->getLoc(), groupConvolutionOp.getType(), dequantizeType, filterDequantizeType,
             groupConvolutionOp.getBias(), groupConvolutionOp.getStrides(), groupConvolutionOp.getPadsBegin(),
             groupConvolutionOp.getPadsEnd(), groupConvolutionOp.getDilations(), groupConvolutionOp.getGroupsAttr(),
             groupConvolutionOp.getPostOpAttr(), groupConvolutionOp.getClampAttr(),
@@ -124,10 +125,10 @@ mlir::LogicalResult FloatOutTransposedConvRewriter::matchAndRewrite(IE::Transpos
         return mlir::failure();
     }
 
-    auto newTransposedConv = rewriter.create<IE::TransposedConvolutionOp>(
-            origOp->getLoc(), origOp.getType(), dequantizeInput, filterDequantizeInput, origOp.getOutputShape(),
-            origOp.getBias(), origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations(),
-            origOp.getSpatialOutputPaddingAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+    auto newTransposedConv = IE::TransposedConvolutionOp::create(
+            rewriter, origOp->getLoc(), origOp.getType(), dequantizeInput, filterDequantizeInput,
+            origOp.getOutputShape(), origOp.getBias(), origOp.getStrides(), origOp.getPadsBegin(), origOp.getPadsEnd(),
+            origOp.getDilations(), origOp.getSpatialOutputPaddingAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
             origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
     if (!IE::checkRescaledQuantApproximationForConvBasedOp(newTransposedConv)) {
@@ -177,7 +178,7 @@ mlir::LogicalResult FloatOutAvgPoolRewriter::matchAndRewrite(IE::AvgPoolOp avgPo
     // it does not have access to weights table, which is where per channel quant params
     // are placed. Only global, per tensor quantization is supported by AVG Pool.
     auto dequantizeType = IE::findQuantizedInput(avgPoolOp.getInput(), {});
-    if (dequantizeType == nullptr) {
+    if (dequantizeType == nullptr || !quantizedLayerOp.isInputQuantizationFusable()) {
         return mlir::failure();
     }
 
@@ -380,6 +381,29 @@ mlir::LogicalResult QuantizeWithNCERewriter::matchAndRewrite(IE::QuantizeOp orig
         return matchFailed(_log, rewriter, origOp, "Producer {0} is not supported", maybeNCETask->getName());
     }
 
+    auto isEltwiseOp = mlir::isa<IE::AddOp, IE::SubtractOp, IE::MultiplyOp>(maybeNCETask);
+    if (isEltwiseOp) {
+        const auto getPerTensorScale = [](mlir::Value value) -> std::optional<double> {
+            const auto ndType = mlir::cast<vpux::NDTypeInterface>(value.getType());
+            const auto perTensorType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(ndType.getElementType());
+            if (perTensorType == nullptr) {
+                return std::nullopt;
+            }
+            return perTensorType.getScale();
+        };
+
+        const auto input1Scale = getPerTensorScale(maybeNCETask->getOperand(0));
+        const auto input2Scale = getPerTensorScale(maybeNCETask->getOperand(1));
+        const auto outputScale = getPerTensorScale(origOp.getOutput());
+        if (input1Scale.has_value() && input2Scale.has_value() && outputScale.has_value() &&
+            !VPU::isEltwiseRequantizationRepresentable(*input1Scale, *input2Scale, *outputScale)) {
+            return matchFailed(_log, rewriter, origOp,
+                               "Fusing the output quantization into {0} would require an eltwise requantization "
+                               "({1}, {2} -> {3}) which cannot be represented by the IDU/PPE registers",
+                               maybeNCETask->getName(), *input1Scale, *input2Scale, *outputScale);
+        }
+    }
+
     auto* newNCETask = rewriter.clone(*maybeNCETask);
     newNCETask->getResult(0).setType(origOp.getOutput().getType());
     if (!IE::checkRescaledQuantApproximationForConvBasedOp(newNCETask)) {
@@ -499,7 +523,7 @@ mlir::LogicalResult MixedFloatInQuantWeightsWithDynamicDequantizeRewriter<Concre
         if (mlir::isa<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType>(quantType)) {
             const auto quantized = mlir::cast<mlir::quant::QuantizedType>(quantType);
             if (const auto quantileFloatStorage =
-                        mlir::dyn_cast<vpux::type::QuantileType>(quantized.getStorageType())) {
+                        mlir::dyn_cast<mlir::quant::QuantileType>(quantized.getStorageType())) {
                 mlir::Type quantileType = quantileFloatStorage.getQuantileType();
                 auto intType = mlir::dyn_cast<mlir::IntegerType>(quantileType);
                 return intType == nullptr || intType.isSigned();
@@ -559,18 +583,18 @@ mlir::LogicalResult MixedFloatInQuantWeightsWithDynamicDequantizeRewriter<Concre
                                                      filterDequantizeScale, getIntArrayAttr(ctx, getShape(input1)));
 
         const auto nhwcOrderAttr = mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(ctx));
-        auto layoutCast1 = rewriter.create<IE::LayoutCastOp>(appendLoc(scale.getLoc(), "scale_layout_cast_in_1"),
-                                                             input1, nhwcOrderAttr);
-        auto layoutCast2 = rewriter.create<IE::LayoutCastOp>(appendLoc(scale.getLoc(), "scale_layout_cast_in_2"),
-                                                             input2, nhwcOrderAttr);
+        auto layoutCast1 = IE::LayoutCastOp::create(rewriter, appendLoc(scale.getLoc(), "scale_layout_cast_in_1"),
+                                                    input1, nhwcOrderAttr);
+        auto layoutCast2 = IE::LayoutCastOp::create(rewriter, appendLoc(scale.getLoc(), "scale_layout_cast_in_2"),
+                                                    input2, nhwcOrderAttr);
         auto outputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
         auto newOutput = outputType.changeDimsOrder(DimsOrder::NHWC);
-        auto multiply = rewriter.create<IE::MultiplyOp>(appendLoc(scale.getLoc(), "scale_multiply"), newOutput,
-                                                        layoutCast1, layoutCast2, IE::AutoBroadcastType::NUMPY, nullptr,
-                                                        nullptr, nullptr, nullptr);
+        auto multiply =
+                IE::MultiplyOp::create(rewriter, appendLoc(scale.getLoc(), "scale_multiply"), newOutput, layoutCast1,
+                                       layoutCast2, IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
         auto layoutCastOut =
-                rewriter.create<IE::LayoutCastOp>(appendLoc(scale.getLoc(), "scale_layout_cast_out"), multiply,
-                                                  mlir::AffineMapAttr::get(outputType.getDimsOrder().toAffineMap(ctx)));
+                IE::LayoutCastOp::create(rewriter, appendLoc(scale.getLoc(), "scale_layout_cast_out"), multiply,
+                                         mlir::AffineMapAttr::get(outputType.getDimsOrder().toAffineMap(ctx)));
 
         newScale = rewriter.createOrFold<IE::ReshapeOp>(appendLoc(scale.getLoc(), "scale_reshape_out"), layoutCastOut,
                                                         getIntArrayAttr(ctx, initialShape));
@@ -581,11 +605,13 @@ mlir::LogicalResult MixedFloatInQuantWeightsWithDynamicDequantizeRewriter<Concre
     auto newInput = dequantizeType != nullptr ? dequantizeType : convOp.getInput();
 
     if (auto origOp = mlir::dyn_cast_if_present<IE::ConvolutionOp>(op)) {
-        rewriter.replaceOpWithNewOp<IE::ConvolutionOp>(
-                origOp, origOp.getOutput().getType(), newInput, filterDequantizeInput, origOp.getBias(), newScale,
-                filterDequantizeZP, origOp.getStridesAttr(), origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(),
-                origOp.getDilationsAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(),
-                origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+        auto replacementConv = IE::ConvolutionOp::create(
+                rewriter, origOp.getLoc(), origOp.getOutput().getType(), newInput, filterDequantizeInput,
+                origOp.getBias(), newScale, filterDequantizeZP, origOp.getStridesAttr(), origOp.getPadsBeginAttr(),
+                origOp.getPadsEndAttr(), origOp.getDilationsAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+                origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+        copyLoopAttributes(origOp, replacementConv.getOperation());
+        rewriter.replaceOp(origOp, replacementConv.getOutput());
     }
 
     return mlir::success();

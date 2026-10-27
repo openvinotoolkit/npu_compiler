@@ -7,7 +7,6 @@
 #include "vpux/compiler/NPU50XX/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/dialect/Shave/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/locverif/passes.hpp"
 #include "vpux/compiler/pipelines/options_setup.hpp"
@@ -21,6 +20,9 @@ using namespace vpux;
 void vpux::IE::arch50xx::buildInitialLowPrecisionTransformationsPipeline(mlir::OpPassManager& pm,
                                                                          const LowPrecisionTransformOptions& options,
                                                                          Logger log) {
+    if (options.enableGroupQuantCorrection) {
+        pm.addPass(IE::createUseGroupQuantCorrectionPass(log));
+    }
     pm.addPass(IE::createReshapeMatMulInputsPass(options.enableGroupedMatMul, log));
     pm.addPass(IE::createConvertScalarToTensorPass(log));
     pm.addPass(IE::createQDQOptimizationAggressivePass(options.fuseFQAndMulWithNonConstInput, log));
@@ -35,7 +37,6 @@ void vpux::IE::arch50xx::buildInitialLowPrecisionTransformationsPipeline(mlir::O
     pm.addPass(IE::createAdjustFakeQdqParamsPass(log));
     pm.addPass(IE::createFuseQuantizationMultiplyPass(options.fuseFQAndMulWithNonConstInput, log));
 
-    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
     pm.addPass(IE::createHandleU16FakeQuantizePass(log));
 }
 
@@ -60,6 +61,11 @@ void vpux::IE::arch50xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(IE::createSplitFakeQuantPass(log));
 
     pm.addPass(mlir::createCanonicalizerPass());  // Note: folds constants before convert-to-dequantize
+
+    pm.addPass(IE::createConvertDQRawDataTypeToQuantizedPass(log));
+    pm.addPass(IE::createConvertConstantDynamicDequantizeToDequantizePass(log));
+    pm.addPass(mlir::createCanonicalizerPass());  // fold QuantizeCast into the weight const
+
     pm.addPass(IE::createConvertToQuantizedOpsPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(IE::createPropagateAndFuseQuantizeDequantizePass(log));
@@ -190,6 +196,7 @@ void vpux::IE::arch50xx::buildFinalTransformationPipeline(mlir::OpPassManager& p
     if (options.enableFuseD2SExpand) {
         pm.addPass(IE::createFuseD2SExpandChannelsPass(log));
     }
+
     pm.addPass(IE::createFuseActivationOpsPass(log));
 }
 
@@ -228,9 +235,26 @@ void vpux::IE::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
                                                 Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
+    /*
+      Memory reservation for CMX has to happen as early as possible, before any use of getTotalCMXSize. It is required
+      because memory reservation decreases usable CMX size which can result in different tiling decisions. If different
+      passes see different effective CMX size different failures which can be hard to diagnose can happen. Examples of
+      such failures include:
+      - Fail during compilation if additional memory was reserved after tiling but before scheduling since tiles
+      selected by tiling pipeline won't fit CMX anymore
+      - Memory corruption if additional memory is reserved after scheduler since additional memory will overlap
+      addresses allocated by the scheduler Currently there is no validation if memory is not reserved before the first
+      call to getTotalCMXSize.
+    */
+
     // E#224661: CMX reserve mem passes moved to the beginning of IE pipeline to get correct available memory size.
     pm.addPass(VPU::createCMXStackFramesReserveMemPass(log));
     pm.addPass(VPU::createCMXMetadataReserveMemPass(log));
+    if (options.enableCompressActivationSpill) {
+        pm.addPass(VPU::createCompressDmaReserveMemPass(log));
+    }
+    pm.addPass(VPU::createReserveProfilingMemPass(
+            options.enableProfiling ? options.enableDMAProfiling.getValue() : "false", log));
 
     pm.addPass(locverif::createStartLocationVerifierPass(log, options.locationsVerificationMode));
 
@@ -260,9 +284,6 @@ void vpux::IE::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     if (options.enableAdjustPrecisionPipeline) {
         IE::buildAdjustPrecisionPipeline(pm, IE::AdjustPrecisionOptions(options), log);
     }
-    if (options.enableConvertToReduceSquare) {
-        pm.addPass(IE::createFuseReduceSquarePass(log));
-    }
 
     // Couldn't move the pass before convert_precision_to_fp16 because of regressions, extra conversions are added
     pm.addPass(IE::createConvertAssignReadValueToReturnsAndInputs(log));
@@ -283,7 +304,6 @@ void vpux::IE::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     pm.addPass(mlir::createCanonicalizerPass(grc));
     IE::buildScaleShiftProcessingPipeline(pm, log);
 
-    pm.addPass(IE::createConvertConstantDynamicDequantizeToDequantizePass(log));
     IE::arch50xx::buildLowPrecisionPipeline(pm, IE::LowPrecisionOptions(options), log);
     pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D),
                                               /*enableShapeVerification=*/true, log));
@@ -313,7 +333,6 @@ void vpux::IE::arch50xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     IE::arch50xx::buildFinalTransformationPipeline(pm, options, log);
 
     // Shave related optimization
-    pm.addPass(Shave::createLoadExternalKernelResourcesPass(log));
     if (options.enableShaveCodeGen) {
         ShaveCodeGen::buildShaveCodeGenPipelineIE(pm, log, options.enableShaveCodeGenTiling);
     }
@@ -333,6 +352,8 @@ void vpux::IE::arch50xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     // E#224661: CMX reserve mem passes moved to the beginning of IE pipeline to get correct available memory size.
     pm.addPass(VPU::createCMXStackFramesReserveMemPass(log));
     pm.addPass(VPU::createCMXMetadataReserveMemPass(log));
+    pm.addPass(VPU::createReserveProfilingMemPass(
+            options.enableProfiling ? options.enableDMAProfiling.getValue() : "false", log));
 
     // No passes should be run before this pipeline, with very few exceptions.
     IE::buildPostImportPipeline(pm, log);
@@ -343,9 +364,6 @@ void vpux::IE::arch50xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     IE::arch50xx::buildAttentionProcessingPipeline(pm, IE::AttentionProcessingOptions(options), log);
     IE::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
     IE::buildAdjustPrecisionPipeline(pm, IE::AdjustPrecisionOptions(options), log);
-    if (options.enableConvertToReduceSquare) {
-        pm.addPass(IE::createFuseReduceSquarePass(log));
-    }
 
     // Couldn't move the pass before convert_precision_to_fp16 because of regressions, extra conversions are added
     pm.addPass(IE::createConvertAssignReadValueToReturnsAndInputs(log));
@@ -354,6 +372,7 @@ void vpux::IE::arch50xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(mlir::createCSEPass());
     pm.addPass(IE::createUniquifySimilarOpsPass(log));
     pm.addPass(IE::createMergeParallelFullyConnectedPass(log));
+    pm.addPass(IE::createConvertDynamicDequantizeToFakeQuantizePass(log));
     pm.addPass(IE::createUnrollGroupQuantizePass(log));
     pm.addPass(IE::createUnrollFullyConnectedPass(log));
     pm.addPass(IE::createMergeFullyConnectedPass(isOptionEnabled(options.mergeUnrolledMatmulForLargeOC), log));
@@ -374,6 +393,10 @@ void vpux::IE::arch50xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(IE::createSplitFakeQuantPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
+
+    pm.addPass(IE::createConvertDQRawDataTypeToQuantizedPass(log));
+    pm.addPass(IE::createConvertConstantDynamicDequantizeToDequantizePass(log));
+
     pm.addPass(IE::createDequantizeConstPass(options.runtimeDequantizationLimit,
                                              isOptionEnabled(options.enableRuntimeDequant), log));
     pm.addPass(IE::createMergeFakeQuantPass(log));

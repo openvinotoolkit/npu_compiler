@@ -27,7 +27,17 @@ static constexpr size_t MIN_VF_LOOP_OPS = 2;
 // Only consider vf loops when there are at least this many compute ops in each loop body
 static constexpr size_t MIN_VF_LOOP_BODY_COMPUTE_OPS = 2;
 
-enum class AllocationType { COMPUTE = 0, DATA_IN = 1, DATA_OUT = 2 };
+// Classifies an operation's scheduling and CMX-allocation role within a loop:
+// - COMPUTE: DPU/SW work and operations not classified as a data movement below. These operations define the
+//   per-iteration CMX allocation points. COMPUTE will be removed in E#230500 and replaced with queueType.
+// - DATA_IN: DDR-to-CMX DMAs. Independent inputs can be prefetched ahead of the loop iteration.
+// - DATA_OUT: CMX-to-DDR DMAs. They drain results after the iteration's compute work.
+// - DATA_UPDATE: CMX-to-CMX DMAs. They stay loop-owned and can be prefetched into the preceding
+//   iteration before DATA_OUT, because they use the DATA_OUT DMA port. In VF loops, they are included in the compute
+//   path to preserve the existing VF loop construction behavior.
+//
+// E#230500 tracks replacing the VF special case with role-based handling that also considers the operation's queueType.
+enum class AllocationType { COMPUTE = 0, DATA_IN = 1, DATA_OUT = 2, DATA_UPDATE = 3 };
 inline const char* toString(AllocationType state) {
     switch (state) {
     case AllocationType::COMPUTE:
@@ -36,6 +46,8 @@ inline const char* toString(AllocationType state) {
         return "DATA_IN";
     case AllocationType::DATA_OUT:
         return "DATA_OUT";
+    case AllocationType::DATA_UPDATE:
+        return "DATA_UPDATE";
     }
     return "Unknown";
 }
@@ -90,6 +102,11 @@ struct OpAllocationInfo {
     SmallVector<mlir::Value> outBuffers;
     AllocationType allocationType;
     size_t executorDemand;
+    // Mark the data in DMA when it has any inner loop dependency
+    // Don't schedule it outside of loop when this label is true
+    // [E230500] TODO: use allocationType to represent the data movement
+    //  and extract the dependency propagation to a util
+    bool hasInnerLoopDependency = false;
 };
 
 struct ComputeExplicitSchedule {
@@ -215,7 +232,7 @@ struct ComputeRegion {
     }
 
     LoopType getLoopType() const {
-        VPUX_THROW_UNLESS(schedulingLoop != nullptr, "ComputeRegion has no scheduling loop");
+        VPUX_THROW_WHEN(schedulingLoop == nullptr, "ComputeRegion has no scheduling loop");
         return schedulingLoop->type;
     }
 
@@ -225,7 +242,7 @@ struct ComputeRegion {
     @return reference to LoopBody
     */
     const LoopBody& getLoopBodyAtIndex(size_t index) const {
-        VPUX_THROW_UNLESS(schedulingLoop != nullptr, "ComputeRegion has no scheduling loop");
+        VPUX_THROW_WHEN(schedulingLoop == nullptr, "ComputeRegion has no scheduling loop");
         SchedulingLoop const* currentLoop = schedulingLoop.get();
 
         VPUX_THROW_UNLESS(index < currentLoop->loopBodies.size(), "Index {0} out of range for loop bodies size {1}",
@@ -274,8 +291,8 @@ public:
     // for example if everything can be prefetched then both will be filled in with same number of addresses
     // but addresses cannot overlap
     std::pair<SmallVector<vpux::AddressType>, SmallVector<vpux::AddressType>> bufferAddressVec;
-    // Common buffers among all iterations in the compute region
-    ValueOrderedSet sharedExternalBuffers;
+    // External buffer for compute region
+    ValueOrderedSet externalBuffers;
     vpux::AddressType baseAlignment;
     size_t prefetchOpCount = 0;
 };

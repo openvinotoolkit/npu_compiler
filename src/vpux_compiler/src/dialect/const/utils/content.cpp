@@ -8,7 +8,7 @@
 #include <cstdint>
 
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/const/utils/sub_byte.hpp"
 #include "vpux/compiler/utils/loop.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
@@ -139,20 +139,23 @@ void vpux::Const::Content::copySubByteContent(MutableArrayRef<char> targetData, 
     // e.g. source data contains bytes with values 1 or 0 representing (i.e. boolean element type) while the target
     // buffer contains 1/8th of elements - the source values will be packed into bytes in the target buffer
     if (targetData.size() < _data.size()) {
-        VPUX_THROW_UNLESS(_data.size() % targetData.size() == 0,
+        auto sourceValues = getValues<int8_t>();
+        const auto bits = vpux::getElemTypeSize(elemType).count();
+        VPUX_THROW_UNLESS(bits > 0 && bits < CHAR_BIT && CHAR_BIT % bits == 0, "Invalid sub-byte element size '{0}'",
+                          bits);
+        const auto elemPerByte = CHAR_BIT / bits;
+        VPUX_THROW_UNLESS(targetData.size() == divUp(sourceValues.size(), static_cast<size_t>(elemPerByte)),
                           "Cannot pack sub-byte elements into buffer: source data size '{0}', target data size '{1}'",
                           _data.size(), targetData.size());
-        auto sourceValues = getValues<int8_t>();
-        const auto elemPerByte = sourceValues.size() / targetData.size();
         VPUX_THROW_UNLESS(elemPerByte <= CHAR_BIT && vpux::isPowerOfTwo(elemPerByte),
                           "Invalid number of elements per byte '{0}'", elemPerByte);
 
-        const auto bits = CHAR_BIT / elemPerByte;
         const char mask = checked_cast<uint8_t>(checked_cast<uint16_t>(std::pow(2, bits)) - 1);
         for (size_t idx = 0; idx < sourceValues.size(); idx += elemPerByte) {
             uint8_t byte = 0;
             uint8_t shift = 0;
-            for (uint64_t elemIdx = 0; elemIdx < elemPerByte; ++elemIdx) {
+            const auto numElementsToPack = std::min(static_cast<size_t>(elemPerByte), sourceValues.size() - idx);
+            for (size_t elemIdx = 0; elemIdx < numElementsToPack; ++elemIdx) {
                 byte |= (sourceValues[idx + elemIdx] & mask) << shift;
                 shift += bits;
             }
@@ -188,7 +191,7 @@ void vpux::Const::Content::copyTo(MutableArrayRef<char> targetData) const {
 
 void vpux::Const::Content::fillWithZero() {
     auto fillQuantileTypeWithZero = [&](mlir::quant::QuantizedType type) -> mlir::LogicalResult {
-        const auto quantileStorageType = mlir::dyn_cast_if_present<vpux::type::QuantileType>(type.getStorageType());
+        const auto quantileStorageType = mlir::dyn_cast_if_present<mlir::quant::QuantileType>(type.getStorageType());
         if (quantileStorageType == nullptr) {
             return mlir::failure();
         }
@@ -197,8 +200,8 @@ void vpux::Const::Content::fillWithZero() {
         const auto quantiles = quantileStorageType.getQuantiles();
 
         const uint64_t zeroIdx = std::distance(quantiles.begin(), std::find(quantiles.begin(), quantiles.end(), 0.0));
-        VPUX_THROW_UNLESS(zeroIdx != quantiles.size(),
-                          "Missing zero (0) value from palletization LUT, which must be present for padding.");
+        VPUX_THROW_WHEN(zeroIdx == quantiles.size(),
+                        "Missing zero (0) value from palletization LUT, which must be present for padding.");
 
         const auto isSubByte = bitWidth < CHAR_BIT;
         uint8_t packedVal = 0;

@@ -43,7 +43,7 @@ void vpux::VPURT::TaskOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::Operation
 config::ExecutorKind vpux::VPURT::TaskOp::getExecutorKind() {
     auto innerTaskOp = getInnerTaskOp();
     auto task = mlir::dyn_cast<VPUIP::TaskOpInterface>(innerTaskOp);
-    VPUX_THROW_UNLESS(task != nullptr, "Inner task at {0} does not implement TaskOpInterface", innerTaskOp->getLoc());
+    VPUX_THROW_WHEN(task == nullptr, "Inner task at {0} does not implement TaskOpInterface", innerTaskOp->getLoc());
 
     return task.getExecutorKind();
 }
@@ -231,12 +231,12 @@ size_t vpux::VPURT::getNumberOfWorkloads(VPURT::TaskOp taskOp) {
     switch (executorKind) {
     case config::ExecutorKind::DPU: {
         auto nceOp = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(taskOp.getInnerTaskOp());
-        VPUX_THROW_UNLESS(nceOp != nullptr, "Could not cast to NCE task for DPU executor");
+        VPUX_THROW_WHEN(nceOp == nullptr, "Could not cast to NCE task for DPU executor");
         return nceOp.getNumVariants();
     }
     case config::ExecutorKind::SHAVE_ACT: {
         auto swKernelOp = mlir::dyn_cast<VPUIP::SwKernelOp>(taskOp.getInnerTaskOp());
-        VPUX_THROW_UNLESS(swKernelOp != nullptr, "Could not cast to SW kernel task for SHAVE_ACT executor");
+        VPUX_THROW_WHEN(swKernelOp == nullptr, "Could not cast to SW kernel task for SHAVE_ACT executor");
         auto swKernelRun = swKernelOp.getBody().getOps<VPUIP::SwKernelRun>();
         return std::distance(swKernelRun.begin(), swKernelRun.end());
     }

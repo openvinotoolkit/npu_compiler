@@ -75,7 +75,7 @@ public:
     mlir::LogicalResult matchAndRewrite(IE::LayerOpInterface origOp, ArrayRef<mlir::Value> newArgs,
                                         mlir::ConversionPatternRewriter& rewriter) const final {
         const auto* typeConverter = this->getTypeConverter();
-        VPUX_THROW_UNLESS(typeConverter != nullptr, "TypeConverter was not set");
+        VPUX_THROW_WHEN(typeConverter == nullptr, "TypeConverter was not set");
 
         return convertGeneric(origOp, newArgs, rewriter, *typeConverter, _log);
     }
@@ -107,13 +107,13 @@ mlir::LogicalResult ConvertScalarToTensorPass::GatherScalarConverter::matchAndRe
     _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
     vpux::IE::GatherOp newOp;
-    newOp = rewriter.create<IE::GatherOp>(takeOpLoc(origOp, "gather_axis"), origOp.getInput(), newArgs.getIndices(),
-                                          origOp.getAxisValue(), origOp.getBatchDims(), origOp.getIndicesRankAttr());
+    newOp = IE::GatherOp::create(rewriter, takeOpLoc(origOp, "gather_axis"), origOp.getInput(), newArgs.getIndices(),
+                                 origOp.getAxisValue(), origOp.getBatchDims(), origOp.getIndicesRankAttr());
     _log.nest().trace("New indices type '{0}'", newArgs.getIndices().getType());
 
     const auto origShapeAttr = getIntArrayAttr(origOp->getContext(), getShape(origOp.getOutput()));
-    auto reshapeOp = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "out_reshape"), origOp.getType(),
-                                                    newOp.getOutput(), origShapeAttr);
+    auto reshapeOp = IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "out_reshape"), origOp.getType(),
+                                           newOp.getOutput(), origShapeAttr);
     rewriter.replaceOp(origOp, reshapeOp.getOutput());
 
     return mlir::success();

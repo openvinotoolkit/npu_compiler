@@ -60,7 +60,7 @@ func.func @StridedSlice3Dim(%input: tensor<3x40x40x15xf16>) -> tensor<3x20x20x5x
 // CHECK-LABEL: @DynamicQuantize
 // CHECK-SAME:  [[DATA:%.+]]: memref<1x1x4x400xf32>, [[MIN:%.+]]: memref<1x1x1x1xf32>, [[MAX:%.+]]: memref<1x1x1x1xf32>
 func.func @DynamicQuantize(%arg0: tensor<1x1x4x400xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>) -> (tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
-    %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8} : tensor<1x1x4x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+    %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = ui8, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x1x4x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
     return %output, %scale, %zero_point : tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 
     // CHECK: [[OUTPUT_BUFF:%.+]] = memref.alloc() : memref<1x1x4x400xui8>
@@ -76,7 +76,7 @@ func.func @DynamicQuantize(%arg0: tensor<1x1x4x400xf32>, %arg1: tensor<1x1x1x1xf
     // CHECK:           [[SCALE_BUFF]] as [[INNER_ARG7:[^:]+]]: memref<1x1x1x1xf32>,
     // CHECK:           [[ZP_BUFF]] as [[INNER_ARG8:[^:]+]]: memref<1x1x1x1xui8>) on tile 0
     // CHECK: -> (memref<1x1x4x400xui8>, memref<1x1x1x1xf32>, memref<1x1x1x1xui8>){
-    // CHECK: VPUIP.SW.Kernel.run([[INNER_ARG3]], [[INNER_ARG4]], [[INNER_ARG5]], [[INNER_ARG6]], [[INNER_ARG7]], [[INNER_ARG8]])
+    // CHECK: VPUIP.SW.Kernel.run {attrs = {{\[\[}}-9223372036854775808, 63{{\]\]}}}([[INNER_ARG3]], [[INNER_ARG4]], [[INNER_ARG5]], [[INNER_ARG6]], [[INNER_ARG7]], [[INNER_ARG8]])
     // CHECK:   memref<1x1x4x400xf32>, memref<1x1x1x1xf32>, memref<1x1x1x1xf32>
     // CHECK:   memref<1x1x4x400xui8>, memref<1x1x1x1xf32>, memref<1x1x1x1xui8>
     // CHECK: return [[RESULT]]#0, [[RESULT]]#1, [[RESULT]]#2 : memref<1x1x4x400xui8>, memref<1x1x1x1xf32>, memref<1x1x1x1xui8>
@@ -87,7 +87,7 @@ func.func @DynamicQuantize(%arg0: tensor<1x1x4x400xf32>, %arg1: tensor<1x1x1x1xf
 // CHECK-LABEL: @DynamicQuantizeSigned
 // CHECK-SAME:  [[DATA:%.+]]: memref<1x1x4x400xf32>, [[MIN:%.+]]: memref<1x1x1x1xf32>, [[MAX:%.+]]: memref<1x1x1x1xf32>
 func.func @DynamicQuantizeSigned(%arg0: tensor<1x1x4x400xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>) -> (tensor<1x1x4x400xsi8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xsi8>) {
-    %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = si8} : tensor<1x1x4x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x4x400xsi8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xsi8>
+    %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {dstElemType = si8, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x1x4x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x4x400xsi8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xsi8>
     return %output, %scale, %zero_point : tensor<1x1x4x400xsi8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xsi8>
 
     // CHECK: [[OUTPUT_BUFF:%.+]] = memref.alloc() : memref<1x1x4x400xsi8>
@@ -102,10 +102,54 @@ func.func @DynamicQuantizeSigned(%arg0: tensor<1x1x4x400xf32>, %arg1: tensor<1x1
     // CHECK:           [[SCALE_BUFF]] as [[INNER_ARG7:[^:]+]]: memref<1x1x1x1xf32>,
     // CHECK:           [[ZP_BUFF]] as [[INNER_ARG8:[^:]+]]: memref<1x1x1x1xsi8>) on tile 0
     // CHECK: -> (memref<1x1x4x400xsi8>, memref<1x1x1x1xf32>, memref<1x1x1x1xsi8>){
-    // CHECK: VPUIP.SW.Kernel.run([[INNER_ARG3]], [[INNER_ARG4]], [[INNER_ARG5]], [[INNER_ARG6]], [[INNER_ARG7]], [[INNER_ARG8]])
+    // CHECK: VPUIP.SW.Kernel.run {attrs = {{\[\[}}-9223372036854775808, 63{{\]\]}}}([[INNER_ARG3]], [[INNER_ARG4]], [[INNER_ARG5]], [[INNER_ARG6]], [[INNER_ARG7]], [[INNER_ARG8]])
     // CHECK:   memref<1x1x4x400xf32>, memref<1x1x1x1xf32>, memref<1x1x1x1xf32>
     // CHECK:   memref<1x1x4x400xsi8>, memref<1x1x1x1xf32>, memref<1x1x1x1xsi8>
     // CHECK: return [[RESULT]]#0, [[RESULT]]#1, [[RESULT]]#2 : memref<1x1x4x400xsi8>, memref<1x1x1x1xf32>, memref<1x1x1x1xsi8>
+}
+
+// -----
+
+// CHECK-LABEL: @DynamicQuantizeWithAxes
+// CHECK-SAME:  [[DATA:%.+]]: memref<1x1x4x400xf32>, [[MIN:%.+]]: memref<1x1x1x1xf32>, [[MAX:%.+]]: memref<1x1x1x1xf32>
+func.func @DynamicQuantizeWithAxes(%arg0: tensor<1x1x4x400xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>) -> (tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
+    %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0, %arg1, %arg2) {axes_value = [0, 1, 2, 3], dstElemType = ui8, operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x1x4x400xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+    return %output, %scale, %zero_point : tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+
+    // CHECK: [[RESULT:%.+]]:3 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 3, 0, 0>}
+    // CHECK: @VPU.SW::@builtin_DynamicQuantize
+    // CHECK:   inputs([[DATA]] as {{[^:]+}}: memref<1x1x4x400xf32>, [[MIN]] as {{[^:]+}}: memref<1x1x1x1xf32>, [[MAX]] as {{[^:]+}}: memref<1x1x1x1xf32>)
+    // CHECK:   outputs({{[^\n]+}}) on tile 0
+    // CHECK: VPUIP.SW.Kernel.run {attrs = {{\[\[}}-9223372036854775808, 63{{\]\]}}}
+    // CHECK: return [[RESULT]]#0, [[RESULT]]#1, [[RESULT]]#2 : memref<1x1x4x400xui8>, memref<1x1x1x1xf32>, memref<1x1x1x1xui8>
+}
+
+// -----
+
+// CHECK-LABEL: @DynamicQuantizeInternalReduction
+// CHECK-SAME:  [[DATA:%.+]]: memref<1x1x4x400xf32>
+func.func @DynamicQuantizeInternalReduction(%arg0: tensor<1x1x4x400xf32>) -> (tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>) {
+    %output, %scale, %zero_point = VPU.DynamicQuantize(%arg0) {axes_value = [0, 1, 2, 3], dstElemType = ui8, operandSegmentSizes = array<i32: 1, 0, 0>} : tensor<1x1x4x400xf32> -> tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+    return %output, %scale, %zero_point : tensor<1x1x4x400xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+
+    // The internal-reduction mode omits the min/max operands. The SW kernel derives the
+    // reduction range from the input, and the optional-io mask (57 = input|output|scale|zero_point)
+    // records which operands are present.
+    // CHECK: [[OUTPUT_BUFF:%.+]] = memref.alloc() : memref<1x1x4x400xui8>
+    // CHECK: [[SCALE_BUFF:%.+]] = memref.alloc() : memref<1x1x1x1xf32>
+    // CHECK: [[ZP_BUFF:%.+]] = memref.alloc() : memref<1x1x1x1xui8>
+
+    // CHECK: [[RESULT:%.+]]:3 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 3, 0, 0>}
+    // CHECK: @VPU.SW::@builtin_DynamicQuantize
+    // CHECK:   inputs([[DATA]] as [[INNER_ARG0:[^:]+]]: memref<1x1x4x400xf32>)
+    // CHECK:   outputs([[OUTPUT_BUFF]] as [[INNER_ARG1:[^:]+]]: memref<1x1x4x400xui8>,
+    // CHECK:           [[SCALE_BUFF]] as [[INNER_ARG2:[^:]+]]: memref<1x1x1x1xf32>,
+    // CHECK:           [[ZP_BUFF]] as [[INNER_ARG3:[^:]+]]: memref<1x1x1x1xui8>) on tile 0
+    // CHECK: -> (memref<1x1x4x400xui8>, memref<1x1x1x1xf32>, memref<1x1x1x1xui8>){
+    // CHECK: VPUIP.SW.Kernel.run {attrs = {{\[\[}}-9223372036854775808, 57{{\]\]}}}([[INNER_ARG0]], [[INNER_ARG1]], [[INNER_ARG2]], [[INNER_ARG3]])
+    // CHECK:   memref<1x1x4x400xf32>
+    // CHECK:   memref<1x1x4x400xui8>, memref<1x1x1x1xf32>, memref<1x1x1x1xui8>
+    // CHECK: return [[RESULT]]#0, [[RESULT]]#1, [[RESULT]]#2 : memref<1x1x4x400xui8>, memref<1x1x1x1xf32>, memref<1x1x1x1xui8>
 }
 
 // -----

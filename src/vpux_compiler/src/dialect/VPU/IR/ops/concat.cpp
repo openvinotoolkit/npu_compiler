@@ -102,7 +102,7 @@ Shape getDynamicShape(const mlir::Value val) {
 
 Shape getUpperBounds(const mlir::Value val) {
     auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(val.getType());
-    VPUX_THROW_UNLESS(boundedType != nullptr, "Expected to get BoundedTensorType at {0}", val.getLoc());
+    VPUX_THROW_WHEN(boundedType == nullptr, "Expected to get BoundedTensorType at {0}", val.getLoc());
 
     return Shape(boundedType.getBounds().raw());
 }
@@ -777,8 +777,8 @@ mlir::LogicalResult FuseConcatsWithDifferentAxes::matchAndRewrite(VPU::ConcatOp 
     // Recalculate the offsets.
     const auto newOffsets = recalculateOffsets(origOp);
 
-    auto opConcat = rewriter.create<VPU::ConcatOp>(origOp->getLoc(), origOp->getResult(0).getType(), newInputs,
-                                                   getIntArrayOfArray(rewriter.getContext(), newOffsets));
+    auto opConcat = VPU::ConcatOp::create(rewriter, origOp->getLoc(), origOp->getResult(0).getType(), newInputs,
+                                          getIntArrayOfArray(rewriter.getContext(), newOffsets));
     rewriter.replaceOp(origOp, opConcat->getResult(0));
 
     return mlir::success();

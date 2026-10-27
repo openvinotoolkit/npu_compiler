@@ -20,7 +20,7 @@ mlir::LogicalResult vpux::VPUIPDPU::arch40xx::buildDPUInvariantMPE(
                     mpeEngineAttr != nullptr && mpeEngineAttr.getActivationZp()
                             ? mlir::cast<mlir::IntegerAttr>(mpeEngineAttr.getActivationZp()).getInt()
                             : 0;
-            builder.create<MPEActivationBiasOp>(origInvOp.getLoc(), static_cast<uint8_t>(activationZp));
+            MPEActivationBiasOp::create(builder, origInvOp.getLoc(), static_cast<uint8_t>(activationZp));
         }
     }
 
@@ -30,7 +30,7 @@ mlir::LogicalResult vpux::VPUIPDPU::arch40xx::buildDPUInvariantMPE(
             const int64_t weightZp = mpeEngineAttr != nullptr && mpeEngineAttr.getWeightZp()
                                              ? mlir::cast<mlir::IntegerAttr>(mpeEngineAttr.getWeightZp()).getInt()
                                              : 0;
-            builder.create<MPEWeightsBiasOp>(origInvOp.getLoc(), static_cast<uint8_t>(weightZp));
+            MPEWeightsBiasOp::create(builder, origInvOp.getLoc(), static_cast<uint8_t>(weightZp));
         }
     }
 

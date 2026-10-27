@@ -94,8 +94,9 @@ mlir::LogicalResult fuseDepthToSpaceWithExpand(mlir::MLIRContext* ctx, IE::Depth
 
     // Create new DepthToSpaceOp with padded output channels
     builder.setInsertionPointAfter(origOp);
-    auto newDepthToSpaceOp = builder.create<IE::DepthToSpaceOp>(
-            origOp->getLoc(), origOp.getInput(), origOp.getBlockSizeAttr(), origOp.getModeAttr(), paddedChannelsAttr);
+    auto newDepthToSpaceOp =
+            IE::DepthToSpaceOp::create(builder, origOp->getLoc(), origOp.getInput(), origOp.getBlockSizeAttr(),
+                                       origOp.getModeAttr(), paddedChannelsAttr);
 
     // replace DepthToSpaceOp->Expand chain with new DepthToSpaceOp
     expandOp->replaceAllUsesWith(newDepthToSpaceOp->getResults());

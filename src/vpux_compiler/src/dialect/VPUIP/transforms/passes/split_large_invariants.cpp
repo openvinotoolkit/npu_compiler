@@ -16,6 +16,24 @@
 #include <climits>
 #include <map>
 
+using namespace vpux;
+
+namespace {
+
+// The split is smaller than the actual limit we need to maintain for runtime to handle preemption correctly
+// to make sure fetchDMA for the next group of descriptors does not stall DPU tasks execution.
+// This value should be equal or smaller than getMaxNumberOfDpuVariantsPerInvariant.
+unsigned getDpuVariantLimit(config::ArchKind arch) {
+    if (arch == config::ArchKind::NPU37XX) {
+        static_assert(VPUIP::HW_DPU_PROFILING_BUFFER_SIZE / VPUIP::HW_DPU_PROFILING_SIZE_BYTES_37XX >= 32);
+        return 32;
+    }
+    static_assert(VPUIP::HW_DPU_PROFILING_BUFFER_SIZE / VPUIP::HW_DPU_PROFILING_SIZE_BYTES_40XX >= 16);
+    return 16;
+}
+
+}  // namespace
+
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_SPLITLARGEINVARIANTS
 #define GEN_PASS_DEF_SPLITLARGEINVARIANTS
@@ -29,13 +47,15 @@ namespace {
 // SplitLargeInvariantsPass
 //
 // This pass mitigates runtime problem of handling preemption in case descriptor group contains only single invariant.
-// It splits VPURT.Task-wrapped VPUIP.NCEClusterTask operations
-// when their number of DPU variants exceeds the architecture-specific threshold
-// derived from NPU constraints.
+// It splits DPU invariants that exceed the threshold of variants-per-task into multiple VPURT.Tasks,
+// each containing a chunk of the original invariant's variants.
 // New VPURT.Tasks are created such that each doesn't exceed the threshold anymore and overall workload stays the same:
 //  - all the outputs and inputs of the new NCEClusterTasks refer to the original ones
 //  - all VPURT.Tasks are chained by barriers to preserve the order
 //  - the first task waits on the original wait barriers and the last task updates the original update barriers
+//
+// The split threshold must be less or equal to the per-platform threshold defined in
+// getMaxNumberOfDpuVariantsPerInvariant which is a hardware-specific NPU constraint.
 //
 // EXAMPLE: 8 variants with threshold=4
 //
@@ -123,7 +143,7 @@ void SplitLargeInvariantsPass::splitNceTaskByVariants(VPURT::TaskOp taskOp, unsi
     SmallVector<mlir::Value> chainBarriers;
     chainBarriers.reserve(static_cast<size_t>(numChunks - 1));
     for (int64_t idx = 0; idx < numChunks - 1; ++idx) {
-        auto chainBarrierOp = builder.create<VPURT::DeclareVirtualBarrierOp>(taskOp->getLoc());
+        auto chainBarrierOp = VPURT::DeclareVirtualBarrierOp::create(builder, taskOp->getLoc());
         chainBarriers.push_back(chainBarrierOp.getResult());
     }
 
@@ -167,8 +187,15 @@ void SplitLargeInvariantsPass::splitNceTaskByVariants(VPURT::TaskOp taskOp, unsi
 void SplitLargeInvariantsPass::safeRunOnFunc() {
     auto func = getOperation();
     const auto useVariantCount = maxVariantCount.hasValue();
-    const auto variantsPerNceClusterTask = useVariantCount ? checked_cast<size_t>(maxVariantCount.getValue()) / 2
-                                                           : getMaxNumberOfDpuVariantsPerInvariant(func) / 2;
+    const auto arch = config::getArch(func);
+    const auto variantsPerNceClusterTask =
+            useVariantCount ? checked_cast<size_t>(maxVariantCount.getValue()) : ::getDpuVariantLimit(arch);
+
+    const auto hardwareAllowedVariantsLimit = getMaxNumberOfDpuVariantsPerInvariant(func);
+    VPUX_THROW_WHEN(variantsPerNceClusterTask > hardwareAllowedVariantsLimit,
+                    "Split DPU invariant threshold ({0}) exceeds the maximum number allowed by hardware ({1})",
+                    variantsPerNceClusterTask, hardwareAllowedVariantsLimit);
+
     VPUX_THROW_UNLESS(variantsPerNceClusterTask >= 1,
                       "Invalid NCEClusterTask split threshold: computed variants-per-task threshold must be >= 1, "
                       "but got {0}",
@@ -195,13 +222,6 @@ void SplitLargeInvariantsPass::safeRunOnFunc() {
 
     _log.trace("Found {0} NCEClusterTaskOps with variants count exceeding the threshold of {1}, splitting them",
                tasksToSplit.size(), variantsPerNceClusterTask);
-
-    // Stamp each task with a unique ID before splitting so all resulting chunks
-    // can be correlated back to the original invariant after the pass.
-    for (auto&& [idx, taskOp] : llvm::enumerate(tasksToSplit)) {
-        auto nceTask = mlir::cast<VPUIP::NCEClusterTaskOp>(taskOp.getInnerTaskOp());
-        nceTask.setSplitIdAttr(vpux::getIntAttr(nceTask.getContext(), static_cast<int64_t>(idx)));
-    }
 
     auto nestedLog = _log.nest();
     for (auto taskOp : tasksToSplit) {

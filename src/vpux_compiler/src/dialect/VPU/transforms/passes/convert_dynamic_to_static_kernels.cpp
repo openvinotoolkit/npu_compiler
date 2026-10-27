@@ -145,16 +145,16 @@ mlir::func::CallOp ConvertDynamicToStaticKernelsPass::rewriteCallOpWithStaticTyp
             for (auto s : rankedType.getShape()) {
                 newSizes.push_back(builder.getI64IntegerAttr(s));
             }
-            auto newSliceOp = builder.create<mlir::tensor::ExtractSliceOp>(
-                    takeOpLoc(callOp, "extract_slice"), rankedType, staticOperandsValues[idx],
+            auto newSliceOp = mlir::tensor::ExtractSliceOp::create(
+                    builder, takeOpLoc(callOp, "extract_slice"), rankedType, staticOperandsValues[idx],
                     extractSliceOp.getMixedOffsets(), newSizes, extractSliceOp.getMixedStrides());
             staticOperandsValues[idx] = newSliceOp.getResult();
         }
     }
 
     // create a callOp with the new static function
-    auto staticCallOp = builder.create<mlir::func::CallOp>(
-            callOp.getLoc(), newFuncOp.getName(), newFuncOp.getFunctionType().getResults(), staticOperandsValues);
+    auto staticCallOp = mlir::func::CallOp::create(builder, callOp.getLoc(), newFuncOp.getName(),
+                                                   newFuncOp.getFunctionType().getResults(), staticOperandsValues);
 
     callOp.replaceAllUsesWith(staticCallOp);
     if (callOp.use_empty()) {
@@ -335,8 +335,8 @@ void ConvertDynamicToStaticKernelsPass::safeRunOnModule() {
                 auto src = sliceOp.getSource();
                 if (!mlir::isa<mlir::tensor::CastOp>(src.getDefiningOp())) {
                     mlir::OpBuilder castBuilder(sliceOp);
-                    auto castOp = castBuilder.create<mlir::tensor::CastOp>(sliceOp->getLoc(),
-                                                                           insertSliceOrigInputTypes[op], src);
+                    auto castOp = mlir::tensor::CastOp::create(castBuilder, sliceOp->getLoc(),
+                                                               insertSliceOrigInputTypes[op], src);
                     sliceOp.setOperand(0, castOp.getResult());
                 }
             } else if (mlir::isa<mlir::tensor::CastOp>(op)) {

@@ -203,6 +203,51 @@ module @NCEEltwiseWithUnpaddedOutputChannels {
 
 // -----
 
+#GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+
+// CHECK-LABEL: func.func @ApplyTilingNCEMatMulSharedWeightTable
+// CHECK-SAME:          [[INPUT0:%arg[0-9]]]: tensor<4x1x32x16x4xf16, {order = #GNHWC}>
+// CHECK-SAME:          [[INPUT1:%arg[0-9]]]: tensor<4x64x32x1x1xf16, {order = #GNHWC}>
+func.func @ApplyTilingNCEMatMulSharedWeightTable(%arg0: tensor<4x1x32x16x4xf16, {order = #GNHWC}>, %arg1: tensor<4x64x32x1x1xf16, {order = #GNHWC}>) -> tensor<4x1x64x16x4xf16, {order = #GNHWC}> {
+  // Shared weight table: G=1 means all groups share the same table.
+  %cst = const.Declare tensor<1x64x1x1x4xsi32> = dense<10> : tensor<1x64x1x1x4xsi32>
+  %0 = VPU.NCE.MatMul(%arg0, %arg1, %cst) rawFilterShape [4, 64, 32, 1, 1] {
+      resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+      mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverGroup>,
+      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+      ppe = #VPU.PPEStub<>,
+      strides = [1, 1],
+      tilingStrategy = [2, 1, 1, 1, 1]
+  } -> tensor<4x1x64x16x4xf16, {order = #GNHWC}>
+  return %0 : tensor<4x1x64x16x4xf16, {order = #GNHWC}>
+
+    // Shared weight table is NOT sliced — both tiles reference the same G=1 constant.
+    // CHECK:               [[WT:%.+]] = const.Declare tensor<1x64x1x1x4xsi32> = dense<10> : tensor<1x64x1x1x4xsi32>
+    // CHECK-NOT:               const.Declare {{.*}} SubView
+
+    // Slice 0
+    // CHECK:               [[SLICE0_INPUT0:%.+]] = VPU.Slice [[INPUT0]] [0, 0, 0, 0, 0] [2, 1, 32, 16, 4]
+    // CHECK:               [[SLICE0_INPUT1:%.+]] = VPU.Slice [[INPUT1]] [0, 0, 0, 0, 0] [2, 64, 32, 1, 1]
+    // CHECK:               [[MATMUL_SLICE0:%.+]] = VPU.NCE.MatMul([[SLICE0_INPUT0]], [[SLICE0_INPUT1]], [[WT]]) rawFilterShape [2, 64, 32, 1, 1]
+    // CHECK-SAME:               strides = [1, 1]
+    // CHECK-SAME:               tensor<2x1x64x16x4xf16, {order = #GNHWC}>
+
+    // Slice 1
+    // CHECK:               [[SLICE1_INPUT0:%.+]] = VPU.Slice [[INPUT0]] [2, 0, 0, 0, 0] [2, 1, 32, 16, 4]
+    // CHECK:               [[SLICE1_INPUT1:%.+]] = VPU.Slice [[INPUT1]] [2, 0, 0, 0, 0] [2, 64, 32, 1, 1]
+    // CHECK:               [[MATMUL_SLICE1:%.+]] = VPU.NCE.MatMul([[SLICE1_INPUT0]], [[SLICE1_INPUT1]], [[WT]]) rawFilterShape [2, 64, 32, 1, 1]
+    // CHECK-SAME:               strides = [1, 1]
+    // CHECK-SAME:               tensor<2x1x64x16x4xf16, {order = #GNHWC}>
+
+    // CHECK:               [[CONCAT:%.+]] = VPU.Concat([[MATMUL_SLICE0]], [[MATMUL_SLICE1]])
+    // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0, 0], [2, 0, 0, 0, 0]]}
+    // CHECK-SAME:          tensor<2x1x64x16x4xf16, {order = #GNHWC}>, tensor<2x1x64x16x4xf16, {order = #GNHWC}> -> tensor<4x1x64x16x4xf16, {order = #GNHWC}>
+    // CHECK:               return [[CONCAT]] : tensor<4x1x64x16x4xf16, {order = #GNHWC}>
+}
+
+// -----
+
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
 
 config.Resources 3 of @NCE at 2.100000e+03 MHz {

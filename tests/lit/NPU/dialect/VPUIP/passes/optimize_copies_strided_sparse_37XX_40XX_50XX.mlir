@@ -31,7 +31,7 @@ func.func @RemoveCMXToCMXCopyAndInsertNewCopyWithReshapeSparsity(
     %1 = memref.alloc() : memref<1x128x14x14xi1, {order = #NHWC}, @CMX_NN>
 
     // Input 1: Convolution
-    %2:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 34660 : i64, resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}>
+    %2:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 34660 : i64} <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%inData : !InDataType)
         input_sparsity_map(%inSparsityMap : !InSMType)
         weights(%inWeights : !ConvWeightsType)
@@ -80,7 +80,7 @@ func.func @RemoveCMXToCMXCopyAndInsertNewCopyWithReshapeSparsity(
     %11 = memref.alloc() : memref<1x128x14x14xi1, {order = #NHWC}, @CMX_NN>
 
     // Input 1: Convolution
-    %12:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 34660 : i64, resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}>
+    %12:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 34660 : i64} <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>, kernel_size = [3, 3], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%inData : !InDataType)
         input_sparsity_map(%inSparsityMap : !InSMType)
         weights(%inWeights : !ConvWeightsType)

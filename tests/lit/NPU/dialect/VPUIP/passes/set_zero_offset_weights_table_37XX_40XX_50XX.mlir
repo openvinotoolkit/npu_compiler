@@ -19,8 +19,7 @@ func.func @DoNotSetIsZeroOffsetWTForNCEClusterTask(%input: !VPUIP.SparseBuffer<d
             -> memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>, memref<1x32x16x16xi1, {order = #NHWC}, @CMX_NN>
     %w_data, %w_sparsityMap = VPUIP.UngroupSparseBuffer(%weights) {resultSegmentSizes = array<i32: 1, 1, 0>}
             -> memref<64x32x3x3xf16, {order = #NHWC}, @CMX_NN>, memref<64x1x1x384xi1, @CMX_NN>
-    %nce_task:2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>}
-     <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    %nce_task:2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                                         kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
         input(%in_data : memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>)
         input_sparsity_map(%in_sparsityMap : memref<1x32x16x16xi1, {order = #NHWC}, @CMX_NN>)
@@ -69,8 +68,7 @@ func.func @SetIsZeroOffsetWTForNCEClusterTask(%input: memref<1x32x16x16xf16, {or
     %weights = const.Declare memref<64x32x3x3xf16, {order = #NHWC}, @CMX_NN> = dense<1.000000e+00> : tensor<64x32x3x3xf16, {mem_space = @CMX_NN}>, [#const.Reorder<#NHWC>]
     %weight_table = const.Declare memref<64x1x1x4xsi32, @CMX_NN> = dense<1> : tensor<64x1x1x4xsi32, {mem_space = @CMX_NN}>
     %output = memref.alloc() : memref<1x64x14x14xf16, {order = #NHWC}, @CMX_NN>
-    %nce_task = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    %nce_task = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                                         kernel_size = [3, 3], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
     input(%input : memref<1x32x16x16xf16, {order = #NHWC}, @CMX_NN>)
     weights(%weights : memref<64x32x3x3xf16, {order = #NHWC}, @CMX_NN>)
@@ -140,8 +138,7 @@ func.func @SetIsZeroOffsetWTForNCEClusterTask(%input: !InputDistributed, %weight
     %weights_table_cmx = VPURT.AllocDistributed -> !WeightsTableDistributed
 
     %weights_table = VPUIP.Copy inputs(%weights_table_cst: memref<32x1x1x4xsi32>) outputs(%weights_table_cmx: !WeightsTableDistributed) -> !WeightsTableDistributed
-    %nce_task = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-        <{
+    %nce_task = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>
         }> input(%input : !InputDistributed)
@@ -198,8 +195,7 @@ func.func @SetIsZeroOffsetWTForNCEClusterTask(%input: !InputDistributed, %weight
 // CHECK-LABEL: @SetZeroOffsetWTFor5DShape
 func.func @SetZeroOffsetWTFor5DShape(%input: memref<8x1x1024x3x1xf16, {order = #GNHWC}, @CMX_NN>, %weights: memref<8x64x1024x1x1xf16, {order = #GNHWC}, @CMX_NN>, %weights_table: memref<8x64x1x1x4xsi32, @CMX_NN>) -> !OutputDistributed {
     %alloc = VPURT.AllocDistributed -> !OutputDistributed
-    %nce_cluster_tiling = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>}>
+    %nce_cluster_tiling = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>}>
         input(%input : memref<8x1x1024x3x1xf16, {order = #GNHWC}, @CMX_NN>)
         weights(%weights : memref<8x64x1024x1x1xf16, {order = #GNHWC}, @CMX_NN>)
         weight_table(%weights_table : memref<8x64x1x1x4xsi32, @CMX_NN>)

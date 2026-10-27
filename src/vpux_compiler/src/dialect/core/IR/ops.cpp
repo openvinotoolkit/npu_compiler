@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
+#include <mlir/Dialect/Bufferization/IR/BufferizationTypeInterfaces.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/Operation.h>
@@ -127,25 +128,37 @@ public:
 
 private:
     mlir::LogicalResult matchAndRewrite(Core::ReinterpretCastOp op, mlir::PatternRewriter& rewriter) const final {
-        if (!op.getResult().hasOneUse()) {
+        SmallVector<mlir::Operation*> replaceableOps;
+        for (auto user : op.getResult().getUsers()) {
+            const bool isAllowedCast = mlir::isa<Core::ReinterpretCastOp, mlir::memref::CastOp>(user);
+            if (isAllowedCast) {
+                replaceableOps.push_back(user);
+            }
+        }
+
+        if (replaceableOps.empty()) {
             return mlir::failure();
         }
-        mlir::Operation* nextOp = *op.getResult().user_begin();
-        const bool isAllowedCast =
-                mlir::isa<Core::ReinterpretCastOp>(nextOp) || mlir::isa<mlir::memref::CastOp>(nextOp);
-        if (!isAllowedCast) {
-            return mlir::failure();
+
+        for (auto replaceableOp : replaceableOps) {
+            auto resultType = replaceableOp->getResult(0).getType();
+            auto inputValue = op.getInput();
+            auto newReinterpretCast =
+                    Core::ReinterpretCastOp::create(rewriter, replaceableOp->getLoc(), resultType, inputValue);
+            rewriter.replaceOp(replaceableOp, newReinterpretCast.getResult());
         }
-        auto resultType = nextOp->getResult(0).getType();
-        auto inputValue = op.getInput();
-
-        auto newReinterpretCast = rewriter.create<Core::ReinterpretCastOp>(nextOp->getLoc(), resultType, inputValue);
-
-        rewriter.replaceOp(nextOp, newReinterpretCast.getResult());
-
         return mlir::success();
     }
 };
+
+mlir::OpFoldResult vpux::Core::ReinterpretCastOp::fold(FoldAdaptor) {
+    const auto inputType = getInput().getType();
+    const auto outputType = getOutput().getType();
+    if (inputType == outputType) {
+        return getInput();
+    }
+    return nullptr;
+}
 
 void vpux::Core::ReinterpretCastOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns,
                                                                 mlir::MLIRContext* context) {

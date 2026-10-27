@@ -3,13 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_dequantize_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+#include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
@@ -20,9 +24,7 @@
 #include <llvm/ADT/SmallVector.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
-#include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
-#include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+#include <utility>
 #include "vpux/compiler/utils/error.hpp"
 
 namespace vpux::IE {
@@ -35,52 +37,46 @@ using namespace vpux;
 
 namespace {
 
-constexpr int64_t rank3D = 3;
+constexpr int64_t RANK_3D = 3;
 
-struct FQConstInputs {
-    SmallVector<Const::DeclareOp> inputs;
-    SmallVector<Const::DeclareOp> inLows;
-    SmallVector<Const::DeclareOp> inHighs;
-    SmallVector<Const::DeclareOp> outLows;
-    SmallVector<Const::DeclareOp> outHighs;
-};
 struct DynDQConstInputs {
     SmallVector<Const::DeclareOp> inputs;
     SmallVector<Const::DeclareOp> scales;
+    SmallVector<Const::DeclareOp> zps;
 };
 
 // Convert
-//       cst_set1(2x3x2,1x1x1,1x1x1,2x1x2,2x1x2)  cst_set2(2x3x3,1x1x1,1x1x1,2x1x3,2x1x3)
-//               \     |     |    /     /                   \     |    |     /    /
-//                IE.FakeQuantize (2x3x2)                 IE.FakeQuantize (2x3x3)
-//                        |                                        |
-//                IE.AffineReshape(6x2)                   IE.AffineReshape(6x3)
-//                        |                                        |
-//                IE.Transpose(2x6)                       IE.Transpose(3x6)
-//                       \                                   /
-//                        \         Input(1x6)              /
-//                         \       /           \           /
-//                   IE.FullyConnected(1x2)  IE.FullyConnected(1x3)
+//       w1(u2/si8) + s1 + [attrs]                       w2(u2/si8) + s2 + [attrs]
+//                 \        |                                     \        |
+//                  IE.DynamicDequantize                            IE.DynamicDequantize
+//                          |                                              |
+//                  IE.AffineReshape(6x2)                         IE.AffineReshape(6x3)
+//                          |                                              |
+//                  IE.Transpose(2x6)                             IE.Transpose(3x6)
+//                          \                                        /
+//                           \            Input(1x6)                /
+//                            \          /           \             /
+//                     IE.FullyConnected(1x2)    IE.FullyConnected(1x3)
 
 // To
 
-//      cst_set_concat(2x3x5,1x1x1,1x1x1,2x1x5,2x1x5)
-//                    \      |    |     /     /
-//                IE.FakeQuantize (2x3x5)
-//                        |
-//                IE.AffineReshape(6x5)
-//                        |
-//                IE.Transpose(5x6)       Input(1x6)
-//                        \               /
-//                         \             /
-//                       IE.FullyConnected(1x5)
-//                            |         |
-//                IE.SLice(1x2)     IE.slice(1x3)
+//      concat(w1, w2) + concat(s1, s2) + [attrs]
+//                 \          |
+//                  IE.DynamicDequantize
+//                          |
+//                  IE.AffineReshape(6x5)
+//                          |
+//                  IE.Transpose(5x6)       Input(1x6)
+//                          \               /
+//                           \             /
+//                        IE.FullyConnected(1x5)
+//                             |          |
+//                     IE.Slice(1x2)  IE.Slice(1x3)
 
 class MergeParallelFullyConnected final : public mlir::OpRewritePattern<IE::FullyConnectedOp> {
 public:
     MergeParallelFullyConnected(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<IE::FullyConnectedOp>(ctx), _log(log) {
+            : mlir::OpRewritePattern<IE::FullyConnectedOp>(ctx), _log(std::move(log)) {
         setDebugName("mergeParallelFullyConnected");
     }
 
@@ -92,14 +88,25 @@ private:
     Logger _log;
 };
 
-IE::ConcatOp concatConst(SmallVector<Const::DeclareOp>& constOps, size_t concatDim, mlir::PatternRewriter& rewriter) {
-    SmallVector<mlir::Value> concats;
+mlir::Value concatConst(SmallVector<Const::DeclareOp>& constOps, size_t concatDim, mlir::PatternRewriter& rewriter) {
+    SmallVector<ShapeRef> inShapes;
+    SmallVector<Const::ContentAttr> inputContents;
+    inShapes.reserve(constOps.size());
+    inputContents.reserve(constOps.size());
     for (auto constOp : constOps) {
-        concats.push_back(constOp.getOutput());
+        inShapes.push_back(getShape(constOp.getOutput()));
+        inputContents.push_back(constOp.getContentAttr());
     }
-    auto concat = rewriter.create<IE::ConcatOp>(appendLoc(constOps.front()->getLoc(), "concat_"),
-                                                mlir::ValueRange(concats), Dim(concatDim));
-    return concat;
+
+    const auto offsets = IE::inferConcatOffsets(inShapes, Dim(concatDim), rewriter.getContext());
+    const auto contentAttr = Const::createConcatContentAttr(rewriter.getContext(), offsets,
+                                                            checked_cast<int64_t>(concatDim), inputContents);
+
+    // Let ConcatAttr::inferOutputType compute the merged type, e.g. it combines per-axis
+    // quantization scales/zero-points instead of just reusing the first operand's type.
+    const auto outType = contentAttr.getType();
+    return Const::DeclareOp::create(rewriter, appendLoc(constOps.front()->getLoc(), "concat_"), outType, contentAttr)
+            .getOutput();
 }
 
 bool isLastDimConcatable(ShapeRef shape1, ShapeRef shape2) {
@@ -161,7 +168,11 @@ std::optional<SmallVector<IE::FullyConnectedOp>> getFullyConnectedOpWithSameAttr
         const auto isOne = [](auto dim) {
             return dim == 1;
         };
-        return std::all_of(shape.begin(), shape.end() - 1, isOne);
+        if (shape.empty()) {
+            return false;
+        }
+
+        return std::all_of(shape.begin(), std::prev(shape.end()), isOne);
     };
 
     for (auto fullConnected : fullyConnectedOps) {
@@ -222,7 +233,7 @@ std::optional<SmallVector<IE::AffineReshapeOp>> getAffineReshapeOpWithSameAttr(A
     auto refAffineReshape = affineReshapeOps.back();
     auto refDimMapping = refAffineReshape.getDimMapping();
     for (auto affineReshape : affineReshapeOps) {
-        if (getShape(affineReshape.getOutput()).size() != rank3D - 1 ||
+        if (getShape(affineReshape.getOutput()).size() != RANK_3D - 1 ||
             affineReshape.getDimMapping() != refDimMapping) {
             return std::nullopt;
         }
@@ -247,7 +258,7 @@ std::optional<SmallVector<IE::AffineReshapeOp>> getAffineReshapeOpWithSameAttr(A
     auto refAffineReshape = affineReshapeOps.back();
     auto refDimMapping = refAffineReshape.getDimMapping();
     for (auto affineReshape : affineReshapeOps) {
-        if (getShape(affineReshape.getOutput()).size() != rank3D - 1 ||
+        if (getShape(affineReshape.getOutput()).size() != RANK_3D - 1 ||
             affineReshape.getDimMapping() != refDimMapping) {
             return std::nullopt;
         }
@@ -279,178 +290,36 @@ std::optional<SmallVector<IE::TransposeOp>> getTransposeOpWithSameAttr(ArrayRef<
 }
 }  // namespace TransposeAffineReshapeOrder
 
-FQConstInputs getFakeQuantizeConstInputs(SmallVector<IE::FakeQuantizeOp>& fakeQuantizeOps) {
-    FQConstInputs fQConstInputs;
-    for (auto fakeQuantize : fakeQuantizeOps) {
-        auto input = fakeQuantize.getInput().getDefiningOp<Const::DeclareOp>();
-        auto inLow = fakeQuantize.getInputLow().getDefiningOp<Const::DeclareOp>();
-        auto inHigh = fakeQuantize.getInputHigh().getDefiningOp<Const::DeclareOp>();
-        auto outLow = fakeQuantize.getOutputLow().getDefiningOp<Const::DeclareOp>();
-        auto outHigh = fakeQuantize.getOutputHigh().getDefiningOp<Const::DeclareOp>();
-        fQConstInputs.inputs.push_back(input);
-        fQConstInputs.inLows.push_back(inLow);
-        fQConstInputs.inHighs.push_back(inHigh);
-        fQConstInputs.outLows.push_back(outLow);
-        fQConstInputs.outHighs.push_back(outHigh);
-    }
-    return fQConstInputs;
-}
-
-bool doesFQHaveSameZeroPoint(SmallVector<IE::FakeQuantizeOp> fakeQuantizeOps) {
-    SmallVector<int64_t> zeroPoints;
-    for (auto fqOp : fakeQuantizeOps) {
-        auto lowConstantOp = fqOp.getOutputLow().getDefiningOp<Const::DeclareOp>();
-        auto highConstantOp = fqOp.getOutputHigh().getDefiningOp<Const::DeclareOp>();
-
-        if (lowConstantOp == nullptr || highConstantOp == nullptr) {
-            return false;
-        }
-
-        auto outputScalesAndZeroPoints = IE::getScalesAndZeroPointsFromContentAttr(
-                lowConstantOp.getContentAttr(), highConstantOp.getContentAttr(), fqOp.getAutoBroadcast(),
-                fqOp.getLevels(), fqOp.getLowFpType(), /*isSigned=*/false);
-        if (mlir::failed(outputScalesAndZeroPoints)) {
-            return false;
-        }
-        const auto& outZeroPoints = std::get<1>(outputScalesAndZeroPoints.value());
-
-        if (!std::equal(outZeroPoints.begin() + 1, outZeroPoints.end(), outZeroPoints.begin())) {
-            return false;
-        }
-        zeroPoints.push_back(outZeroPoints.front());
-    }
-
-    return std::equal(zeroPoints.begin() + 1, zeroPoints.end(), zeroPoints.begin());
-}
-
 template <class ConcreteOp>
-std::optional<SmallVector<IE::FakeQuantizeOp>> getFakeQuantizeOpWithSameAttr(ArrayRef<ConcreteOp> concreteOps) {
-    SmallVector<IE::FakeQuantizeOp> fakeQuantizeOps;
-    for (auto concreteOp : concreteOps) {
-        if (!concreteOp->hasOneUse()) {
-            return std::nullopt;
-        }
-        auto fakeQuantize = mlir::dyn_cast<IE::FakeQuantizeOp>(concreteOp.getInput().getDefiningOp());
-        if (fakeQuantize == nullptr) {
-            return std::nullopt;
-        }
-        fakeQuantizeOps.push_back(fakeQuantize);
-    }
-
-    if (!isOutputCompatible<IE::FakeQuantizeOp>(fakeQuantizeOps)) {
-        return std::nullopt;
-    }
-
-    auto refFakeQuantizeOp = fakeQuantizeOps.front();
-    auto refBroadcast = refFakeQuantizeOp.getAutoBroadcast();
-
-    for (auto fakeQuantize : fakeQuantizeOps) {
-        if (refBroadcast != fakeQuantize.getAutoBroadcast()) {
-            return std::nullopt;
-        }
-        for (auto ind : irange(fakeQuantizeOps.front()->getOperands().size())) {
-            auto constOp = mlir::dyn_cast<Const::DeclareOp>(fakeQuantize->getOperand(ind).getDefiningOp());
-            if (constOp == nullptr) {
-                return std::nullopt;
-            }
-        }
-    }
-
-    auto fQConstInputs = getFakeQuantizeConstInputs(fakeQuantizeOps);
-    SmallVector<float> inLowData;
-    SmallVector<float> inHighData;
-    for (auto constInput : fQConstInputs.inLows) {
-        if (!IE::isBaseContentSplat(constInput)) {
-            return std::nullopt;
-        }
-        auto data = IE::getConst(constInput).front();
-        inLowData.push_back(data);
-    }
-    if (!std::equal(inLowData.begin() + 1, inLowData.end(), inLowData.begin())) {
-        return std::nullopt;
-    }
-
-    for (auto constInput : fQConstInputs.inHighs) {
-        if (!IE::isBaseContentSplat(constInput)) {
-            return std::nullopt;
-        }
-        auto data = IE::getConst(constInput).front();
-        inHighData.push_back(data);
-    }
-    if (!std::equal(inHighData.begin() + 1, inHighData.end(), inHighData.begin())) {
-        return std::nullopt;
-    }
-
-    auto isGPTQCase = [](ShapeRef shape) {
-        const auto greaterThanOne = [](auto dim) {
-            return dim > 1;
-        };
-        if (shape.size() != rank3D) {
-            return false;
-        }
-        if (llvm::count_if(shape.raw(), greaterThanOne) == rank3D - 1) {
-            return true;
-        }
-        return false;
-    };
-
-    for (auto constInput : fQConstInputs.outLows) {
-        if (!isGPTQCase(getShape(constInput.getOutput()))) {
-            return std::nullopt;
-        }
-    }
-    for (auto constInput : fQConstInputs.outHighs) {
-        if (!isGPTQCase(getShape(constInput.getOutput()))) {
-            return std::nullopt;
-        }
-    }
-
-    if (!doesFQHaveSameZeroPoint(fakeQuantizeOps)) {
-        return std::nullopt;
-    }
-
-    return fakeQuantizeOps;
-}
-
-IE::FakeQuantizeOp createFakeQuantize(SmallVector<IE::FakeQuantizeOp>& fakeQuantizeOps,
-                                      mlir::PatternRewriter& rewriter) {
-    auto fqConstInputs = getFakeQuantizeConstInputs(fakeQuantizeOps);
-
-    auto getConcatDim = [](SmallVector<Const::DeclareOp>& constOps) {
-        return getShape(constOps.front().getOutput()).size() - 1;
-    };
-    auto concatInConst = concatConst(fqConstInputs.inputs, getConcatDim(fqConstInputs.inputs), rewriter);
-    auto concatOutLowConst = concatConst(fqConstInputs.outLows, getConcatDim(fqConstInputs.outLows), rewriter);
-    auto concatOutHighConst = concatConst(fqConstInputs.outHighs, getConcatDim(fqConstInputs.outHighs), rewriter);
-
-    auto refOp = fakeQuantizeOps.front();
-    auto newFq = rewriter.create<IE::FakeQuantizeOp>(appendLoc(refOp->getLoc(), "concat_"), concatInConst.getOutput(),
-                                                     refOp.getInputLow(), refOp.getInputHigh(),
-                                                     concatOutLowConst.getOutput(), concatOutHighConst.getOutput(),
-                                                     refOp.getLevelsAttr(), nullptr, refOp.getAutoBroadcastAttr());
-    return newFq;
-}
-
-std::optional<SmallVector<IE::DynamicDequantizeOp>> getDynamicDequantizeOpWithSameAttr(
-        ArrayRef<IE::AffineReshapeOp> affineReshapeOps) {
+std::optional<SmallVector<IE::DynamicDequantizeOp>> getDynamicDequantizeOpWithSameAttr(ArrayRef<ConcreteOp> ops) {
     SmallVector<IE::DynamicDequantizeOp> dynamicDequantOps;
-    for (auto reshape : affineReshapeOps) {
-        auto dynamicDequant = mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(reshape.getInput().getDefiningOp());
+    for (auto op : ops) {
+        if (!op->hasOneUse()) {
+            return std::nullopt;
+        }
+
+        auto dynamicDequant = mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(op.getInput().getDefiningOp());
         if (dynamicDequant == nullptr || !dynamicDequant->hasOneUse() || !dynamicDequant.getDstElemType()) {
             return std::nullopt;
         }
-        if (dynamicDequant.getZp()) {
-            return std::nullopt;
-        }
+
         dynamicDequantOps.push_back(dynamicDequant);
     }
 
     auto refDynamicDequant = dynamicDequantOps.back();
-    auto refOrderValue = refDynamicDequant.getDstElemType();
-    auto refSyntheticAttr = dynamicDequantOps.back()->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR);
+    auto refDstElemType = refDynamicDequant.getDstElemType();
+    auto refInElemType = mlir::cast<vpux::NDTypeInterface>(refDynamicDequant.getInput().getType()).getElementType();
+    auto refSyntheticAttr = refDynamicDequant->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR);
+    auto refWeightsImportAttr = refDynamicDequant->getAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR);
+    const bool refHasZp = refDynamicDequant.getZp() != nullptr;
     for (auto dynamicDequant : dynamicDequantOps) {
-        if ((dynamicDequant.getDstElemType() != refOrderValue) ||
-            (dynamicDequant->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR) != refSyntheticAttr)) {
+        // Input element type must match too: concatConst() reuses the first operand's type for
+        // the merged constant, so mixing e.g. si8 and ui4 inputs would silently misinterpret data.
+        const auto inElemType = mlir::cast<vpux::NDTypeInterface>(dynamicDequant.getInput().getType()).getElementType();
+        if (dynamicDequant.getDstElemType() != refDstElemType || inElemType != refInElemType ||
+            dynamicDequant->getAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR) != refWeightsImportAttr ||
+            dynamicDequant->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR) != refSyntheticAttr ||
+            ((dynamicDequant.getZp() != nullptr) != refHasZp)) {
             return std::nullopt;
         }
     }
@@ -460,42 +329,163 @@ std::optional<SmallVector<IE::DynamicDequantizeOp>> getDynamicDequantizeOpWithSa
 
 DynDQConstInputs getDynamicDequantizeConstInputs(SmallVector<IE::DynamicDequantizeOp>& dynamicDequantizeOps) {
     DynDQConstInputs dynDQConstInputs;
+    bool hasZp = false;
+    bool hasNoZp = false;
     for (auto dynamicDequantize : dynamicDequantizeOps) {
         auto input = mlir::dyn_cast_if_present<Const::DeclareOp>(dynamicDequantize.getInput().getDefiningOp());
         auto scale = mlir::dyn_cast_if_present<Const::DeclareOp>(dynamicDequantize.getScale().getDefiningOp());
+        const bool opHasZp = dynamicDequantize.getZp() != nullptr;
+        Const::DeclareOp zp = nullptr;
+        if (opHasZp) {
+            hasZp = true;
+            zp = mlir::dyn_cast_if_present<Const::DeclareOp>(dynamicDequantize.getZp().getDefiningOp());
+        } else {
+            hasNoZp = true;
+        }
         // If one of the DynamicDequantizeOp operands is not a Const::DeclareOp we cannot merge the parallel
         // FullyConnected ops. We clear dynDQConstInputs variable and later check for empty SmallVector in order to
         // safely return matchFailed.
-        if (input == nullptr || scale == nullptr) {
+        if (input == nullptr || scale == nullptr || (opHasZp && zp == nullptr)) {
             dynDQConstInputs.inputs.clear();
             dynDQConstInputs.scales.clear();
+            dynDQConstInputs.zps.clear();
             return dynDQConstInputs;
         }
         dynDQConstInputs.inputs.push_back(input);
         dynDQConstInputs.scales.push_back(scale);
+        if (zp != nullptr) {
+            dynDQConstInputs.zps.push_back(zp);
+        }
     }
+
+    if (hasZp && hasNoZp) {
+        dynDQConstInputs.inputs.clear();
+        dynDQConstInputs.scales.clear();
+        dynDQConstInputs.zps.clear();
+        return dynDQConstInputs;
+    }
+
     return dynDQConstInputs;
 }
 
 IE::DynamicDequantizeOp createDynamicDequantize(SmallVector<IE::DynamicDequantizeOp>& dynamicDequantizeOps,
-                                                mlir::PatternRewriter& rewriter) {
+                                                size_t inputConcatDim, mlir::PatternRewriter& rewriter) {
     auto dynDQConstInputs = getDynamicDequantizeConstInputs(dynamicDequantizeOps);
 
     if (dynDQConstInputs.inputs.empty()) {
         return nullptr;
     }
 
-    auto concatInConst = concatConst(dynDQConstInputs.inputs, 0, rewriter);
-    auto concatScaleConst = concatConst(dynDQConstInputs.scales, 0, rewriter);
+    // Merged input shape, derived from the individual input shapes so that scale/zp validation
+    // below doesn't need the (potentially large) concatenated input constant materialized yet.
+    auto mergedInShapeVec = SmallVector<int64_t>(getShape(dynDQConstInputs.inputs.front().getOutput()).raw().begin(),
+                                                 getShape(dynDQConstInputs.inputs.front().getOutput()).raw().end());
+    mergedInShapeVec[inputConcatDim] = 0;
+    for (auto inConst : dynDQConstInputs.inputs) {
+        mergedInShapeVec[inputConcatDim] += getShape(inConst.getOutput())[Dim(inputConcatDim)];
+    }
+    const auto mergedInShape = Shape(mergedInShapeVec);
+
+    mlir::Value scaleValue = dynDQConstInputs.scales.front().getOutput();
+    size_t scaleConcatDim = 0;
+    bool scaleNeedsConcat = false;
+    if (getShape(scaleValue).totalSize() == 1) {
+        SmallVector<float> scaleData;
+        scaleData.reserve(dynDQConstInputs.scales.size());
+        for (auto scaleConst : dynDQConstInputs.scales) {
+            if (!IE::isBaseContentSplat(scaleConst)) {
+                return nullptr;
+            }
+            scaleData.push_back(IE::getConst(scaleConst).front());
+        }
+        if (!llvm::all_of(llvm::ArrayRef<float>(scaleData).drop_front(), [&](float v) {
+                return v == scaleData.front();
+            })) {
+            return nullptr;
+        }
+    } else {
+        const auto refScaleShape = getShape(scaleValue);
+        const auto nonOneDims = vpux::getNonOneDim(refScaleShape);
+
+        if (nonOneDims.size() == 1) {
+            scaleConcatDim = checked_cast<size_t>(nonOneDims.front().ind());
+        } else {
+            // For multi-dimensional (e.g., per-group) scales, concatenate along the
+            // same dimension used for weight concatenation.
+            if (inputConcatDim >= refScaleShape.size()) {
+                return nullptr;
+            }
+            scaleConcatDim = inputConcatDim;
+        }
+
+        for (auto scaleConst : dynDQConstInputs.scales) {
+            const auto currentScaleShape = getShape(scaleConst.getOutput());
+            if (currentScaleShape.totalSize() == 1 || currentScaleShape.size() != refScaleShape.size()) {
+                return nullptr;
+            }
+
+            for (auto dimIdx : irange(refScaleShape.size())) {
+                if (dimIdx == scaleConcatDim) {
+                    continue;
+                }
+                if (currentScaleShape[Dim(dimIdx)] != refScaleShape[Dim(dimIdx)]) {
+                    return nullptr;
+                }
+            }
+        }
+
+        scaleNeedsConcat = true;
+    }
+
+    mlir::Value zpValue = nullptr;
+    if (!dynDQConstInputs.zps.empty()) {
+        SmallVector<float> zpData;
+        for (auto zpConst : dynDQConstInputs.zps) {
+            if (!IE::isBaseContentSplat(zpConst)) {
+                return nullptr;
+            }
+            zpData.push_back(IE::getConst(zpConst).front());
+        }
+        if (!llvm::all_of(llvm::ArrayRef<float>(zpData).drop_front(), [&](const float zp) {
+                return zp == zpData.front();
+            })) {
+            return nullptr;
+        }
+
+        // Keep zero-point shape compatible with the merged input shape.
+        // DynamicDequantize verifier requires same rank and broadcastable dims.
+        const auto zpShape = getShape(dynDQConstInputs.zps.front().getOutput());
+        if (mergedInShape.size() != zpShape.size()) {
+            return nullptr;
+        }
+        for (auto d : irange(mergedInShape.size())) {
+            if (zpShape[Dim(d)] > 1 && zpShape[Dim(d)] != mergedInShape[Dim(d)]) {
+                return nullptr;
+            }
+        }
+        zpValue = dynDQConstInputs.zps.front().getOutput();
+    }
+
+    // All validation above passed; only now materialize the (potentially large) concatenated constants.
+    auto concatInConst = concatConst(dynDQConstInputs.inputs, inputConcatDim, rewriter);
+    if (scaleNeedsConcat) {
+        scaleValue = concatConst(dynDQConstInputs.scales, scaleConcatDim, rewriter);
+    }
 
     auto refOp = dynamicDequantizeOps.front();
-    auto newDynDQ =
-            rewriter.create<IE::DynamicDequantizeOp>(appendLoc(refOp->getLoc(), "concat_"), concatInConst.getOutput(),
-                                                     concatScaleConst.getOutput(), nullptr, refOp.getDstElemType());
+    auto newDynDQ = IE::DynamicDequantizeOp::create(rewriter, appendLoc(refOp->getLoc(), "concat_"), concatInConst,
+                                                    scaleValue, zpValue, refOp.getDstElemType());
+
     if (dynamicDequantizeOps.front()->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
         newDynDQ->setAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR,
                           dynamicDequantizeOps.front()->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR));
     }
+
+    if (dynamicDequantizeOps.front()->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+        newDynDQ->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR,
+                          dynamicDequantizeOps.front()->getAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR));
+    }
+
     return newDynDQ;
 }
 
@@ -512,120 +502,131 @@ IE::FullyConnectedOp mergeFCForDirectWeightsOrder(ArrayRef<IE::FullyConnectedOp>
     for (auto fc : fcOrder) {
         weights.push_back(fc.getWeights());
     }
-    auto mergedWeights = rewriter.create<IE::ConcatOp>(appendLoc(origOp->getLoc(), "concat_weights"), weights, Dim(0));
-    return rewriter.create<IE::FullyConnectedOp>(appendLoc(origOp->getLoc(), "concat_"), origOp.getInput(),
-                                                 mergedWeights.getOutput(), nullptr);
+    auto mergedWeights = IE::ConcatOp::create(rewriter, appendLoc(origOp->getLoc(), "concat_weights"), weights, Dim(0));
+    return IE::FullyConnectedOp::create(rewriter, appendLoc(origOp->getLoc(), "concat_"), origOp.getInput(),
+                                        mergedWeights.getOutput(), nullptr);
 }
 
-mlir::FailureOr<IE::FullyConnectedOp> mergeFCForReshapeTransposeOrder(ArrayRef<IE::FullyConnectedOp> fullyConnectedOps,
-                                                                      IE::FullyConnectedOp origOp,
-                                                                      mlir::PatternRewriter& rewriter) {
+mlir::FailureOr<IE::FullyConnectedOp> mergeFCForDynDQReshapeTransposeOrder(
+        ArrayRef<IE::FullyConnectedOp> fullyConnectedOps, IE::FullyConnectedOp origOp, mlir::PatternRewriter& rewriter,
+        Logger log) {
     auto validTransposeOps = AffineReshapeTransposeOrder::getTransposeOpWithSameAttr(fullyConnectedOps);
     if (!validTransposeOps.has_value()) {
-        return matchFailed(rewriter, origOp, "Invalid transpose operations");
+        return matchFailed(log, rewriter, origOp, "Invalid transpose operations");
     }
     auto transposeOps = validTransposeOps.value();
 
     auto validAffineReshapeOps = AffineReshapeTransposeOrder::getAffineReshapeOpWithSameAttr(transposeOps);
     if (!validAffineReshapeOps.has_value()) {
-        return matchFailed(rewriter, origOp, "Invalid affineReshape operations");
+        return matchFailed(log, rewriter, origOp, "Invalid affineReshape operations");
     }
     auto affineReshapeOps = validAffineReshapeOps.value();
 
-    auto validFakeQuantizeOps = getFakeQuantizeOpWithSameAttr<IE::AffineReshapeOp>(affineReshapeOps);
-    if (!validFakeQuantizeOps.has_value()) {
-        return matchFailed(rewriter, origOp, "Invalid fake quantize operations");
+    auto validDynamicDequantizeOps = getDynamicDequantizeOpWithSameAttr<IE::AffineReshapeOp>(affineReshapeOps);
+    if (!validDynamicDequantizeOps.has_value()) {
+        return matchFailed(log, rewriter, origOp, "Invalid dynamic dequantize operations");
     }
-    auto fakeQuantizeOps = validFakeQuantizeOps.value();
+    auto dynamicDequantizeOps = validDynamicDequantizeOps.value();
+    const auto inputConcatDim = getShape(dynamicDequantizeOps.front().getInput()).size() - 1;
+    auto newDynamicDequantize = createDynamicDequantize(dynamicDequantizeOps, inputConcatDim, rewriter);
+    if (newDynamicDequantize == nullptr) {
+        return matchFailed(log, rewriter, origOp,
+                           "Unable to create merged DynamicDequantize op for AffineReshape-Transpose path");
+    }
 
-    auto newFakeQuantize = createFakeQuantize(fakeQuantizeOps, rewriter);
-
-    const auto newFakeQuantizeOutShape = getShape(newFakeQuantize.getOutput());
+    const auto newDynamicDequantizeOutShape = getShape(newDynamicDequantize.getOutput());
     SmallVector<int64_t> reshapeOut{getShape(affineReshapeOps.front().getOutput()).raw().front(),
-                                    newFakeQuantizeOutShape.raw().back()};
+                                    newDynamicDequantizeOutShape.raw().back()};
     const auto reshapeOutAttr = getIntArrayAttr(origOp->getContext(), reshapeOut);
-    auto newAffineReshape = rewriter.create<IE::AffineReshapeOp>(
-            appendLoc(affineReshapeOps.front()->getLoc(), "concat_"), newFakeQuantize.getOutput(),
+    auto newAffineReshape = IE::AffineReshapeOp::create(
+            rewriter, appendLoc(affineReshapeOps.front()->getLoc(), "concat_"), newDynamicDequantize.getOutput(),
             affineReshapeOps.front().getDimMapping(), reshapeOutAttr);
 
-    auto newTranspose = rewriter.create<IE::TransposeOp>(appendLoc(transposeOps.front()->getLoc(), "concat_"),
-                                                         newAffineReshape.getOutput(), nullptr,
-                                                         transposeOps.front().getOrderValueAttr());
-    auto newFullyConnected = rewriter.create<IE::FullyConnectedOp>(
-            appendLoc(origOp->getLoc(), "concat_"), origOp.getInput(), newTranspose.getOutput(), origOp.getBias());
+    auto newTranspose =
+            IE::TransposeOp::create(rewriter, appendLoc(transposeOps.front()->getLoc(), "concat_"),
+                                    newAffineReshape.getOutput(), nullptr, transposeOps.front().getOrderValueAttr());
+    auto newFullyConnected =
+            IE::FullyConnectedOp::create(rewriter, appendLoc(origOp->getLoc(), "concat_"), origOp.getInput(),
+                                         newTranspose.getOutput(), origOp.getBias());
 
     return newFullyConnected;
 }
 
-mlir::FailureOr<IE::FullyConnectedOp> mergeFCForTransposeReshapeOrder(ArrayRef<IE::FullyConnectedOp> fullyConnectedOps,
-                                                                      IE::FullyConnectedOp origOp,
-                                                                      mlir::PatternRewriter& rewriter) {
+mlir::FailureOr<IE::FullyConnectedOp> mergeFCForDynDQTransposeReshapeOrder(
+        ArrayRef<IE::FullyConnectedOp> fullyConnectedOps, IE::FullyConnectedOp origOp, mlir::PatternRewriter& rewriter,
+        Logger log) {
     auto validAffineReshapeOps = TransposeAffineReshapeOrder::getAffineReshapeOpWithSameAttr(fullyConnectedOps);
     if (!validAffineReshapeOps.has_value()) {
-        return matchFailed(rewriter, origOp, "Invalid affineReshape operations");
+        return matchFailed(log, rewriter, origOp, "Invalid affineReshape operations");
     }
     auto affineReshapeOps = validAffineReshapeOps.value();
 
     auto validTransposeOps = TransposeAffineReshapeOrder::getTransposeOpWithSameAttr(affineReshapeOps);
     if (!validTransposeOps.has_value()) {
-        return matchFailed(rewriter, origOp, "Invalid transpose operations");
+        return matchFailed(log, rewriter, origOp, "Invalid transpose operations");
     }
     auto transposeOps = validTransposeOps.value();
-    auto validFakeQuantizeOps = getFakeQuantizeOpWithSameAttr<IE::TransposeOp>(transposeOps);
-    if (!validFakeQuantizeOps.has_value()) {
-        return matchFailed(rewriter, origOp, "Invalid fake quantize operations");
+    auto validDynamicDequantizeOps = getDynamicDequantizeOpWithSameAttr<IE::TransposeOp>(transposeOps);
+    if (!validDynamicDequantizeOps.has_value()) {
+        return matchFailed(log, rewriter, origOp, "Invalid dynamic dequantize operations");
     }
-    auto fakeQuantizeOps = validFakeQuantizeOps.value();
+    auto dynamicDequantizeOps = validDynamicDequantizeOps.value();
+    const auto inputConcatDim = getShape(dynamicDequantizeOps.front().getInput()).size() - 1;
+    auto newDynamicDequantize = createDynamicDequantize(dynamicDequantizeOps, inputConcatDim, rewriter);
+    if (newDynamicDequantize == nullptr) {
+        return matchFailed(log, rewriter, origOp,
+                           "Unable to create merged DynamicDequantize op for Transpose-AffineReshape path");
+    }
 
-    auto newFakeQuantize = createFakeQuantize(fakeQuantizeOps, rewriter);
-
-    auto newTranspose = rewriter.create<IE::TransposeOp>(appendLoc(transposeOps.front()->getLoc(), "concat_"),
-                                                         newFakeQuantize.getOutput(), nullptr,
-                                                         transposeOps.front().getOrderValueAttr());
+    auto newTranspose = IE::TransposeOp::create(rewriter, appendLoc(transposeOps.front()->getLoc(), "concat_"),
+                                                newDynamicDequantize.getOutput(), nullptr,
+                                                transposeOps.front().getOrderValueAttr());
 
     const auto newTransposeOutShape = getShape(newTranspose.getOutput());
     SmallVector<int64_t> reshapeOut{newTransposeOutShape.raw().front(),
                                     getShape(affineReshapeOps.front().getOutput()).raw().back()};
     const auto reshapeOutAttr = getIntArrayAttr(origOp->getContext(), reshapeOut);
-    auto newAffineReshape = rewriter.create<IE::AffineReshapeOp>(
-            appendLoc(affineReshapeOps.front()->getLoc(), "concat_"), newTranspose.getOutput(),
+    auto newAffineReshape = IE::AffineReshapeOp::create(
+            rewriter, appendLoc(affineReshapeOps.front()->getLoc(), "concat_"), newTranspose.getOutput(),
             affineReshapeOps.front().getDimMapping(), reshapeOutAttr);
 
-    auto newFullyConnected = rewriter.create<IE::FullyConnectedOp>(
-            appendLoc(origOp->getLoc(), "concat_"), origOp.getInput(), newAffineReshape.getOutput(), origOp.getBias());
+    auto newFullyConnected =
+            IE::FullyConnectedOp::create(rewriter, appendLoc(origOp->getLoc(), "concat_"), origOp.getInput(),
+                                         newAffineReshape.getOutput(), origOp.getBias());
 
     return newFullyConnected;
 }
 
 mlir::FailureOr<IE::FullyConnectedOp> mergeFCForDynDQReshapeOrder(ArrayRef<IE::FullyConnectedOp> fullyConnectedOps,
                                                                   IE::FullyConnectedOp origOp,
-                                                                  mlir::PatternRewriter& rewriter) {
+                                                                  mlir::PatternRewriter& rewriter, Logger log) {
     auto validAffineReshapeOps = TransposeAffineReshapeOrder::getAffineReshapeOpWithSameAttr(fullyConnectedOps);
     if (!validAffineReshapeOps.has_value()) {
-        return matchFailed(rewriter, origOp, "Invalid affineReshape operations");
+        return matchFailed(log, rewriter, origOp, "Invalid affineReshape operations");
     }
     auto affineReshapeOps = validAffineReshapeOps.value();
 
-    auto validDynamicDequantizeOps = getDynamicDequantizeOpWithSameAttr(affineReshapeOps);
+    auto validDynamicDequantizeOps = getDynamicDequantizeOpWithSameAttr<IE::AffineReshapeOp>(affineReshapeOps);
     if (!validDynamicDequantizeOps.has_value()) {
-        return matchFailed(rewriter, origOp, "Invalid dynamic quantize operations");
+        return matchFailed(log, rewriter, origOp, "Invalid dynamic quantize operations");
     }
     auto dynamicDequantizeOps = validDynamicDequantizeOps.value();
-    auto newDynamicDequantize = createDynamicDequantize(dynamicDequantizeOps, rewriter);
+    auto newDynamicDequantize = createDynamicDequantize(dynamicDequantizeOps, /*inputConcatDim=*/0, rewriter);
     if (newDynamicDequantize == nullptr) {
-        return matchFailed(rewriter, origOp,
+        return matchFailed(log, rewriter, origOp,
                            "Unable to create new DynamicDequantize op, DynamicDequantize op has non const inputs.");
     }
     const auto newDynamicDequantizeOutShape = getShape(newDynamicDequantize.getOutput());
     SmallVector<int64_t> reshapeOut{newDynamicDequantizeOutShape.raw().front(),
                                     getShape(affineReshapeOps.front().getOutput()).raw().back()};
     const auto reshapeOutAttr = getIntArrayAttr(origOp->getContext(), reshapeOut);
-    auto newAffineReshape = rewriter.create<IE::AffineReshapeOp>(
-            appendLoc(affineReshapeOps.front()->getLoc(), "concat_"), newDynamicDequantize.getOutput(),
+    auto newAffineReshape = IE::AffineReshapeOp::create(
+            rewriter, appendLoc(affineReshapeOps.front()->getLoc(), "concat_"), newDynamicDequantize.getOutput(),
             affineReshapeOps.front().getDimMapping(), reshapeOutAttr);
 
-    auto newFullyConnected = rewriter.create<IE::FullyConnectedOp>(
-            appendLoc(origOp->getLoc(), "concat_"), origOp.getInput(), newAffineReshape.getOutput(), origOp.getBias());
+    auto newFullyConnected =
+            IE::FullyConnectedOp::create(rewriter, appendLoc(origOp->getLoc(), "concat_"), origOp.getInput(),
+                                         newAffineReshape.getOutput(), origOp.getBias());
 
     return newFullyConnected;
 }
@@ -641,25 +642,48 @@ mlir::LogicalResult MergeParallelFullyConnected::matchAndRewrite(IE::FullyConnec
 
     auto validFullyConnectedOps = getFullyConnectedOpWithSameAttr(fullyConnectedOp.getInput());
     if (!validFullyConnectedOps.has_value()) {
-        return matchFailed(rewriter, fullyConnectedOp, "Invalid fullyConnected operations");
+        return matchFailed(_log, rewriter, fullyConnectedOp, "Invalid fullyConnected operations");
     }
     auto fullyConnectedOps = validFullyConnectedOps.value();
 
-    auto parentIsTransposeOp = [](IE::FullyConnectedOp fcOp) {
-        auto lhsOp = fcOp.getWeights().getDefiningOp();
-        return mlir::dyn_cast_if_present<IE::TransposeOp>(lhsOp) != nullptr;
-    };
-    auto parentIsAffineReshapeOp = [](IE::FullyConnectedOp fcOp) {
-        auto lhsOp = fcOp.getWeights().getDefiningOp();
-        return mlir::dyn_cast_if_present<IE::AffineReshapeOp>(lhsOp) != nullptr;
-    };
     auto parentIsAffineReshapeWithDynamicDequantizeOp = [](IE::FullyConnectedOp fcOp) {
         auto lhsOp = fcOp.getWeights().getDefiningOp();
         if (auto reshape = mlir::dyn_cast_if_present<IE::AffineReshapeOp>(lhsOp)) {
-            auto dynamicDequant = reshape.getInput().getDefiningOp();
-            return mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(dynamicDequant) != nullptr;
+            auto dynamicDequant =
+                    mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(reshape.getInput().getDefiningOp());
+            return dynamicDequant != nullptr;
         }
         return false;
+    };
+    auto parentIsTransposeWithDynDQAffineReshapeInput = [](IE::FullyConnectedOp fcOp) {
+        auto lhsOp = fcOp.getWeights().getDefiningOp();
+        auto transpose = mlir::dyn_cast_if_present<IE::TransposeOp>(lhsOp);
+        if (transpose == nullptr) {
+            return false;
+        }
+
+        auto reshape = mlir::dyn_cast_if_present<IE::AffineReshapeOp>(transpose.getInput().getDefiningOp());
+        if (reshape == nullptr) {
+            return false;
+        }
+
+        auto dynamicDequant = mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(reshape.getInput().getDefiningOp());
+        return dynamicDequant != nullptr;
+    };
+    auto parentIsAffineReshapeWithDynDQTransposeInput = [](IE::FullyConnectedOp fcOp) {
+        auto lhsOp = fcOp.getWeights().getDefiningOp();
+        auto reshape = mlir::dyn_cast_if_present<IE::AffineReshapeOp>(lhsOp);
+        if (reshape == nullptr) {
+            return false;
+        }
+
+        auto transpose = mlir::dyn_cast_if_present<IE::TransposeOp>(reshape.getInput().getDefiningOp());
+        if (transpose == nullptr) {
+            return false;
+        }
+
+        auto dynamicDequant = mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(transpose.getInput().getDefiningOp());
+        return dynamicDequant != nullptr;
     };
     // Helper: trace FC output → optional single AffineReshape → Concat.
     auto getConcatThroughReshape = [](IE::FullyConnectedOp fc) -> IE::ConcatOp {
@@ -682,7 +706,7 @@ mlir::LogicalResult MergeParallelFullyConnected::matchAndRewrite(IE::FullyConnec
 
     // Detect the direct-const-weights + Concat-elimination path.
     // Only applies when ALL of the following hold:
-    //   1. Every FC weight is a direct Const::DeclareOp (no FQ / DynDQ preprocessing).
+    //   1. Every FC weight is a direct Const::DeclareOp (no preprocessing).
     //   2. Every FC output (through an optional AffineReshape) feeds the same Concat.
     //   3. That Concat has a valid single contiguous axis.
     // When this path fires the Concat is replaced by a Reshape; no Slice ops are emitted.
@@ -708,12 +732,13 @@ mlir::LogicalResult MergeParallelFullyConnected::matchAndRewrite(IE::FullyConnec
     }
     const bool directConstWithConcat = isDirectConst && allFeedSameConcat;
 
-    auto maybeReshapeTranspose = llvm::all_of(fullyConnectedOps, parentIsTransposeOp);
-    auto maybeTransposeReshape = llvm::all_of(fullyConnectedOps, parentIsAffineReshapeOp);
-    auto maybeDynamicDequantReshape = llvm::all_of(fullyConnectedOps, parentIsAffineReshapeWithDynamicDequantizeOp);
+    auto maybeDynDQReshapeTranspose = llvm::all_of(fullyConnectedOps, parentIsTransposeWithDynDQAffineReshapeInput);
+    auto maybeDynDQTransposeReshape = llvm::all_of(fullyConnectedOps, parentIsAffineReshapeWithDynDQTransposeInput);
+    auto maybeDynDQReshape = llvm::all_of(fullyConnectedOps, parentIsAffineReshapeWithDynamicDequantizeOp);
 
-    if (!maybeReshapeTranspose && !maybeTransposeReshape && !directConstWithConcat) {
-        nestedLog.debug("At least one parent is neither AffineReshape, Transpose, nor direct Const feeding a Concat");
+    if (!maybeDynDQReshapeTranspose && !maybeDynDQTransposeReshape && !maybeDynDQReshape && !directConstWithConcat) {
+        nestedLog.debug(
+                "At least one parent is neither DynamicDequantize-based weights nor direct Const feeding a Concat");
         return mlir::failure();
     }
 
@@ -752,7 +777,7 @@ mlir::LogicalResult MergeParallelFullyConnected::matchAndRewrite(IE::FullyConnec
                 v = reshape.getInput();
             }
             auto fc = v.getDefiningOp<IE::FullyConnectedOp>();
-            VPUX_THROW_UNLESS(fc != nullptr, "Expected FullyConnectedOp feeding Concat input");
+            VPUX_THROW_WHEN(fc == nullptr, "Expected FullyConnectedOp feeding Concat input");
             orderedFCOps.push_back(fc);
         }
 
@@ -760,8 +785,8 @@ mlir::LogicalResult MergeParallelFullyConnected::matchAndRewrite(IE::FullyConnec
         auto shapeAttr = getIntArrayAttr(rewriter.getContext(), concatOutShape);
         nestedLog.trace("Direct-const FC + Concat eliminated at '{0}'", sharedConcat->getLoc());
         auto mergedFC = mergeFCForDirectWeightsOrder(orderedFCOps, fullyConnectedOp, rewriter);
-        auto reshaped = rewriter.create<IE::ReshapeOp>(appendLoc(mergedFC->getLoc(), "reshape_merged"),
-                                                       mergedFC.getOutput(), shapeAttr)
+        auto reshaped = IE::ReshapeOp::create(rewriter, appendLoc(mergedFC->getLoc(), "reshape_merged"),
+                                              mergedFC.getOutput(), shapeAttr)
                                 .getResult();
         rewriter.replaceOp(sharedConcat, reshaped);
         _log.debug("Merge parallel fully connected (concat elimination) successful");
@@ -769,14 +794,15 @@ mlir::LogicalResult MergeParallelFullyConnected::matchAndRewrite(IE::FullyConnec
     }
 
     mlir::FailureOr<IE::FullyConnectedOp> mergedFC;
-    // DynDQ - AffineReshape - FullyConnected
-    if (maybeDynamicDequantReshape) {
-        mergedFC = mergeFCForDynDQReshapeOrder(fullyConnectedOps, fullyConnectedOp, rewriter);
-    } else if (maybeReshapeTranspose) {
-        // FQ - AffineReshape - Transpose - FullyConnected
-        mergedFC = mergeFCForReshapeTransposeOrder(fullyConnectedOps, fullyConnectedOp, rewriter);
+    if (maybeDynDQReshape) {
+        // DynDQ - AffineReshape - FullyConnected
+        mergedFC = mergeFCForDynDQReshapeOrder(fullyConnectedOps, fullyConnectedOp, rewriter, _log);
+    } else if (maybeDynDQReshapeTranspose) {
+        // DynDQ - AffineReshape - Transpose - FullyConnected
+        mergedFC = mergeFCForDynDQReshapeTransposeOrder(fullyConnectedOps, fullyConnectedOp, rewriter, _log);
     } else {
-        mergedFC = mergeFCForTransposeReshapeOrder(fullyConnectedOps, fullyConnectedOp, rewriter);
+        // DynDQ - Transpose - AffineReshape - FullyConnected
+        mergedFC = mergeFCForDynDQTransposeReshapeOrder(fullyConnectedOps, fullyConnectedOp, rewriter, _log);
     }
 
     if (mlir::failed(mergedFC)) {
@@ -798,9 +824,9 @@ mlir::LogicalResult MergeParallelFullyConnected::matchAndRewrite(IE::FullyConnec
         offset += shape[Dim(shape.size() - 1)];
 
         nestedLog.trace("Slice output of FullyConnected ops, idx = {0}, offsets = {1}", p.index(), offsets);
-        auto slice = rewriter.create<IE::SliceOp>(
-                appendLoc(fullyConnected->getLoc(), "slice_{0}", p.index()), mergedFC.value().getOutput(),
-                getIntArrayAttr(rewriter.getContext(), offsets), getIntArrayAttr(rewriter.getContext(), shape.raw()));
+        auto slice = IE::SliceOp::create(rewriter, appendLoc(fullyConnected->getLoc(), "slice_{0}", p.index()),
+                                         mergedFC.value().getOutput(), getIntArrayAttr(rewriter.getContext(), offsets),
+                                         getIntArrayAttr(rewriter.getContext(), shape.raw()));
 
         slices.push_back(slice);
     }

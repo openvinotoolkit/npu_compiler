@@ -122,7 +122,7 @@ mlir::Value createPaddingConstForConcat(ArrayRef<int64_t> constShape, mlir::Loca
     auto padDataAttr = Const::ContentAttr::get(
             padDataStorage, Const::ContentSetup(padDataStorage, padDataStorageType).castElemType(origElemType));
 
-    auto constant = rewriter.create<Const::DeclareOp>(loc, padDataType, std::move(padDataAttr));
+    auto constant = Const::DeclareOp::create(rewriter, loc, padDataType, std::move(padDataAttr));
 
     const auto dataOrder = inputType.getDimsOrder();
     const auto orderMap = dataOrder.toAffineMap(rewriter.getContext());
@@ -166,7 +166,7 @@ std::optional<vpux::Dim> getConcatAxis(IE::ConcatOp concatOp) {
 
     const auto concatAxis = concatAxes.front();
     // Should to ensure there is no data overlapped
-    VPUX_THROW_UNLESS(concatOp.getStaticOffsetsAttr() != nullptr, "Cannot get StaticOffsetsAttr");
+    VPUX_THROW_WHEN(concatOp.getStaticOffsetsAttr() == nullptr, "Cannot get StaticOffsetsAttr");
     const auto allOffsets = concatOp.getStaticOffsetsAttr().getAsRange<mlir::ArrayAttr>();
 
     int64_t accumulator = 0;

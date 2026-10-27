@@ -96,6 +96,13 @@ struct TilingOptions : mlir::PassPipelineOptions<TilingOptions> {
     BoolOption enableVerticalFusionPipelining{*this, "pipelining", llvm::cl::desc("Enable vertical fusion pipelining"),
                                               llvm::cl::init(false)};
 
+    mlir::detail::PassOptions::Option<VFMergeCostMode> vfMergeCostMode{
+            *this, "vf-merge-cost-mode", llvm::cl::desc("Objective used by v2/FWLM VF merging"),
+            llvm::cl::init(VFMergeCostMode::PERFORMANCE),
+            llvm::cl::values(clEnumValN(VFMergeCostMode::PERFORMANCE, "performance",
+                                        "Select the existing VPUNN performance objective"),
+                             clEnumValN(VFMergeCostMode::POWER, "power", "Select the DMA-byte power proxy"))};
+
     BoolOption enableSCFTiling{*this, "scf-tiling", llvm::cl::desc("Enable tiling using SCF dialect"),
                                llvm::cl::init(false)};
 
@@ -131,8 +138,6 @@ struct TilingOptions : mlir::PassPipelineOptions<TilingOptions> {
                                            llvm::cl::init(false)};
 
     BoolOption enableProfiling{*this, "profiling", llvm::cl::desc("Enable profiling"), llvm::cl::init(false)};
-    BoolOption enableProfilingWithOutlining{*this, "profiling-with-outlining",
-                                            llvm::cl::desc("Enable profiling with outlining"), llvm::cl::init(false)};
 
     StrOption enableShaveDDRAccessOptimization{
             *this, "enable-shave-ddr-access-optimization",
@@ -233,6 +238,25 @@ struct ScfComputeOpsOutliningOptions : mlir::PassPipelineOptions<ScfComputeOpsOu
                                        llvm::cl::init(false)};
 
     ScfComputeOpsOutliningOptions() = default;
+};
+
+//
+// NCE workloads options
+//
+
+struct NCEWorkloadsOptions : mlir::PassPipelineOptions<NCEWorkloadsOptions> {
+    BoolOption enableSCFTiling{*this, "scf-tiling", llvm::cl::desc("Enable tiling using SCF dialect"),
+                               llvm::cl::init(false)};
+
+    BoolOption enablePrintStatistics{*this, "enable-print-statistics", ::llvm::cl::desc("Enable print statistics"),
+                                     ::llvm::cl::init(vpux::isDeveloperBuild())};
+
+    NCEWorkloadsOptions() = default;
+
+    template <class OtherOptions>
+    explicit NCEWorkloadsOptions(const OtherOptions& options) {
+        this->matchAndCopyOptionValuesFrom(options);
+    }
 };
 
 //
@@ -469,8 +493,8 @@ std::unique_ptr<mlir::Pass> createInitResourcesPass(const InitCompilerOptions& i
 std::unique_ptr<mlir::Pass> createSetupPassToolsPass(const InitCompilerOptions& initCompilerOptions = {},
                                                      Logger log = Logger::global());
 
-std::unique_ptr<mlir::Pass> createDMATaskProfilingReserveMemPass(const std::string& enableDMAProfiling = "false",
-                                                                 Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createReserveProfilingMemPass(const std::string& enableDMAProfiling = "false",
+                                                          Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createCompressDmaReserveMemPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSWKernelInstructionPrefetchReserveMemForDummyKernelsPass(
         Logger log = Logger::global());
@@ -535,13 +559,14 @@ std::unique_ptr<mlir::Pass> createOutputPipelineTilingPass(bool enablePrefetchTi
                                                            Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSCFVerticalFusionPass(
         VFMergeConfiguration vfMergeConfig = VFMergeConfiguration::COST_BASED, bool enableDynamicDimAlignment = false,
-        Logger log = Logger::global());
+        VFMergeCostMode costMode = VFMergeCostMode::PERFORMANCE, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSCFMulticlusteringPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSCFFuseLastViewLikeOpPass(Logger log = Logger::global());
 
 std::unique_ptr<mlir::Pass> createLegalizeDynamicShapeConcatForSWLayersPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertConstArgsToMultiConstantsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConcatRepeatingBlocksOutliningPass(int64_t minSeqLength = 1,
+                                                                     int64_t sdpaHeadThreshold = 8,
                                                                      const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createOutlineEntireMainContentPass(const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createBoundedTensorsToDynamicDimsMaskPass(Logger log = Logger::global());
@@ -549,6 +574,7 @@ std::unique_ptr<mlir::Pass> createDynamicDimsMaskToBoundedTensorsPass(Logger log
 std::unique_ptr<mlir::Pass> createMoveReflectPadToCMXPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createMoveTensorOpsToCMXPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createRunMVNNormalizeOnDPUPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createConvertTileWithEltwiseToNCEPoolPass(Logger log = Logger::global());
 
 void buildInitCompilerPipeline(mlir::OpPassManager& pm, const VPU::InitCompilerOptions& options,
                                Logger log = Logger::global());
@@ -608,17 +634,17 @@ std::unique_ptr<mlir::Pass> createMoveViewOpsToVerticalFusionPass(
         Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createPatternBasedVFPass(
         WorkloadManagementMode workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES,
-        Logger log = Logger::global());
+        VFMergeCostMode costMode = VFMergeCostMode::PERFORMANCE, Logger log = Logger::global());
 // Tracking number [E#76838]
 // Turn on the enableVerticalFusionPipelining when VF pipelining is enabled
 std::unique_ptr<mlir::Pass> createMergeVfSubgraphsPass(
         bool enableVerticalFusionPipelining = false, bool enablePrefetchTiling = true,
         WorkloadManagementMode workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES,
-        Logger log = Logger::global());
+        VFMergeCostMode costMode = VFMergeCostMode::PERFORMANCE, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createVfTilingPass(
         bool enableVerticalFusionPipelining = false, bool enableVFScheduleTrace = false,
         WorkloadManagementMode workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES,
-        Logger log = Logger::global());
+        VFMergeCostMode costMode = VFMergeCostMode::PERFORMANCE, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createVerticalFusionOutliningPass();
 std::unique_ptr<mlir::Pass> createVerticalFusionOutliningPass(const TilingOptions& options,
                                                               Logger log = Logger::global());
@@ -629,6 +655,7 @@ std::unique_ptr<mlir::Pass> createEnsureNCEOpsSizeRequirementsPass(
         bool enableSplitChannelForDynamicDequantize = false, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvolutionSplitOverInputChannelPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseConvertPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createConvertDepthToSpaceToNCEConvolutionPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertDepthToSpaceToNCEMaxPoolPass(Logger log = Logger::global());
 
 // If optimizeOnlyOuterConcat is true, only optimize when concat dimension is the highest dimension
@@ -738,7 +765,7 @@ struct DefaultHWOptionsDialectBase : public virtual vpux::DefaultHWOptionsBase {
     BoolOption enableFuseReduceMinMaxToDpu{
             *this, "enable-fuse-reduce-minmax-to-dpu",
             llvm::cl::desc("Enable fusing ReduceMin/ReduceMax operations into the parent DPU op"),
-            llvm::cl::init(false)};
+            llvm::cl::init(true)};
 
     // WeightsSparsityOptions
     StrOption weightsSparsityHeuristic{*this, "weights-sparsity-heuristic",
@@ -753,7 +780,7 @@ struct DefaultHWOptionsDialectBase : public virtual vpux::DefaultHWOptionsBase {
             llvm::cl::desc(
                     "Sparsify weights using a single thread if the constant's size is larger than this threshold."),
             llvm::cl::init((200_MB).to<vpux::Byte>().count())};
-    IntOption weightsSparsityComputeOpThreshold{
+    Int64Option weightsSparsityComputeOpThreshold{
             *this, "weights-sparsity-compute-op-threshold",
             llvm::cl::desc("Minimum number of compute operations where fragmentation is likely"), llvm::cl::init(350)};
 

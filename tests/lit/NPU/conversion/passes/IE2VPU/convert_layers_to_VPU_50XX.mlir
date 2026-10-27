@@ -340,3 +340,26 @@ func.func @ConvertScatterUpdate(%in: tensor<1024x1x8x128xf16>, %indices: tensor<
     return %out : tensor<1024x1x8x128xf16>
     // CHECK:  VPU.ScatterUpdateSwDma(
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @PadDmaTest
+// CHECK-SAME:  [[INPUT:%[^:]+]]: tensor<2x3x4x?xf16, {bounds = #const.OpaqueI64Elements<[2, 3, 4, 20]> : tensor<4xsi64>, order = #NCHW}>
+func.func @PadDmaTest(%arg0: tensor<2x3x4x?xf16, {bounds = #const.OpaqueI64Elements<[2, 3, 4, 20]> : tensor<4xsi64>, order = #NCHW}>)
+        -> tensor<5x6x11x?xf16, {bounds = #const.OpaqueI64Elements<[5, 6, 11, 27]> : tensor<4xsi64>, order = #NCHW}> {
+    %0 = IE.Pad(%arg0) {
+            mode = #IE.pad_mode<CONSTANT>,
+            pads_begin_attr = [1, 2, 3, 4],
+            pads_end_attr = [2, 1, 4, 3],
+            pad_value_attr = 0.0
+        } : tensor<2x3x4x?xf16, {bounds = #const.OpaqueI64Elements<[2, 3, 4, 20]> : tensor<4xsi64>, order = #NCHW}>
+          -> tensor<5x6x11x?xf16, {bounds = #const.OpaqueI64Elements<[5, 6, 11, 27]> : tensor<4xsi64>, order = #NCHW}>
+
+    return %0 : tensor<5x6x11x?xf16, {bounds = #const.OpaqueI64Elements<[5, 6, 11, 27]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK:  [[AUX:%.+]] = VPU.Empty : tensor<1x1x1x1049600xui8>
+    // CHECK:  [[PADDMA:%.+]] = VPU.PadDma([[INPUT]], [[AUX]]) {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f32, pads_begin_attr = [1, 2, 3, 4], pads_end_attr = [2, 1, 4, 3]}
+    // CHECK:  return [[PADDMA]]
+}

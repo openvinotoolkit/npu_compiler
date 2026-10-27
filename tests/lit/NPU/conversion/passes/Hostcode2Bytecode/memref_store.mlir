@@ -17,7 +17,7 @@ func.func @store_static_i64(%arg0: i64, %arg1: index, %arg2: index) -> () attrib
 // CHECK-NEXT:    %0 = bytecode.virtual_parameter_register 2
 // CHECK-NEXT:    %1 = bytecode.virtual_parameter_register 1
 // CHECK-NEXT:    %2 = bytecode.virtual_parameter_register 0
-// CHECK-NEXT:    %3 = bytecode.virtual_general_register
+// CHECK-NEXT:    %3 = bytecode.virtual_value_register
 // CHECK-NEXT:    bytecode.ext.buffer.create %3, memref<2x3xi64>
 // CHECK-NEXT:    bytecode.buffer.store %3, %2 indices(%1, %0)
 // CHECK-NEXT:    bytecode.ret
@@ -37,7 +37,7 @@ func.func @store_static_f64(%arg0: f64, %arg1: index) -> () attributes {config.p
 // CHECK-LABEL: bytecode.ext.func @store_static_f64 (f64, index) -> () {
 // CHECK-NEXT:    %0 = bytecode.virtual_parameter_register 1
 // CHECK-NEXT:    %1 = bytecode.virtual_parameter_register 0
-// CHECK-NEXT:    %2 = bytecode.virtual_general_register
+// CHECK-NEXT:    %2 = bytecode.virtual_value_register
 // CHECK-NEXT:    bytecode.ext.buffer.create %2, memref<4xf64>
 // CHECK-NEXT:    bytecode.buffer.store %2, %1 indices(%0)
 // CHECK-NEXT:    bytecode.ret
@@ -57,7 +57,7 @@ func.func @store_static_f32_const(%arg0: index) -> () attributes {config.pureHos
 
 // CHECK-LABEL: bytecode.ext.func @store_static_f32_const (index) -> () {
 // CHECK-NEXT:    %0 = bytecode.virtual_parameter_register 0
-// CHECK-NEXT:    %1 = bytecode.virtual_general_register
+// CHECK-NEXT:    %1 = bytecode.virtual_value_register
 // CHECK-NEXT:    bytecode.ext.buffer.create %1, memref<4xf32>
 // CHECK-NEXT:    %2 = bytecode.imm_register 1065353216
 // CHECK-NEXT:    bytecode.buffer.store %1, %2 indices(%0)
@@ -78,7 +78,7 @@ func.func @store_static_f16_const(%arg0: index) -> () attributes {config.pureHos
 
 // CHECK-LABEL: bytecode.ext.func @store_static_f16_const (index) -> () {
 // CHECK-NEXT:    %0 = bytecode.virtual_parameter_register 0
-// CHECK-NEXT:    %1 = bytecode.virtual_general_register
+// CHECK-NEXT:    %1 = bytecode.virtual_value_register
 // CHECK-NEXT:    bytecode.ext.buffer.create %1, memref<4xf16>
 // CHECK-NEXT:    %2 = bytecode.imm_register 15360
 // CHECK-NEXT:    bytecode.buffer.store %1, %2 indices(%0)
@@ -119,9 +119,9 @@ func.func @output_shape(%main: memref<1x16x?x1280xf32>) -> memref<4xi64> attribu
 // CHECK-NEXT:    [[DIM_IDX:%.+]] = bytecode.imm_register 2
 // CHECK-NEXT:    [[V16:%.+]] = bytecode.imm_register 16
 // CHECK-NEXT:    [[V1:%.+]] = bytecode.imm_register 1
-// CHECK-NEXT:    [[DIM:%.+]] = bytecode.virtual_general_register
+// CHECK-NEXT:    [[DIM:%.+]] = bytecode.virtual_value_register
 // CHECK-NEXT:    bytecode.buffer.get_dim [[DIM]], [[MAIN]], [[DIM_IDX]]
-// CHECK-NEXT:    [[OUT:%.+]] = bytecode.virtual_general_register
+// CHECK-NEXT:    [[OUT:%.+]] = bytecode.virtual_value_register
 // CHECK-NEXT:    bytecode.ext.buffer.create [[OUT]], memref<4xi64>
 // CHECK-NEXT:    [[I0:%.+]] = bytecode.imm_register 0
 // CHECK-NEXT:    [[I1:%.+]] = bytecode.imm_register 1

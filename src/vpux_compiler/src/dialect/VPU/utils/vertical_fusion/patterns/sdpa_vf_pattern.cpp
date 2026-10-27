@@ -152,13 +152,13 @@ std::optional<SmallVector<VPU::VerticalFusionOp>> SDPAVFPattern::tryMatchSoftmax
         }
     }
 
-    auto reduceConvVF = getSingleVFUser(reduceVF);
-    auto eltwiseVF = getSingleVFUser(outputConvVF);
+    auto reduceConvVF = getUniqUser(reduceVF);
+    auto eltwiseVF = getUniqUser(outputConvVF);
     if (reduceConvVF == nullptr || eltwiseVF == nullptr) {
         return std::nullopt;
     }
 
-    if (getSingleVFUser(reduceConvVF) != eltwiseVF) {
+    if (getUniqUser(reduceConvVF) != eltwiseVF) {
         return std::nullopt;
     }
 
@@ -175,12 +175,12 @@ std::optional<SmallVector<VPU::VerticalFusionOp>> SDPAVFPattern::tryMatchSoftmax
 std::optional<SmallVector<VPU::VerticalFusionOp>> SDPAVFPattern::tryMatchSDPA(VPU::VerticalFusionOp rootOp,
                                                                               VPU::VerticalFusionOp second,
                                                                               Logger log) const {
-    auto third = getSingleVFUser(second);
+    auto third = getUniqUser(second);
     if (third == nullptr) {
         return std::nullopt;
     }
 
-    auto fourth = getSingleVFUser(third);
+    auto fourth = getUniqUser(third);
     if (fourth == nullptr) {
         return std::nullopt;
     }
@@ -195,7 +195,7 @@ std::optional<SmallVector<VPU::VerticalFusionOp>> SDPAVFPattern::tryMatchSDPA(VP
 
 std::optional<SmallVector<VPU::VerticalFusionOp>> SDPAVFPattern::getMatchedChain(VPU::VerticalFusionOp rootOp,
                                                                                  Logger log) const {
-    auto second = getSingleVFUser(rootOp);
+    auto second = getUniqUser(rootOp);
     if (second == nullptr) {
         return std::nullopt;
     }
@@ -226,7 +226,7 @@ std::optional<SmallVector<VPU::VerticalFusionOp>> SDPAVFPattern::getMatchedChain
 
 std::optional<VPU::VF::v2::VFCase> SDPAVFPattern::buildVFCase(VPU::VerticalFusionOp mergedOp,
                                                               const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                                              Logger log) const {
+                                                              VFMergeCostMode costMode, Logger log) const {
     VPU::VF::v2::VFCacheAnalysis cache(mergedOp.getOperation());
     VPU::VF::v2::VFConfig vfConfig(mergedOp, cache, /*enableVFPipelining=*/true, /*firstVFNeedsTiling=*/true,
                                    /*secondVFNeedsTiling=*/true);
@@ -268,8 +268,8 @@ std::optional<VPU::VF::v2::VFCase> SDPAVFPattern::buildVFCase(VPU::VerticalFusio
         return getMaxNumCalc(split.size() > 1)(dim, split);
     };
 
-    auto bestCase = VPU::VF::v2::findBestVFCaseFromSplits(vfConfig, splits, minNumCalc, maxNumCalc, costFunction, log,
-                                                          mergedOp.getContext(), nullptr);
+    auto bestCase = VPU::VF::v2::findBestVFCaseFromSplits(vfConfig, splits, minNumCalc, maxNumCalc, costFunction, false,
+                                                          log, mergedOp.getContext(), nullptr, costMode);
     if (!bestCase.has_value()) {
         log.trace("SDPAVFPattern::buildVFCase failed: findBestVFCaseFromSplits returned nullopt at {0}",
                   mergedOp->getLoc());
@@ -320,7 +320,7 @@ bool SDPAVFPattern::alignMultiClusterStrategy(VPU::VF::v2::VFConfig& vfConfig, L
 mlir::FailureOr<VPU::VerticalFusionOp> SDPAVFPattern::tryMerge(VPU::VerticalFusionOp rootOp,
                                                                mlir::RewriterBase& rewriter,
                                                                const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                                               Logger log) const {
+                                                               VFMergeCostMode costMode, Logger log) const {
     log.trace("SDPAVFPattern::tryMerge start root={0}", rootOp->getLoc());
     auto matchedOps = getMatchedChain(rootOp, log);
     if (!matchedOps.has_value()) {
@@ -339,7 +339,7 @@ mlir::FailureOr<VPU::VerticalFusionOp> SDPAVFPattern::tryMerge(VPU::VerticalFusi
     }
 
     log.trace("SDPAVFPattern::tryMerge buildVFCase begin {0}", rootOp->getLoc());
-    auto vfCase = buildVFCase(mergedOp, costFunction, log);
+    auto vfCase = buildVFCase(mergedOp, costFunction, costMode, log);
     if (!vfCase.has_value()) {
         log.trace("SDPAVFPattern::tryMerge buildVFCase failed, skip fusion and return failure at {0}",
                   mergedOp->getLoc());

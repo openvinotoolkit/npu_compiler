@@ -14,8 +14,8 @@ mlir::FailureOr<SymbolizationResult> DeclareTaskBufferRewriter::symbolize(
     auto symName = findSym(op.getResult()).getRootReference();
     auto taskIdx = mlir::TypeAttr::get(op.getType());
 
-    auto newOp = rewriter.create<VPUASM::DeclareTaskBufferOp>(op.getLoc(), symName, taskIdx, op.getTaskTypeAttr(),
-                                                              op.getOffsetAttr());
+    auto newOp = VPUASM::DeclareTaskBufferOp::create(rewriter, op.getLoc(), symName, taskIdx, op.getTaskTypeAttr(),
+                                                     op.getOffsetAttr());
 
     rewriter.eraseOp(op);
     return SymbolizationResult(newOp);

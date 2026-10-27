@@ -47,7 +47,7 @@ mlir::OpFoldResult vpux::IE::ExpandDilatedOp::fold(FoldAdaptor adaptor) {
         return getInput();
     }
 
-    VPUX_THROW_UNLESS(!operands.empty(), "Wrong number of operands : {0}", operands.size());
+    VPUX_THROW_WHEN(operands.empty(), "Wrong number of operands : {0}", operands.size());
 
     if (const auto attr = mlir::dyn_cast_or_null<Const::ContentAttr>(operands[0])) {
         const auto dilationsVal = parseIntArrayAttr<int64_t>(getDilations());

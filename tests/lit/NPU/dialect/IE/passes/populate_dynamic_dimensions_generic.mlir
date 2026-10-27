@@ -152,12 +152,12 @@ func.func @EltwiseGreater(%arg0: tensor<1x?xf16, {bounds = #const.OpaqueI64Eleme
 
 #NC = affine_map<(d0, d1) -> (d0, d1)>
 // CHECK-LABEL: EltwiseGreaterEqual
-func.func @EltwiseGreaterEqual(%arg0: tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32]> : tensor<2xsi64>, order = #NC}>) -> tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32]> : tensor<2xsi64>, order = #NC}> {    %cst = const.Declare tensor<1x1xf16> = dense<0.500000e+00> : tensor<1x1xf16>
-
-    %0 = IE.GreaterEqual(%arg0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32]> : tensor<2xsi64>, order = #NC}>, tensor<1x1xf16> -> tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32]> : tensor<2xsi64>, order = #NC}>
+func.func @EltwiseGreaterEqual(%arg0: tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32]> : tensor<2xsi64>, order = #NC}>) -> tensor<1x?xi8, {bounds = #const.OpaqueI64Elements<[1, 32]> : tensor<2xsi64>, order = #NC}> {
+    %cst = const.Declare tensor<1x1xf16> = dense<0.500000e+00> : tensor<1x1xf16>
+    %0 = IE.GreaterEqual(%arg0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32]> : tensor<2xsi64>, order = #NC}>, tensor<1x1xf16> -> tensor<1x?xi8, {bounds = #const.OpaqueI64Elements<[1, 32]> : tensor<2xsi64>, order = #NC}>
     // CHECK: [[GREATEREQUAL:%.+]] = IE.GreaterEqual({{.+}}, {{.+}}) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
     // CHECK-SAME: tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32]> : tensor<2xsi64>, order = #NC}>, tensor<1x1xf16>
-    // CHECK-SAME: -> tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32]> : tensor<2xsi64>, order = #NC}>
+    // CHECK-SAME: -> tensor<1x?xi8, {bounds = #const.OpaqueI64Elements<[1, 32]> : tensor<2xsi64>, order = #NC}>
 
     // CHECK-DAG:   [[STATIC_DIM_0:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
 
@@ -170,7 +170,7 @@ func.func @EltwiseGreaterEqual(%arg0: tensor<1x?xf16, {bounds = #const.OpaqueI64
     // CHECK:       [[NEW_SHAPE:%.+]] = IE.Concat([[STATIC_DIM_0]], [[DYN_DIM_1]])
     // CHECK:       [[DYN_RESHAPE:%.+]] = IE.DynamicReshape([[GREATEREQUAL]], [[NEW_SHAPE]])
 
-    return %0 : tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32]> : tensor<2xsi64>, order = #NC}>
+    return %0 : tensor<1x?xi8, {bounds = #const.OpaqueI64Elements<[1, 32]> : tensor<2xsi64>, order = #NC}>
     // CHECK: return [[DYN_RESHAPE]]
 }
 

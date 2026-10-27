@@ -117,7 +117,7 @@ void LoopOutliner::createOutlinedFunction(mlir::MLIRContext* ctx, mlir::func::Fu
     const auto funcType = mlir::FunctionType::get(ctx, inputTypes, outputTypes);
     const auto funcLoc = appendLoc(netFunc.getLoc(), "loop_body{0}", targetIdx + 1);
     const auto funcName = printToString("{0}_{1}{2}", netFunc.getName(), "loop_body", targetIdx + 1);
-    auto func = builder.create<mlir::func::FuncOp>(funcLoc, funcName, funcType);
+    auto func = mlir::func::FuncOp::create(builder, funcLoc, funcName, funcType);
     func.setNested();
     auto funcBuilder = mlir::OpBuilder::atBlockEnd(func.addEntryBlock(), &builderLog);
 
@@ -170,7 +170,7 @@ void LoopOutliner::createReturnOp(mlir::OpBuilder& funcBuilder, mlir::func::Func
         funcOutputFromBody.push_back(oldToNewMap[output]);
     }
     const auto returnLoc = appendLoc(netFunc.getLoc(), "loop_body{0}_return", targetIdx + 1);
-    funcBuilder.create<mlir::func::ReturnOp>(returnLoc, funcOutputFromBody);
+    mlir::func::ReturnOp::create(funcBuilder, returnLoc, funcOutputFromBody);
 }
 
 void LoopOutliner::createCallOp(mlir::func::FuncOp netFunc, OpBuilderLogger& builderLog, mlir::Block* bodyBlock,
@@ -185,7 +185,7 @@ void LoopOutliner::createCallOp(mlir::func::FuncOp netFunc, OpBuilderLogger& bui
     }
 
     const auto callLoc = appendLoc(netFunc.getLoc(), "loop_body{0}_call", targetIdx + 1);
-    auto newCall = callbuilder.create<mlir::func::CallOp>(callLoc, funcName, outputTypes, newInputs);
+    auto newCall = mlir::func::CallOp::create(callbuilder, callLoc, funcName, outputTypes, newInputs);
     for (const auto& [idx, res] : newCall.getResults() | indexed) {
         auto index = static_cast<int64_t>(idx);
         index = (skipConstCond && index >= execCondIndex) ? index + 1 : index;

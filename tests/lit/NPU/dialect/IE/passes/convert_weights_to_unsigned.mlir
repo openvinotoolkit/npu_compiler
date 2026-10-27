@@ -781,11 +781,11 @@ func.func @KeepI8ConcatInputWithSI8BlockArgViaReshape(%arg0: tensor<1x256x1x1xf1
 // -----
 !qElemTypeI8Act = !quant.uniform<i8:f16, 0.060064338235294119>
 !qElemTypeU2Wt = !quant.uniform<u2:f16, 1.000000e+00:2>
-!qElemTypeU2LUTWt = !quant.uniform<!QuantileType.quantile<ui2:si8, {-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00}>:f16, 1.000000e+00>
+!qElemTypeU2LUTWt = !quant.uniform<!quant.quantile<ui2:si8, {-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00}>:f16, 1.000000e+00>
 
 // CHECK: !qElemType = !quant.uniform<i8:f16, 0.060064338235294119>
 // CHECK: !qElemType1 = !quant.uniform<u2:f16, 1.000000e+00:2>
-// CHECK: !qElemType2 = !quant.uniform<!QuantileType.quantile<ui2:si8, {-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00}>:f16, 1.000000e+00>
+// CHECK: !qElemType2 = !quant.uniform<!quant.quantile<ui2:si8, {-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00}>:f16, 1.000000e+00>
 
 // CHECK-LABEL: @KeepSignedI8ActWhenWeightsAreU2LUT
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x1x1536xf32>

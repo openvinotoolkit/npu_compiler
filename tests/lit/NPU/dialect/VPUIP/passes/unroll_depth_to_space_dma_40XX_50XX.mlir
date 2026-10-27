@@ -820,6 +820,126 @@ func.func @UnrollSegmentedClusterDepthToSpaceDMACase4() -> !OutputDistributed {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
+!qElemType = !quant.uniform<u8:f16, 0.0173492431640625:114>
+
+!InputDistributed = !VPUIP.DistributedBuffer<
+    1x12x2x3x!qElemType, #NHWC, @CMX_NN, {
+    mode = "DUPLICATED",
+    num_clusters =  2 : i64
+}>
+
+!OutputDistributed = !VPUIP.DistributedBuffer<
+    1x3x4x6x!qElemType, #NHWC, @CMX_NN, {
+    mode = "DUPLICATED",
+    num_clusters =  2 : i64
+}>
+
+// Case 5: Unroll ClusterD2SDMA with multi-cluster(DUPLICATED) input and multi-cluster(DUPLICATED) output
+func.func @UnrollDuplicatedClusterDepthToSpaceDMACase5() -> !OutputDistributed {
+    %0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+    %1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+
+    %2 = VPURT.DeclareBuffer <CMX_NN> <0> -> !InputDistributed
+    %3 = VPURT.DeclareBuffer <CMX_NN> <1024> -> !OutputDistributed
+
+    VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) attributes {isTrailingSWLayer = false} {
+        VPUIP.DepthToSpaceDMA <{block_size = 2 : i64, mode = #IE.depth_to_space_mode<BLOCKS_FIRST>}>
+              inputs(%2 :  !InputDistributed)
+              outputs(%3 : !OutputDistributed) -> !OutputDistributed
+    }
+
+    return %3: !OutputDistributed
+
+    //CHECK:    #map = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d4, d5, d1, d2, d3)>
+    //CHECK:    #map1 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d2, d3, d4, d5, d1)>
+    //CHECK:    #map2 = affine_map<(d0, d1, d2, d3, d4, d5) -> (d0, d3, d4, d1, d5, d2)>
+
+    //CHECK:    [[BARRIER_0:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+    //CHECK:    [[BARRIER_1:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+
+    // DUPLICATED input/output: each cluster keeps a full local copy, further unrolled by DMA port.
+    //CHECK:    [[INPUT_BUFFER_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x12x1x3x!qElemType, {order = #NHWC, strides = [72, 1, 36, 12]}, [@CMX_NN, 0]>
+    //CHECK:    [[INPUT_BUFFER_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <36> -> memref<1x12x1x3x!qElemType, {order = #NHWC, strides = [72, 1, 36, 12]}, [@CMX_NN, 0]>
+    //CHECK:    [[INPUT_BUFFER_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x12x1x3x!qElemType, {order = #NHWC, strides = [72, 1, 36, 12]}, [@CMX_NN, 1]>
+    //CHECK:    [[INPUT_BUFFER_3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <36> -> memref<1x12x1x3x!qElemType, {order = #NHWC, strides = [72, 1, 36, 12]}, [@CMX_NN, 1]>
+
+    //CHECK:    [[OUTPUT_BUFFER:%.+]] = VPURT.DeclareBuffer <CMX_NN> <1024> -> !VPUIP.DistributedBuffer<1x3x4x6x!qElemType, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+    //CHECK:    [[OUTPUT_BUFFER_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<1x3x2x6x!qElemType, {order = #NHWC, strides = [72, 1, 18, 3]}, [@CMX_NN, 0]>
+    //CHECK:    [[OUTPUT_BUFFER_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1060> -> memref<1x3x2x6x!qElemType, {order = #NHWC, strides = [72, 1, 18, 3]}, [@CMX_NN, 0]>
+    //CHECK:    [[OUTPUT_BUFFER_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <1024> -> memref<1x3x2x6x!qElemType, {order = #NHWC, strides = [72, 1, 18, 3]}, [@CMX_NN, 1]>
+    //CHECK:    [[OUTPUT_BUFFER_3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <1060> -> memref<1x3x2x6x!qElemType, {order = #NHWC, strides = [72, 1, 18, 3]}, [@CMX_NN, 1]>
+
+    //CHECK:    VPURT.Task
+    //CHECK-SAME:   waits([[BARRIER_0]]
+    //CHECK-SAME:   updates([[BARRIER_1]]
+    //CHECK:        VPUIP.DepthToSpaceDMA
+    //CHECK-SAME:       block_size = 2 : i64,
+    //CHECK-SAME:       #VPUIP.InternalDataFlowAttr
+    //CHECK-SAME:       inputType = memref<1x2x2x3x1x3x!qElemType, {order = #map, strides = [72, 6, 3, 1, 36, 12]}, [@CMX_NN, 0]>
+    //CHECK-SAME:       outputType = memref<1x3x1x2x3x2x!qElemType, {order = #map1, strides = [72, 1, 36, 18, 6, 3]}, [@CMX_NN, 0]>
+    //CHECK-SAME:       mappingOrder = #map2
+    //CHECK-SAME:       loopOrder = #map
+    //CHECK-SAME:       mode = #IE.depth_to_space_mode<BLOCKS_FIRST>
+    //CHECK-SAME:       port = 0
+    //CHECK-SAME:       inputs([[INPUT_BUFFER_0]]
+    //CHECK-SAME:       outputs([[OUTPUT_BUFFER_0]]
+    //CHECK:    }
+
+    //CHECK:    VPURT.Task
+    //CHECK-SAME:   waits([[BARRIER_0]]
+    //CHECK-SAME:   updates([[BARRIER_1]]
+    //CHECK:        VPUIP.DepthToSpaceDMA
+    //CHECK-SAME:       block_size = 2 : i64,
+    //CHECK-SAME:       #VPUIP.InternalDataFlowAttr
+    //CHECK-SAME:       inputType = memref<1x2x2x3x1x3x!qElemType, {order = #map, strides = [72, 6, 3, 1, 36, 12]}, [@CMX_NN, 0]>
+    //CHECK-SAME:       outputType = memref<1x3x1x2x3x2x!qElemType, {order = #map1, strides = [72, 1, 36, 18, 6, 3]}, [@CMX_NN, 0]>
+    //CHECK-SAME:       mappingOrder = #map2
+    //CHECK-SAME:       loopOrder = #map
+    //CHECK-SAME:       mode = #IE.depth_to_space_mode<BLOCKS_FIRST>
+    //CHECK-SAME:       port = 1
+    //CHECK-SAME:       inputs([[INPUT_BUFFER_1]]
+    //CHECK-SAME:       outputs([[OUTPUT_BUFFER_1]]
+    //CHECK:    }
+
+    //CHECK:    VPURT.Task
+    //CHECK-SAME:   waits([[BARRIER_0]]
+    //CHECK-SAME:   updates([[BARRIER_1]]
+    //CHECK:        VPUIP.DepthToSpaceDMA
+    //CHECK-SAME:       block_size = 2 : i64,
+    //CHECK-SAME:       #VPUIP.InternalDataFlowAttr
+    //CHECK-SAME:       inputType = memref<1x2x2x3x1x3x!qElemType, {order = #map, strides = [72, 6, 3, 1, 36, 12]}, [@CMX_NN, 1]>
+    //CHECK-SAME:       outputType = memref<1x3x1x2x3x2x!qElemType, {order = #map1, strides = [72, 1, 36, 18, 6, 3]}, [@CMX_NN, 1]>
+    //CHECK-SAME:       mappingOrder = #map2
+    //CHECK-SAME:       loopOrder = #map
+    //CHECK-SAME:       mode = #IE.depth_to_space_mode<BLOCKS_FIRST>
+    //CHECK-SAME:       port = 0
+    //CHECK-SAME:       inputs([[INPUT_BUFFER_2]]
+    //CHECK-SAME:       outputs([[OUTPUT_BUFFER_2]]
+    //CHECK:    }
+
+    //CHECK:    VPURT.Task
+    //CHECK-SAME:   waits([[BARRIER_0]]
+    //CHECK-SAME:   updates([[BARRIER_1]]
+    //CHECK:        VPUIP.DepthToSpaceDMA
+    //CHECK-SAME:       block_size = 2 : i64,
+    //CHECK-SAME:       #VPUIP.InternalDataFlowAttr
+    //CHECK-SAME:       inputType = memref<1x2x2x3x1x3x!qElemType, {order = #map, strides = [72, 6, 3, 1, 36, 12]}, [@CMX_NN, 1]>
+    //CHECK-SAME:       outputType = memref<1x3x1x2x3x2x!qElemType, {order = #map1, strides = [72, 1, 36, 18, 6, 3]}, [@CMX_NN, 1]>
+    //CHECK-SAME:       mappingOrder = #map2
+    //CHECK-SAME:       loopOrder = #map
+    //CHECK-SAME:       mode = #IE.depth_to_space_mode<BLOCKS_FIRST>
+    //CHECK-SAME:       port = 1
+    //CHECK-SAME:       inputs([[INPUT_BUFFER_3]]
+    //CHECK-SAME:       outputs([[OUTPUT_BUFFER_3]]
+    //CHECK:    }
+
+    //CHECK:    return [[OUTPUT_BUFFER]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
 func.func @UnrollDepthToSpaceWithBlockFirstLargeH() -> memref<1x1x534x34xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier

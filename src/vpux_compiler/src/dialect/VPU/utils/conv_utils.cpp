@@ -34,6 +34,8 @@
 
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Matchers.h>
+#include <mlir/Interfaces/ValueBoundsOpInterface.h>
+#include <mlir/Support/LLVM.h>
 
 using namespace vpux;
 using namespace VPU;
@@ -584,15 +586,15 @@ SmallVector<mlir::Value> vpux::VPU::splitNCEConvolutionOverIC(
         // Slice inputs
         const auto sliceOffsets = SmallVector<int64_t>{0, offsetIC, 0, 0};
         const auto inSliceShape = SmallVector<int64_t>{inputN, sizeIC, inputH, inputW};
-        auto convInput = rewriter.create<VPU::SliceOp>(appendLoc(origOp->getLoc(), "in_slice_{0}", sliceOffsets),
-                                                       origOp.getInput(), getIntArrayAttr(rewriter, sliceOffsets),
-                                                       getIntArrayAttr(rewriter, inSliceShape));
+        auto convInput = VPU::SliceOp::create(rewriter, appendLoc(origOp->getLoc(), "in_slice_{0}", sliceOffsets),
+                                              origOp.getInput(), getIntArrayAttr(rewriter, sliceOffsets),
+                                              getIntArrayAttr(rewriter, inSliceShape));
 
         // Slice kernels
         const auto kernelSliceShape = SmallVector<int64_t>{kernelN, sizeIC, kernelH, kernelW};
-        auto weightSlice = rewriter.create<VPU::SliceOp>(appendLoc(origOp->getLoc(), "w_slice_{0}", sliceOffsets),
-                                                         weightInput, getIntArrayAttr(rewriter, sliceOffsets),
-                                                         getIntArrayAttr(rewriter, kernelSliceShape));
+        auto weightSlice = VPU::SliceOp::create(rewriter, appendLoc(origOp->getLoc(), "w_slice_{0}", sliceOffsets),
+                                                weightInput, getIntArrayAttr(rewriter, sliceOffsets),
+                                                getIntArrayAttr(rewriter, kernelSliceShape));
         auto weightSliceResult = weightSlice.getResult();
         if (weightDequantizeOp != nullptr) {
             // Slice over VPU.DequantizeOp
@@ -615,9 +617,9 @@ SmallVector<mlir::Value> vpux::VPU::splitNCEConvolutionOverIC(
             //                  |
             //          VPU.NCE.Eltwise.ADDx(N-1)
 
-            auto dequantizeSlice = rewriter.create<VPU::DequantizeOp>(weightDequantizeOp->getLoc(), weightSliceResult,
-                                                                      weightDequantizeOp.getDstElemTypeAttr(),
-                                                                      weightDequantizeOp.getMultiClusterStrategyAttr());
+            auto dequantizeSlice = VPU::DequantizeOp::create(rewriter, weightDequantizeOp->getLoc(), weightSliceResult,
+                                                             weightDequantizeOp.getDstElemTypeAttr(),
+                                                             weightDequantizeOp.getMultiClusterStrategyAttr());
             dequantizeOps.push_back(dequantizeSlice);
             weightSliceResult = dequantizeSlice.getResult();
         }
@@ -640,13 +642,14 @@ SmallVector<mlir::Value> vpux::VPU::splitNCEConvolutionOverIC(
         // Set the bias values to 0, if bias exists
         mlir::Value convBiasTable = (biasTable != nullptr && tile != 0) ? zeroFilledBiasTable : biasTable;
         auto convPpeAttr = tile == 0 ? firstConvPpeAttr : strippedPpeAttr;
-        auto convOp = rewriter.create<VPU::NCEConvolutionOp>(
-                appendLoc(origOp->getLoc(), "ic_tile_{0}", tile), f16TypeOutputs, /*reduce_xy_max=*/nullptr,
+        auto convOp = VPU::NCEConvolutionOp::create(
+                rewriter, appendLoc(origOp->getLoc(), "ic_tile_{0}", tile), f16TypeOutputs, /*reduce_xy_max=*/nullptr,
                 /*reduce_xy_min=*/nullptr, /*reduce_tensor_min_max=*/nullptr, convInput.getResult(), weightSliceResult,
                 weightTable, convScaleTable, convBiasTable, origOp.getWeightZeroPoints(), origOp.getStrides(),
                 origOp.getPad(), convPpeAttr, origOp.getMpeEngineAttr(), /*rawFilterShape=*/mlir::ValueRange{},
                 /*static_raw_filter_shape=*/kernelSliceShape, origOp.getMultiClusterStrategyAttr(),
                 origOp.getOutputPaddingAttr(), /*inputPadding=*/nullptr,
+                /*s2dd2s_config*/ nullptr,
                 // This intermediate sub-convolution carries no reduce outputs (reduce_xy_max/min/tensor_min_max
                 // are all nullptr above); axes_value must not be forwarded here or it would falsely suggest
                 // a reduce result slot exists. Only the final accumulator forwards it, and only when active.
@@ -689,8 +692,8 @@ SmallVector<mlir::Value> vpux::VPU::splitNCEConvolutionOverIC(
         // hasReduceOutputs(): origOp may carry a stale axes_value attribute without active reduce
         // results (e.g. an unfused reduce consumer), in which case it must not be forwarded.
         auto eltwiseAxesValue = (isLastEltwise && VPU::hasReduceOutputs(origOp)) ? origOp.getAxesValueAttr() : nullptr;
-        addResult = rewriter.create<VPU::NCEEltwiseOp>(
-                appendLoc(origOp->getLoc(), "accumulator_{0}", index), eltwiseOutputType,
+        addResult = VPU::NCEEltwiseOp::create(
+                rewriter, appendLoc(origOp->getLoc(), "accumulator_{0}", index), eltwiseOutputType,
                 isLastEltwise ? reduceXyMaxType : nullptr, isLastEltwise ? reduceXyMinType : nullptr,
                 isLastEltwise ? reduceTensorMinMaxType : nullptr, addOperand, convOps[index + 1].getOutput(),
                 /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr, opType, ppeAttr, mpeEngineAttr,
@@ -814,14 +817,16 @@ SmallVector<mlir::Value> vpux::VPU::splitNCEConvolutionOverIC(
 
         auto strides = getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
         auto padding = VPU::getPaddingAttr(ctx, PadInfo(0, 0, 0, 0));
-        auto nceDepthConvolutionOp = rewriter.create<VPU::NCEDepthConvolutionOp>(
-                appendLoc(origOp->getLoc(), "dw_conv_out_scale"), origOp.getOutput().getType(), reduceXyMaxType,
-                reduceXyMinType, reduceTensorMinMaxType, addResult.getOutput(), alignedWeights, dwWeightTable,
+        auto nceDepthConvolutionOp = VPU::NCEDepthConvolutionOp::create(
+                rewriter, appendLoc(origOp->getLoc(), "dw_conv_out_scale"), origOp.getOutput().getType(),
+                reduceXyMaxType, reduceXyMinType, reduceTensorMinMaxType, addResult.getOutput(), alignedWeights,
+                dwWeightTable,
                 /*data_ptr_table=*/nullptr, dwScaleTable, dwBiasTable, strides, padding, finalPpeAttr, mpeEngineAttr,
                 /*rawFilterShape=*/mlir::ValueRange{},
                 /*static_raw_filter_shape=*/weightsShape.raw(),
                 /*multiClusterStrategyAttr=*/nullptr, origOp.getOutputPaddingAttr(),
                 nullptr /*origOp.getInputPaddingAttr()*/,
+                /*s2dd2s_config=*/nullptr,
                 // Only forward axes_value when origOp actually has active reduce outputs; a stale
                 // attribute from an unfused reduce consumer must not be propagated onto this op.
                 /*axes_value=*/VPU::hasReduceOutputs(origOp) ? origOp.getAxesValueAttr() : nullptr);
@@ -879,4 +884,35 @@ SmallVector<int64_t> vpux::VPU::resolveRawFilterShape(ArrayRef<int64_t> staticRa
         }
     }
     return resolvedFilterShape;
+}
+
+SmallVector<int64_t> vpux::VPU::getConstRawFilterShape(ArrayRef<mlir::OpFoldResult> mixedRawFilterShape,
+                                                       mlir::Location loc) {
+    if (auto vals = mlir::getConstantIntValues(mixedRawFilterShape); vals.has_value()) {
+        return vals.value();
+    }
+
+    SmallVector<int64_t> folded;
+    folded.reserve(mixedRawFilterShape.size());
+    for (auto item : mixedRawFilterShape | indexed) {
+        const auto dimIdx = item.index();
+        const auto ofr = item.value();
+        if (auto c = mlir::getConstantIntValue(ofr)) {
+            folded.push_back(*c);
+            continue;
+        }
+
+        auto value = mlir::dyn_cast_if_present<mlir::Value>(ofr);
+        VPUX_THROW_WHEN(value == nullptr, "Cannot get constant raw filter shape on dim '{0}' (No Value) at '{1}'",
+                        dimIdx, loc);
+
+        auto upperBound = mlir::ValueBoundsConstraintSet::computeConstantBound(
+                mlir::presburger::BoundType::UB, mlir::ValueBoundsConstraintSet::Variable(value),
+                /*stopCondition=*/nullptr, /*closedUB=*/true);
+        VPUX_THROW_WHEN(mlir::failed(upperBound),
+                        "Cannot get constant raw filter shape on dim '{0}' (No Upper Bound) at '{1}'", dimIdx, loc);
+        folded.push_back(*upperBound);
+    }
+
+    return folded;
 }

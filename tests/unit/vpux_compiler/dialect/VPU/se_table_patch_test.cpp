@@ -60,7 +60,7 @@ TEST_P(SETablePatchTests, patchSETableValue) {
     mlir::OwningOpRef<mlir::ModuleOp> moduleOp = mlir::ModuleOp::create(loc);
 
     mlir::OpBuilder builder = mlir::OpBuilder::atBlockBegin(moduleOp->getBody());
-    auto funcOp = builder.create<mlir::func::FuncOp>(loc, "SETablePatchTestFunc", builder.getFunctionType({}, {}));
+    auto funcOp = mlir::func::FuncOp::create(builder, loc, "SETablePatchTestFunc", builder.getFunctionType({}, {}));
 
     auto entryBlock = funcOp.addEntryBlock();
     builder.setInsertionPointToStart(entryBlock);
@@ -77,7 +77,7 @@ TEST_P(SETablePatchTests, patchSETableValue) {
                                   mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(&ctx)), ddrMemSpaceAttr);
 
     // Create a constant operation
-    auto constOp = builder.create<Const::DeclareOp>(loc, seTableType, seTableConstant);
+    auto constOp = Const::DeclareOp::create(builder, loc, seTableType, seTableConstant);
 
     // Create NCE Input distribution attribute
     auto distributionModeAttr = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::OVERLAPPED);

@@ -7,9 +7,9 @@
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -357,7 +357,7 @@ void RelocateWeightTableForReusePass::safeRunOnFunc() {
         }
 
         // For new weights table format which actually don't have weights table, we can not apply the optimization
-        if (VPU::MPEEngineConfig::useNewWeightTableFormat(nceOp, /*isCompressConv*/ false)) {
+        if (VPU::getVPUStrategyFactory(nceOp->getContext())->useNewWeightTableFormat(nceOp, /*isCompressConv*/ false)) {
             return;
         }
 
@@ -431,7 +431,7 @@ void RelocateWeightTableForReusePass::safeRunOnFunc() {
 
         mlir::OpBuilder builder(cstOp);
         auto newConstOp =
-                builder.create<Const::DeclareOp>(cstOp.getLoc(), cstOp.getOutput().getType(), std::move(newConstAttr));
+                Const::DeclareOp::create(builder, cstOp.getLoc(), cstOp.getOutput().getType(), std::move(newConstAttr));
         vpux::Const::foldSingleConstant(newConstOp);
 
         if (isDistrType) {

@@ -35,16 +35,16 @@ module @NoMultiplyFQFusion {
 
         return %add2 : tensor<1x64x250x256xf32>
 
-        // CHECK-DAG:   [[BIAS:%.+]] = const.Declare tensor<1x64x250x256x{{[^:]+}}, {order = #NHWC}> = dense<2.000000e+00>
-        // CHECK-DAG:   [[SCALE:%.+]] = const.Declare tensor<64x1x1x1x{{[^:]+}}, {order = #NHWC}> = dense<3.000000e+00>
+        // CHECK-DAG:   [[BIAS:%.+]] = const.Declare tensor<1x64x250x256x!qElemType, {order = #NHWC}> = dense<2.000000e+00>
+        // CHECK-DAG:   [[SCALE:%.+]] = const.Declare tensor<64x1x1x1x!qElemType, {order = #NHWC}> = dense<3.000000e+00>
         // CHECK:       [[CONVERT1:%.+]] = IE.Convert([[ARG0]])
         // CHECK-NEXT:  [[PERMUTE_QUANT:%.+]] = IE.PermuteQuantize([[CONVERT1]])
-
         // CHECK-NEXT:  [[ADD1:%.+]] = IE.Add([[PERMUTE_QUANT]], [[PERMUTE_QUANT]])
-        // CHECK-NEXT:  [[GROUP_CONV:%.+]] = IE.GroupConvolution([[ADD1]], [[SCALE]])
+        // CHECK-NOT:   IE.DynamicDequantize
+        // CHECK:       [[GROUP_CONV:%.+]] = IE.GroupConvolution([[ADD1]], [[SCALE]])
         // CHECK-NOT:   IE.AvgPool
         // CHECK-NOT:   IE.QuantizeCast
-        // CHECK-NEXT:  [[ADD2:%.+]] = IE.Add([[GROUP_CONV]], [[BIAS]])
+        // CHECK-NEXT:       [[ADD2:%.+]] = IE.Add([[GROUP_CONV]], [[BIAS]])
         // CHECK-SAME:    -> tensor<1x64x250x256xf32>
         // CHECK-NEXT:  return [[ADD2]]
     }

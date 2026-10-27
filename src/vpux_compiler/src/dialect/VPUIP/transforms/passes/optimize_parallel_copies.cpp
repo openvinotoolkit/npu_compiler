@@ -1023,8 +1023,8 @@ DenseMap<mlir::Operation*, uint32_t> OptimizeParallelCopiesPass::getDistanceMap(
 // For compute op, if it comes from tiling of one op, return all the tiled sibling ops
 std::set<uint32_t> OptimizeParallelCopiesPass::getTiledSiblingOps(
         mlir::Operation* op, const DenseMap<mlir::Operation*, uint32_t>& computeOpPosition) {
-    VPUX_THROW_UNLESS(computeOpPosition.find(op) != computeOpPosition.end(),
-                      "Operation not found in computeOpPosition map");
+    VPUX_THROW_WHEN(computeOpPosition.find(op) == computeOpPosition.end(),
+                    "Operation not found in computeOpPosition map");
 
     auto isSameTaskType = [](mlir::Operation* op1, mlir::Operation* op2) -> bool {
         auto nceOp1 = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(op1);

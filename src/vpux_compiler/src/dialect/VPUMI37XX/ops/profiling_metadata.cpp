@@ -20,7 +20,7 @@ using namespace vpux;
 
 void vpux::VPUMI37XX::ProfilingMetadataOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
     auto denseMetaAttr = mlir::dyn_cast<mlir::DenseElementsAttr>(getMetadata());
-    VPUX_THROW_UNLESS(denseMetaAttr != nullptr, "ProfilingMetadata's data is NULL");
+    VPUX_THROW_WHEN(denseMetaAttr == nullptr, "ProfilingMetadata's data is NULL");
 
     auto buf = denseMetaAttr.getRawData();
     binDataSection.appendData(reinterpret_cast<const uint8_t*>(buf.data()), buf.size());
@@ -32,7 +32,7 @@ size_t vpux::VPUMI37XX::ProfilingMetadataOp::getBinarySize() {
     // also for non-POD types (e.g. have vector as member) account for all data to be serialized
     // (data owned by vector, instead of just pointer)
     auto denseMetaAttr = mlir::dyn_cast<mlir::DenseElementsAttr>(getMetadata());
-    VPUX_THROW_UNLESS(denseMetaAttr != nullptr, "ProfilingMetadata's data is NULL");
+    VPUX_THROW_WHEN(denseMetaAttr == nullptr, "ProfilingMetadata's data is NULL");
     return denseMetaAttr.getRawData().size();
 }
 

@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/dialect/ELF/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 
@@ -90,6 +91,8 @@ void fillNNrtConfig(npu40xx::nn_public::VpuNNShaveRuntimeConfigs& shv_rt_configs
 
     shv_rt_configs.stack_size = checked_cast<uint32_t>(shaveStacksSize.value_or(0));
 }
+
+VPUMI40XX::TaskDescriptorConstraintsPassArgs getTaskDescriptorConstraintsArgs();
 
 }  // namespace NPUReg40XX
 }  // namespace vpux

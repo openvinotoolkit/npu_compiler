@@ -14,7 +14,7 @@ mlir::FailureOr<SymbolizationResult> BootstrapRewriter::symbolize(VPUMI40XX::Boo
     auto result = op.getResult();
     auto symName = findSym(result).getRootReference();
     int barrierId = mlir::cast<vpux::VPURegMapped::IndexType>(op.getBarrier().getType()).getValue();
-    auto newOp = rewriter.create<VPUASM::BootstrapOp>(op.getLoc(), symName, barrierId);
+    auto newOp = VPUASM::BootstrapOp::create(rewriter, op.getLoc(), symName, barrierId);
     rewriter.eraseOp(op);
 
     return SymbolizationResult(newOp);

@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPUIPDPU/rewriters/utils.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUIPDPU/attributes.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
@@ -91,7 +91,7 @@ mlir::Type getBaseType(mlir::Type type, bool isPalletModeEnabled) {
         auto isQuantileType = [](mlir::Type ty) -> bool {
             if (mlir::isa<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType>(ty)) {
                 const auto quantized = mlir::cast<mlir::quant::QuantizedType>(ty);
-                return mlir::isa<vpux::type::QuantileType>(quantized.getStorageType());
+                return mlir::isa<mlir::quant::QuantileType>(quantized.getStorageType());
             }
             return false;
         };
@@ -104,7 +104,8 @@ mlir::Type getBaseType(mlir::Type type, bool isPalletModeEnabled) {
         // In case of palletization the actual de-palletized weight type is contained in the quantileType field
         if (mlir::isa<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType>(type)) {
             auto quantized = mlir::cast<mlir::quant::QuantizedType>(type);
-            if (const auto quantileStorageType = mlir::dyn_cast<vpux::type::QuantileType>(quantized.getStorageType())) {
+            if (const auto quantileStorageType =
+                        mlir::dyn_cast<mlir::quant::QuantileType>(quantized.getStorageType())) {
                 return quantileStorageType.getQuantileType();
             }
         }
@@ -225,7 +226,7 @@ int64_t getZeroPoint(vpux::NDTypeInterface type) {
     auto elemType = type.getElementType();
     if (auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType)) {
         auto storageType = qType.getStorageType();
-        if (const auto quantileStorageType = mlir::dyn_cast<vpux::type::QuantileType>(storageType)) {
+        if (const auto quantileStorageType = mlir::dyn_cast<mlir::quant::QuantileType>(storageType)) {
             storageType = quantileStorageType.getStorageType();
         }
         if (auto intType = mlir::dyn_cast<mlir::IntegerType>(storageType)) {

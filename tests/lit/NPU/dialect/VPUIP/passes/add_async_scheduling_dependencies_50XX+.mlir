@@ -21,7 +21,7 @@ func.func @AddDependency(
         %scale: memref<1x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>,
         %dequantOutput: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) {
     %convToken = async.execute {
-        %conv = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %conv = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -69,7 +69,7 @@ func.func @AddDependency(
     }
 
     %consumerToken = async.execute [%convToken, %dequantToken] {
-        %consumer = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %consumer = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -89,7 +89,7 @@ func.func @AddDependency(
     }
 
     %nextConsumerToken = async.execute [%consumerToken, %nextDequantToken] {
-        %consumer = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %consumer = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],
@@ -127,7 +127,7 @@ func.func @DoNotAddDependencyForUnrelatedTasks(
         %scale: memref<1x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>,
         %dequantOutput: memref<1x16x4x4xf16, {order = #NHWC}, [@CMX_NN, 0]>) {
     %convToken = async.execute {
-        %conv = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+        %conv = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1],

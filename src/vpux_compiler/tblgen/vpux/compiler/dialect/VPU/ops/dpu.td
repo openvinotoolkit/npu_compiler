@@ -200,6 +200,7 @@ def VPU_NCEConvolutionOp :
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
         OptionalAttr<I64ArrayAttr>:$output_padding,
         OptionalAttr<I64ArrayAttr>:$input_padding,
+        OptionalAttr<VPU_S2DD2SConfigAttr>:$s2dd2s_config,
         OptionalAttr<I64ArrayAttr>:$axes_value
 
     );
@@ -469,6 +470,7 @@ def VPU_NCEDepthConvolutionOp :
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
         OptionalAttr<I64ArrayAttr>:$output_padding,
         OptionalAttr<I64ArrayAttr>:$input_padding,
+        OptionalAttr<VPU_S2DD2SConfigAttr>:$s2dd2s_config,
         OptionalAttr<I64ArrayAttr>:$axes_value
     );
 

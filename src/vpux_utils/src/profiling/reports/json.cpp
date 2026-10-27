@@ -146,8 +146,6 @@ std::string getTaskCategory(TaskInfo::ExecType type) {
         return "Shave";
     case TaskInfo::ExecType::DMA:
         return "DMA";
-    case TaskInfo::ExecType::M2I:
-        return "M2I";
     default:
         VPUX_THROW("Unexpected task type");
     }
@@ -225,12 +223,6 @@ void TraceEventExporter::processTasks(const std::vector<TaskInfo>& tasks) {
         auto clusterSwTasks = swTasks.selectTasksFromCluster(clusterId);
         processSWTraceEvents(clusterSwTasks);
     }
-
-    TaskList m2iTasks = TaskList(tasks).selectM2Itasks();
-    if (!m2iTasks.empty()) {
-        createProcess("M2I");
-        processTraceEvents(m2iTasks);
-    }
 }
 
 void TraceEventExporter::processLayers(const std::vector<LayerInfo>& layers) {
@@ -289,9 +281,6 @@ std::string TraceEventExporter::getThreadLabel(const TaskInfo& taskInfo) {
         if (taskInfo.isSubtask) {
             label << " Variants";
         }
-        break;
-    case TaskInfo::ExecType::M2I:
-        label << "M2I";
         break;
     case TaskInfo::ExecType::SW:
         if (taskInfo.fifo_id.has_value()) {

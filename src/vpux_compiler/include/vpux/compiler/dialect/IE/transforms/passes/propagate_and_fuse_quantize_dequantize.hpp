@@ -16,6 +16,7 @@
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/SetVector.h>
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/IR/IRMapping.h>
@@ -65,8 +66,8 @@ private:
 
 template <typename ConcreteOp>
 bool isValidToPropagateDequantize(mlir::Operation* user, bool seOpsEnabled, mlir::Type& quantizedElemType,
-                                  mlir::Type& origDstElemType, Logger log, ShapeRef scaleShape = {}) {
-    auto elemTypeInfoOp = mlir::dyn_cast<IE::ElemTypeInfoOpInterface>(user);
+                                  mlir::Type& origDstElemType, Logger log) {
+    auto elemTypeInfoOp = mlir::dyn_cast_if_present<IE::ElemTypeInfoOpInterface>(user);
     if (!elemTypeInfoOp) {
         return false;
     }
@@ -139,33 +140,22 @@ bool isValidToPropagateDequantize(mlir::Operation* user, bool seOpsEnabled, mlir
         quantizedElemType = elemTypeInfo.getOutput(0);
         origDstElemType = elemTypeInfoOp.getElemTypeInfo().getOutput(0);
     }
-    // For DynamicDequantize: verify the scale shape can be propagated through AffineReshape before modifying IR.
-    if (!scaleShape.empty()) {
-        if (auto affineReshapeOp = mlir::dyn_cast<IE::AffineReshapeOp>(user)) {
-            const auto newScaleShape = computeShapeValueFromAffineReshape(affineReshapeOp, scaleShape);
-            if (!newScaleShape.has_value()) {
-                log.trace("Scale shape cannot be propagated through AffineReshape {0}", affineReshapeOp);
-                return false;
-            }
-            // The reshape must preserve the total number of scale elements.  A mismatch means
-            // a group dimension is being merged with a non-group dimension (e.g. the 16 groups
-            // in [1,2048,16,1] folding into the output channel), which is semantically invalid
-            // for per-group DynamicDequantize.
-            const auto origElems = vpux::details::calcTotalShapeSize(scaleShape.raw());
-            const auto newElems = vpux::details::calcTotalShapeSize(newScaleShape.value());
-            if (origElems != newElems) {
-                log.trace("Scale reshape through AffineReshape {0} changes element count ({1} -> {2}): "
-                          "group dimensions cannot be merged",
-                          affineReshapeOp, origElems, newElems);
-                return false;
-            }
-        }
-    }
+
     return true;
 }
 
+// Per-match state used to track how a ConcreteOp's non-activation (secondary) input, e.g. a
+// DynamicDequantize's scale operand, evolves hop-by-hop as it is propagated through a chain of
+// activation ops. It is declared once per matchAndRewrite call and threaded through the virtual
+// hooks below by reference, instead of being kept as mutable pattern state. Unused by patterns
+// without a secondary input (e.g. plain Dequantize).
+struct NonActivationState {
+    Shape secondaryShape{};
+    mlir::Value secondaryValue = nullptr;
+};
+
 template <typename ConcreteOp>
-class PropagateDequantize final : public mlir::OpRewritePattern<ConcreteOp> {
+class PropagateDequantize : public mlir::OpRewritePattern<ConcreteOp> {
 public:
     PropagateDequantize(mlir::MLIRContext* ctx, Logger log, bool seOpsEnabled)
             : mlir::OpRewritePattern<ConcreteOp>(ctx), _log(log), _seOpsEnabled(seOpsEnabled) {
@@ -173,7 +163,26 @@ public:
 
     mlir::LogicalResult matchAndRewrite(ConcreteOp origOp, mlir::PatternRewriter& rewriter) const final;
 
-private:
+protected:
+    virtual void mapNonActivationInput(ConcreteOp /*op*/, mlir::Operation* /*crtUser*/, mlir::IRMapping& /*mapper*/,
+                                       mlir::PatternRewriter& /*rewriter*/, NonActivationState& /*state*/) const {
+        // Op doesn't have a secondary input, nothing to do.
+    }
+
+    virtual mlir::LogicalResult validateOpParams(ConcreteOp /*op*/, mlir::PatternRewriter& /*rewriter*/,
+                                                 NonActivationState& /*state*/) const {
+        // nothing to check, op is always valid
+        return mlir::success();
+    }
+
+    virtual bool isValidToPropagateDequant(ConcreteOp origOp, mlir::Operation* nextUser,
+                                           NonActivationState& /*state*/) const {
+        auto origDstElemType = origOp.getDstElemType();
+        auto quantizedElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getElementType();
+        return isValidToPropagateDequantize<ConcreteOp>(nextUser, _seOpsEnabled, quantizedElemType, origDstElemType,
+                                                        _log);
+    }
+
     Logger _log;
     bool _seOpsEnabled;
 };
@@ -185,47 +194,35 @@ fp_tensor and replaces it with quantized_tensor -> [ElemTypeInfoOpInterface] -> 
 template <typename ConcreteOp>
 mlir::LogicalResult PropagateDequantize<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
                                                                      mlir::PatternRewriter& rewriter) const {
-    _log.trace("PropagateDequantize Got layer: {0}", origOp);
+    _log.trace("Got layer '{0}' @ {1}", origOp->getName(), origOp->getLoc());
 
     auto ctx = origOp->getContext();
     auto users = origOp->getUsers();
     mlir::Operation* lastUser = nullptr;
-    auto origDstElemType = origOp.getDstElemType();
-    auto quantizedElemType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType()).getElementType();
-    // In case of Dynamic DequantizeOp we only support to propagate the quantization only in case we have 1 dim != 1 in
-    // the scale table. This ensures us we do not have groups in the convolution.
-    mlir::Value scaleInput = nullptr;
-    if (auto dynamicDequantizeOp = mlir::dyn_cast<IE::DynamicDequantizeOp>(origOp.getOperation())) {
-        scaleInput = dynamicDequantizeOp.getScale();
-        if (scaleInput != nullptr) {
-            auto numOfNonOneDims = getNonOneDim(getShape(scaleInput));
-            auto hasOneUseDynamicDequantizeOp = dynamicDequantizeOp->hasOneUse();
-            auto childOp = *(dynamicDequantizeOp->getUsers().begin());
-            if ((numOfNonOneDims.size() != 1 || !hasOneUseDynamicDequantizeOp) &&
-                mlir::isa_and_present<IE::TransposeOp>(childOp)) {
-                _log.trace("Only support unrolled DynamicDequantizeOp, but got {0}", numOfNonOneDims);
-                return mlir::failure();
-            }
-        }
-        if (dynamicDequantizeOp.getZp() != nullptr) {
-            _log.trace("Only support unrolled DynamicDequantizeOp without zero point, but got one");
-            return mlir::failure();
-        }
+    // Scale-path state right after validateOpParams, used as the starting point for every
+    // independent propagation chain below.
+    NonActivationState baseState{};
+    // In case of Dynamic DequantizeOp we only support to propagate the quantization only in case we have 1 dim != 1
+    // in the scale table. This ensures us we do not have groups in the convolution.
+    if (mlir::failed(validateOpParams(origOp, rewriter, baseState))) {
+        return mlir::failure();
     }
+
     // store orig users for dequantize-like ops to avoid update missing and duplicate same users
     // SetVector preserves insertion order while keeping uniqueness
-    const ShapeRef currentScaleShape = scaleInput != nullptr ? getShape(scaleInput) : ShapeRef{};
     llvm::SetVector<mlir::Operation*> origUsers;
+    // Each entry in origUsers gets its own scale-path state, started fresh from baseState. This
+    // matters when origOp has multiple direct users: each is an independent propagation chain and
+    // must not observe state mutated while validating/rewriting a sibling chain.
+    llvm::DenseMap<mlir::Operation*, NonActivationState> perUserState;
     if (origOp->hasOneUse()) {
         // DequantizeOp/DynamicDequantizeOp -> Op1 -> Op2 -> Op3, find Op3
-        mlir::Operation* nextUser = *(users.begin());
+        auto* const firstUser = *(users.begin());
+        mlir::Operation* nextUser = firstUser;
+        NonActivationState state = std::move(baseState);
         while (nextUser) {
-            if (!isValidToPropagateDequantize<ConcreteOp>(nextUser, _seOpsEnabled, quantizedElemType, origDstElemType,
-                                                          _log, currentScaleShape)) {
+            if (!isValidToPropagateDequant(origOp, nextUser, state)) {
                 break;
-            }
-            if (nextUser == *(users.begin())) {
-                origUsers.insert(nextUser);
             }
             lastUser = nextUser;
             // Not forward for multiple users
@@ -234,11 +231,16 @@ mlir::LogicalResult PropagateDequantize<ConcreteOp>::matchAndRewrite(ConcreteOp 
             }
             nextUser = *(nextUser->getUsers().begin());
         }
+        if (lastUser != nullptr) {
+            origUsers.insert(firstUser);
+            perUserState[firstUser] = std::move(state);
+        }
     } else {
         for (auto user : users) {
-            if (isValidToPropagateDequantize<ConcreteOp>(user, _seOpsEnabled, quantizedElemType, origDstElemType, _log,
-                                                         currentScaleShape)) {
+            NonActivationState state = baseState;
+            if (isValidToPropagateDequant(origOp, user, state)) {
                 origUsers.insert(user);
+                perUserState[user] = std::move(state);
             }
         }
     }
@@ -248,6 +250,8 @@ mlir::LogicalResult PropagateDequantize<ConcreteOp>::matchAndRewrite(ConcreteOp 
 
     // 4. Rewrite the sub-graph.
     for (auto user : origUsers) {
+        auto& state = perUserState[user];
+        rewriter.setInsertionPointAfter(origOp);
         rewriter.startOpModification(user);
         // remove all dequantize-like ops op operands
         const auto inputs = user->getOpOperands();
@@ -270,41 +274,30 @@ mlir::LogicalResult PropagateDequantize<ConcreteOp>::matchAndRewrite(ConcreteOp 
 
             auto isToInsert = !lastUser || currentUser == lastUser;
 
-            if (mlir::isa_and_present<IE::DynamicDequantizeOp>(origOp)) {
-                mlir::IRMapping mapper;
-                auto scaleCurrentUser = rewriter.clone(*currentUser, mapper);
-                if (mlir::isa<IE::AffineReshapeOp>(scaleCurrentUser)) {
-                    auto newShapeValue = computeShapeValueFromAffineReshape(
-                            mlir::cast<IE::AffineReshapeOp>(scaleCurrentUser), getShape(scaleInput));
-                    // newShapeValue is guaranteed valid: isValidToPropagateDequantize pre-checked this.
-                    scaleCurrentUser->setAttr("shape_value", getIntArrayAttr(ctx, newShapeValue.value()));
-                }
-                scaleCurrentUser->setOperand(0, scaleInput);
-                vpux::inferReturnTypes(scaleCurrentUser, vpux::InferShapedTypeMode::ALL);
-                scaleInput = scaleCurrentUser->getResult(0);
-            }
+            mlir::IRMapping mapper;
+            mapNonActivationInput(origOp, currentUser, mapper, rewriter, state);
 
             for (auto [outputInd, output] : llvm::enumerate(currentUser->getResults())) {
                 output.setType(inferredTypes[outputInd]);
-                if (isToInsert) {
-                    rewriter.setInsertionPointAfter(currentUser);
-                    auto newLoc = appendLoc(currentUser->getLoc(), "propagated_Dequantize '{0}'", outputInd);
-
-                    mlir::IRMapping mapper;
-                    auto newDequant = rewriter.clone(*origOp, mapper);
-                    newDequant->setOperand(0, output);
-                    if (mlir::isa_and_present<IE::DynamicDequantizeOp>(origOp)) {
-                        newDequant->setOperand(1, scaleInput);
-                    }
-                    newDequant->setLoc(newLoc);
-                    vpux::inferReturnTypes(newDequant, vpux::InferShapedTypeMode::ALL);
-
-                    _log.trace("Added new Dequantize op: '{0}' at index '{1}'", newDequant, outputInd);
-                    output.replaceAllUsesExcept(newDequant->getResult(0),
-                                                llvm::SmallPtrSet<mlir::Operation*, 1>{newDequant});
-                    _log.trace("All uses of current layer have been replaced with new Dequantize op at index '{0}'",
-                               outputInd);
+                if (!isToInsert) {
+                    continue;
                 }
+
+                rewriter.setInsertionPointAfter(currentUser);
+                auto newLoc = appendLoc(currentUser->getLoc(), "propagated_dequant_{0}", outputInd);
+
+                // Setting activation path input to be the output of the previous op, by remapping it.
+                // Don't clear mapper, since it holds the mappings for the secondary input.
+                mapper.map(origOp.getInput(), output);
+                auto newDequant = rewriter.clone(*origOp, mapper);
+                newDequant->setLoc(newLoc);
+                vpux::inferReturnTypes(newDequant, vpux::InferShapedTypeMode::ALL);
+
+                _log.trace("Added new '{0}' op: '{1}' at index '{2}'", newDequant->getName(), newDequant, outputInd);
+                output.replaceAllUsesExcept(newDequant->getResult(0),
+                                            llvm::SmallPtrSet<mlir::Operation*, 1>{newDequant});
+                _log.trace("All uses of current layer have been replaced with new Dequantize op at index '{0}'",
+                           outputInd);
             }
             if (isToInsert) {
                 break;
@@ -316,5 +309,20 @@ mlir::LogicalResult PropagateDequantize<ConcreteOp>::matchAndRewrite(ConcreteOp 
 
     return mlir::success();
 }
+
+class PropagateDynamicDequantize final : public PropagateDequantize<IE::DynamicDequantizeOp> {
+public:
+    PropagateDynamicDequantize(mlir::MLIRContext* ctx, Logger log, bool seOpsEnabled)
+            : PropagateDequantize<IE::DynamicDequantizeOp>(ctx, log, seOpsEnabled) {
+    }
+
+protected:
+    void mapNonActivationInput(IE::DynamicDequantizeOp op, mlir::Operation* crtUser, mlir::IRMapping& map,
+                               mlir::PatternRewriter& rewriter, NonActivationState& state) const override;
+    mlir::LogicalResult validateOpParams(IE::DynamicDequantizeOp op, mlir::PatternRewriter& rewriter,
+                                         NonActivationState& state) const override;
+    bool isValidToPropagateDequant(IE::DynamicDequantizeOp op, mlir::Operation* nextUser,
+                                   NonActivationState& state) const override;
+};
 
 }  // namespace vpux::IE

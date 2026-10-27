@@ -394,8 +394,7 @@ mlir::LogicalResult ReshapeMVNPattern::replacePattern() {
     if (_addOp != nullptr) {
         auto addInReorder0 = mlir::cast<IE::ReorderOp>(_addOp->getOperand(0).getDefiningOp());
         auto addInReorder1 = mlir::cast<IE::ReorderOp>(_addOp->getOperand(1).getDefiningOp());
-        auto newAddOp =
-                builder.create<IE::AddOp>(_addOp.getLoc(), addInReorder0.getInput(), addInReorder1.getInput(),
+        auto newAddOp = IE::AddOp::create(builder, _addOp.getLoc(), addInReorder0.getInput(), addInReorder1.getInput(),
                                           _addOp.getAutoBroadcastAttr(), _addOp.getPostOpAttr(), _addOp.getClampAttr(),
                                           _addOp.getOutputPaddingAttr(), _addOp.getInputPaddingAttr());
         _patternIn = newAddOp.getResult();
@@ -421,7 +420,7 @@ mlir::LogicalResult ReshapeMVNPattern::replacePattern() {
             auto newConstAttr = quantizedConst.transformContentAttr().dequantize().reorder(permute).get();
 
             builder.setInsertionPointToStart(&func.front());
-            auto inFilter = builder.create<Const::DeclareOp>(filter.getLoc(), newConstType, std::move(newConstAttr));
+            auto inFilter = Const::DeclareOp::create(builder, filter.getLoc(), newConstType, std::move(newConstAttr));
             inFilter->setLoc(quantizedConst->getLoc());
             builder.setInsertionPoint(_mvnOp);
             _log.trace("GroupConvolution filter dequantized");

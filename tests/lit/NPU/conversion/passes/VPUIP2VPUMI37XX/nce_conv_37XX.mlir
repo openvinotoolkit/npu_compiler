@@ -17,7 +17,7 @@ module @mainModule {
     DataInfo "output_1" : tensor<1x64x16x32xf16>
   }
 
-func.func nested @multiple_clusters_dpu_soh_f16_f16_f16(%arg0: memref<1x32x32x32xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x64x16x32xf16, {order = #NHWC}, @DDR>, %arg2: memref<1x64x16x32xf16, {order = #NHWC}, @DDR>) -> (memref<1x64x16x32xf16, {order = #NHWC}, @DDR>, memref<1x64x16x32xf16, {order = #NHWC}, @DDR>) {
+func.func @multiple_clusters_dpu_soh_f16_f16_f16(%arg0: memref<1x32x32x32xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x64x16x32xf16, {order = #NHWC}, @DDR>, %arg2: memref<1x64x16x32xf16, {order = #NHWC}, @DDR>) -> (memref<1x64x16x32xf16, {order = #NHWC}, @DDR>, memref<1x64x16x32xf16, {order = #NHWC}, @DDR>) {
   %2 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x32x16x32xf16, {order = #NHWC}, [@DDR, 0]>
   %3 = VPURT.DeclareBuffer <NetworkInput> [0] <32768> -> memref<1x32x16x32xf16, {order = #NHWC}, [@DDR, 0]>
   %4 = VPURT.DeclareBuffer <CMX_NN> [0, 1] <0> -> !VPUIP.DistributedBuffer<64x32x1x1xf16, {order = #NHWC, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
@@ -34,15 +34,13 @@ func.func nested @multiple_clusters_dpu_soh_f16_f16_f16(%arg0: memref<1x32x32x32
   %15 = VPURT.DeclareBuffer <CMX_NN> [0, 1] <102400> -> !VPUIP.DistributedBuffer<64x1x1x4xsi32, {order = #NHWC, strides = [4, 1, 4, 1]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
 
   VPURT.Task {
-    %18 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{is_segmented, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%11 : memref<1x32x16x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%10 : !VPUIP.DistributedBuffer<1x32x32x32xf16, {order = #NHWC, strides = [32768, 1, 1024, 32]}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, alignment = [1, 1, 1, 1]}>) parent_output(%7 : !VPUIP.DistributedBuffer<1x64x32x32xf16, {order = #NHWC, strides = [65536, 1, 2048, 64]}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%8 : memref<1x64x16x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x16x32xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
+    %18 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_segmented, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%11 : memref<1x32x16x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%5 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%10 : !VPUIP.DistributedBuffer<1x32x32x32xf16, {order = #NHWC, strides = [32768, 1, 1024, 32]}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, alignment = [1, 1, 1, 1]}>) parent_output(%7 : !VPUIP.DistributedBuffer<1x64x32x32xf16, {order = #NHWC, strides = [65536, 1, 2048, 64]}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%8 : memref<1x64x16x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x64x16x32xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
       DPUTask {outEnd = [31, 15, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
     } PPE : {
     }
   }
   VPURT.Task {
-    %18 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{is_segmented, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%12 : memref<1x32x16x32xf16, {order = #NHWC}, [@CMX_NN, 1]>) weights(%6 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>) weight_table(%14 : memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 1]>) parent_input(%10 : !VPUIP.DistributedBuffer<1x32x32x32xf16, {order = #NHWC, strides = [32768, 1, 1024, 32]}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, alignment = [1, 1, 1, 1]}>) parent_output(%7 : !VPUIP.DistributedBuffer<1x64x32x32xf16, {order = #NHWC, strides = [65536, 1, 2048, 64]}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%9 : memref<1x64x16x32xf16, {order = #NHWC}, [@CMX_NN, 1]>) -> memref<1x64x16x32xf16, {order = #NHWC}, [@CMX_NN, 1]> variants : {
+    %18 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_segmented, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%12 : memref<1x32x16x32xf16, {order = #NHWC}, [@CMX_NN, 1]>) weights(%6 : memref<64x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>) weight_table(%14 : memref<64x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 1]>) parent_input(%10 : !VPUIP.DistributedBuffer<1x32x32x32xf16, {order = #NHWC, strides = [32768, 1, 1024, 32]}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, alignment = [1, 1, 1, 1]}>) parent_output(%7 : !VPUIP.DistributedBuffer<1x64x32x32xf16, {order = #NHWC, strides = [65536, 1, 2048, 64]}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) outputs(%9 : memref<1x64x16x32xf16, {order = #NHWC}, [@CMX_NN, 1]>) -> memref<1x64x16x32xf16, {order = #NHWC}, [@CMX_NN, 1]> variants : {
       DPUTask {outEnd = [31, 31, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 16, 0]}
     } PPE : {
     }
@@ -97,7 +95,7 @@ module @mainModule {
     DataInfo "output_1" : tensor<1x64x16x16xf16>
   }
 
-  func.func nested @multiple_clusters_dpu_sok_f16_f16_f16(%arg0: memref<1x32x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>, %arg2: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>) -> (memref<1x64x16x16xf16, {order = #NHWC}, @DDR>, memref<1x64x16x16xf16, {order = #NHWC}, @DDR>) {
+  func.func @multiple_clusters_dpu_sok_f16_f16_f16(%arg0: memref<1x32x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>, %arg2: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>) -> (memref<1x64x16x16xf16, {order = #NHWC}, @DDR>, memref<1x64x16x16xf16, {order = #NHWC}, @DDR>) {
     %1 = VPURT.DeclareBuffer <CMX_NN> [0, 1] <0> -> !VPUIP.DistributedBuffer<64x32x1x1xf16, {order = #NHWC, strides = [32, 1, 32, 32]}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}>
     %2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %3 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>
@@ -113,15 +111,13 @@ module @mainModule {
     %14 = VPURT.DeclareBuffer <CMX_NN> [1] <2048> -> memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 1]>
 
     VPURT.Task {
-      %15 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%8 : memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%2 : memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%10 : memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%7 : !VPUIP.DistributedBuffer<1x32x16x16xf16, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) parent_output(%4 : !VPUIP.DistributedBuffer<1x64x16x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN, {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>) outputs(%5 : !VPUIP.DistributedBuffer<1x32x16x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<1x32x16x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}> variants : {
+      %15 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%8 : memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%2 : memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%10 : memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%7 : !VPUIP.DistributedBuffer<1x32x16x16xf16, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) parent_output(%4 : !VPUIP.DistributedBuffer<1x64x16x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN, {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>) outputs(%5 : !VPUIP.DistributedBuffer<1x32x16x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<1x32x16x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}> variants : {
         DPUTask {outEnd = [15, 15, 31], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
       } PPE : {
       }
     }
     VPURT.Task {
-      %15 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%9 : memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 1]>) weights(%3 : memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>) weight_table(%11 : memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 1]>) parent_input(%7 : !VPUIP.DistributedBuffer<1x32x16x16xf16, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) parent_output(%4 : !VPUIP.DistributedBuffer<1x64x16x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN, {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>) outputs(%6 : !VPUIP.DistributedBuffer<1x32x16x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<1x32x16x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}> variants : {
+      %15 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%9 : memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 1]>) weights(%3 : memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 1]>) weight_table(%11 : memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 1]>) parent_input(%7 : !VPUIP.DistributedBuffer<1x32x16x16xf16, {order = #NHWC, strides = [8192, 1, 512, 32]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) parent_output(%4 : !VPUIP.DistributedBuffer<1x64x16x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN, {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>) outputs(%6 : !VPUIP.DistributedBuffer<1x32x16x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> !VPUIP.DistributedBuffer<1x32x16x16xf16, {order = #NHWC, strides = [16384, 1, 1024, 64]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}> variants : {
         DPUTask {outEnd = [15, 15, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 32]}
       } PPE : {
       }
@@ -176,7 +172,7 @@ module @mainModule {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @mainModule {
-  func.func nested @sparse_conv(%arg0: memref<1x128x32x32xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x32x32x32xf16, {order = #NHWC}, @DDR>) -> memref<1x32x32x32xf16, {order = #NHWC}, @DDR> {
+  func.func @sparse_conv(%arg0: memref<1x128x32x32xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x32x32x32xf16, {order = #NHWC}, @DDR>) -> memref<1x32x32x32xf16, {order = #NHWC}, @DDR> {
     %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<512x1x1x1xui8, {order = #NHWC}, [@CMX_NN, 0]>
     %1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<32x1x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %2 = VPURT.DeclareBuffer <CMX_NN> [0] <73728> -> memref<1x128x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
@@ -184,8 +180,7 @@ module @mainModule {
     %4 = VPURT.DeclareBuffer <CMX_NN> [0] <8192> -> memref<1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %5 = VPURT.DeclareBuffer <CMX_NN> [0] <336384> -> memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
     VPURT.Task {
-      %8 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%2 : memref<1x128x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%1 : memref<32x1x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights_sparsity_map(%3 : memref<32x1x1x128xi1, [@CMX_NN, 0]>) weight_table(%5 : memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%2 : memref<1x128x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%4 : memref<1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%4 : memref<1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
+      %8 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%2 : memref<1x128x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights(%1 : memref<32x1x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weights_sparsity_map(%3 : memref<32x1x1x128xi1, [@CMX_NN, 0]>) weight_table(%5 : memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%2 : memref<1x128x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%4 : memref<1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%4 : memref<1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x32x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
         DPUTask {outEnd = [31, 31, 31], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
       } PPE : {
       }
@@ -215,7 +210,7 @@ module @mainModule {
     DataInfo "output_0" : tensor<1x32x16x16xf16>
   }
 
-  func.func nested @se_table_dpu_f16_f16_f16(%arg0: memref<1x32x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x32x16x16xf16, {order = #NHWC}, @DDR>) -> memref<1x32x16x16xf16, {order = #NHWC}, @DDR> {
+  func.func @se_table_dpu_f16_f16_f16(%arg0: memref<1x32x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x32x16x16xf16, {order = #NHWC}, @DDR>) -> memref<1x32x16x16xf16, {order = #NHWC}, @DDR> {
     %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %1 = VPURT.DeclareBuffer <CMX_NN> [0] <18432> -> memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %2 = VPURT.DeclareBuffer <CMX_NN> [0] <36352> -> memref<1x32x16x16xi1, [@CMX_NN, 0]>
@@ -223,8 +218,7 @@ module @mainModule {
     %4 = VPURT.DeclareBuffer <CMX_NN> [0] <34816> -> memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
     %5 = VPURT.DeclareBuffer <CMX_NN> [0] <2048> -> memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
     VPURT.Task {
-      %6 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>}
-     <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%1 : memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) input_sparsity_map(%2 : memref<1x32x16x16xi1, [@CMX_NN, 0]>) input_storage_element_table(%3 : memref<1x1x16x16xi32, {order = #NHWC}, [@CMX_NN, 0]>) weights(%0 : memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%4 : memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%1 : memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input_sparsity_map(%2 : memref<1x32x16x16xi1, [@CMX_NN, 0]>) parent_input_storage_element_table(%3 : memref<1x1x16x16xi32, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%5 : memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%5 : memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
+      %6 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}> input(%1 : memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) input_sparsity_map(%2 : memref<1x32x16x16xi1, [@CMX_NN, 0]>) input_storage_element_table(%3 : memref<1x1x16x16xi32, {order = #NHWC}, [@CMX_NN, 0]>) weights(%0 : memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%4 : memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>) parent_input(%1 : memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) parent_input_sparsity_map(%2 : memref<1x32x16x16xi1, [@CMX_NN, 0]>) parent_input_storage_element_table(%3 : memref<1x1x16x16xi32, {order = #NHWC}, [@CMX_NN, 0]>) parent_output(%5 : memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) outputs(%5 : memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]> variants : {
         DPUTask {inEnd = [15, 15, 31], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [15, 15, 31], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
       } PPE : {
       }
@@ -250,8 +244,7 @@ module @mainModule {
       %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
       %1 = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<32x1x1x4xsi32, [@CMX_NN, 0]>
       VPURT.Task {
-          %2:2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>}
-     <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], out_channel_offset = 0 : i64, task_type = #VPUIP.nce_task_type<CONV>, is_superdense, input_se_size = 16 : i64, output_se_size = 32 : i64}>
+          %2:2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], out_channel_offset = 0 : i64, task_type = #VPUIP.nce_task_type<CONV>, is_superdense, input_se_size = 16 : i64, output_se_size = 32 : i64}>
           input(%arg0 : memref<1x16x32x32xf16, {order = #NHWC}, [@CMX_NN, 0]>)
           input_sparsity_map(%arg1 : memref<1x16x32x32xi1, {order = #NHWC}, [@CMX_NN, 0]>)
           weights(%0 : memref<32x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)

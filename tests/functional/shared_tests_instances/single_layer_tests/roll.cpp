@@ -28,6 +28,7 @@ TEST_P(RollLayerTestCommon, NPU5010) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(RollLayerTestCommon, NPU5020) {
     setReferenceSoftwareMode();
     run(Platform::NPU5020);

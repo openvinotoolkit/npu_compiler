@@ -15,7 +15,7 @@ func.func @ConvSETableNoSM(%input: memref<1x32x56x56xf16, {order = #NHWC}, [@CMX
         -> memref<1x64x112x112xf16, {order = #NHWC}, [@CMX_NN, 0]> {
     %weights = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
     VPURT.Task {
-        %1 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], out_channel_offset = 0 : i64, task_type = #VPUIP.nce_task_type<CONV>}>
+        %1 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], out_channel_offset = 0 : i64, task_type = #VPUIP.nce_task_type<CONV>}>
         input(%input : memref<1x32x56x56xf16, {order = #NHWC}, [@CMX_NN, 0]>)
         input_storage_element_table(%input_se: memref<1x2x112x112xi32, {order = #NHWC}, [@CMX_NN, 0]>)
         weights(%weights : memref<16x16x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)

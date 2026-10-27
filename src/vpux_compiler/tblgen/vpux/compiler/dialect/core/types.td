@@ -20,7 +20,7 @@ def SI2 : SI<2>;
 def UI2 : UI<2>;
 
 
-def vpux_QuantileType : Type<CPred<"::llvm::isa<::vpux::type::QuantileType>($_self)">, "quantile type">;
+def vpux_QuantileType : Type<CPred<"::llvm::isa<::mlir::quant::QuantileType>($_self)">, "quantile type">;
 
 class Core_Type<string name, list<Trait> traits = []>
     : TypeDef<Core_Dialect, name, traits> {

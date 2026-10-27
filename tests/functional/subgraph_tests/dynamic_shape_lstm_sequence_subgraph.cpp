@@ -396,6 +396,7 @@ TEST_P(LSTMSubgraphNPUTest, NPU5010_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(LSTMSubgraphNPUTest, NPU5020_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
@@ -444,6 +445,7 @@ TEST_P(LSTMSubgraphNPUTest2LSTMSeq, NPU5010_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(LSTMSubgraphNPUTest2LSTMSeq, NPU5020_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
@@ -499,6 +501,7 @@ TEST_P(LSTMSubgraphNPUTest2LSTMSeq_extended, NPU5010_HW_TestKindSubgraph_1Tile) 
     configuration["NPU_TILES"] = "1";
     run(Platform::NPU5010);
 }
+
 TEST_P(LSTMSubgraphNPUTest2LSTMSeq_extended, NPU5020_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

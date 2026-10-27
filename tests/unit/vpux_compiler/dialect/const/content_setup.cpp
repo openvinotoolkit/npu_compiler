@@ -5,8 +5,7 @@
 
 #include "common/utils.hpp"
 #include "vpux/compiler/core/attributes/dims_order.hpp"
-#include "vpux/compiler/core/types/quantile_float/dialect.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
@@ -105,6 +104,14 @@ public:
             return attr.getBias().getValueAsDouble();
         };
         checkSingleValueAttr<Const::AddAttr, double>(actualTransformation, expectedValue, getValue);
+    }
+
+    void checkClampAttr(Const::TransformAttrInterface actualTransformation, double expectedLower,
+                        double expectedUpper) {
+        auto actualAttr = mlir::dyn_cast<Const::ClampAttr>(actualTransformation);
+        ASSERT_TRUE(actualAttr != nullptr);
+        EXPECT_DOUBLE_EQ(actualAttr.getLowerBound().getValueAsDouble(), expectedLower);
+        EXPECT_DOUBLE_EQ(actualAttr.getUpperBound().getValueAsDouble(), expectedUpper);
     }
 
     void checkRescaleAttr(Const::TransformAttrInterface actualTransformation, double expectedValue) {
@@ -885,6 +892,32 @@ TEST_F(MLIR_ContentSetupTest, FuseAdd) {
     checkAddAttr(actualTransformations[0], 3);
 }
 
+TEST_F(MLIR_ContentSetupTest, FuseClampWithDifferentBounds) {
+    // Two consecutive Clamp ops with different bounds must be fused into one by taking
+    // max(lower bounds) and min(upper bounds), equivalent to IE::FuseClamps canonicalization.
+    const int64_t IC = 1;
+    const int64_t IH = 4;
+    const int64_t IW = 8;
+
+    const auto f16Lowest = static_cast<double>(std::numeric_limits<vpux::type::float16>::lowest());
+    const auto f16Max = static_cast<double>(std::numeric_limits<vpux::type::float16>::max());
+    const auto tighterLower = -1.0;
+    const auto tighterUpper = 1.0;
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, mlir::Float32Type::get(&ctx));
+
+    // first clamp: [-f16Max, f16Max]
+    auto contentAttrSetup = baseContentAttrSetup.clamp(f16Lowest, f16Max);
+
+    // second clamp: [-1.0, 1.0] — tighter bounds
+    contentAttrSetup = contentAttrSetup.clamp(tighterLower, tighterUpper);
+
+    // check: fused clamp must be [max(-f16Max, -1.0), min(f16Max, 1.0)] = [-1.0, 1.0]
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 1);
+
+    checkClampAttr(actualTransformations[0], tighterLower, tighterUpper);
+}
+
 TEST_F(MLIR_ContentSetupTest, FuseRescale) {
     const int64_t IC = 1;
     const int64_t IH = 7;
@@ -994,7 +1027,7 @@ TEST_F(MLIR_ContentSetupTest, FuseCastElemType_Quantized) {
 }
 
 TEST_F(MLIR_ContentSetupTest, FuseCastElemType_QuantileType) {
-    ctx.loadDialect<vpux::type::QuantileDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     const int64_t IC = 4;
     const int64_t IH = 8;
@@ -1087,6 +1120,32 @@ TEST_F(MLIR_ContentSetupTest, SwapAddAndSubView) {
 
     checkSubViewAttr(actualTransformations[0], expectedOffset, expectedShape);
     checkAddAttr(actualTransformations[1], 1);
+}
+
+TEST_F(MLIR_ContentSetupTest, SwapClampAndSubView) {
+    const int64_t IC = 4;
+    const int64_t IH = 8;
+    const int64_t IW = 3;
+
+    const auto f16Lowest = static_cast<double>(std::numeric_limits<vpux::type::float16>::lowest());
+    const auto f16Max = static_cast<double>(std::numeric_limits<vpux::type::float16>::max());
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, mlir::Float32Type::get(&ctx));
+
+    // first Clamp
+    auto contentAttrSetup = baseContentAttrSetup.clamp(f16Lowest, f16Max);
+
+    // second SubView
+    SmallVector<int64_t> expectedOffset = {0, 1, 1};
+    SmallVector<int64_t> expectedShape = {1, 2, 1};
+
+    contentAttrSetup = contentAttrSetup.subview(ShapeRef(expectedOffset), ShapeRef(expectedShape));
+
+    // check
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 2);
+
+    checkSubViewAttr(actualTransformations[0], expectedOffset, expectedShape);
+    checkClampAttr(actualTransformations[1], f16Lowest, f16Max);
 }
 
 TEST_F(MLIR_ContentSetupTest, SwapReorderAndSubView) {
@@ -2111,6 +2170,30 @@ TEST_F(MLIR_ContentSetupTest, SwapAddAndReshape) {
 
     checkReshapeAttr(actualTransformations[0], expectedShape);
     checkAddAttr(actualTransformations[1], 1);
+}
+
+TEST_F(MLIR_ContentSetupTest, SwapClampAndReshape) {
+    const int64_t IC = 4;
+    const int64_t IH = 8;
+    const int64_t IW = 3;
+
+    const auto f16Lowest = static_cast<double>(std::numeric_limits<vpux::type::float16>::lowest());
+    const auto f16Max = static_cast<double>(std::numeric_limits<vpux::type::float16>::max());
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, mlir::Float32Type::get(&ctx));
+
+    // first Clamp
+    auto contentAttrSetup = baseContentAttrSetup.clamp(f16Lowest, f16Max);
+
+    // second Reshape
+    SmallVector<int64_t> expectedShape = {4, 4, 6};
+    contentAttrSetup = contentAttrSetup.reshape(ShapeRef(expectedShape));
+
+    // check
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 2);
+
+    checkReshapeAttr(actualTransformations[0], expectedShape);
+    checkClampAttr(actualTransformations[1], f16Lowest, f16Max);
 }
 
 TEST_F(MLIR_ContentSetupTest, DoNotSwapNonSplatRescaleAndReshape) {

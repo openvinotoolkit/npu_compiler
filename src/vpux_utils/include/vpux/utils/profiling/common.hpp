@@ -12,7 +12,7 @@
 
 namespace vpux::profiling {
 
-enum class ExecutorType { DPU = 1, ACTSHAVE = 3, DMA_SW = 4, WORKPOINT = 5, DMA_HW = 6, M2I = 7 };
+enum class ExecutorType { DPU = 1, ACTSHAVE = 3, DMA_SW = 4, WORKPOINT = 5, DMA_HW = 6 };
 
 // DMA HW profiling and workpoint capture require 64B section alignment
 constexpr size_t PROFILING_SECTION_ALIGNMENT = 64;

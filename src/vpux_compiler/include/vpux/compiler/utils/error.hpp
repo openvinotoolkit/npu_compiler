@@ -26,16 +26,10 @@ mlir::LogicalResult errorAt(mlir::Operation* op, StringLiteral format, Args&&...
 }
 
 template <typename... Args>
-mlir::LogicalResult matchFailed(mlir::RewriterBase& rewriter, mlir::Operation* op, StringLiteral format,
-                                Args&&... args) {
-    return rewriter.notifyMatchFailure(op, formatv(format.data(), std::forward<Args>(args)...));
-}
-
-template <typename... Args>
 mlir::LogicalResult matchFailed(Logger log, mlir::RewriterBase& rewriter, mlir::Operation* op, StringLiteral format,
                                 Args&&... args) {
     log.trace(format, args...);
-    return matchFailed(rewriter, op, format, std::forward<Args>(args)...);
+    return rewriter.notifyMatchFailure(op, formatv(format.data(), std::forward<Args>(args)...));
 }
 
 }  // namespace vpux

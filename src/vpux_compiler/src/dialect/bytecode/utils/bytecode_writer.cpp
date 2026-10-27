@@ -264,9 +264,9 @@ void bytecode::BytecodeWriter::cacheOffsets(mlir::Region& body) {
 
 int64_t bytecode::BytecodeWriter::getRelativeOffset(mlir::Operation* jumpOp, mlir::Block* destBlock) {
     auto destIt = _blockOffsets.find(destBlock);
-    VPUX_THROW_UNLESS(destIt != _blockOffsets.end(), "Jump destination block not found in block offset map");
+    VPUX_THROW_WHEN(destIt == _blockOffsets.end(), "Jump destination block not found in block offset map");
     auto posIt = _opOffsets.find(jumpOp);
-    VPUX_THROW_UNLESS(posIt != _opOffsets.end(), "Jump op position not found in op offset map");
+    VPUX_THROW_WHEN(posIt == _opOffsets.end(), "Jump op position not found in op offset map");
     return checked_cast<int64_t>(destIt->second) - checked_cast<int64_t>(posIt->second);
 }
 

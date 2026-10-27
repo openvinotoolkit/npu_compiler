@@ -25,7 +25,8 @@ def VPU_ConvertOp :
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
-                                                                     "isOperationSplitOverKernelCompatible"]>,
+                                                                     "isOperationSplitOverKernelCompatible",
+                                                                     "isOperationSplitOverWidthCompatible"]>,
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>
             ]
@@ -104,7 +105,9 @@ def VPU_DequantizeOp :
 def VPU_DynamicQuantizeOp :
         VPU_LayerOp<"DynamicQuantize",
             [
-                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface, ["getOutputTiling", "getMainOutputTile"]>,
+                AttrSizedOperandSegments,
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface,
+                                          ["getOutputTiling", "getMainOutputTile", "getMaxNumTiles"]>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["getDistributedTypeForOpOperand",
                                                                      "getDistributedTypeForOpResult"]>
@@ -114,9 +117,10 @@ def VPU_DynamicQuantizeOp :
 
     let arguments = (ins
         AnyTypeOf<[RankedTensorOf<[F32]>, VPU_DistributedTensor]>:$input,
-        AnyTypeOf<[RankedTensorOf<[F32]>, VPU_DistributedTensor]>:$min,
-        AnyTypeOf<[RankedTensorOf<[F32]>, VPU_DistributedTensor]>:$max,
+        Optional<AnyTypeOf<[RankedTensorOf<[F32]>, VPU_DistributedTensor]>>:$min,
+        Optional<AnyTypeOf<[RankedTensorOf<[F32]>, VPU_DistributedTensor]>>:$max,
         TypeAttr:$dstElemType,
+        OptionalAttr<I64ArrayAttr>:$axes_value,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 

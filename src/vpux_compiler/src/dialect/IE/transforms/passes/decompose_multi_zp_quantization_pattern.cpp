@@ -36,35 +36,72 @@ struct PatternOps {
 mlir::Operation* createMatMulOrFullyConnected(mlir::Operation* origOp, mlir::Value lhs, mlir::Value rhs,
                                               mlir::PatternRewriter& rewriter) {
     if (mlir::isa<IE::MatMulOp>(origOp)) {
-        return rewriter.create<IE::MatMulOp>(appendLoc(origOp->getLoc(), "matmul_decomposed"), lhs, rhs, false, true);
+        return IE::MatMulOp::create(rewriter, appendLoc(origOp->getLoc(), "matmul_decomposed"), lhs, rhs, false, true);
     }
 
     if (mlir::isa<IE::FullyConnectedOp>(origOp)) {
-        return rewriter.create<IE::FullyConnectedOp>(appendLoc(origOp->getLoc(), "fc_decomposed"), lhs, rhs, nullptr);
+        return IE::FullyConnectedOp::create(rewriter, appendLoc(origOp->getLoc(), "fc_decomposed"), lhs, rhs, nullptr);
     }
 
     VPUX_THROW("Unsupported operation type: {0}", origOp->getName());
 }
 
-template <typename ConcreteOp>
-class GroupWisePatternRewriter final : public mlir::OpRewritePattern<ConcreteOp> {
-public:
-    GroupWisePatternRewriter(mlir::MLIRContext* ctx, Logger log, mlir::PatternBenefit benefit = 1)
-            : mlir::OpRewritePattern<ConcreteOp>(ctx, benefit), _log(log.nest()) {
-        this->setDebugName("GroupWisePatternRewriter");
+mlir::Value skipConverts(mlir::Value val) {
+    while (auto convertOp = val.getDefiningOp<IE::ConvertOp>()) {
+        val = convertOp.getInput();
+    }
+    return val;
+}
+
+mlir::LogicalResult decomposePerChannelPattern(mlir::PatternRewriter& rewriter, mlir::Operation* origWeights,
+                                               IE::MultiplyOp origMultiplyOp, mlir::Operation* origMatMulOp,
+                                               mlir::Value scale, mlir::Value zeroPoint, mlir::Value activation) {
+    const auto wtShape = getShape(origWeights->getResult(0));
+
+    rewriter.setInsertionPoint(origMultiplyOp);
+    // Remove ZP from original pattern
+    rewriter.replaceOpWithNewOp<IE::MultiplyOp>(origMultiplyOp, origWeights->getResult(0), scale,
+                                                origMultiplyOp.getAutoBroadcastAttr(), origMultiplyOp.getPostOpAttr(),
+                                                origMultiplyOp.getClampAttr(), origMultiplyOp.getOutputPaddingAttr(),
+                                                origMultiplyOp.getInputPaddingAttr());
+
+    rewriter.setInsertionPointAfter(origMatMulOp);
+    const auto actAxis = static_cast<int64_t>(getShape(activation).size() - 1);
+    const auto actAxesAttr = getIntArrayAttr(rewriter, SmallVector<int64_t>{actAxis});
+    auto reduceSumOp = IE::ReduceSumOp::create(rewriter, appendLoc(origMatMulOp->getLoc(), "reduce_sum_act"),
+                                               activation, actAxesAttr, /*keep_dims=*/true, nullptr, nullptr);
+
+    auto multiplyScaleZP =
+            IE::MultiplyOp::create(rewriter, appendLoc(origMatMulOp->getLoc(), "multiply_scale_zp"), scale, zeroPoint,
+                                   IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
+    const Shape zpScaleOutShape({1, wtShape.raw()[0]});
+    auto zpScaleReshapeOp =
+            IE::ReshapeOp::create(rewriter, appendLoc(multiplyScaleZP.getLoc(), "reshape_scale_zp"),
+                                  multiplyScaleZP.getOutput(), getIntArrayAttr(rewriter.getContext(), zpScaleOutShape));
+
+    mlir::Value zpScaleVal = zpScaleReshapeOp.getOutput();
+    auto reduceSumOutElemType = mlir::cast<vpux::NDTypeInterface>(reduceSumOp.getOutput().getType()).getElementType();
+    auto zpScaleElemType = mlir::cast<vpux::NDTypeInterface>(zpScaleVal.getType()).getElementType();
+    if (reduceSumOutElemType != zpScaleElemType) {
+        auto convertOp = IE::ConvertOp::create(rewriter, appendLoc(multiplyScaleZP.getLoc(), "convert_scale_zp"),
+                                               zpScaleVal, reduceSumOutElemType);
+        zpScaleVal = convertOp.getOutput();
     }
 
-public:
-    mlir::LogicalResult matchAndRewrite(ConcreteOp origOp, mlir::PatternRewriter& rewriter) const final;
+    auto correction = IE::MultiplyOp::create(rewriter, appendLoc(origMatMulOp->getLoc(), "multiply_zp_correction"),
+                                             reduceSumOp.getOutput(), zpScaleVal, IE::AutoBroadcastType::NUMPY, nullptr,
+                                             nullptr, nullptr, nullptr);
 
-private:
-    mlir::FailureOr<PatternOps> initializePatternOps(const IE::WeightsDequantizeStructureInfo& wdInfo) const;
-    Logger _log;
-};
+    auto newSubtractOp = IE::SubtractOp::create(rewriter, appendLoc(origMatMulOp->getLoc(), "subtract_decomposed"),
+                                                origMatMulOp->getResult(0), correction.getOutput(),
+                                                IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
+    rewriter.replaceAllUsesExcept(origMatMulOp->getResult(0), newSubtractOp.getOutput(), {newSubtractOp});
+
+    return mlir::success();
+}
 
 template <typename ConcreteOp>
-mlir::FailureOr<PatternOps> GroupWisePatternRewriter<ConcreteOp>::initializePatternOps(
-        const IE::WeightsDequantizeStructureInfo& wdInfo) const {
+mlir::FailureOr<PatternOps> initializePatternOps(const IE::WeightsDequantizeStructureInfo& wdInfo) {
     PatternOps patternOps;
     auto opChain = wdInfo.getOpChain();
     for (auto op : opChain) {
@@ -143,6 +180,138 @@ mlir::FailureOr<PatternOps> GroupWisePatternRewriter<ConcreteOp>::initializePatt
     return patternOps;
 }
 
+template <typename ConcreteOp>
+mlir::FailureOr<PatternOps> matchWeightsDequantizePattern(ConcreteOp origOp, mlir::PatternRewriter& rewriter,
+                                                          Logger log) {
+    const auto maybeWdInfo = IE::WeightsDequantizeStructureInfo::create(origOp, log.nest());
+    if (mlir::failed(maybeWdInfo)) {
+        return matchFailed(log, rewriter, origOp, "Failed to match WeightsDequantize structure.");
+    }
+    const auto& wdInfo = maybeWdInfo.value();
+
+    if (config::asymmetricPerChannelZeroPointSupported(getModuleOp(origOp)) &&
+        (wdInfo.hasConstWeights() || !IE::getTrueElemType(origOp).isInteger(2))) {
+        return matchFailed(log, rewriter, origOp,
+                           "Skip decomposition: asymmetricPerChannelZeroPoint is supported and weights are either "
+                           "constant or not int2.");
+    }
+
+    if (!wdInfo.isKVcachedPattern() && IE::getTrueElemType(origOp).isInteger(2)) {
+        return matchFailed(log, rewriter, origOp, "Skipping decomposing for u2 groupwise prefill pattern.");
+    }
+
+    auto maybePatternOps = initializePatternOps<ConcreteOp>(wdInfo);
+    if (mlir::failed(maybePatternOps)) {
+        return matchFailed(log, rewriter, origOp, "Failed to initialize pattern ops.");
+    }
+    return maybePatternOps;
+}
+
+class PerChannelPatternRewriter final : public mlir::OpRewritePattern<IE::ConvertOp> {
+public:
+    PerChannelPatternRewriter(mlir::MLIRContext* ctx, Logger log, mlir::PatternBenefit benefit = 1)
+            : mlir::OpRewritePattern<IE::ConvertOp>(ctx, benefit), _log(log.nest()) {
+        this->setDebugName("PerChannelPatternRewriter");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ConvertOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    // Per-output-channel case: weights/zero-point/scale are 2D ([OC,IC]/[OC,1]/[OC,1]).
+    static bool isPerChannelPattern(mlir::Operation* origWeights, mlir::Value scale, mlir::Value zeroPoint,
+                                    mlir::Value activation, IE::TransposeOp transposeOp) {
+        if (transposeOp != nullptr) {
+            return false;
+        }
+        const auto wtShape = getShape(origWeights->getResult(0));
+        if (wtShape.size() != 2 || getShape(activation).size() != 2) {
+            return false;
+        }
+        const SmallVector<int64_t> perChannelShape{wtShape.raw()[0], 1};
+        return getShape(zeroPoint).raw() == ArrayRef<int64_t>(perChannelShape) &&
+               getShape(scale).raw() == ArrayRef<int64_t>(perChannelShape);
+    }
+
+    // The cases with constant zp and scale will be handled later in the compilation.
+    static bool areOperandsModelInputs(mlir::Operation* weightsOp, mlir::Value scale, mlir::Value zeroPoint) {
+        if (weightsOp->getNumOperands() != 1) {
+            return false;
+        }
+        return mlir::isa<mlir::BlockArgument>(skipConverts(weightsOp->getOperand(0))) &&
+               mlir::isa<mlir::BlockArgument>(skipConverts(scale)) &&
+               mlir::isa<mlir::BlockArgument>(skipConverts(zeroPoint));
+    }
+
+    Logger _log;
+};
+
+/*
+      Weights  Zero-points                   Weights                 Activation       Scale     Zero-points
+      (OCxIC)     (OCx1)                     (OCxIC)                     |            (OCx1)     (OCx1)
+         |          |                           |                        |               |         |
+      Convert    Convert                     Convert     Scales       Reshape            |      Convert
+      (OCxIC)     (OCx1)                     (OCxIC)     (OCx1)        (LxIC)            |       (OCx1)
+           \      /                                \      /           /      \            \      /
+           Subtract      Scales        =>          Multiply           |     ReduceSum     Multiply
+           (OCxIC)       (OCx1)                     (OCxIC)           |       (Lx1)        (OCx1)
+               \        /                              |              |         |             |
+                Multiply                            Convert           |         |          Reshape
+                (OCxIC)                             (OCxIC)           |         |          (1xOC)
+                   |                                    \            /          |           /
+                Convert                                 FullyConnected          |      Convert
+Activation      (OCxIC)                                      (LxOC)             |      (1xOC)
+    |             /                                              \              |    /
+Reshape          /                                                \            Multiply
+  (LxIC)        /                                                  \           (LxOC)
+       \       /                                                    \         /
+      FullyConnected                                                 Subtract
+          (LxOC)                                                      (LxOC)
+*/
+mlir::LogicalResult PerChannelPatternRewriter::matchAndRewrite(IE::ConvertOp origOp,
+                                                               mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got op {0} at {1}", origOp->getName(), origOp->getLoc());
+
+    if (!config::hasEnableWeightsDynamicDequantization(getModuleOp(origOp))) {
+        return matchFailed(_log, rewriter, origOp,
+                           "Weights dynamic dequantization is disabled, the logic is not supported for constant "
+                           "weights/zero-point cases.");
+    }
+
+    auto maybePatternOps = matchWeightsDequantizePattern(origOp, rewriter, _log);
+    if (mlir::failed(maybePatternOps)) {
+        return mlir::failure();
+    }
+    const auto& patternOps = maybePatternOps.value();
+
+    if (!isPerChannelPattern(patternOps.weights, patternOps.scale, patternOps.zeroPoint, patternOps.activation,
+                             patternOps.transposeOp)) {
+        return matchFailed(_log, rewriter, origOp, "Not a 2D per-output-channel pattern.");
+    }
+
+    if (!areOperandsModelInputs(patternOps.weights, patternOps.scale, patternOps.zeroPoint)) {
+        return matchFailed(_log, rewriter, origOp, "Weights, scale and zero-point must be model inputs.");
+    }
+
+    return decomposePerChannelPattern(rewriter, patternOps.weights, patternOps.multiplyOp, patternOps.matMulOp,
+                                      patternOps.scale, patternOps.zeroPoint, patternOps.activation);
+}
+
+template <typename ConcreteOp>
+class GroupWisePatternRewriter final : public mlir::OpRewritePattern<ConcreteOp> {
+public:
+    GroupWisePatternRewriter(mlir::MLIRContext* ctx, Logger log, mlir::PatternBenefit benefit = 1)
+            : mlir::OpRewritePattern<ConcreteOp>(ctx, benefit), _log(log.nest()) {
+        this->setDebugName("GroupWisePatternRewriter");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(ConcreteOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
 /*
          Weights        Zero-points       weights                  Parameter   Zero-points
        (Cx128x64)       (Cx128x1)        (Cx128x64)                (Lx8192)    (Cx128x1)
@@ -167,27 +336,9 @@ mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::matchAndRewrite(Concre
                                                                           mlir::PatternRewriter& rewriter) const {
     _log.trace("Got op {0} at {1}", origOp->getName(), origOp->getLoc());
 
-    // Match the weights dequantize structure once...
-    const auto maybeWdInfo = IE::WeightsDequantizeStructureInfo::create(origOp, _log.nest());
-    if (mlir::failed(maybeWdInfo)) {
-        return matchFailed(rewriter, origOp, "Failed to match WeightsDequantize structure.");
-    }
-    const auto& wdInfo = maybeWdInfo.value();
-
-    if (config::asymmetricPerChannelZeroPointSupported(getModuleOp(origOp)) &&
-        (wdInfo.hasConstWeights() || !IE::getTrueElemType(origOp).isInteger(2))) {
-        return matchFailed(rewriter, origOp,
-                           "Skip decomposition: asymmetricPerChannelZeroPoint is supported and weights are either "
-                           "constant or not int2.");
-    }
-
-    if (!wdInfo.isKVcachedPattern() && IE::getTrueElemType(origOp).isInteger(2)) {
-        return matchFailed(rewriter, origOp, "Skipping decomposing for u2 groupwise prefill pattern.");
-    }
-
-    auto maybePatternOps = initializePatternOps(wdInfo);
+    auto maybePatternOps = matchWeightsDequantizePattern(origOp, rewriter, _log);
     if (mlir::failed(maybePatternOps)) {
-        return matchFailed(rewriter, origOp, "Failed to initialize pattern ops.");
+        return matchFailed(_log, rewriter, origOp, "Failed to initialize pattern ops.");
     }
     const auto& patternOps = maybePatternOps.value();
 
@@ -205,12 +356,14 @@ mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::matchAndRewrite(Concre
         }
         return getShape(val).size() == 3;
     };
+
     if (!is3DShape(origOp.getOutput()) || !is3DShape(zeroPoint) || !is3DShape(scale)) {
-        return matchFailed(rewriter, origOp, "Expect 3D shape weights, zero-point and scale for group-wise pattern");
+        return matchFailed(_log, rewriter, origOp,
+                           "Expect 3D shape weights, zero-point and scale for group-wise pattern");
     }
 
     if (getShape(zeroPoint)[Dims3D::Act::B] == 1) {
-        return matchFailed(rewriter, origOp, "ZP is not per-channel. Skipping decomposing.");
+        return matchFailed(_log, rewriter, origOp, "ZP is not per-channel. Skipping decomposing.");
     }
 
     rewriter.setInsertionPointAfter(patternOps.weights);
@@ -230,23 +383,23 @@ mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::matchAndRewrite(Concre
     VPUX_THROW_UNLESS(actShape.totalSize() % innerDimSize == 0, "Got illegal group-wise pattern!");
     auto seqLen = actShape.totalSize() / innerDimSize;
     auto newActShape = Shape({seqLen, numGroups, wtShape[Dims3D::Filter::OC]});
-    auto actReshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(origMatMulOp->getLoc(), "reshape_act"), activation,
-                                                       getIntArrayAttr(rewriter.getContext(), newActShape));
+    auto actReshapeOp = IE::ReshapeOp::create(rewriter, appendLoc(origMatMulOp->getLoc(), "reshape_act"), activation,
+                                              getIntArrayAttr(rewriter.getContext(), newActShape));
 
     auto axis = actReshapeOp.getOutput().getType().getRank() - 1;
     auto axesAttr = getIntArrayAttr(rewriter, SmallVector<int64_t>{axis});
-    auto reduceSumOp = rewriter.create<IE::ReduceSumOp>(appendLoc(actReshapeOp.getLoc(), "reduce_sum_act"),
-                                                        actReshapeOp.getOutput(), axesAttr, false, nullptr, nullptr);
+    auto reduceSumOp = IE::ReduceSumOp::create(rewriter, appendLoc(actReshapeOp.getLoc(), "reduce_sum_act"),
+                                               actReshapeOp.getOutput(), axesAttr, false, nullptr, nullptr);
 
     // Create Scale*ZP Multiply branch
     auto multiplyScaleZP =
-            rewriter.create<IE::MultiplyOp>(appendLoc(origMatMulOp->getLoc(), "multiply_scale_zp"), scale, zeroPoint,
-                                            IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
+            IE::MultiplyOp::create(rewriter, appendLoc(origMatMulOp->getLoc(), "multiply_scale_zp"), scale, zeroPoint,
+                                   IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
 
     mlir::Value zpScaleVal = multiplyScaleZP.getOutput();
     if (transposeOp != nullptr) {
-        zpScaleVal = rewriter.create<IE::TransposeOp>(appendLoc(multiplyScaleZP.getLoc(), "transpose_zp"), zpScaleVal,
-                                                      nullptr, transposeOp.getOrderValueAttr())
+        zpScaleVal = IE::TransposeOp::create(rewriter, appendLoc(multiplyScaleZP.getLoc(), "transpose_zp"), zpScaleVal,
+                                             nullptr, transposeOp.getOrderValueAttr())
                              .getOutput();
     }
 
@@ -254,8 +407,8 @@ mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::matchAndRewrite(Concre
     const Shape newMultiplyScaleZPOutShape(
             {zpScaleShape[Dims3D::Act::B], zpScaleShape.totalSize() / zpScaleShape[Dims3D::Act::B]});
     auto multiplyScaleZPReshapeOp =
-            rewriter.create<IE::ReshapeOp>(appendLoc(multiplyScaleZP.getLoc(), "reshape_multiply_scale_zp"), zpScaleVal,
-                                           getIntArrayAttr(rewriter.getContext(), newMultiplyScaleZPOutShape));
+            IE::ReshapeOp::create(rewriter, appendLoc(multiplyScaleZP.getLoc(), "reshape_multiply_scale_zp"),
+                                  zpScaleVal, getIntArrayAttr(rewriter.getContext(), newMultiplyScaleZPOutShape));
 
     auto newMatMulRhs = multiplyScaleZPReshapeOp.getOutput();
     auto reduceSumOutElemType = mlir::cast<vpux::NDTypeInterface>(reduceSumOp.getOutput().getType()).getElementType();
@@ -263,17 +416,17 @@ mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::matchAndRewrite(Concre
             mlir::cast<vpux::NDTypeInterface>(multiplyScaleZPReshapeOp.getOutput().getType()).getElementType();
     if (reduceSumOutElemType != multiplyScaleZPReshapeOutElemType) {
         auto convertOp =
-                rewriter.create<IE::ConvertOp>(appendLoc(multiplyScaleZP.getLoc(), "convert_multiply_scale_zp"),
-                                               multiplyScaleZPReshapeOp.getOutput(), reduceSumOutElemType);
+                IE::ConvertOp::create(rewriter, appendLoc(multiplyScaleZP.getLoc(), "convert_multiply_scale_zp"),
+                                      multiplyScaleZPReshapeOp.getOutput(), reduceSumOutElemType);
         newMatMulRhs = convertOp.getOutput();
     }
 
     auto newMatMulOp = createMatMulOrFullyConnected(origMatMulOp, reduceSumOp.getOutput(), newMatMulRhs, rewriter);
 
     // Create final SubtractOp
-    auto newSubtractOp = rewriter.create<IE::SubtractOp>(
-            appendLoc(origMatMulOp->getLoc(), "subtract_decomposed"), origMatMulOp->getResult(0),
-            newMatMulOp->getResult(0), IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
+    auto newSubtractOp = IE::SubtractOp::create(rewriter, appendLoc(origMatMulOp->getLoc(), "subtract_decomposed"),
+                                                origMatMulOp->getResult(0), newMatMulOp->getResult(0),
+                                                IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
     rewriter.replaceAllUsesExcept(origMatMulOp->getResult(0), newSubtractOp.getOutput(), {newSubtractOp});
 
     return mlir::success();
@@ -290,5 +443,7 @@ void vpux::IE::registerDecomposeMultiZPQuantizationRewriters(RewriterRegistry& r
                                                                            log, benefitLevels[index]);
         registry.registerRewriter<GroupWisePatternRewriter<Const::DeclareOp>>("group-wise-pattern-rewriter-declare-op",
                                                                               log, benefitLevels[index]);
+        registry.registerRewriter<PerChannelPatternRewriter>("per-channel-pattern-rewriter-convert-op", log,
+                                                             benefitLevels[index]);
     });
 }

@@ -50,7 +50,7 @@ static mlir::Value createFloatConst(mlir::IRRewriter& rewriter, mlir::Location l
     const auto type = mlir::RankedTensorType::get(shape, floatType);
     const auto attr = mlir::DenseElementsAttr::get(type, ArrayRef(apFloats));
 
-    return rewriter.create<Const::DeclareOp>(loc, type, Const::ContentAttr::get(attr)).getOutput();
+    return Const::DeclareOp::create(rewriter, loc, type, Const::ContentAttr::get(attr)).getOutput();
 }
 
 void ConvertDequantizeToDynamicDequantizePass::safeRunOnFunc() {
@@ -109,7 +109,7 @@ void ConvertDequantizeToDynamicDequantizePass::safeRunOnFunc() {
             const auto zpType = mlir::RankedTensorType::get(paramShape, zpElemType);
             const auto zpAttr = mlir::DenseElementsAttr::get(zpType, ArrayRef(zpAPInts));
             zpValue =
-                    rewriter.create<Const::DeclareOp>(takeOpLoc(origOp, "zp"), zpType, Const::ContentAttr::get(zpAttr))
+                    Const::DeclareOp::create(rewriter, takeOpLoc(origOp, "zp"), zpType, Const::ContentAttr::get(zpAttr))
                             .getOutput();
         } else {
             const auto storageFloatType = mlir::cast<mlir::FloatType>(storageType);

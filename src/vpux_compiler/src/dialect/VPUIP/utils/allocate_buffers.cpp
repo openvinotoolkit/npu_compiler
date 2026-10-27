@@ -38,17 +38,17 @@ SmallVector<mlir::Value> allocateBuffersOfType(const Logger& log, mlir::Location
                        "Bounds are required to create memref.alloc");
                 for (int64_t i = 0; i < memref.getRank(); ++i) {
                     if (memref.isDynamicDim(i)) {
-                        dynamicSizes.push_back(builder.create<mlir::arith::ConstantIndexOp>(
-                                appendLoc(loc, "dynamic{0}", i), bounds[Dim(i)]));
+                        dynamicSizes.push_back(mlir::arith::ConstantIndexOp::create(
+                                builder, appendLoc(loc, "dynamic{0}", i), bounds[Dim(i)]));
                     }
                 }
             }
 
             return static_cast<mlir::Value>(
-                    builder.create<mlir::memref::AllocOp>(loc, memref, dynamicSizes).getMemref());
+                    mlir::memref::AllocOp::create(builder, loc, memref, dynamicSizes).getMemref());
         } else if (auto distributedBuffer = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(type)) {
             return static_cast<mlir::Value>(
-                    builder.create<VPURT::AllocDistributed>(loc, distributedBuffer, nullptr, nullptr).getBuffer());
+                    VPURT::AllocDistributed::create(builder, loc, distributedBuffer, nullptr, nullptr).getBuffer());
         }
         VPUX_THROW("Unexpected type to allocate: {0}", type);
     };
@@ -64,8 +64,8 @@ SmallVector<mlir::Value> allocateBuffersOfType(const Logger& log, mlir::Location
         auto seTableBuffer = createAllocOp(sparseBufferType.getStorageElementTable());
 
         if (!individualBuffers) {
-            auto groupOp = builder.create<VPUIP::GroupSparseBufferOp>(
-                    loc, dataBuffer, sparsityMapBuffer, seTableBuffer,
+            auto groupOp = VPUIP::GroupSparseBufferOp::create(
+                    builder, loc, dataBuffer, sparsityMapBuffer, seTableBuffer,
                     static_cast<bool>(sparseBufferType.getIsWeights()), sparseBufferType.getSparsityCompression(),
                     sparseBufferType.getSeAttr());
             return {groupOp.getOutput()};
@@ -85,7 +85,7 @@ SmallVector<mlir::Value> allocateBuffersOfType(const Logger& log, mlir::Location
         auto dataBuffer = createAllocOp(boundedBufferType.getData());
         auto dynamicShapeBuffer = createAllocOp(boundedBufferType.getDynamicShape());
 
-        auto groupOp = builder.create<VPUIP::GroupBoundedBufferOp>(loc, dataBuffer, dynamicShapeBuffer);
+        auto groupOp = VPUIP::GroupBoundedBufferOp::create(builder, loc, dataBuffer, dynamicShapeBuffer);
         return {groupOp.getOutput()};
     }
     VPUX_THROW("Unexpected type to allocate {0}", bufferType);

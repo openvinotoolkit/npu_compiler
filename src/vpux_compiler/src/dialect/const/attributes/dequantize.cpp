@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/utils/loop.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
@@ -22,7 +22,7 @@ using namespace vpux;
 
 vpux::NDTypeInterface vpux::Const::DequantizeAttr::inferOutputType(vpux::NDTypeInterface input) const {
     const auto qElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(input.getElementType());
-    VPUX_THROW_UNLESS(qElemType != nullptr, "Got non quantized type '{0}' in 'DequantizeAttr'");
+    VPUX_THROW_WHEN(qElemType == nullptr, "Got non quantized type '{0}' in 'DequantizeAttr'");
 
     return input.changeElemType(qElemType.getExpressedType());
 }
@@ -42,7 +42,7 @@ bool vpux::Const::DequantizeAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTy
 
 Const::Content vpux::Const::DequantizeAttr::transform(vpux::Const::Content& input) const {
     const auto qElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(input.getType().getElementType());
-    VPUX_THROW_UNLESS(qElemType != nullptr, "Got non quantized type '{0}' in 'DequantizeAttr'");
+    VPUX_THROW_WHEN(qElemType == nullptr, "Got non quantized type '{0}' in 'DequantizeAttr'");
 
     auto output =
             Const::Content::allocTempBuffer(inferOutputType(input.getType()), mlir::Float32Type::get(getContext()),
@@ -54,7 +54,7 @@ Const::Content vpux::Const::DequantizeAttr::transform(vpux::Const::Content& inpu
         const auto zeroPoint = uniformType.getZeroPoint();
 
         input.read([&](auto qVals) {
-            if (const auto quantileStorage = mlir::dyn_cast<vpux::type::QuantileType>(uniformType.getStorageType())) {
+            if (const auto quantileStorage = mlir::dyn_cast<mlir::quant::QuantileType>(uniformType.getStorageType())) {
                 const auto quantilesLUT = quantileStorage.getQuantiles();
                 for (size_t i = 0; i < realVals.size(); ++i) {
                     const auto qVal = checked_cast<int64_t>(qVals[i]);
@@ -108,7 +108,7 @@ Const::Content vpux::Const::DequantizeAttr::transform(vpux::Const::Content& inpu
         // Innermost loop goes through the volume of the innermost dimensions, which share the same quantization
         // parameters.
         if (const auto quantileStorageType =
-                    mlir::dyn_cast<vpux::type::QuantileType>(uniformPerAxisType.getStorageType())) {
+                    mlir::dyn_cast<mlir::quant::QuantileType>(uniformPerAxisType.getStorageType())) {
             const auto quantilesLUT = quantileStorageType.getQuantiles();
             loop_3d(LoopExecPolicy::Parallel, getContext(), outerSize, quantAxisSize, innerSize,
                     [&](int64_t outerInd, int64_t quantAxisInd, int64_t innerInd) {

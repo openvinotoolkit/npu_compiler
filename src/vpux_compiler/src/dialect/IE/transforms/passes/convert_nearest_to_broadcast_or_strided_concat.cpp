@@ -183,8 +183,8 @@ mlir::LogicalResult ConvertNearestToBroadcastOrStridedConcatPass::NearestToStrid
         widthSlices.push_back(origOp.getInput());
     }
 
-    widthConcatOp = widthSlices.size() != 1 ? rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "wslices_concat"),
-                                                                            widthSlices, Dims4D::Act::W, 1, scaleX)
+    widthConcatOp = widthSlices.size() != 1 ? IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "wslices_concat"),
+                                                                   widthSlices, Dims4D::Act::W, 1, scaleX)
                                                       .getOutput()
                                             : widthSlices.front();
 
@@ -197,8 +197,8 @@ mlir::LogicalResult ConvertNearestToBroadcastOrStridedConcatPass::NearestToStrid
         heightSlices.push_back(widthConcatOp);
     }
     const auto resultConcat = heightSlices.size() != 1
-                                      ? rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "hslices_concat"), heightSlices,
-                                                                      Dims4D::Act::H, 1, scaleY)
+                                      ? IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "hslices_concat"),
+                                                             heightSlices, Dims4D::Act::H, 1, scaleY)
                                       : heightSlices.front();
 
     int64_t padW = 0;

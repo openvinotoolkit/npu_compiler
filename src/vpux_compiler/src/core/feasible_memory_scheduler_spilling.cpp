@@ -1311,10 +1311,10 @@ mlir::async::ExecuteOp FeasibleMemorySchedulerSpilling::insertSpillWriteDmaOp(ml
 
     mlir::Operation* newBufferOp;
     if (swizzlingKeyAttr) {
-        newBufferOp = builder.create<VPURT::Alloc>(spillWriteNameLoc, spillBufferType, nullptr, swizzlingKeyAttr);
+        newBufferOp = VPURT::Alloc::create(builder, spillWriteNameLoc, spillBufferType, nullptr, swizzlingKeyAttr);
     } else {
-        newBufferOp =
-                builder.create<mlir::memref::AllocOp>(spillWriteNameLoc, mlir::cast<mlir::MemRefType>(spillBufferType));
+        newBufferOp = mlir::memref::AllocOp::create(builder, spillWriteNameLoc,
+                                                    mlir::cast<mlir::MemRefType>(spillBufferType));
     }
     auto newBufferResult = newBufferOp->getResult(0);
 
@@ -1323,9 +1323,9 @@ mlir::async::ExecuteOp FeasibleMemorySchedulerSpilling::insertSpillWriteDmaOp(ml
 
     // Create new AsyncExecOp
     builder.setInsertionPointAfter(insertAfterExecOp);
-    auto spillWriteExecOp = builder.create<mlir::async::ExecuteOp>(spillWriteNameLoc, newBufferResult.getType(),
-                                                                   /* dependencies */ mlir::ValueRange{},
-                                                                   /* operands */ mlir::ValueRange{});
+    auto spillWriteExecOp = mlir::async::ExecuteOp::create(builder, spillWriteNameLoc, newBufferResult.getType(),
+                                                           /* dependencies */ mlir::ValueRange{},
+                                                           /* operands */ mlir::ValueRange{});
 
     VPUIP::NNDMAOp spillWriteDmaOp;
 
@@ -1334,9 +1334,9 @@ mlir::async::ExecuteOp FeasibleMemorySchedulerSpilling::insertSpillWriteDmaOp(ml
 
     // Build body of spill write async exec op
     // Create DmaOp in the body of new AsyncExecOp
-    spillWriteDmaOp = builder.create<VPUIP::NNDMAOp>(spillWriteNameLoc, bufferToSpill, newBufferResult);
+    spillWriteDmaOp = VPUIP::NNDMAOp::create(builder, spillWriteNameLoc, bufferToSpill, newBufferResult);
     spillWriteDmaOp.setSpillId(spillId);
-    builder.create<mlir::async::YieldOp>(spillWriteNameLoc, spillWriteDmaOp->getResults());
+    mlir::async::YieldOp::create(builder, spillWriteNameLoc, spillWriteDmaOp->getResults());
 
     // Update aliases for spillWrite result
     _aliasInfo.addAlias(newBufferResult, spillWriteDmaOp.getOutput());
@@ -1398,8 +1398,8 @@ mlir::async::ExecuteOp FeasibleMemorySchedulerSpilling::insertReReadDmaOp(mlir::
         bodyResultTypes.push_back(asyncValueType.getValueType());
     }
 
-    auto newExec =
-            builder.create<mlir::async::ExecuteOp>(spillReadNameLoc, bodyResultTypes, newDependencies, newBodyOperands);
+    auto newExec = mlir::async::ExecuteOp::create(builder, spillReadNameLoc, bodyResultTypes, newDependencies,
+                                                  newBodyOperands);
 
     // Step 3: Clone the body operations
     auto* originalBodyBlock = opThatWasSpilled.getBody();
@@ -1442,7 +1442,7 @@ mlir::async::ExecuteOp FeasibleMemorySchedulerSpilling::insertReReadDmaOp(mlir::
                       "Mismatch in body results: expected {0}, got {1}", opThatWasSpilled.getBodyResults().size(),
                       yieldOperands.size());
 
-    builder.create<mlir::async::YieldOp>(spillReadNameLoc, yieldOperands);
+    mlir::async::YieldOp::create(builder, spillReadNameLoc, yieldOperands);
 
     // Step 5: Register aliases for the new operation's results
     registerReReadAliases(newBufferResult, clonedBodyOps, newExec);
@@ -1503,9 +1503,9 @@ mlir::async::ExecuteOp FeasibleMemorySchedulerSpilling::insertSpillReadDmaOp(mli
 
     // Create new AsyncExecOp in correct place
     builder.setInsertionPointAfter(insertAfterExecOp);
-    auto spillReadExecOp = builder.create<mlir::async::ExecuteOp>(spillReadNameLoc, newBufferResult.getType(),
-                                                                  /* dependencies */ mlir::ValueRange{},
-                                                                  /* operands */ mlir::ValueRange{});
+    auto spillReadExecOp = mlir::async::ExecuteOp::create(builder, spillReadNameLoc, newBufferResult.getType(),
+                                                          /* dependencies */ mlir::ValueRange{},
+                                                          /* operands */ mlir::ValueRange{});
 
     // Update operands of new AsyncExecOp to contain result of AsyncExecOp of spillWrite
     spillReadExecOp.getBodyOperandsMutable().append(spillWriteResult);
@@ -1519,9 +1519,9 @@ mlir::async::ExecuteOp FeasibleMemorySchedulerSpilling::insertSpillReadDmaOp(mli
 
     // Build body of spill read async exec op
     // Create DmaOp in the body of new AsyncExecOp
-    spillReadDmaOp = builder.create<VPUIP::NNDMAOp>(spillReadNameLoc, innerAsyncArgForSpill, newBufferResult);
+    spillReadDmaOp = VPUIP::NNDMAOp::create(builder, spillReadNameLoc, innerAsyncArgForSpill, newBufferResult);
     spillReadDmaOp.setSpillId(spillId);
-    builder.create<mlir::async::YieldOp>(spillReadNameLoc, spillReadDmaOp->getResults());
+    mlir::async::YieldOp::create(builder, spillReadNameLoc, spillReadDmaOp->getResults());
 
     // Update alias for spillRead result
     _aliasInfo.addAlias(newBufferResult, spillReadDmaOp.getOutput());
@@ -1809,7 +1809,7 @@ void FeasibleMemorySchedulerSpilling::createSpillWrite(FeasibleMemoryScheduler::
         }
         insertionPointIndex--;
     }
-    VPUX_THROW_UNLESS(spillWriteInsertionPoint != nullptr, "No location to insert Spill Write was identified");
+    VPUX_THROW_WHEN(spillWriteInsertionPoint == nullptr, "No location to insert Spill Write was identified");
 
     // In scheduledOpInfo structure op_ identifier for a spillWrite operation contains id
     // of the original operation which result had to be spilled
@@ -1869,7 +1869,7 @@ void FeasibleMemorySchedulerSpilling::createSpillRead(FeasibleMemoryScheduler::S
         }
         insertionPointIndex--;
     }
-    VPUX_THROW_UNLESS(spillReadInsertionPoint != nullptr, "No location to insert Spill Read was identified");
+    VPUX_THROW_WHEN(spillReadInsertionPoint == nullptr, "No location to insert Spill Read was identified");
 
     // In scheduledOpInfo structure op_ identifier for a spillRead operation contains id
     // of the original operation which result had to be spilled
@@ -1931,8 +1931,7 @@ void FeasibleMemorySchedulerSpilling::insertSpillDmaOps(FeasibleMemoryScheduler:
     // Locate first async-exec-op that will be used to determine insertion point for
     // new allocation operations
     _allocOpInsertionPoint = _depsInfo.getExecuteOpAtIndex(scheduledOps.begin()->op_).getOperation();
-    VPUX_THROW_UNLESS(_allocOpInsertionPoint != nullptr,
-                      "Unable to find insertion point for new allocation operations");
+    VPUX_THROW_WHEN(_allocOpInsertionPoint == nullptr, "Unable to find insertion point for new allocation operations");
 
     /* Calc number of spills and allocate space in advance
        otherwise resizing 2D vectors N times where N is number of spills reads and writes

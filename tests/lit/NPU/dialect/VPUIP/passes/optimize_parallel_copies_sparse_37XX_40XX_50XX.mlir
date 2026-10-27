@@ -58,7 +58,7 @@ func.func @OptimizeParallelMulticlusterCopiesSparse()
 
     %14 = memref.alloc() : !Weights_CMX
 
-    %16:2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>} <{
+    %16:2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
         kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         kernel_size = [1, 1],
         kernel_strides = [1, 1],
@@ -89,7 +89,7 @@ func.func @OptimizeParallelMulticlusterCopiesSparse()
     %out_data_1 = VPURT.AllocDistributed -> !IODataDistrType
     %out_sm_1 =  VPURT.AllocDistributed -> !IOSMDistrType
 
-      %24:2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>} <{
+      %24:2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
         kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         kernel_size = [1, 1],
         kernel_strides = [1, 1],
@@ -203,7 +203,7 @@ func.func @OptimizeParallelSubViewWithDistributedCopiesSparse(
     %out_data_0 = VPURT.AllocDistributed -> !ODistrDataType
     %out_sm_0 = VPURT.AllocDistributed -> !ODistrSMType
 
-    %12:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 9240 : i64, resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>} <{
+    %12:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 9240 : i64} <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
@@ -238,7 +238,7 @@ func.func @OptimizeParallelSubViewWithDistributedCopiesSparse(
     %out_data_1 = VPURT.AllocDistributed -> !ODistrDataType
     %out_sm_1 = VPURT.AllocDistributed -> !ODistrSMType
 
-    %21:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 9240 : i64, resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>} <{
+    %21:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 9240 : i64} <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
@@ -359,7 +359,7 @@ func.func @NotOptimizeParallelDistributedCopiesWithSubviewHasDiffOffsetSparse(
     %out_data_0 = VPURT.AllocDistributed -> !ODistrDataType
     %out_sm_0 = VPURT.AllocDistributed -> !ODistrSMType
 
-    %12:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 9240 : i64, resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>} <{
+    %12:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 9240 : i64} <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>
@@ -394,7 +394,7 @@ func.func @NotOptimizeParallelDistributedCopiesWithSubviewHasDiffOffsetSparse(
     %out_data_1 = VPURT.AllocDistributed -> !ODistrDataType
     %out_sm_1 = VPURT.AllocDistributed -> !ODistrSMType
 
-    %21:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 9240 : i64, resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>} <{
+    %21:2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 9240 : i64} <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
                 kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 kernel_size = [1, 1],
                 kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}>

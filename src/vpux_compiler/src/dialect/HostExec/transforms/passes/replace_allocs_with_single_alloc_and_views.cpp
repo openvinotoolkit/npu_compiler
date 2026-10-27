@@ -145,7 +145,7 @@ void ReplaceAllocsWithSingleAllocAndViewsPass::safeRunOnFunc() {
         for (size_t d = 0, dynIdx = 0; d < allocShapes[i].size(); ++d) {
             mlir::Value dimSize = [&] {
                 if (allocShapes[i][d] != mlir::ShapedType::kDynamic) {
-                    return rewriter.create<mlir::arith::ConstantIndexOp>(loc, allocShapes[i][d]).getResult();
+                    return mlir::arith::ConstantIndexOp::create(rewriter, loc, allocShapes[i][d]).getResult();
                 }
                 return allocDynamicSizes[i][dynIdx++];
             }();
@@ -153,18 +153,18 @@ void ReplaceAllocsWithSingleAllocAndViewsPass::safeRunOnFunc() {
             if (size == nullptr) {
                 size = dimSize;
             } else {
-                size = rewriter.create<mlir::arith::MulIOp>(loc, size, dimSize);
+                size = mlir::arith::MulIOp::create(rewriter, loc, size, dimSize);
             }
         }
 
         auto elemSize = allocElemTypes[i].getIntOrFloatBitWidth() / 8;
-        auto elemSizeValue = rewriter.create<mlir::arith::ConstantIndexOp>(loc, elemSize);
-        auto allocSize = rewriter.create<mlir::arith::MulIOp>(loc, size, elemSizeValue);
+        auto elemSizeValue = mlir::arith::ConstantIndexOp::create(rewriter, loc, elemSize);
+        auto allocSize = mlir::arith::MulIOp::create(rewriter, loc, size, elemSizeValue);
 
         if (i == 0) {
-            offsets.push_back(rewriter.create<mlir::arith::ConstantIndexOp>(loc, 0));
+            offsets.push_back(mlir::arith::ConstantIndexOp::create(rewriter, loc, 0));
         } else {
-            auto offset = rewriter.create<mlir::arith::AddIOp>(loc, offsets.back(), sizes.back());
+            auto offset = mlir::arith::AddIOp::create(rewriter, loc, offsets.back(), sizes.back());
             offsets.push_back(offset);
         }
         sizes.push_back(allocSize);
@@ -180,18 +180,19 @@ void ReplaceAllocsWithSingleAllocAndViewsPass::safeRunOnFunc() {
 
     mlir::Value totalSize = sizes.front();
     for (size_t i = 1; i < sizes.size(); ++i) {
-        totalSize = rewriter.create<mlir::arith::AddIOp>(loc, totalSize, sizes[i]);
+        totalSize = mlir::arith::AddIOp::create(rewriter, loc, totalSize, sizes[i]);
     }
 
     auto scratchBufferType = vpux::getMemRefType({mlir::ShapedType::kDynamic}, rewriter.getIntegerType(8));
     // align to DEFAULT_CMX_ALIGNMENT (64) as it is done for DDR scratch buffer on NPU
-    mlir::Value scratchBufferAlloc = rewriter.create<mlir::memref::AllocOp>(
-            loc, scratchBufferType, totalSize, mlir::ValueRange{}, rewriter.getI64IntegerAttr(DEFAULT_CMX_ALIGNMENT));
+    mlir::Value scratchBufferAlloc =
+            mlir::memref::AllocOp::create(rewriter, loc, scratchBufferType, totalSize, mlir::ValueRange{},
+                                          rewriter.getI64IntegerAttr(DEFAULT_CMX_ALIGNMENT));
 
     for (size_t i = 0; i < allocsToReplace.size(); ++i) {
         auto allocType = allocsToReplace[i].getType();
-        mlir::Value view = rewriter.create<mlir::memref::ViewOp>(loc, allocType, scratchBufferAlloc, offsets[i],
-                                                                 allocDynamicSizes[i]);
+        mlir::Value view = mlir::memref::ViewOp::create(rewriter, loc, allocType, scratchBufferAlloc, offsets[i],
+                                                        allocDynamicSizes[i]);
 
         allocsToReplace[i].replaceAllUsesWith(view);
     }

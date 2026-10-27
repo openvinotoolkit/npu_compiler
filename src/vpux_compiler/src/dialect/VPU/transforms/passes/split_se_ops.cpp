@@ -116,7 +116,7 @@ mlir::LogicalResult SplitInterpolate::matchAndRewrite(VPU::InterpolateOp origOp,
     };
     auto seOp = mlir::dyn_cast<IE::SEOpInterface>(origOp.getOperation());
     if (!seOp || !seOp.isSupported(logCb, /*checkLayout=*/true, /*checkChannelAlignment=*/true, /*checkBatch=*/true)) {
-        return matchFailed(rewriter, origOp, "It is not NCEInterpolateOp");
+        return matchFailed(_log, rewriter, origOp, "It is not NCEInterpolateOp");
     }
 
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
@@ -125,7 +125,7 @@ mlir::LogicalResult SplitInterpolate::matchAndRewrite(VPU::InterpolateOp origOp,
     const auto coordModeAttr = origOp.getAttr().getCoordMode();
 
     if (!isLegalAndBenifitSplitInterpolate(inputType, outputType, modeAttr, coordModeAttr)) {
-        return matchFailed(rewriter, origOp, "It is not beneficial to split");
+        return matchFailed(_log, rewriter, origOp, "It is not beneficial to split");
     }
 
     const auto sizesAttr = origOp.getSizesAttrAttr();
@@ -159,28 +159,26 @@ mlir::LogicalResult SplitInterpolate::matchAndRewrite(VPU::InterpolateOp origOp,
 
         auto newLoc = appendLoc(origOp.getLoc(), "interpolate_on_Dim_{0}", dim.ind());
         if (newOutputType != nullptr) {
-            return rewriter
-                    .create<VPU::InterpolateOp>(
-                            newLoc, newOutputType, inputVal, origOp.getSizes(), origOp.getScales(), origOp.getAxes(),
-                            origOp.getCoordinates(), origOp.getLambdas(), origOp.getDynamicInputOffsets(),
-                            origOp.getDynamicOutputOffsets(), newSizesAttr, newScalesAttr, origOp.getAxesAttrAttr(),
-                            origOp.getTileOffsetAttrAttr(), origOp.getInitialInputDimsAttrAttr(),
-                            origOp.getInitialOutputDimsAttrAttr(), origOp.getInitialInputOffsetAttrAttr(),
-                            origOp.getInitialOutputOffsetAttrAttr(), origOp.getMultiClusterStrategyAttr(),
-                            origOp.getUseScaleAttrAttr(), origOp.getAttr(), origOp.getOutputPaddingAttr(),
-                            origOp.getInputPaddingAttr())
+            return VPU::InterpolateOp::create(
+                           rewriter, newLoc, newOutputType, inputVal, origOp.getSizes(), origOp.getScales(),
+                           origOp.getAxes(), origOp.getCoordinates(), origOp.getLambdas(),
+                           origOp.getDynamicInputOffsets(), origOp.getDynamicOutputOffsets(), newSizesAttr,
+                           newScalesAttr, origOp.getAxesAttrAttr(), origOp.getTileOffsetAttrAttr(),
+                           origOp.getInitialInputDimsAttrAttr(), origOp.getInitialOutputDimsAttrAttr(),
+                           origOp.getInitialInputOffsetAttrAttr(), origOp.getInitialOutputOffsetAttrAttr(),
+                           origOp.getMultiClusterStrategyAttr(), origOp.getUseScaleAttrAttr(), origOp.getAttr(),
+                           origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr())
                     .getOutput();
         }
-        return rewriter
-                .create<VPU::InterpolateOp>(
-                        newLoc, inputVal, origOp.getSizes(), origOp.getScales(), origOp.getAxes(),
-                        origOp.getCoordinates(), origOp.getLambdas(), origOp.getDynamicInputOffsets(),
-                        origOp.getDynamicOutputOffsets(), newSizesAttr, newScalesAttr, origOp.getAxesAttrAttr(),
-                        origOp.getTileOffsetAttrAttr(), origOp.getInitialInputDimsAttrAttr(),
-                        origOp.getInitialOutputDimsAttrAttr(), origOp.getInitialInputOffsetAttrAttr(),
-                        origOp.getInitialOutputOffsetAttrAttr(), origOp.getMultiClusterStrategyAttr(),
-                        origOp.getUseScaleAttrAttr(), origOp.getAttr(), origOp.getOutputPaddingAttr(),
-                        origOp.getInputPaddingAttr())
+        return VPU::InterpolateOp::create(rewriter, newLoc, inputVal, origOp.getSizes(), origOp.getScales(),
+                                          origOp.getAxes(), origOp.getCoordinates(), origOp.getLambdas(),
+                                          origOp.getDynamicInputOffsets(), origOp.getDynamicOutputOffsets(),
+                                          newSizesAttr, newScalesAttr, origOp.getAxesAttrAttr(),
+                                          origOp.getTileOffsetAttrAttr(), origOp.getInitialInputDimsAttrAttr(),
+                                          origOp.getInitialOutputDimsAttrAttr(), origOp.getInitialInputOffsetAttrAttr(),
+                                          origOp.getInitialOutputOffsetAttrAttr(), origOp.getMultiClusterStrategyAttr(),
+                                          origOp.getUseScaleAttrAttr(), origOp.getAttr(), origOp.getOutputPaddingAttr(),
+                                          origOp.getInputPaddingAttr())
                 .getOutput();
     };
 
@@ -232,7 +230,7 @@ mlir::LogicalResult SplitRoll::matchAndRewrite(VPU::RollOp origOp, mlir::Pattern
     };
     auto seOp = mlir::dyn_cast<IE::SEOpInterface>(origOp.getOperation());
     if (!seOp || !seOp.isSupported(logCb, /*checkLayout=*/true, /*checkChannelAlignment=*/true)) {
-        return matchFailed(rewriter, origOp, "It is not fit for NCE");
+        return matchFailed(_log, rewriter, origOp, "It is not fit for NCE");
     }
 
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getData().getType());
@@ -248,7 +246,7 @@ mlir::LogicalResult SplitRoll::matchAndRewrite(VPU::RollOp origOp, mlir::Pattern
 
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     if (!isLegalAndBenifitSplitRoll(origOp, inputType, outputType, shift)) {
-        return matchFailed(rewriter, origOp, "It is not beneficial to split");
+        return matchFailed(_log, rewriter, origOp, "It is not beneficial to split");
     }
 
     const auto newAxesElems = checked_cast<int64_t>(axes.size());
@@ -270,7 +268,7 @@ mlir::LogicalResult SplitRoll::matchAndRewrite(VPU::RollOp origOp, mlir::Pattern
                 getTensorAttr(rewriter.getContext(), shiftDimOrder, nullptr));
         const auto shiftValue = Const::createConst(rewriter, shiftLoc, newShiftType, newShift);
         auto newLoc = appendLoc(origOp.getLoc(), "roll_on_Dim_{0}", dim.ind());
-        return rewriter.create<VPU::RollOp>(newLoc, inputVal, shiftValue, newAxesValue).getOutput();
+        return VPU::RollOp::create(rewriter, newLoc, inputVal, shiftValue, newAxesValue).getOutput();
     };
 
     auto rollW = createSingleDimRollOp(Dims4D::Act::W, {0, checked_cast<int32_t>(shift[VPU::SE_ROLL_SPATIAL_W])},

@@ -8,7 +8,10 @@
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/back_infer_utils.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/strides_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/core/IR/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -45,34 +48,24 @@ bool isCompactStride(vpux::NDTypeInterface typeIf) {
     return inReqs.checkStrides(typeIf);
 }
 
-mlir::Value createNewViewLikeOps(mlir::PatternRewriter& rewriter, ArrayRef<mlir::Operation*> viewLikeOps,
-                                 mlir::Value newInput) {
-    const auto changeStrides = [](vpux::NDTypeInterface origTypeIf, vpux::NDTypeInterface newTypeIf) {
-        const auto origStrides = origTypeIf.getStrides();
-        const auto origElemSize = origTypeIf.getElemTypeSize().count();
-        const auto newElemSize = newTypeIf.getElemTypeSize().count();
-        auto outStrides = SmallVector<Bit>(origStrides.size(), Bit(0));
+mlir::FailureOr<mlir::Value> createNewViewLikeOps(mlir::PatternRewriter& rewriter,
+                                                  ArrayRef<mlir::Operation*> viewLikeOps, mlir::Value newInput) {
+    SmallVector<mlir::Type> newOutputTypes;
+    auto newInputType = VPUIP::extractDataType(newInput);
+    for (auto* viewLikeOp : viewLikeOps) {
+        const auto newOutputType = VPUIP::BackInferUtils::inferOutputType(viewLikeOp, newInputType);
+        if (!newOutputType.has_value()) {
+            return mlir::failure();
+        }
+        newOutputTypes.push_back(newOutputType.value());
+        newInputType = newOutputType.value();
+    }
 
-        std::transform(origStrides.begin(), origStrides.end(), outStrides.begin(), [&](Bit stride) {
-            return stride / origElemSize * newElemSize;
-        });
-        return Strides(outStrides);
-    };
-
-    for (auto viewLikeOp : viewLikeOps) {
+    for (auto [viewLikeOp, newOutputType] : llvm::zip_equal(viewLikeOps, newOutputTypes)) {
         mlir::IRMapping mapper;
         mapper.map(viewLikeOp->getOperands(), ArrayRef({newInput}));
         auto* newViewLikeOp = rewriter.clone(*viewLikeOp, mapper);
-
-        const auto viewLikeOutType =
-                mlir::cast<vpux::NDTypeInterface>(VPUIP::getCompactBufferType(viewLikeOp->getResult(0).getType()));
-        const auto viewLikeInType = mlir::cast<vpux::NDTypeInterface>(VPUIP::extractDataType(newInput));
-
-        const auto newStrides = changeStrides(viewLikeOutType, viewLikeInType);
-        const auto newViewLikeOutType = viewLikeOutType.changeElemType(viewLikeInType.getElementType())
-                                                .changeMemSpace(viewLikeInType.getMemSpace())
-                                                .changeStrides(newStrides);
-        newViewLikeOp->getResult(0).setType(newViewLikeOutType);
+        newViewLikeOp->getResult(0).setType(newOutputType);
         newInput = newViewLikeOp->getResult(0);
     }
 
@@ -157,9 +150,12 @@ mlir::LogicalResult ConvertDMAViewLikeCopy::matchAndRewrite(VPUIP::ConvertDMAOp 
     }
 
     rewriter.setInsertionPointAfter(userCopyOp.getOperation());
-    auto newOutput = createNewViewLikeOps(rewriter, viewLikeOps, convertInput);
-    auto newConvertOp =
-            rewriter.create<VPUIP::ConvertDMAOp>(appendLoc(convertOp->getLoc(), "fused_dma"), newOutput, outputBuffer);
+    const auto newOutput = createNewViewLikeOps(rewriter, viewLikeOps, convertInput);
+    if (mlir::failed(newOutput)) {
+        return mlir::failure();
+    }
+    auto newConvertOp = VPUIP::ConvertDMAOp::create(rewriter, appendLoc(convertOp->getLoc(), "fused_dma"),
+                                                    newOutput.value(), outputBuffer);
     rewriter.replaceOp(userCopyOp, newConvertOp.getOutput());
 
     for (auto viewLikeOp : viewLikeOps | reversed) {
@@ -244,18 +240,22 @@ mlir::LogicalResult CopyConvertDMA::matchAndRewrite(VPUIP::CopyOp copy, mlir::Pa
 //
 
 //
-// Perform the transformation below.
-//
-//                                           /- SubView->Copy
-//   ConvertDMA->[GenericReshape,PermuteCast]
-//                                           \- SubView->Copy
-//
+// Scenario 1: A whole-tensor ConvertDMA feeds SubView -> Copy branches through an optional view chain.
+//                                                    /- SubView -> Copy
+//   Input -> ConvertDMA -> [GenericReshape, PermuteCast]
+//                                                    \- SubView -> Copy
+// Scenario 2: The whole-tensor conversion is split into matching tiles before a ConcatView. Recover the common
+// compact source and apply the same consumer-side rewrite as Scenario 1.
+//   Common input
+//        |                                               /- SubView -> Copy
+//        +-> SubView -> ConvertDMA -\                    |
+//        |                             ConcatView -> [GenericReshape, PermuteCast]
+//        +-> SubView -> ConvertDMA -/                    |
+//                                                        \- SubView -> Copy
 //  =>
-//
-//                               /- SubView->ConvertDMA
-//   [GenericReshape,PermuteCast]
-//                               \- SubView->ConvertDMA
-//
+//                                                   /- SubView -> ConvertDMA
+//   Common input -> [GenericReshape, PermuteCast]
+//                                                   \- SubView -> ConvertDMA
 
 class ConvertDMASubViewCopy : public mlir::OpRewritePattern<VPUIP::ConvertDMAOp> {
 public:
@@ -272,7 +272,7 @@ private:
 
 mlir::LogicalResult ConvertDMASubViewCopy::matchAndRewrite(VPUIP::ConvertDMAOp convertOp,
                                                            mlir::PatternRewriter& rewriter) const {
-    _log.trace("[{0}] Copy at {1}", getDebugName(), convertOp->getLoc());
+    _log.trace("[{0}] ConvertDMA at {1}", getDebugName(), convertOp->getLoc());
     auto nestedLogger = _log.nest();
 
     if (convertOp->use_empty()) {
@@ -283,13 +283,76 @@ mlir::LogicalResult ConvertDMASubViewCopy::matchAndRewrite(VPUIP::ConvertDMAOp c
         return mlir::failure();
     }
 
-    const auto convertInput = convertOp.getInput();
-    const auto inputType = mlir::cast<vpux::NDTypeInterface>(convertInput.getType());
+    auto convertInput = convertOp.getInput();
+    auto viewChainInputOp = convertOp.getOperation();
+    auto convertLoc = convertOp->getLoc();
+    VPUIP::ConcatViewOp concatViewOp = nullptr;
+    SmallVector<VPUIP::ConvertDMAOp> partitionConvertOps;
 
-    auto lastViewOp = convertOp.getOperation();
-    SmallVector<mlir::Operation*> viewLikeOps;
+    // The whole-tensor conversion may have been split into matching input/output tiles before a ConcatView. Recover
+    // the common compact source so the original rewrite below can handle both forms atomically.
     if (convertOp->hasOneUse()) {
-        auto userOp = *convertOp->getUsers().begin();
+        concatViewOp = mlir::dyn_cast<VPUIP::ConcatViewOp>(*convertOp->getUsers().begin());
+    }
+    if (concatViewOp != nullptr) {
+        const auto hasSingleSupportedViewUser =
+                concatViewOp->hasOneUse() &&
+                mlir::isa<VPUIP::GenericReshapeOp, VPUIP::PermuteCastOp>(*concatViewOp->getUsers().begin());
+        if (!llvm::is_contained(concatViewOp.getInputs(), convertOp.getOutput()) || !hasSingleSupportedViewUser ||
+            concatViewOp.getInputs().size() < 2) {
+            return mlir::failure();
+        }
+
+        const auto concatOutputBuffer = concatViewOp.getOutputBuff();
+        const auto concatOutputType = mlir::cast<vpux::NDTypeInterface>(VPUIP::extractDataType(concatOutputBuffer));
+        if (concatOutputType.getMemoryKind() != VPU::MemoryKind::DDR) {
+            return mlir::failure();
+        }
+
+        mlir::Value commonSource;
+        partitionConvertOps.reserve(concatViewOp.getInputs().size());
+        for (const auto input : concatViewOp.getInputs()) {
+            auto partitionConvertOp = input.getDefiningOp<VPUIP::ConvertDMAOp>();
+            if (partitionConvertOp == nullptr || !partitionConvertOp->hasOneUse()) {
+                return mlir::failure();
+            }
+
+            auto partitionInput = partitionConvertOp.getInput().getDefiningOp<VPUIP::SubViewOp>();
+            auto partitionOutput = partitionConvertOp.getOutputBuff().getDefiningOp<VPUIP::SubViewOp>();
+            if (partitionInput == nullptr || partitionOutput == nullptr || !partitionOutput->hasOneUse() ||
+                partitionOutput.getSource() != concatOutputBuffer ||
+                partitionInput.getStaticOffsetsAttr() != partitionOutput.getStaticOffsetsAttr() ||
+                partitionInput.getStaticSizesAttr() != partitionOutput.getStaticSizesAttr() ||
+                partitionInput.getStaticStridesAttr() != partitionOutput.getStaticStridesAttr()) {
+                return mlir::failure();
+            }
+
+            if (commonSource == nullptr) {
+                commonSource = partitionInput.getSource();
+            } else if (commonSource != partitionInput.getSource()) {
+                return mlir::failure();
+            }
+            partitionConvertOps.push_back(partitionConvertOp);
+        }
+
+        const auto commonSourceType = mlir::cast<vpux::NDTypeInterface>(VPUIP::extractDataType(commonSource));
+        if (commonSourceType.getMemoryKind() != VPU::MemoryKind::DDR ||
+            commonSourceType.getShape() != concatOutputType.getShape() ||
+            commonSourceType.getDimsOrder() != concatOutputType.getDimsOrder() || !isCompactStride(commonSourceType)) {
+            return mlir::failure();
+        }
+
+        convertInput = commonSource;
+        viewChainInputOp = concatViewOp.getOperation();
+        convertLoc = appendLoc(concatViewOp->getLoc(), "fused_convert_dma");
+    }
+
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(convertInput.getType());
+    auto lastViewOp = viewChainInputOp;
+
+    SmallVector<mlir::Operation*> viewLikeOps;
+    if (lastViewOp->hasOneUse()) {
+        auto userOp = *lastViewOp->getUsers().begin();
         while (mlir::isa<VPUIP::GenericReshapeOp, VPUIP::PermuteCastOp>(userOp)) {
             viewLikeOps.push_back(userOp);
             if (!userOp->hasOneUse()) {
@@ -309,6 +372,16 @@ mlir::LogicalResult ConvertDMASubViewCopy::matchAndRewrite(VPUIP::ConvertDMAOp c
         lastViewOp = viewLikeOps.back();
     }
 
+    mlir::Type newSubViewInputType = inputType;
+    for (auto* viewLikeOp : viewLikeOps) {
+        const auto newOutputType = VPUIP::BackInferUtils::inferOutputType(viewLikeOp, newSubViewInputType);
+        if (!newOutputType.has_value()) {
+            return mlir::failure();
+        }
+        newSubViewInputType = newOutputType.value();
+    }
+
+    const auto arch = config::getArch(convertOp.getOperation());
     SmallVector<std::pair<VPUIP::SubViewOp, VPUIP::CopyOp>> subViewCopyPair;
     for (auto user : lastViewOp->getUsers()) {
         auto subViewOp = mlir::dyn_cast<VPUIP::SubViewOp>(user);
@@ -317,21 +390,45 @@ mlir::LogicalResult ConvertDMASubViewCopy::matchAndRewrite(VPUIP::ConvertDMAOp c
         }
 
         auto copyOp = mlir::dyn_cast<VPUIP::CopyOp>(*subViewOp->getUsers().begin());
-        if (copyOp == nullptr || !copyOp->hasOneUse()) {
+        if (copyOp == nullptr) {
             return mlir::failure();
+        }
+
+        if (!copyOp->hasOneUse()) {
+            const auto newSubViewType = VPUIP::BackInferUtils::inferOutputType(subViewOp, newSubViewInputType);
+            const auto newSubViewNDType = newSubViewType.has_value()
+                                                  ? mlir::dyn_cast<vpux::NDTypeInterface>(newSubViewType.value())
+                                                  : nullptr;
+            if (newSubViewNDType == nullptr) {
+                return mlir::failure();
+            }
+            if (newSubViewNDType.getMemoryKind() == VPU::MemoryKind::DDR &&
+                VPUIP::isEffectivelyStrided(newSubViewNDType) && !VPUIP::isDDRCopyEfficient(newSubViewNDType, arch)) {
+                nestedLogger.trace("Multi-use Copy at {0} would create an inefficient strided DDR ConvertDMA source",
+                                   copyOp->getLoc());
+                return mlir::failure();
+            }
         }
         subViewCopyPair.push_back({subViewOp, copyOp});
     }
 
+    if (subViewCopyPair.empty()) {
+        return mlir::failure();
+    }
+
     nestedLogger.trace("Start to rewrite at {0}", convertOp->getLoc());
-    auto newOutput = createNewViewLikeOps(rewriter, viewLikeOps, convertInput);
+    const auto newOutput = createNewViewLikeOps(rewriter, viewLikeOps, convertInput);
+    if (mlir::failed(newOutput)) {
+        return mlir::failure();
+    }
 
     for (auto& [subViewOp, copyOp] : subViewCopyPair) {
         rewriter.setInsertionPointAfter(copyOp.getOperation());
-        auto newSubViewOp = rewriter.create<VPUIP::SubViewOp>(appendLoc(subViewOp->getLoc(), "convert"), newOutput,
-                                                              subViewOp.getStaticOffsets(), subViewOp.getStaticSizes());
-        auto newConvertOp = rewriter.create<VPUIP::ConvertDMAOp>(appendLoc(convertOp->getLoc(), "fused_dma"),
-                                                                 newSubViewOp.getResult(), copyOp.getOutputBuff());
+        auto newSubViewOp = VPUIP::SubViewOp::create(rewriter, appendLoc(subViewOp->getLoc(), "convert"),
+                                                     newOutput.value(), subViewOp.getStaticOffsetsAttr(),
+                                                     subViewOp.getStaticSizesAttr(), subViewOp.getStaticStridesAttr());
+        auto newConvertOp = VPUIP::ConvertDMAOp::create(rewriter, appendLoc(convertLoc, "fused_dma"),
+                                                        newSubViewOp.getResult(), copyOp.getOutputBuff());
         rewriter.replaceOp(copyOp, newConvertOp.getOutput());
         if (subViewOp->use_empty()) {
             rewriter.eraseOp(subViewOp);
@@ -344,8 +441,21 @@ mlir::LogicalResult ConvertDMASubViewCopy::matchAndRewrite(VPUIP::ConvertDMAOp c
         }
     }
 
-    if (convertOp->use_empty()) {
-        rewriter.eraseOp(convertOp);
+    if (concatViewOp == nullptr) {
+        if (convertOp->use_empty()) {
+            rewriter.eraseOp(convertOp);
+        }
+    } else {
+        rewriter.eraseOp(concatViewOp);
+        for (auto partitionConvertOp : partitionConvertOps) {
+            auto partitionInput = partitionConvertOp.getInput().getDefiningOp<VPUIP::SubViewOp>();
+            auto partitionOutput = partitionConvertOp.getOutputBuff().getDefiningOp<VPUIP::SubViewOp>();
+            rewriter.eraseOp(partitionConvertOp);
+            if (partitionInput->use_empty()) {
+                rewriter.eraseOp(partitionInput);
+            }
+            rewriter.eraseOp(partitionOutput);
+        }
     }
 
     nestedLogger.trace("Successfully optimized ConvertDMA->ViewLike=>Subview->Copy pattern");

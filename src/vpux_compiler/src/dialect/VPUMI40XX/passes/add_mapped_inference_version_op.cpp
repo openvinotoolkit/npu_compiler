@@ -40,8 +40,8 @@ void AddMappedInferenceVersionOpPass::safeRunOnFunc() {
     auto mpi = VPUMI40XX::getMPI(netFunc);
     auto builder = mlir::OpBuilder(mpi.getOperation());
     auto indexType = VPURegMapped::IndexType::get(ctx, 0);
-    auto mappedInferenceVersion = builder.create<VPUMI40XX::MappedInferenceVersionOp>(
-            builder.getUnknownLoc(), indexType, _versionMajor, _versionMinor, _versionPatch);
+    auto mappedInferenceVersion = VPUMI40XX::MappedInferenceVersionOp::create(
+            builder, builder.getUnknownLoc(), indexType, _versionMajor, _versionMinor, _versionPatch);
     mpi.getMappedInferenceVersionMutable().assign(mappedInferenceVersion);
 }
 

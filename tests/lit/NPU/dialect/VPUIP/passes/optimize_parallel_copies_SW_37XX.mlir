@@ -36,7 +36,7 @@ func.func @OptimizeParallelNonConstCopies(
             outputs(%2 : memref<1x16x112x112xf16, {order = #NHWC}, @CMX_NN>)
              -> memref<1x16x112x112xf16, {order = #NHWC}, @CMX_NN>
     %4 = memref.alloc() : memref<1x16x112x112xf16, {order = #NHWC}, @CMX_NN>
-    %5 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %5 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -64,7 +64,7 @@ func.func @OptimizeParallelNonConstCopies(
             outputs(%7 : memref<1x16x112x112xf16, {order = #NHWC}, @CMX_NN>)
              -> memref<1x16x112x112xf16, {order = #NHWC}, @CMX_NN>
     %9 = memref.alloc() : memref<1x16x112x112xf16, {order = #NHWC}, @CMX_NN>
-    %10 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %10 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -135,7 +135,7 @@ func.func @OptimizeParallelSubViewPatternCopies(
             outputs(%2 : memref<1x16x112x112xf16, {order = #NHWC}, @CMX_NN>)
              -> memref<1x16x112x112xf16, {order = #NHWC}, @CMX_NN>
     %5 = memref.alloc() : memref<1x16x112x112xf16, {order = #NHWC}, @CMX_NN>
-    %6 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %6 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -165,7 +165,7 @@ func.func @OptimizeParallelSubViewPatternCopies(
             outputs(%8 : memref<1x16x112x112xf16, {order = #NHWC}, @CMX_NN>)
              -> memref<1x16x112x112xf16, {order = #NHWC}, @CMX_NN>
     %11 = memref.alloc() : memref<1x16x112x112xf16, {order = #NHWC}, @CMX_NN>
-    %12 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %12 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
             kernel_strides = [1, 1],
@@ -240,7 +240,7 @@ func.func @NotOptimizeConstCopyForCompressedConv(%arg0: memref<1x16x224x224x!qEl
          -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
 
     %output_0 = memref.alloc() : memref<1x64x112x112x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>
-    %NCEOp_0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 375613 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %NCEOp_0 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 375613 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
           kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>,
           kernel_size = [7, 7],
           kernel_strides = [2, 2],
@@ -263,7 +263,7 @@ func.func @NotOptimizeConstCopyForCompressedConv(%arg0: memref<1x16x224x224x!qEl
       }
 
     %output_1 = memref.alloc() : memref<1x64x112x112x!qElemType3, {order = #NHWC}, [@CMX_NN, 0]>
-    %NCEOp_1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 375613 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %NCEOp_1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 375613 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
           kernel_padding = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>,
           kernel_size = [7, 7],
           kernel_strides = [2, 2],

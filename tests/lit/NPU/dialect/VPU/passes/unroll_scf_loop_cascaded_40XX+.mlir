@@ -103,8 +103,8 @@ module @DynamicPermute2DCascaded   {
 
 // CHECK:                    [[VAL_29:%.+]] = tensor.extract_slice [[VAL_0]][0, 0, [[BACKTRACKED_H_OFFSET]], [[BACKTRACKED_W_OFFSET]]] [1, 16, 470, 512] [1, 1, 1, 1] : tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NCHW]]}> to tensor<1x16x470x512xf16>
 // CHECK:                    [[VAL_30:%.+]] = func.call @merged_vpu_func_0([[VAL_29]]) : (tensor<1x16x470x512xf16>) -> tensor<1x16x470x512xf16, {order = #[[$NHWC]]}>
-// CHECK:                    [[VAL_31:%.+]] = tensor.cast [[VAL_30]] : tensor<1x16x470x512xf16, {order = #[[$NHWC]]}> to tensor<1x16x470x512xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
-// CHECK:                    [[VAL_32:%.+]] = tensor.insert_slice [[VAL_31]] into [[VAL_28]][0, 0, [[BACKTRACKED_H_OFFSET]], [[BACKTRACKED_W_OFFSET]]] [1, 16, 470, 512] [1, 1, 1, 1] : tensor<1x16x470x512xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}> into tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
+// CHECK:                    [[VAL_31:%.+]] = tensor.cast [[VAL_30]] : tensor<1x16x470x512xf16, {order = #[[$NHWC]]}> to tensor<1x16x470x512xf16, {bounds = #{{.+}}<[1, 16, 470, 512]> : tensor<4xsi64>, order = #[[$NHWC]]}>
+// CHECK:                    [[VAL_32:%.+]] = tensor.insert_slice [[VAL_31]] into [[VAL_28]][0, 0, [[BACKTRACKED_H_OFFSET]], [[BACKTRACKED_W_OFFSET]]] [1, 16, 470, 512] [1, 1, 1, 1] : tensor<1x16x470x512xf16, {bounds = #{{.+}}<[1, 16, 470, 512]> : tensor<4xsi64>, order = #[[$NHWC]]}> into tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
 // CHECK:                    scf.yield [[VAL_32]] : tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
 // CHECK:                  }
 // CHECK:                  scf.yield [[VAL_26]] : tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
@@ -131,8 +131,8 @@ module @DynamicPermute2DCascaded   {
 
 // CHECK:                    [[VAL_50:%.+]] = tensor.extract_slice [[VAL_0]][0, 0, [[BACKTRACKED_H_OFFSET]], [[BACKTRACKED_W_OFFSET]]] [1, 16, 235, 512] [1, 1, 1, 1] : tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NCHW]]}> to tensor<1x16x235x512xf16>
 // CHECK:                    [[VAL_51:%.+]] = func.call @merged_vpu_func_1([[VAL_50]]) : (tensor<1x16x235x512xf16>) -> tensor<1x16x235x512xf16, {order = #[[$NHWC]]}>
-// CHECK:                    [[VAL_52:%.+]] = tensor.cast [[VAL_51]] : tensor<1x16x235x512xf16, {order = #[[$NHWC]]}> to tensor<1x16x235x512xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
-// CHECK:                    [[VAL_53:%.+]] = tensor.insert_slice [[VAL_52]] into [[VAL_49]][0, 0, [[BACKTRACKED_H_OFFSET]], [[BACKTRACKED_W_OFFSET]]] [1, 16, 235, 512] [1, 1, 1, 1] : tensor<1x16x235x512xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}> into tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
+// CHECK:                    [[VAL_52:%.+]] = tensor.cast [[VAL_51]] : tensor<1x16x235x512xf16, {order = #[[$NHWC]]}> to tensor<1x16x235x512xf16, {bounds = #{{.+}}<[1, 16, 235, 512]> : tensor<4xsi64>, order = #[[$NHWC]]}>
+// CHECK:                    [[VAL_53:%.+]] = tensor.insert_slice [[VAL_52]] into [[VAL_49]][0, 0, [[BACKTRACKED_H_OFFSET]], [[BACKTRACKED_W_OFFSET]]] [1, 16, 235, 512] [1, 1, 1, 1] : tensor<1x16x235x512xf16, {bounds = #{{.+}}<[1, 16, 235, 512]> : tensor<4xsi64>, order = #[[$NHWC]]}> into tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
 // CHECK:                    scf.yield [[VAL_53]] : tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
 // CHECK:                  }
 // CHECK:                  scf.yield [[VAL_47]] : tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
@@ -158,8 +158,8 @@ module @DynamicPermute2DCascaded   {
 
 // CHECK:                    [[VAL_71:%.+]] = tensor.extract_slice [[VAL_0]][0, 0, [[BACKTRACKED_H_OFFSET]], [[BACKTRACKED_W_OFFSET]]] [1, 16, 94, 512] [1, 1, 1, 1] : tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NCHW]]}> to tensor<1x16x94x512xf16>
 // CHECK:                    [[VAL_72:%.+]] = func.call @merged_vpu_func_2([[VAL_71]]) : (tensor<1x16x94x512xf16>) -> tensor<1x16x94x512xf16, {order = #[[$NHWC]]}>
-// CHECK:                    [[VAL_73:%.+]] = tensor.cast [[VAL_72]] : tensor<1x16x94x512xf16, {order = #[[$NHWC]]}> to tensor<1x16x94x512xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
-// CHECK:                    [[VAL_74:%.+]] = tensor.insert_slice [[VAL_73]] into [[VAL_70]][0, 0, [[BACKTRACKED_H_OFFSET]], [[BACKTRACKED_W_OFFSET]]] [1, 16, 94, 512] [1, 1, 1, 1] : tensor<1x16x94x512xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}> into tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
+// CHECK:                    [[VAL_73:%.+]] = tensor.cast [[VAL_72]] : tensor<1x16x94x512xf16, {order = #[[$NHWC]]}> to tensor<1x16x94x512xf16, {bounds = #{{.+}}<[1, 16, 94, 512]> : tensor<4xsi64>, order = #[[$NHWC]]}>
+// CHECK:                    [[VAL_74:%.+]] = tensor.insert_slice [[VAL_73]] into [[VAL_70]][0, 0, [[BACKTRACKED_H_OFFSET]], [[BACKTRACKED_W_OFFSET]]] [1, 16, 94, 512] [1, 1, 1, 1] : tensor<1x16x94x512xf16, {bounds = #{{.+}}<[1, 16, 94, 512]> : tensor<4xsi64>, order = #[[$NHWC]]}> into tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
 // CHECK:                    scf.yield [[VAL_74]] : tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
 // CHECK:                  }
 // CHECK:                  scf.yield [[VAL_68]] : tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
@@ -168,8 +168,8 @@ module @DynamicPermute2DCascaded   {
 // CHECK:                  [[VAL_78:%.+]] = scf.for [[VAL_79:%.+]] = [[CST_0]] to [[DIM_W]] step [[CST_512]] iter_args([[VAL_80:%.+]] = [[VAL_77]]) -> (tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>) {
 // CHECK:                    [[VAL_81:%.+]] = tensor.extract_slice [[VAL_0]][0, 0, [[VAL_76]], [[VAL_79]]] [1, 16, 47, 512] [1, 1, 1, 1] : tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NCHW]]}> to tensor<1x16x47x512xf16>
 // CHECK:                    [[VAL_82:%.+]] = func.call @main_func0_static([[VAL_81]]) : (tensor<1x16x47x512xf16>) -> tensor<1x16x47x512xf16, {order = #[[$NHWC]]}>
-// CHECK:                    [[VAL_83:%.+]] = tensor.cast [[VAL_82]] : tensor<1x16x47x512xf16, {order = #[[$NHWC]]}> to tensor<1x16x47x512xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
-// CHECK:                    [[VAL_84:%.+]] = tensor.insert_slice [[VAL_83]] into [[VAL_80]][0, 0, [[VAL_76]], [[VAL_79]]] [1, 16, 47, 512] [1, 1, 1, 1] : tensor<1x16x47x512xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}> into tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
+// CHECK:                    [[VAL_83:%.+]] = tensor.cast [[VAL_82]] : tensor<1x16x47x512xf16, {order = #[[$NHWC]]}> to tensor<1x16x47x512xf16, {bounds = #{{.+}}<[1, 16, 47, 512]> : tensor<4xsi64>, order = #[[$NHWC]]}>
+// CHECK:                    [[VAL_84:%.+]] = tensor.insert_slice [[VAL_83]] into [[VAL_80]][0, 0, [[VAL_76]], [[VAL_79]]] [1, 16, 47, 512] [1, 1, 1, 1] : tensor<1x16x47x512xf16, {bounds = #{{.+}}<[1, 16, 47, 512]> : tensor<4xsi64>, order = #[[$NHWC]]}> into tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
 // CHECK:                    scf.yield [[VAL_84]] : tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>
 // CHECK:                  }
 // CHECK:                  scf.yield [[VAL_78]] : tensor<1x16x?x?xf16, {bounds = #{{.+}}<[1, 16, 1024, 1024]> : tensor<4xsi64>, order = #[[$NHWC]]}>

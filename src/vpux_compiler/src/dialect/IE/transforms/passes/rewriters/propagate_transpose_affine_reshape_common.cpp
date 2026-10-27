@@ -576,8 +576,8 @@ mlir::LogicalResult MoveTransposeAffineReshapeThroughAdd::matchAndRewrite(IE::Ad
         // Input is BlockArgument or not AffineReshape, build Reshape - Transpose on this as the new Add's input.
         auto constReshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), inputValue,
                                                                  getIntArrayAttr(rewriter.getContext(), reshapeInput));
-        return rewriter
-                .create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"), constReshape, nullptr, orderValueAttr)
+        return IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_in"), constReshape, nullptr,
+                                       orderValueAttr)
                 .getResult();
     };
 
@@ -587,27 +587,26 @@ mlir::LogicalResult MoveTransposeAffineReshapeThroughAdd::matchAndRewrite(IE::Ad
     auto outElemType = origOutputType.getElementType();
     auto newAddOutType = mlir::cast<vpux::NDTypeInterface>(mlir::RankedTensorType::get(inputShape, outElemType));
     newAddOutType = newAddOutType.changeDimsOrder(origOutputType.getDimsOrder());
-    auto outputVal =
-            rewriter.create<IE::AddOp>(takeOpLoc(origOp, "as_add"), newAddOutType, newInput1, newInput2,
+    auto outputVal = IE::AddOp::create(rewriter, takeOpLoc(origOp, "as_add"), newAddOutType, newInput1, newInput2,
                                        origOp.getScale(), origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(),
                                        origOp.getClampAttr(), origOp.getStaticScaleAttr(),
                                        origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr())
-                    .getOutput();
+                             .getOutput();
 
     auto postQuantizeCastOp = mlir::dyn_cast<IE::QuantizeCastOp>(*origOp.getOutput().user_begin());
     if (postQuantizeCastOp != nullptr && origOp->hasOneUse()) {
-        outputVal = rewriter.create<IE::QuantizeCastOp>(
-                                    takeOpLoc(origOp, "qcast"), outputVal,
-                                    mlir::cast<vpux::NDTypeInterface>(postQuantizeCastOp.getOutput().getType())
-                                            .getElementType())
-                            .getOutput();
+        outputVal =
+                IE::QuantizeCastOp::create(
+                        rewriter, takeOpLoc(origOp, "qcast"), outputVal,
+                        mlir::cast<vpux::NDTypeInterface>(postQuantizeCastOp.getOutput().getType()).getElementType())
+                        .getOutput();
     }
 
-    auto newTransposeOp = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_out"), outputVal,
-                                                           transposeOp.getOrder(), transposeOp.getOrderValueAttr());
-    auto newReshapeOp = rewriter.create<IE::AffineReshapeOp>(
-            takeOpLoc(origOp, "reshape_out"), newTransposeOp.getOutput(), affineReshapeOp.getDimMappingAttr(),
-            affineReshapeOp.getShapeValueAttr());
+    auto newTransposeOp = IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_out"), outputVal,
+                                                  transposeOp.getOrder(), transposeOp.getOrderValueAttr());
+    auto newReshapeOp =
+            IE::AffineReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_out"), newTransposeOp.getOutput(),
+                                        affineReshapeOp.getDimMappingAttr(), affineReshapeOp.getShapeValueAttr());
 
     if (postQuantizeCastOp == nullptr) {
         origOp.replaceAllUsesWith(newReshapeOp.getOutput());

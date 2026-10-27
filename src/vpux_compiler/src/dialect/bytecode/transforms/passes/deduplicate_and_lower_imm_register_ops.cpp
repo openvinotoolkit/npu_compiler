@@ -32,17 +32,17 @@ bool isDstUse(mlir::OpOperand& use) {
     return false;
 }
 
-// Create a (VGR + SetImmOp) pair before `insertBefore` and return the VGR result.
+// Create a (VVR + SetImmOp) pair before `insertBefore` and return the VVR result.
 mlir::Value materialize(mlir::Operation* insertBefore, mlir::IntegerAttr valueAttr, mlir::MLIRContext* ctx) {
     mlir::OpBuilder builder(ctx);
     builder.setInsertionPoint(insertBefore);
-    auto reg = builder.create<bytecode::VirtualGeneralRegisterOp>(insertBefore->getLoc());
-    builder.create<bytecode::SetImmOp>(insertBefore->getLoc(), reg.getResult(), valueAttr);
+    auto reg = bytecode::VirtualValueRegisterOp::create(builder, insertBefore->getLoc());
+    bytecode::SetImmOp::create(builder, insertBefore->getLoc(), reg.getResult(), valueAttr);
     return reg.getResult();
 }
 
-void lowerBlock(mlir::Block& block, const std::unordered_map<uint64_t, mlir::Value>& entryBlockVgrs,
-                std::unordered_map<uint64_t, mlir::Value>& blockVgrs, mlir::MLIRContext* ctx) {
+void lowerBlock(mlir::Block& block, const std::unordered_map<uint64_t, mlir::Value>& entryBlockVvrs,
+                std::unordered_map<uint64_t, mlir::Value>& blockVvrs, mlir::MLIRContext* ctx) {
     auto immRegisterOps = to_small_vector(block.getOps<bytecode::ImmRegisterOp>());
 
     for (auto op : immRegisterOps) {
@@ -58,30 +58,30 @@ void lowerBlock(mlir::Block& block, const std::unordered_map<uint64_t, mlir::Val
             }
         }
 
-        // Source uses: share one VGR per value, preferring entry-block VGRs.
+        // Source uses: share one VVR per value, preferring entry-block VVRs.
         if (!srcUses.empty()) {
-            mlir::Value sharedVgr;
-            auto entryIt = entryBlockVgrs.find(immValue);
-            if (entryIt != entryBlockVgrs.end()) {
-                sharedVgr = entryIt->second;
+            mlir::Value sharedVvr;
+            auto entryIt = entryBlockVvrs.find(immValue);
+            if (entryIt != entryBlockVvrs.end()) {
+                sharedVvr = entryIt->second;
             } else {
-                auto blockIt = blockVgrs.find(immValue);
-                if (blockIt != blockVgrs.end()) {
-                    sharedVgr = blockIt->second;
+                auto blockIt = blockVvrs.find(immValue);
+                if (blockIt != blockVvrs.end()) {
+                    sharedVvr = blockIt->second;
                 } else {
-                    sharedVgr = materialize(op, op.getValueAttr(), ctx);
-                    blockVgrs[immValue] = sharedVgr;
+                    sharedVvr = materialize(op, op.getValueAttr(), ctx);
+                    blockVvrs[immValue] = sharedVvr;
                 }
             }
             for (auto* use : srcUses) {
-                use->set(sharedVgr);
+                use->set(sharedVvr);
             }
         }
 
-        // Destination uses: each gets a fresh VGR to prevent corrupting the shared one.
+        // Destination uses: each gets a fresh VVR to prevent corrupting the shared one.
         for (auto* use : dstUses) {
-            mlir::Value freshVgr = materialize(op, op.getValueAttr(), ctx);
-            use->set(freshVgr);
+            mlir::Value freshVvr = materialize(op, op.getValueAttr(), ctx);
+            use->set(freshVvr);
         }
 
         op.erase();
@@ -93,15 +93,15 @@ void lowerInRegion(mlir::Region& body, mlir::MLIRContext* ctx) {
         return;
     }
 
-    // Pass 1: entry block — VGRs created here are reused in all successor blocks.
-    std::unordered_map<uint64_t, mlir::Value> entryBlockVgrs;
-    lowerBlock(body.front(), entryBlockVgrs, entryBlockVgrs, ctx);
+    // Pass 1: entry block — VVRs created here are reused in all successor blocks.
+    std::unordered_map<uint64_t, mlir::Value> entryBlockVvrs;
+    lowerBlock(body.front(), entryBlockVvrs, entryBlockVvrs, ctx);
 
-    // Pass 2: non-entry blocks — reuse entry-block VGRs for source uses where
+    // Pass 2: non-entry blocks — reuse entry-block VVRs for source uses where
     // available; otherwise deduplicate within the current block.
     for (auto& block : llvm::drop_begin(body)) {
-        std::unordered_map<uint64_t, mlir::Value> blockVgrs;
-        lowerBlock(block, entryBlockVgrs, blockVgrs, ctx);
+        std::unordered_map<uint64_t, mlir::Value> blockVvrs;
+        lowerBlock(block, entryBlockVvrs, blockVvrs, ctx);
     }
 }
 }  // namespace
@@ -111,14 +111,14 @@ namespace vpux {
 //
 // DeduplicateAndLowerImmRegisterOpsPass
 //
-// Lowers every bytecode.imm_register op to a (VirtualGeneralRegisterOp + SetImmOp) pair.
+// Lowers every bytecode.imm_register op to a (VirtualValueRegisterOp + SetImmOp) pair.
 //
 // For each use of an ImmRegisterOp result:
-//   - Source use (isDstOperand returns false): share one (VGR + SetImmOp) per constant
-//     value. Entry-block VGRs are reused in all successor blocks (entry dominates all).
-//     Within a non-entry block, same-value source uses share a block-scoped VGR.
-//   - Destination use (isDstOperand returns true): always create a fresh (VGR + SetImmOp)
-//     so the shared source VGR is never overwritten.
+//   - Source use (isDstOperand returns false): share one (VVR + SetImmOp) per constant
+//     value. Entry-block VVRs are reused in all successor blocks (entry dominates all).
+//     Within a non-entry block, same-value source uses share a block-scoped VVR.
+//   - Destination use (isDstOperand returns true): always create a fresh (VVR + SetImmOp)
+//     so the shared source VVR is never overwritten.
 //
 
 class DeduplicateAndLowerImmRegisterOpsPass final :

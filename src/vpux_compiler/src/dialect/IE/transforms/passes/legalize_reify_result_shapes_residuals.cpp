@@ -40,14 +40,14 @@ mlir::Value convertIndexToSI64(mlir::PatternRewriter& rewriter, mlir::Value inde
     auto ctx = rewriter.getContext();
     auto loc = index.getLoc();
 
-    auto indexCast = rewriter.create<mlir::arith::IndexCastOp>(appendLoc(loc, "to_index"), getInt64Type(ctx), index);
-    auto fromElements = rewriter.create<mlir::tensor::FromElementsOp>(appendLoc(loc, "to_i64"), indexCast.getResult());
+    auto indexCast = mlir::arith::IndexCastOp::create(rewriter, appendLoc(loc, "to_index"), getInt64Type(ctx), index);
+    auto fromElements = mlir::tensor::FromElementsOp::create(rewriter, appendLoc(loc, "to_i64"), indexCast.getResult());
 
     auto elemSize = getElemTypeSize(fromElements.getType());
     auto signedType = mlir::IntegerType::get(ctx, elemSize.count(), mlir::IntegerType::Signed);
     auto signedTensorType = mlir::RankedTensorType::get(getShape(fromElements), signedType);
 
-    return rewriter.create<mlir::tensor::BitcastOp>(appendLoc(loc, "to_si64"), signedTensorType, fromElements);
+    return mlir::tensor::BitcastOp::create(rewriter, appendLoc(loc, "to_si64"), signedTensorType, fromElements);
 }
 
 mlir::Value convertSignedIntValueToIndex(mlir::PatternRewriter& rewriter, mlir::Value tensorSI) {
@@ -58,15 +58,15 @@ mlir::Value convertSignedIntValueToIndex(mlir::PatternRewriter& rewriter, mlir::
     auto signlessType = mlir::IntegerType::get(ctx, elemSize.count(), mlir::IntegerType::Signless);
     auto signlessTensorType = mlir::RankedTensorType::get(getShape(tensorSI), signlessType);
 
-    auto bitCast = rewriter.create<mlir::tensor::BitcastOp>(appendLoc(loc, "to_si64"), signlessTensorType, tensorSI);
+    auto bitCast = mlir::tensor::BitcastOp::create(rewriter, appendLoc(loc, "to_si64"), signlessTensorType, tensorSI);
 
     auto extractOpLoc = appendLoc(loc, "to_i64");
-    auto zeroIndexOp = rewriter.create<mlir::arith::ConstantIndexOp>(extractOpLoc, 0);
-    auto toElementsOp = rewriter.create<mlir::tensor::ExtractOp>(extractOpLoc, signlessType, bitCast.getResult(),
-                                                                 mlir::ValueRange{zeroIndexOp.getResult()});
+    auto zeroIndexOp = mlir::arith::ConstantIndexOp::create(rewriter, extractOpLoc, 0);
+    auto toElementsOp = mlir::tensor::ExtractOp::create(rewriter, extractOpLoc, signlessType, bitCast.getResult(),
+                                                        mlir::ValueRange{zeroIndexOp.getResult()});
 
-    return rewriter.create<mlir::arith::IndexCastOp>(appendLoc(loc, "to_index"), rewriter.getIndexType(),
-                                                     toElementsOp.getResult());
+    return mlir::arith::IndexCastOp::create(rewriter, appendLoc(loc, "to_index"), rewriter.getIndexType(),
+                                            toElementsOp.getResult());
 }
 
 mlir::Value convertArithConstToConstantOp(mlir::PatternRewriter& rewriter, mlir::arith::ConstantOp constOp) {
@@ -87,16 +87,16 @@ using BuildOpFuncType = std::function<mlir::Operation*(const mlir::Location, con
 
 mlir::Operation* buildDivideOp(const mlir::Location loc, const mlir::Value lhs, const mlir::Value rhs,
                                mlir::PatternRewriter& rewriter) {
-    return rewriter.create<IE::DivideOp>(appendLoc(loc, "div"), lhs, rhs, IE::AutoBroadcastType::NONE_OR_EXPLICIT);
+    return IE::DivideOp::create(rewriter, appendLoc(loc, "div"), lhs, rhs, IE::AutoBroadcastType::NONE_OR_EXPLICIT);
 }
 
 mlir::Operation* buildAddOp(const mlir::Location loc, const mlir::Value lhs, const mlir::Value rhs,
                             mlir::PatternRewriter& rewriter) {
-    return rewriter.create<IE::AddOp>(appendLoc(loc, "add"), lhs, rhs, IE::AutoBroadcastType::NONE_OR_EXPLICIT,
-                                      /*post_op=*/nullptr,
-                                      /*clamp=*/nullptr,
-                                      /*outputPadding=*/nullptr,
-                                      /*inputPadding=*/nullptr);
+    return IE::AddOp::create(rewriter, appendLoc(loc, "add"), lhs, rhs, IE::AutoBroadcastType::NONE_OR_EXPLICIT,
+                             /*post_op=*/nullptr,
+                             /*clamp=*/nullptr,
+                             /*outputPadding=*/nullptr,
+                             /*inputPadding=*/nullptr);
 }
 
 //
@@ -131,13 +131,13 @@ mlir::LogicalResult TensorDimRewriter::matchAndRewrite(mlir::tensor::DimOp origO
     auto indexValue = parseIntAttr<int64_t>(constant.getValue());
 
     auto shapeOfLoc = appendLoc(loc, "shape_of_for_dim_{0}", indexValue);
-    auto shapeOfOp = rewriter.create<IE::ShapeOfOp>(shapeOfLoc, origOp.getSource(), getSInt64Type(ctx));
+    auto shapeOfOp = IE::ShapeOfOp::create(rewriter, shapeOfLoc, origOp.getSource(), getSInt64Type(ctx));
 
     auto offsets = getIntArrayAttr(ctx, SmallVector<int64_t>{indexValue});
     auto sizes = getIntArrayAttr(ctx, SmallVector<int64_t>{1});
 
     auto sliceLoc = appendLoc(loc, "dim_{0}", indexValue);
-    auto sliceOp = rewriter.create<IE::SliceOp>(sliceLoc, shapeOfOp, offsets, sizes);
+    auto sliceOp = IE::SliceOp::create(rewriter, sliceLoc, shapeOfOp, offsets, sizes);
 
     auto index = convertSignedIntValueToIndex(rewriter, sliceOp.getResult());
 

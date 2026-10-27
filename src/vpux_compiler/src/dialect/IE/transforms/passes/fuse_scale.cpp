@@ -6,7 +6,7 @@
 #include <mlir/IR/Value.h>
 #include <mlir/Support/LLVM.h>
 #include "vpux/compiler/core/attributes/dims_order.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
@@ -20,8 +20,9 @@
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
-#include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
@@ -124,7 +125,7 @@ Const::DeclareOp getRescaledConst(Const::DeclareOp constOp, mlir::PatternRewrite
                                   const float& constSplatValue) {
     auto constOutputType = mlir::cast<vpux::NDTypeInterface>(constOp.getOutput().getType());
     auto contentAttr = constOp.transformContentAttr().rescale(constSplatValue).get();
-    return rewriter.create<Const::DeclareOp>(constOp.getLoc(), constOutputType, std::move(contentAttr));
+    return Const::DeclareOp::create(rewriter, constOp.getLoc(), constOutputType, std::move(contentAttr));
 };
 
 IE::FakeQuantizeOp getRescaledFQ(IE::FakeQuantizeOp fqOp, Const::DeclareOp outputLowConstOp,
@@ -132,9 +133,9 @@ IE::FakeQuantizeOp getRescaledFQ(IE::FakeQuantizeOp fqOp, Const::DeclareOp outpu
                                  const float& constSplatValue) {
     auto newOutputLow = getRescaledConst(outputLowConstOp, rewriter, constSplatValue);
     auto newOutputHigh = getRescaledConst(outputHighConstOp, rewriter, constSplatValue);
-    return rewriter.create<IE::FakeQuantizeOp>(fqOp->getLoc(), fqOp.getType(), fqOp.getInput(), fqOp.getInputLow(),
-                                               fqOp.getInputHigh(), newOutputLow, newOutputHigh, fqOp.getLevelsAttr(),
-                                               fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
+    return IE::FakeQuantizeOp::create(rewriter, fqOp->getLoc(), fqOp.getType(), fqOp.getInput(), fqOp.getInputLow(),
+                                      fqOp.getInputHigh(), newOutputLow, newOutputHigh, fqOp.getLevelsAttr(),
+                                      fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
 };
 
 // E#122893: consider moving this rewriter into
@@ -214,7 +215,7 @@ mlir::LogicalResult InsertMultiplyBeforeConcat::matchAndRewrite(IE::MultiplyOp o
                                           .transform()
                                           .castElemType(actualElemType)
                                           .get();
-        return rewriter.create<Const::DeclareOp>(newConst.getLoc(), actualType, std::move(patchedContentAttr))
+        return Const::DeclareOp::create(rewriter, newConst.getLoc(), actualType, std::move(patchedContentAttr))
                 .getOutput();
     }();
 
@@ -231,15 +232,15 @@ mlir::LogicalResult InsertMultiplyBeforeConcat::matchAndRewrite(IE::MultiplyOp o
         // Note: since we use 1x1x1x1 constant, the broadcast type has to be
         // overwritten just in case
         const auto numpyBroadcast = IE::AutoBroadcastTypeAttr::get(origOp.getContext(), IE::AutoBroadcastType::NUMPY);
-        auto newMultiply = rewriter.create<IE::MultiplyOp>(
-                concatOp->getLoc(), concatInput, singleConstResult, numpyBroadcast, origOp.getPostOpAttr(),
-                origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+        auto newMultiply = IE::MultiplyOp::create(rewriter, concatOp->getLoc(), concatInput, singleConstResult,
+                                                  numpyBroadcast, origOp.getPostOpAttr(), origOp.getClampAttr(),
+                                                  origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
         newMultiplyResults.push_back(newMultiply.getOutput());
     }
 
     auto newConcatOp =
-            rewriter.create<IE::ConcatOp>(concatOp->getLoc(), concatOp.getOutput().getType(), newMultiplyResults,
-                                          concatOp.getPerAxisAttr(), concatOp.getStaticOffsetsAttr());
+            IE::ConcatOp::create(rewriter, concatOp->getLoc(), concatOp.getOutput().getType(), newMultiplyResults,
+                                 concatOp.getPerAxisAttr(), concatOp.getStaticOffsetsAttr());
 
     rewriter.replaceOp(concatOp, newConcatOp);
     rewriter.replaceAllUsesWith(origOp.getOutput(), newConcatOp.getOutput());
@@ -541,7 +542,7 @@ bool isOpEligibleForFusion(SupportedOp origOp) {
         return false;
     }
 
-    if (!VPU::MPEEngineConfig::useNewWeightTableFormat(origOp, /*isCompressConv*/ false)) {
+    if (!VPU::getVPUStrategyFactory(origOp->getContext())->useNewWeightTableFormat(origOp, /*isCompressConv*/ false)) {
         return false;
     }
 
@@ -747,13 +748,14 @@ mlir::LogicalResult FuseChannelWiseScales<SupportedOp>::matchAndRewrite(IE::Mult
     // If the target op already has a scale tensor, multiply the two scale tensors together so that
     // the combined scale replaces both.  This keeps scale-only data out of the target op output path.
     if (nceOp.getScale() != nullptr) {
-        scales = rewriter.create<IE::MultiplyOp>(appendLoc(origOp->getLoc(), "_ScaleMerge"), nceOp.getScale().getType(),
-                                                 nceOp.getScale(), scales, IE::AutoBroadcastType::NUMPY,
-                                                 /*post_op=*/nullptr,
-                                                 /*clamp=*/nullptr,
-                                                 /*output_channels=*/nullptr,
-                                                 /*input_channels=*/nullptr)
-                         .getOutput();
+        scales =
+                IE::MultiplyOp::create(rewriter, appendLoc(origOp->getLoc(), "_ScaleMerge"), nceOp.getScale().getType(),
+                                       nceOp.getScale(), scales, IE::AutoBroadcastType::NUMPY,
+                                       /*post_op=*/nullptr,
+                                       /*clamp=*/nullptr,
+                                       /*output_channels=*/nullptr,
+                                       /*input_channels=*/nullptr)
+                        .getOutput();
     }
 
     const auto nceOpOutType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
@@ -765,16 +767,16 @@ mlir::LogicalResult FuseChannelWiseScales<SupportedOp>::matchAndRewrite(IE::Mult
         newNceOp = IE::cloneConvolutionOp(rewriter, convOp, outType, convOp.getInput(), convOp.getFilter(),
                                           convOp.getBias(), scales, convOp.getZeroPoints());
     } else if (auto maxPoolOp = mlir::dyn_cast<IE::MaxPoolOp>(nceOp.getOperation())) {
-        newNceOp = rewriter.create<IE::MaxPoolOp>(
-                maxPoolOp->getLoc(), outType, maxPoolOp.getInput(), scales, maxPoolOp.getKernelSize(),
-                maxPoolOp.getStrides(), maxPoolOp.getPadsBegin(), maxPoolOp.getPadsEnd(), maxPoolOp.getRoundingType(),
-                maxPoolOp.getPostOpAttr(), maxPoolOp.getClampAttr(), maxPoolOp.getStaticScaleAttr(),
-                maxPoolOp.getOutputPaddingAttr(), maxPoolOp.getInputPaddingAttr());
+        newNceOp = IE::MaxPoolOp::create(rewriter, maxPoolOp->getLoc(), outType, maxPoolOp.getInput(), scales,
+                                         maxPoolOp.getKernelSize(), maxPoolOp.getStrides(), maxPoolOp.getPadsBegin(),
+                                         maxPoolOp.getPadsEnd(), maxPoolOp.getRoundingType(), maxPoolOp.getPostOpAttr(),
+                                         maxPoolOp.getClampAttr(), maxPoolOp.getStaticScaleAttr(),
+                                         maxPoolOp.getOutputPaddingAttr(), maxPoolOp.getInputPaddingAttr());
     } else if (auto addOp = mlir::dyn_cast<IE::AddOp>(nceOp.getOperation())) {
-        newNceOp = rewriter.create<IE::AddOp>(addOp.getLoc(), outType, addOp.getInput1(), addOp.getInput2(), scales,
-                                              addOp.getAutoBroadcastAttr(), addOp.getPostOpAttr(), addOp.getClampAttr(),
-                                              addOp.getStaticScaleAttr(), addOp.getOutputPaddingAttr(),
-                                              addOp.getInputPaddingAttr());
+        newNceOp = IE::AddOp::create(rewriter, addOp.getLoc(), outType, addOp.getInput1(), addOp.getInput2(), scales,
+                                     addOp.getAutoBroadcastAttr(), addOp.getPostOpAttr(), addOp.getClampAttr(),
+                                     addOp.getStaticScaleAttr(), addOp.getOutputPaddingAttr(),
+                                     addOp.getInputPaddingAttr());
     } else {
         VPUX_THROW("FuseChannelWiseScales: We don't support other op type now '{0}'", nceOp->getName());
     }
@@ -807,6 +809,8 @@ private:
 void FuseScalePass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
+    auto tileExec = config::getTileExecutor(func);
+    const auto numClusters = tileExec != nullptr ? tileExec.getCount() : 1;
 
     {
         mlir::RewritePatternSet patterns(&ctx);
@@ -832,7 +836,10 @@ void FuseScalePass::safeRunOnFunc() {
         patterns.add<FuseStaticScaleToPpeForwardWithScaleCheck<IE::ConvolutionOp>>(&ctx, _log);
         // Fuse a scalar scale that fans out to per-head IE.Convolutions (e.g. the SDPA
         // query scale Q / sqrt(dk)) into each convolution's static_scale.
-        patterns.add<FuseRoPEQueryScaleToSlicedConvs>(&ctx, _log);
+        // TODO(E#228545): disable it since perf regression on phi3.5 model when tile=1
+        if (numClusters > 1) {
+            patterns.add<FuseRoPEQueryScaleToSlicedConvs>(&ctx, _log);
+        }
         patterns.add<FuseChannelWiseScales<IE::ConvolutionOp>>(&ctx, _log);
         patterns.add<FuseChannelWiseScales<IE::MaxPoolOp>>(&ctx, _log);
         collectOpsAndApplyPatterns(func, std::move(patterns));

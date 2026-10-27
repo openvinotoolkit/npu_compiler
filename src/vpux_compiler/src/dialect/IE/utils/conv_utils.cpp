@@ -18,7 +18,7 @@ mlir::Value buildDwWeights(const mlir::Location& loc, int64_t OC, const mlir::Ty
         const auto contentAttr = Const::ContentAttr::get(baseAttr);
         auto quantWeightsConstAttr = contentAttr.transform().castElemType(quantizeType).get();
         const auto weightsType = mlir::cast<vpux::NDTypeInterface>(contentAttr.getType()).changeElemType(quantizeType);
-        return rewriter.create<Const::DeclareOp>(loc, weightsType, std::move(quantWeightsConstAttr));
+        return Const::DeclareOp::create(rewriter, loc, weightsType, std::move(quantWeightsConstAttr));
     }
     if (elementType.isF16()) {
         const auto baseType = mlir::RankedTensorType::get({OC, 1, 1, 1}, mlir::Float16Type::get(ctx));

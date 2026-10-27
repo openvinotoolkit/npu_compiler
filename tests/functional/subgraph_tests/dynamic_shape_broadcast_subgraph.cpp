@@ -124,6 +124,7 @@ TEST_P(BroadcastWithShapeOfNPUTest, NPU5010_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(BroadcastWithShapeOfNPUTest, NPU5020_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
@@ -288,6 +289,7 @@ TEST_P(BroadcastWithSelectNPUTest, NPU5010_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(BroadcastWithSelectNPUTest, NPU5020_HW_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

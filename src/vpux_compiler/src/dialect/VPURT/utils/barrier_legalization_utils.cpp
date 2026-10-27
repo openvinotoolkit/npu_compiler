@@ -62,8 +62,8 @@ bool VPURT::allQueuesReachedEnd(const TaskOpQueueIterator& frontTasks, const Tas
     return llvm::all_of(frontTasks, [&](const auto& entry) {
         const auto& type = entry.first;
         const auto& queueIter = entry.second;
-        VPUX_THROW_UNLESS(taskOpQueues.find(type) != taskOpQueues.end(), "Task op queue doesn't contain queue type {0}",
-                          config::stringifyExecutorKind(type.type));
+        VPUX_THROW_WHEN(taskOpQueues.find(type) == taskOpQueues.end(), "Task op queue doesn't contain queue type {0}",
+                        config::stringifyExecutorKind(type.type));
         return queueIter == taskOpQueues.at(type).end();
     });
 }
@@ -74,8 +74,8 @@ bool VPURT::allQueuesWaiting(const TaskOpQueueIterator& frontTasks, const TaskOp
     return !llvm::any_of(frontTasks, [&](const auto& entry) {
         const auto& type = entry.first;
         const auto& queueIter = entry.second;
-        VPUX_THROW_UNLESS(taskOpQueues.find(type) != taskOpQueues.end(), "Task op queue doesn't contain queue type {0}",
-                          config::stringifyExecutorKind(type.type));
+        VPUX_THROW_WHEN(taskOpQueues.find(type) == taskOpQueues.end(), "Task op queue doesn't contain queue type {0}",
+                        config::stringifyExecutorKind(type.type));
         return queueIter != taskOpQueues.at(type).end() && barrierInfo.getWaitBarriers(*queueIter).empty();
     });
 }
@@ -97,9 +97,9 @@ SmallVector<size_t> VPURT::findReadyOpsFromTaskOpQueues(TaskOpQueueIterator& fro
     SmallVector<size_t> readyOps;
     while (!allQueuesWaiting(frontTasks, taskOpQueues, barrierInfo)) {
         for (auto& entry : frontTasks) {
-            VPUX_THROW_UNLESS(taskOpQueues.find(entry.first) != taskOpQueues.end(),
-                              "Task op queue doesn't contain queue type {0}",
-                              config::stringifyExecutorKind(entry.first.type));
+            VPUX_THROW_WHEN(taskOpQueues.find(entry.first) == taskOpQueues.end(),
+                            "Task op queue doesn't contain queue type {0}",
+                            config::stringifyExecutorKind(entry.first.type));
             if (entry.second != taskOpQueues.at(entry.first).end() &&
                 barrierInfo.getWaitBarriers(*entry.second).empty()) {
                 readyOps.push_back(*entry.second);
@@ -391,7 +391,7 @@ bool VPURT::addFinalBarrierIfNotExists(mlir::func::FuncOp funcOp, Logger log) {
         mlir::OpBuilder builder(funcOp);
         builder.setInsertionPointAfter(insertPoint);
         auto loc = mlir::NameLoc::get(mlir::StringAttr::get(ctx, "finishing_barrier"));
-        auto barrierOp = builder.create<VPURT::DeclareVirtualBarrierOp>(loc, /*isFinalBarrier=*/true);
+        auto barrierOp = VPURT::DeclareVirtualBarrierOp::create(builder, loc, /*isFinalBarrier=*/true);
         auto finalBarrier = barrierOp.getBarrier();
 
         for (auto taskQueueFirstAndLastOp : firstAndLastOpsInQueue) {

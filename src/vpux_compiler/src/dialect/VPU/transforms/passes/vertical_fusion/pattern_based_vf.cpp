@@ -21,8 +21,9 @@ namespace {
 
 class PatternBasedVFPass final : public VPU::impl::PatternBasedVFBase<PatternBasedVFPass> {
 public:
-    explicit PatternBasedVFPass(const WorkloadManagementMode workloadManagementMode, Logger log)
-            : _workloadManagementMode(workloadManagementMode) {
+    explicit PatternBasedVFPass(const WorkloadManagementMode workloadManagementMode, VFMergeCostMode costMode,
+                                Logger log)
+            : _workloadManagementMode(workloadManagementMode), _costMode(costMode) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -32,6 +33,7 @@ private:
     void safeRunOnFunc() final;
 
     WorkloadManagementMode _workloadManagementMode = WorkloadManagementMode::PWLM_V0_1_PAGES;
+    VFMergeCostMode _costMode = VFMergeCostMode::PERFORMANCE;
 };
 
 mlir::LogicalResult PatternBasedVFPass::initialize(mlir::MLIRContext* ctx) {
@@ -40,6 +42,9 @@ mlir::LogicalResult PatternBasedVFPass::initialize(mlir::MLIRContext* ctx) {
     }
     if (workloadManagementModeOpt.hasValue()) {
         _workloadManagementMode = workloadManagementModeOpt.getValue();
+    }
+    if (vfMergeCostModeOpt.hasValue()) {
+        _costMode = vfMergeCostModeOpt.getValue();
     }
     return mlir::success();
 }
@@ -57,7 +62,7 @@ void PatternBasedVFPass::safeRunOnFunc() {
     auto& ctx = getContext();
     mlir::IRRewriter rewriter(&ctx);
 
-    VFPatternMatcher matcher(_log);
+    VFPatternMatcher matcher(_costMode, _log);
     _log.trace("PatternBasedVFPass invoking matcher, func={0}", funcName);
     const auto changed = matcher.applyPatterns(func, rewriter);
     _log.trace("PatternBasedVFPass done, changed={0}, func={1}", changed, funcName);
@@ -66,6 +71,6 @@ void PatternBasedVFPass::safeRunOnFunc() {
 }  // namespace
 
 std::unique_ptr<mlir::Pass> VPU::createPatternBasedVFPass(const WorkloadManagementMode workloadManagementMode,
-                                                          Logger log) {
-    return std::make_unique<PatternBasedVFPass>(workloadManagementMode, log);
+                                                          VFMergeCostMode costMode, Logger log) {
+    return std::make_unique<PatternBasedVFPass>(workloadManagementMode, costMode, log);
 }

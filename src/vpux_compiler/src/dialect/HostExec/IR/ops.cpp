@@ -42,7 +42,7 @@ mlir::Operation* vpux::HostExec::HostExecDialect::materializeConstant(mlir::OpBu
         return nullptr;
     }
 
-    return builder.create<Const::DeclareOp>(loc, type, mlir::cast<Const::ContentAttr>(value));
+    return Const::DeclareOp::create(builder, loc, type, mlir::cast<Const::ContentAttr>(value));
 }
 
 //

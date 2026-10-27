@@ -185,6 +185,7 @@ def IE_PReluOp :
             "PRelu",
             [
                 DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
+                  DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface, ["reifyResultShapes"]>,
                 IE_EltwiseOp
             ]
         > {

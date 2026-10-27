@@ -31,8 +31,8 @@ mlir::LogicalResult BarrierRewriter::matchAndRewrite(VPUASM::ConfigureBarrierOp 
     barrierConfigDescriptor.write<Fields::consumer_count_>(origOp.getConsumerCount());
     barrierConfigDescriptor.write<Fields::real_id_>(origOp.getId());
 
-    rewriter.create<NPUReg50XX::ConfigureBarrierOp>(origOp->getLoc(), origOp.getSymNameAttr(),
-                                                    std::move(barrierConfigDescriptor));
+    NPUReg50XX::ConfigureBarrierOp::create(rewriter, origOp->getLoc(), origOp.getSymNameAttr(),
+                                           std::move(barrierConfigDescriptor));
 
     rewriter.eraseOp(origOp);
 

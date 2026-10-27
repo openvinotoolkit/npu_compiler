@@ -120,15 +120,15 @@ mlir::LogicalResult ResolveScatterUpdateByTransposePass::TransposePlanning::matc
         const auto orderUpdatesAttr = mlir::AffineMapAttr::get(
                 mlir::AffineMap::getPermutationMap(transposeUpdatesOrder, origOp->getContext()));
 
-        auto transposedUpdates = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transposed_updates"),
-                                                                  origOp.getUpdates(), nullptr, orderUpdatesAttr);
-        auto transposedInput = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transposed_input"),
-                                                                origOp.getInput(), nullptr, orderInputAttr);
+        auto transposedUpdates = IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transposed_updates"),
+                                                         origOp.getUpdates(), nullptr, orderUpdatesAttr);
+        auto transposedInput = IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transposed_input"),
+                                                       origOp.getInput(), nullptr, orderInputAttr);
 
         const auto axisAttr = getIntAttr(rewriter.getContext(), 0);
-        auto outputOrig = rewriter.create<IE::ScatterUpdateOp>(takeOpLoc(origOp, "scatter_out"),
-                                                               transposedInput.getOutput(), origOp.getIndices(),
-                                                               transposedUpdates.getOutput(), nullptr, axisAttr);
+        auto outputOrig =
+                IE::ScatterUpdateOp::create(rewriter, takeOpLoc(origOp, "scatter_out"), transposedInput.getOutput(),
+                                            origOp.getIndices(), transposedUpdates.getOutput(), nullptr, axisAttr);
 
         auto transposeOutputOrder = SmallVector<unsigned int>(inputShape.size(), 0);
         unsigned int refVal2 = 1;

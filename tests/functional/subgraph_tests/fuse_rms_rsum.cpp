@@ -9,32 +9,57 @@
 #include "openvino/opsets/opset6_decl.hpp"
 #include "vpu_ov2_layer_test.hpp"
 
+#include <algorithm>
+
 #include "openvino/op/add.hpp"
 #include "openvino/op/convert.hpp"
 #include "openvino/op/divide.hpp"
+#include "openvino/op/equal.hpp"
 #include "openvino/op/fake_quantize.hpp"
+#include "openvino/op/maximum.hpp"
 #include "openvino/op/multiply.hpp"
 #include "openvino/op/power.hpp"
 #include "openvino/op/reduce_sum.hpp"
+#include "openvino/op/select.hpp"
 #include "openvino/op/sqrt.hpp"
 
 using namespace ov::test::utils;
 using namespace ov::test;
 namespace ov::test::subgraph {
 
+enum class TestEpsMode {
+    ADD,
+    MAX,
+    CONDITIONAL_EPS,
+};
+
 using RMSNormDecompositionParams = std::tuple<ov::Shape,          // input shapes
                                               ov::element::Type,  // input precision
-                                              bool>;              // fq stripped
+                                              bool,               // fq stripped
+                                              TestEpsMode>;       // eps mode
 
 class FuseRMSReduceSumTestCommon :
         public VpuOv2LayerTest,
         public testing::WithParamInterface<RMSNormDecompositionParams> {
 public:
     static std::string getTestCaseName(testing::TestParamInfo<RMSNormDecompositionParams> obj) {
+        const auto& [inputShapes, inputPrecision, fqStripped, epsMode] = obj.param;
         const std::string sep = "_";
         std::ostringstream result;
         result << "TestKind" << ov::test::utils::testKind(__FILE__) << sep;
+        result << "InputShape=" << inputShapes << sep;
         result << "TestIdx=" << obj.index << sep;
+        switch (epsMode) {
+        case TestEpsMode::ADD:
+            result << "epsMode=ADD" << sep;
+            break;
+        case TestEpsMode::MAX:
+            result << "epsMode=MAX" << sep;
+            break;
+        case TestEpsMode::CONDITIONAL_EPS:
+            result << "epsMode=CONDITIONAL_EPS" << sep;
+            break;
+        }
         return result.str();
     }
 
@@ -42,11 +67,26 @@ public:
         VpuOv2LayerTest::inputs.clear();
         const auto& funcInputs = VpuOv2LayerTest::function->inputs();
         ov::Tensor tensorData =
-                create_and_fill_tensor(funcInputs[0].get_element_type(), targetInputStaticShapes[0], 10, 1, 100);
+                create_and_fill_tensor(funcInputs[0].get_element_type(), targetInputStaticShapes[0], 1, 1, 10);
+        auto* data = tensorData.data<float>();
+        for (size_t i = 0; i < tensorData.get_size(); ++i) {
+            data[i] *= 1e-2f;
+        }
+
+        if (!targetInputStaticShapes.empty() && !targetInputStaticShapes[0].empty()) {
+            const size_t rowWidth = targetInputStaticShapes[0].back();
+            const size_t rowCount = rowWidth == 0 ? 0 : tensorData.get_size() / rowWidth;
+            const size_t zeroRows = rowCount > 1 ? rowCount / 2 : (rowCount == 1 ? 1 : 0);
+            const size_t zeroElems = std::min(tensorData.get_size(), zeroRows * rowWidth);
+            if (zeroElems > 0) {
+                std::fill_n(data, zeroElems, 0.0f);
+            }
+        }
+
         VpuOv2LayerTest::inputs.insert({funcInputs[0].get_node_shared_ptr(), tensorData});
     }
     void SetUp() override {
-        const auto& [inputShapes, inputPrecision, fqStripped] = GetParam();
+        const auto& [inputShapes, inputPrecision, fqStripped, epsMode] = GetParam();
         inType = outType = inputPrecision;
         init_input_shapes(ov::test::static_shapes_to_test_representation({inputShapes}));
         ov::ParameterVector params{std::make_shared<ov::op::v0::Parameter>(inputPrecision, inputDynamicShapes.front())};
@@ -59,8 +99,21 @@ public:
         auto sumAxes = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{1}, {-1});
         auto sum = std::make_shared<ov::op::v1::ReduceSum>(power, sumAxes, true);
 
+        // ReduceSum(x^2,axes) + eps handling
+        auto eps = ov::op::v0::Constant::create(inputPrecision, {}, {1e-5f});
+        std::shared_ptr<ov::Node> sumWithEps;
+        if (epsMode == TestEpsMode::ADD) {
+            sumWithEps = std::make_shared<ov::op::v1::Add>(sum, eps);
+        } else if (epsMode == TestEpsMode::MAX) {
+            sumWithEps = std::make_shared<ov::op::v1::Maximum>(sum, eps);
+        } else {
+            auto zeroConst = ov::op::v0::Constant::create(inputPrecision, {}, {0.f});
+            auto equalCond = std::make_shared<ov::op::v1::Equal>(sum, zeroConst);
+            sumWithEps = std::make_shared<ov::op::v1::Select>(equalCond, eps, sum);
+        }
+
         // Sqrt(ReduceSum(x^2,axes)+eps)
-        auto sqrt = std::make_shared<ov::op::v0::Sqrt>(sum);
+        auto sqrt = std::make_shared<ov::op::v0::Sqrt>(sumWithEps);
 
         // x/Sqrt(ReduceSum(x^2,axes))
         std::shared_ptr<ov::Node> div = std::make_shared<ov::op::v1::Divide>(params[0], sqrt);
@@ -145,6 +198,7 @@ TEST_P(FuseRMSReduceSumTestUnstripped, NPU5010_HW) {
     setBatchCompilerMode("unroll");
     run(Platform::NPU5010);
 }
+
 TEST_P(FuseRMSReduceSumTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     // TODO E####-159644
@@ -162,28 +216,33 @@ TEST_P(FuseRMSReduceSumTestUnstripped, NPU5020_HW) {
 
 namespace {
 const std::vector<ov::element::Type> inputPrecisions = {ov::element::f32};
+const std::vector<TestEpsMode> epsModeOptions = {
+        TestEpsMode::ADD,
+        TestEpsMode::MAX,
+        TestEpsMode::CONDITIONAL_EPS,
+};
 
 const std::vector<ov::Shape> inputShapesBasic = {{{1, 2, 6}}, {{2, 2, 6}}};
 const std::vector<ov::Shape> inputShapes = {{{1, 1, 512, 3072}}};
 
 INSTANTIATE_TEST_SUITE_P(precommit_FuseRMS_ReduceSum, FuseRMSReduceSumTestCommon,
                          ::testing::Combine(::testing::ValuesIn(inputShapesBasic), ::testing::ValuesIn(inputPrecisions),
-                                            ::testing::Values(true)),
+                                            ::testing::Values(true), ::testing::ValuesIn(epsModeOptions)),
                          FuseRMSReduceSumTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_FuseRMS_ReduceSum, FuseRMSReduceSumTestCommon,
                          ::testing::Combine(::testing::ValuesIn(inputShapes), ::testing::ValuesIn(inputPrecisions),
-                                            ::testing::Values(true)),
+                                            ::testing::Values(true), ::testing::ValuesIn(epsModeOptions)),
                          FuseRMSReduceSumTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(precommit_FuseRMS_ReduceSum, FuseRMSReduceSumTestUnstripped,
                          ::testing::Combine(::testing::ValuesIn(inputShapesBasic), ::testing::ValuesIn(inputPrecisions),
-                                            ::testing::Values(false)),
+                                            ::testing::Values(false), ::testing::ValuesIn(epsModeOptions)),
                          FuseRMSReduceSumTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_FuseRMS_ReduceSum, FuseRMSReduceSumTestUnstripped,
                          ::testing::Combine(::testing::ValuesIn(inputShapes), ::testing::ValuesIn(inputPrecisions),
-                                            ::testing::Values(false)),
+                                            ::testing::Values(false), ::testing::ValuesIn(epsModeOptions)),
                          FuseRMSReduceSumTestCommon::getTestCaseName);
 
 }  // namespace

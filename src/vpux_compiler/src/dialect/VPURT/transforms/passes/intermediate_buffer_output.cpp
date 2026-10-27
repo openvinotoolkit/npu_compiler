@@ -115,8 +115,8 @@ std::pair<mlir::Value, mlir::Value> getCopyOutWaitAndUpdateBars(mlir::OpBuilder&
         auto nextBar = mlir::cast<VPURT::ConfigureBarrierOp>(barrierInfo.getBarrierOpAtIndex(nextFreeBar));
         auto newWaitBarrierPid = nextBar.getId();
         auto newWaitBarrierWlmPageAttr = nextBar.getWlmPageAttr();
-        auto newWaitBarrierOp = builder.create<VPURT::ConfigureBarrierOp>(nextBar.getLoc(), newWaitBarrierPid, false,
-                                                                          false, newWaitBarrierWlmPageAttr);
+        auto newWaitBarrierOp = VPURT::ConfigureBarrierOp::create(builder, nextBar.getLoc(), newWaitBarrierPid, false,
+                                                                  false, newWaitBarrierWlmPageAttr);
         copyOutWaitBar = newWaitBarrierOp.getBarrier();
         usedBarriers.insert(newWaitBarrierOp);
         nextFreeBar++;
@@ -127,8 +127,8 @@ std::pair<mlir::Value, mlir::Value> getCopyOutWaitAndUpdateBars(mlir::OpBuilder&
     auto newUpdateBarrierPid = nextBar.getId();
     auto newUpdateBarrierWlmPageAttr = nextBar.getWlmPageAttr();
 
-    auto newUpdateBarrierOp = builder.create<VPURT::ConfigureBarrierOp>(nextBar.getLoc(), newUpdateBarrierPid, true,
-                                                                        false, newUpdateBarrierWlmPageAttr);
+    auto newUpdateBarrierOp = VPURT::ConfigureBarrierOp::create(builder, nextBar.getLoc(), newUpdateBarrierPid, true,
+                                                                false, newUpdateBarrierWlmPageAttr);
     auto copyOutUpdateBar = newUpdateBarrierOp.getBarrier();
     usedBarriers.insert(newUpdateBarrierOp);
 
@@ -146,8 +146,8 @@ mlir::Type insertNewCopyOut(mlir::Value targetBuffer, size_t insertionTaskIndex,
     auto newType =
             vpux::getMemRefType(bufferType.getShape(), bufferType.getElementType(), bufferType.getDimsOrder(), memAttr);
     // create new output buffer
-    auto newBuffer = builder.create<VPURT::DeclareBufferOp>(insertionTaskOp.getLoc(), newType,
-                                                            VPURT::BufferSection::NetworkOutput, 0);
+    auto newBuffer = VPURT::DeclareBufferOp::create(builder, insertionTaskOp.getLoc(), newType,
+                                                    VPURT::BufferSection::NetworkOutput, 0);
 
     // create new final DMA after insertion point
     builder.setInsertionPointAfter(insertionTaskOp);
@@ -192,7 +192,7 @@ void updateOutputType(mlir::Type newOutType, mlir::func::FuncOp funcOp) {
     // create new return with new type
     VPUX_THROW_WHEN(funcOutputs.size() != 1, "Unsupported number of outputs");
     funcOutputs[funcOutputs.size() - 1].setType(newOutType);
-    builder.create<mlir::func::ReturnOp>(functionResults[0].getLoc(), funcOutputs);
+    mlir::func::ReturnOp::create(builder, functionResults[0].getLoc(), funcOutputs);
     functionResults[0].erase();
 
     SmallVector<mlir::Type> newInputsTypes;
@@ -550,10 +550,10 @@ void IntermediateBufferOutputPass::safeRunOnFunc() {
             // Remove EnqueueDMA as it does not enqueue any task present in IR
             _log.nest().trace("Enqueue DMA needs to be replaced with SyncDma");
             builder.setInsertionPoint(enqueueDmaOp);
-            builder.create<VPUIP::SyncDMAOp>(enqueueDmaOp.getLoc(), enqueueDmaOp.getInput(),
-                                             enqueueDmaOp.getOutputBuff(), enqueueDmaOp.getPortAttr(),
-                                             enqueueDmaOp.getIsOutOfOrder(), enqueueDmaOp.getIsCritical(),
-                                             enqueueDmaOp.getDmaHwpIdAttr(), enqueueDmaOp.getProfilingMetadataAttr());
+            VPUIP::SyncDMAOp::create(builder, enqueueDmaOp.getLoc(), enqueueDmaOp.getInput(),
+                                     enqueueDmaOp.getOutputBuff(), enqueueDmaOp.getPortAttr(),
+                                     enqueueDmaOp.getIsOutOfOrder(), enqueueDmaOp.getIsCritical(),
+                                     enqueueDmaOp.getDmaHwpIdAttr(), enqueueDmaOp.getProfilingMetadataAttr());
 
             enqueueDmaOp.erase();
             return;
@@ -575,10 +575,9 @@ void IntermediateBufferOutputPass::safeRunOnFunc() {
             }
             _log.nest().trace("Fetch DMA needs to be replaced with SyncDma");
             builder.setInsertionPoint(fetchDmaOp);
-            builder.create<VPUIP::SyncDMAOp>(fetchDmaOp.getLoc(), fetchDmaOp.getInput(), fetchDmaOp.getOutputBuff(),
-                                             fetchDmaOp.getPortAttr(), fetchDmaOp.getIsOutOfOrder(),
-                                             fetchDmaOp.getIsCritical(), fetchDmaOp.getDmaHwpIdAttr(),
-                                             fetchDmaOp.getProfilingMetadataAttr());
+            VPUIP::SyncDMAOp::create(builder, fetchDmaOp.getLoc(), fetchDmaOp.getInput(), fetchDmaOp.getOutputBuff(),
+                                     fetchDmaOp.getPortAttr(), fetchDmaOp.getIsOutOfOrder(), fetchDmaOp.getIsCritical(),
+                                     fetchDmaOp.getDmaHwpIdAttr(), fetchDmaOp.getProfilingMetadataAttr());
 
             fetchDmaOp.erase();
         } else if (auto barProgDmaOp = mlir::dyn_cast<VPUIP::BarProgDMAOp>(taskOp.getInnerTaskOp())) {
@@ -599,10 +598,10 @@ void IntermediateBufferOutputPass::safeRunOnFunc() {
             }
             _log.nest().trace("Barrier Programming DMA needs to be replaced with SyncDma");
             builder.setInsertionPoint(barProgDmaOp);
-            builder.create<VPUIP::SyncDMAOp>(barProgDmaOp.getLoc(), barProgDmaOp.getInput(),
-                                             barProgDmaOp.getOutputBuff(), barProgDmaOp.getPortAttr(),
-                                             barProgDmaOp.getIsOutOfOrder(), barProgDmaOp.getIsCritical(),
-                                             barProgDmaOp.getDmaHwpIdAttr(), barProgDmaOp.getProfilingMetadataAttr());
+            VPUIP::SyncDMAOp::create(builder, barProgDmaOp.getLoc(), barProgDmaOp.getInput(),
+                                     barProgDmaOp.getOutputBuff(), barProgDmaOp.getPortAttr(),
+                                     barProgDmaOp.getIsOutOfOrder(), barProgDmaOp.getIsCritical(),
+                                     barProgDmaOp.getDmaHwpIdAttr(), barProgDmaOp.getProfilingMetadataAttr());
 
             barProgDmaOp.erase();
         }

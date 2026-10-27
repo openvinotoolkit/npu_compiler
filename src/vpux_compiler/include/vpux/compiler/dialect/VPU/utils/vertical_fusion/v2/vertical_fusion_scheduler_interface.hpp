@@ -6,7 +6,9 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_cost_strategy.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_scheduler_interface.hpp"
+#include "vpux/compiler/utils/options.hpp"
 #include "vpux/utils/core/dense_map.hpp"
 
 #include <llvm/ADT/Hashing.h>
@@ -15,47 +17,24 @@
 
 namespace vpux::VPU::VF::v2 {
 
-// Keeps the derived tiling state for one parent VF while evaluating prefetch and spill costs.
-// The cache avoids rebuilding VFConfig and tiling information for the same parent across tiles.
-struct ParentVFTilingInfo final {
-    ParentVFTilingInfo(mlir::Operation* parentOp, std::unique_ptr<VFCacheAnalysis> cache,
-                       std::unique_ptr<VFConfig> config, TilingOperationStorage::UPtr tilingInfo)
-            : parentOp(parentOp),
-              cache(std::move(cache)),
-              config(std::move(config)),
-              tilingInfo(std::move(tilingInfo)) {
-    }
-
-    mlir::Operation* parentOp = nullptr;
-    std::unique_ptr<VFCacheAnalysis> cache;
-    std::unique_ptr<VFConfig> config;
-    TilingOperationStorage::UPtr tilingInfo;
-};
-
-using ParentVFTilingInfoCache = SmallVector<ParentVFTilingInfo, 2>;
-
-llvm::hash_code getStrategyCostHash(mlir::Operation* operation, const VPUNNCostParameters& parameters);
+class VFScheduling;
 
 /*
   Base implementation of scheduling scenario features
 */
 class VFScheduling : public IVFScheduling<VFConfig> {
 public:
-    VFScheduling(Logger log, bool prefetching = true);
-    virtual ~VFScheduling() = default;
+    VFScheduling(Logger log, bool prefetching, std::shared_ptr<const VFCostStrategy> costStrategy);
+    virtual ~VFScheduling();
+
+    bool validate(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
+                  const Byte reservedMemory = Byte(0)) const override;
 
     /*
       Calculate VF cost
     */
     StrategyCost getCost(VFConfig& config, int64_t tilesNumber, const TilingOperationStorage::UPtr& tilingInfo,
                          const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const override;
-
-    /*
-      Get all time intervals
-    */
-    virtual SmallVector<TimelineInterval> getTimeIntervals(
-            VFConfig& config, int64_t tilesNumber, const TilingOperationStorage::UPtr& tilingInfo,
-            const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const;
 
     /*
       Dependent checks
@@ -67,7 +46,9 @@ public:
     */
     void addNext(std::shared_ptr<IVFScheduling<VFConfig>> check) override;
 
-protected:
+    virtual bool validateScenario(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
+                                  const Byte reservedMemory) const = 0;
+
     /*
       Calculate input sizes
     */
@@ -79,86 +60,11 @@ protected:
     Byte getOutputsSize(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo) const;
 
     /*
-      Get parameters for cost calculation
+      Calculate the peak size of intermediate outputs that are live together.
+      An operation may be excluded when its output is accounted for elsewhere.
     */
-    VPUNNCostParameters fillInCostParam(mlir::Operation* operation, const OutputTiling& tiling,
-                                        const SmallVector<TileInfo>& inputTiles) const;
-
-    /*
-      Get parameters for cost calculation
-    */
-    VPUNNCostParameters fillInCostParam(mlir::Operation* operation, const TilingOperationStorage::UPtr& opStorage,
-                                        size_t index) const;
-
-    StrategyCost getStrategyCost(VFConfig& config, mlir::Operation* operation,
-                                 const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                 const VPUNNCostParameters& parameters) const;
-
-    /*
-      Prefetch output spill
-    */
-    virtual void correctOutputSpillCost(StrategyCost& spillCost, VFConfig& config,
-                                        const DenseMap<mlir::Operation*, StrategyCost>& isolatedOperCost,
-                                        SmallVector<StrategyCost>& prefetchCostList, const int64_t index,
-                                        const int64_t tilesNumber) const;
-
-    /*
-      Prefetch input dmas
-    */
-    virtual void correctInputPrefetchingCost(StrategyCost& prefetchCost, mlir::Operation* operation, VFConfig& config,
-                                             const DenseMap<mlir::Operation*, StrategyCost>& isolatedOperCost,
-                                             SmallVector<StrategyCost>& prefetchCostList, const size_t index) const;
-
-    /*
-      Get cost of parent operation
-    */
-    StrategyCost getParentCost(mlir::Operation* operation,
-                               const DenseMap<mlir::Operation*, StrategyCost>& isolatedOperCost) const;
-
-    /*
-      calculate related timeline interval of common case
-    */
-    VFLinearContainer calculateLinearTimeIntervals(VFConfig& config, int64_t tilesNumber,
-                                                   const TilingOperationStorage::UPtr& tilingInfo,
-                                                   const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const;
-
-    /*
-      Get input DMA cost
-    */
-    StrategyCost getPrefetchingCost(mlir::Operation* operation, VFConfig& config,
-                                    const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                    const VPUNNCostParameters& parameters, const bool isInput,
-                                    const TilingOperationStorage::UPtr& tilingInfo, const int64_t index,
-                                    ParentVFTilingInfoCache& parentVFTilingInfoCache) const;
-
-    /*
-      Get output DMA cost
-    */
-    StrategyCost getOutputSpillCost(mlir::Operation* operation, VFConfig& config,
-                                    const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                    const VPUNNCostParameters& parameters, const bool isOutput) const;
-
-    /*
-      Get internal slice copy dma cost
-    */
-    StrategyCost getInternalSliceCopyCost(mlir::Operation* operation, VFConfig& config,
-                                          const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                          const VPUNNCostParameters& parameters, const bool isInput,
-                                          const TilingOperationStorage::UPtr& tilingInfo, const int64_t index) const;
-
-    /*
-      Reduce the cost with already prefetched dmas from previous tile
-    */
-    void reduceCostWithPrefetchedDMA(StrategyCost& parentCost, const StrategyCost& prefetchCost,
-                                     StrategyCost& accumulatedPrefetchCost) const;
-
-    /*
-      Calculate the DMA copy cost for a view-like op with different input and output sizes.
-      Returns std::nullopt if no DMA copy is needed.
-    */
-    std::optional<StrategyCost> getViewLikeOpDMACost(mlir::Operation* operation, VFConfig& config,
-                                                     const TilingOperationStorage::UPtr& tilingInfo, size_t tileIdx,
-                                                     const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const;
+    Byte getResidentOutputSize(VFConfig& config, const TilingOperationStorage::UPtr& tilingInfo,
+                               mlir::Operation* excludedOperation = nullptr) const;
 
     /*
       Check if the VF can support shared weights
@@ -178,8 +84,12 @@ protected:
                                  const TilingOperationStorage::UPtr& tilingInfo) const;
 
 protected:
+    friend class PerformanceVFCostStrategy;
+    friend class PowerVFCostStrategy;
+
     Logger _log;
     bool _prefetching = true;
+    std::shared_ptr<const VFCostStrategy> _costStrategy;
 
 private:
     std::deque<std::shared_ptr<IVFScheduling<VFConfig>>> _dependents;

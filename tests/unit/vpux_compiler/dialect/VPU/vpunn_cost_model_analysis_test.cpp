@@ -83,8 +83,8 @@ public:
                 VPU::LayerCostModelAnalysis::getOrCreateLayerCostModel(maybeLayerCostModelAnalysis, &getContext(), _log)
                         ->get_cost_model_shared();
 
-        VPUX_THROW_UNLESS(costModel != nullptr, "CostModelAnalysis must have a valid VPUCostModel instance");
-        VPUX_THROW_UNLESS(layerCostModel != nullptr, "LayerCostModelAnalysis must have a valid VPUCostModel instance");
+        VPUX_THROW_WHEN(costModel == nullptr, "CostModelAnalysis must have a valid VPUCostModel instance");
+        VPUX_THROW_WHEN(layerCostModel == nullptr, "LayerCostModelAnalysis must have a valid VPUCostModel instance");
         VPUX_THROW_UNLESS(costModel == layerCostModel,
                           "CostModelAnalysis and LayerCostModelAnalysis must share the same VPUCostModel instance");
     }

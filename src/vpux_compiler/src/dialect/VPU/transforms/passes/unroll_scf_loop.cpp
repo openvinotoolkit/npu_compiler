@@ -521,16 +521,16 @@ mlir::LogicalResult postProcessUnrolledLoop(mlir::UnrolledLoopInfo& result, mlir
     setInsertionPointAfterValues(builder, deps);
 
     // Calculate: where will the FIRST iteration end
-    auto firstIterationEnd = builder.create<mlir::arith::AddIOp>(loc, currentLow, currentStep);
+    auto firstIterationEnd = mlir::arith::AddIOp::create(builder, loc, currentLow, currentStep);
 
     // Check: do we have enough user-provided data to ensure the FIRST iteration can ends without out-of-bounds access
-    auto canExecute = builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::ule, firstIterationEnd,
-                                                          originalDimSize);
+    auto canExecute = mlir::arith::CmpIOp::create(builder, loc, mlir::arith::CmpIPredicate::ule, firstIterationEnd,
+                                                  originalDimSize);
     // Calculate base safe upper bound as min(mainLoop.upperBound, runtime-calculated originalDimSize)
-    auto baseSafeUpperbound = builder.create<mlir::arith::MinUIOp>(loc, mainLoop.getUpperBound(), originalDimSize);
+    auto baseSafeUpperbound = mlir::arith::MinUIOp::create(builder, loc, mainLoop.getUpperBound(), originalDimSize);
     // If there is not enough data to execute even a single iteration, set safe upperbound to current low. It prevents
     // any iterations at all. Execution proceeds to the next loop.
-    auto safeUpperbound = builder.create<mlir::arith::SelectOp>(loc, canExecute, baseSafeUpperbound, currentLow);
+    auto safeUpperbound = mlir::arith::SelectOp::create(builder, loc, canExecute, baseSafeUpperbound, currentLow);
 
     // Update bounds. Next for loop starts from the place where current main loop ends
     mainLoop.setUpperBound(safeUpperbound);
@@ -541,40 +541,39 @@ mlir::LogicalResult postProcessUnrolledLoop(mlir::UnrolledLoopInfo& result, mlir
     if (enableTailOverlapBacktracking) {
         log.trace("Applying tail-overlap backtracking for loop id {0} with factor {1} and margin {2}", loopId, factor,
                   tailOverlapBacktrackMarginPercent);
-        auto remainingTail = builder.create<mlir::arith::SubIOp>(loc, originalDimSize, safeUpperbound);
+        auto remainingTail = mlir::arith::SubIOp::create(builder, loc, originalDimSize, safeUpperbound);
 
         // Only backtrack when the current tile is larger than the remaining tail.
         // Otherwise `currentStep - remainingTail` would underflow on unsigned/index arithmetic
         auto stepExceedsTail =
-                builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::ugt, currentStep, remainingTail);
-        auto shortfall = builder.create<mlir::arith::SelectOp>(
-                loc, stepExceedsTail, builder.create<mlir::arith::SubIOp>(loc, currentStep, remainingTail),
-                builder.create<mlir::arith::ConstantIndexOp>(loc, 0));
+                mlir::arith::CmpIOp::create(builder, loc, mlir::arith::CmpIPredicate::ugt, currentStep, remainingTail);
+        auto shortfall = mlir::arith::SelectOp::create(
+                builder, loc, stepExceedsTail, mlir::arith::SubIOp::create(builder, loc, currentStep, remainingTail),
+                mlir::arith::ConstantIndexOp::create(builder, loc, 0));
 
-        auto percentValue = builder.create<mlir::arith::ConstantIndexOp>(loc, tailOverlapBacktrackMarginPercent);
-        auto hundredValue = builder.create<mlir::arith::ConstantIndexOp>(loc, 100);
-        auto scaledThreshold = builder.create<mlir::arith::MulIOp>(loc, currentStep, percentValue);
-        auto threshold = builder.create<mlir::arith::DivUIOp>(loc, scaledThreshold, hundredValue);
+        auto percentValue = mlir::arith::ConstantIndexOp::create(builder, loc, tailOverlapBacktrackMarginPercent);
+        auto hundredValue = mlir::arith::ConstantIndexOp::create(builder, loc, 100);
+        auto scaledThreshold = mlir::arith::MulIOp::create(builder, loc, currentStep, percentValue);
+        auto threshold = mlir::arith::DivUIOp::create(builder, loc, scaledThreshold, hundredValue);
 
         // `shortfall` and `threshold` are both absolute missing coverage values for the current tile.
         // The overlap path is taken only when there is a real uncovered tail and it is small enough
         // to reuse the current factor without generating a smaller kernel family
-        auto hasTail = builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::ne, remainingTail,
-                                                           builder.create<mlir::arith::ConstantIndexOp>(loc, 0));
-        auto shouldBacktrack = builder.create<mlir::arith::AndIOp>(
-                loc, hasTail,
-                builder.create<mlir::arith::AndIOp>(
-                        loc, stepExceedsTail,
-                        builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::ule, shortfall,
-                                                            threshold)));
+        auto hasTail = mlir::arith::CmpIOp::create(builder, loc, mlir::arith::CmpIPredicate::ne, remainingTail,
+                                                   mlir::arith::ConstantIndexOp::create(builder, loc, 0));
+        auto shouldBacktrack = mlir::arith::AndIOp::create(
+                builder, loc, hasTail,
+                mlir::arith::AndIOp::create(builder, loc, stepExceedsTail,
+                                            mlir::arith::CmpIOp::create(builder, loc, mlir::arith::CmpIPredicate::ule,
+                                                                        shortfall, threshold)));
 
         // Backtrack by the uncovered shortfall, but never before the current stage lower bound
-        auto maxBacktrack = builder.create<mlir::arith::SubIOp>(loc, safeUpperbound, currentLow);
-        auto backtrackAmount = builder.create<mlir::arith::MinUIOp>(loc, shortfall, maxBacktrack);
-        auto backtrackLowerBound = builder.create<mlir::arith::SubIOp>(loc, safeUpperbound, backtrackAmount);
+        auto maxBacktrack = mlir::arith::SubIOp::create(builder, loc, safeUpperbound, currentLow);
+        auto backtrackAmount = mlir::arith::MinUIOp::create(builder, loc, shortfall, maxBacktrack);
+        auto backtrackLowerBound = mlir::arith::SubIOp::create(builder, loc, safeUpperbound, backtrackAmount);
 
         epilogueLowerBound =
-                builder.create<mlir::arith::SelectOp>(loc, shouldBacktrack, backtrackLowerBound, safeUpperbound);
+                mlir::arith::SelectOp::create(builder, loc, shouldBacktrack, backtrackLowerBound, safeUpperbound);
 
         log.trace("Tail-overlap lowering emitted for loop id {0}, factor {1}", loopId, factor);
     } else {

@@ -22,3 +22,7 @@ uint32_t RegisterConfig::getNCEBarrierFifoAddr() const {
 uint32_t RegisterConfig::getNCEBarrierFifoDepth() const {
     return self->getNCEBarrierFifoDepth();
 }
+
+uint32_t RegisterConfig::getBarrierFifoDummyEntry() const {
+    return self->getBarrierFifoDummyEntry();
+}

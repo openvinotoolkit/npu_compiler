@@ -87,8 +87,8 @@ net.NetworkInfo
         %positive = const.Declare tensor<1x2x2x2xf32> = dense<100000.0> : tensor<1x2x2x2xf32>
         return %negative, %positive : tensor<1x2x2x2xf32>, tensor<1x2x2x2xf32>
 
-        // CHECK-DAG: [[NEG:%.+]] = const.Declare {{.+}} = dense<-6.550400e+04> : tensor<1x2x2x2xf16>, [#const.CastElemType<f16>]
-        // CHECK-DAG: [[POS:%.+]] = const.Declare {{.+}} = dense<6.550400e+04> : tensor<1x2x2x2xf16>, [#const.CastElemType<f16>]
+        // CHECK-DAG: [[NEG:%.+]] = const.Declare {{.+}} = dense<-1.000000e+05> : tensor<1x2x2x2xf32>, [#const.Clamp<-6.550400e+04 : f64, 6.550400e+04 : f64>, #const.CastElemType<f16>]
+        // CHECK-DAG: [[POS:%.+]] = const.Declare {{.+}} = dense<1.000000e+05> : tensor<1x2x2x2xf32>, [#const.Clamp<-6.550400e+04 : f64, 6.550400e+04 : f64>, #const.CastElemType<f16>]
         // CHECK: return [[NEG]], [[POS]]
     }
 }
@@ -500,12 +500,12 @@ module @FP32GreaterEqual {
     func.func @main(%input: tensor<1x2xf16>, %cst: tensor<1x1xf16>) -> tensor<1x2xf16> {
         %conver_input = IE.Convert(%input) {dstElemType = f32} : tensor<1x2xf16> -> tensor<1x2xf32>
         %conver_cst = IE.Convert(%cst) {dstElemType = f32} : tensor<1x1xf16> -> tensor<1x1xf32>
-        %0 = IE.GreaterEqual(%conver_input, %conver_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xf32>, tensor<1x1xf32> -> tensor<1x2xf32>
-        %out = IE.Convert(%0) {dstElemType = f16} : tensor<1x2xf32> -> tensor<1x2xf16>
+        %0 = IE.GreaterEqual(%conver_input, %conver_cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xf32>, tensor<1x1xf32> -> tensor<1x2xi8>
+        %out = IE.Convert(%0) {dstElemType = f16} : tensor<1x2xi8> -> tensor<1x2xf16>
         return %out : tensor<1x2xf16>
 
         // CHECK: [[OUT:%.+]] = IE.GreaterEqual([[INPUT]], [[CST]])
-        // CHECK-SAME: tensor<1x2xf16>, tensor<1x1xf16> -> tensor<1x2xf16>
+        // CHECK-SAME: tensor<1x2xf16>, tensor<1x1xf16> -> tensor<1x2xi8>
     }
 }
 
@@ -755,12 +755,12 @@ module @uniquifyAndOpInputsPrecision {
 
     // CHECK: func.func @main([[INPUT0:%.+]]: tensor<1x1x1xsi32>, [[INPUT1:%.+]]: tensor<1x1x1025xsi32>, [[INPUT2:%.+]]: tensor<1x1x1025xf16>) -> tensor<1x1x1025xf16> {
     func.func @main(%arg0: tensor<1x1x1xsi32>, %arg1: tensor<1x1x1025xsi32>, %arg2: tensor<1x1x1025xf16>) -> tensor<1x1x1025xf16> {
-        %0 = IE.GreaterEqual(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xsi32>, tensor<1x1x1025xsi32> -> tensor<1x1x1025xsi32>
-        %1 = IE.And(%arg2, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1025xf16>, tensor<1x1x1025xsi32> -> tensor<1x1x1025xf16>
+        %0 = IE.GreaterEqual(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xsi32>, tensor<1x1x1025xsi32> -> tensor<1x1x1025xi8>
+        %1 = IE.And(%arg2, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1025xf16>, tensor<1x1x1025xi8> -> tensor<1x1x1025xf16>
         return %1 : tensor<1x1x1025xf16>
 
-        // CHECK: [[VAR0:%.+]] = IE.GreaterEqual([[INPUT0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xsi32>, tensor<1x1x1025xsi32> -> tensor<1x1x1025xsi32>
-        // CHECK: [[VAR1:%.+]] = IE.Convert([[VAR0]]) {dstElemType = f16} : tensor<1x1x1025xsi32> -> tensor<1x1x1025xf16>
+        // CHECK: [[VAR0:%.+]] = IE.GreaterEqual([[INPUT0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xsi32>, tensor<1x1x1025xsi32> -> tensor<1x1x1025xi8>
+        // CHECK: [[VAR1:%.+]] = IE.Convert([[VAR0]]) {dstElemType = f16} : tensor<1x1x1025xi8> -> tensor<1x1x1025xf16>
         // CHECK: [[VAR2:%.+]] = IE.And([[INPUT2]], [[VAR1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1025xf16>, tensor<1x1x1025xf16> -> tensor<1x1x1025xf16>
         // CHECK: return [[VAR2]] : tensor<1x1x1025xf16>
     }
@@ -1080,6 +1080,60 @@ module @SkipClampForDivideConvertConvertSelect {
         %7 = IE.Select(%1, %6, %cst_select) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1xi8>, tensor<1x768xf32>, tensor<1x768xf32> -> tensor<1x768xf32>
         return %7 : tensor<1x768xf32>
         // CHECK-NOT:  IE.Clamp
+    }
+}
+
+// -----
+
+// IE.DynamicDequantize is always legal for this pass (kept at its authored precision), so bridging its
+// output to the now-f16 Divide materializes a trailing IE.Convert. The Divide's denominator therefore
+// becomes Convert -> DynamicDequantize(const) rather than DynamicDequantize(const) directly; no Clamp
+// should be inserted since the denominator is still constant-derived.
+//
+// CHECK-LABEL: @SkipClampForDivideConvertDynamicDequantizeConst
+module @SkipClampForDivideConvertDynamicDequantizeConst {
+    net.NetworkInfo
+        entryPoint : @main
+        inputsInfo : {
+            DataInfo "input" : tensor<1x1x1xf32>
+        }
+        outputsInfo : {
+            DataInfo "output" : tensor<1x1x1xf32>
+        }
+
+    func.func @main(%arg0 : tensor<1x1x1xf32>) -> tensor<1x1x1xf32> {
+        %weights = const.Declare tensor<1x1x1xsi8> = dense<3> : tensor<1x1x1xsi8>
+        %scale = const.Declare tensor<1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1xf32>
+        %0 = IE.DynamicDequantize(%weights, %scale) {dstElemType = f32} : tensor<1x1x1xsi8>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+        %1 = IE.Divide(%arg0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+        return %1 : tensor<1x1x1xf32>
+        // CHECK-NOT:  IE.Clamp
+    }
+}
+
+// -----
+
+// Same Convert -> DynamicDequantize chain as above, but the DynamicDequantize input is not a compile-time
+// constant, so the skip must not apply and the Clamp is still inserted.
+//
+// CHECK-LABEL: @NotSkipClampForDivideConvertDynamicDequantizeNonConst
+module @NotSkipClampForDivideConvertDynamicDequantizeNonConst {
+    net.NetworkInfo
+        entryPoint : @main
+        inputsInfo : {
+            DataInfo "input" : tensor<1x1x1xf32>
+            DataInfo "weights" : tensor<1x1x1xsi8>
+        }
+        outputsInfo : {
+            DataInfo "output" : tensor<1x1x1xf32>
+        }
+
+    func.func @main(%arg0 : tensor<1x1x1xf32>, %arg1 : tensor<1x1x1xsi8>) -> tensor<1x1x1xf32> {
+        %scale = const.Declare tensor<1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1xf32>
+        %0 = IE.DynamicDequantize(%arg1, %scale) {dstElemType = f32} : tensor<1x1x1xsi8>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+        %1 = IE.Divide(%arg0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1xf32>, tensor<1x1x1xf32> -> tensor<1x1x1xf32>
+        return %1 : tensor<1x1x1xf32>
+        // CHECK:  IE.Clamp
     }
 }
 
@@ -1751,4 +1805,181 @@ module @ScalesSharedAcrossCallsNotPreserved_ReverseCallOrder {
         // CHECK:       [[SCALED:%.+]] = call @consumeScales([[SCALES]]) : (tensor<2xf16>) -> tensor<2xf16>
         // CHECK:       return [[INTERP]], [[SCALED]]
     }
+}
+
+// -----
+
+// CHECK-LABEL: @SelectBothClampedWithSplatAndNonSplatInput
+// When one SelectOp data input is a splat -FLT_MAX and the other is a non-splat
+// {0, -FLT_MAX}, both operands must be clamped to -HALF_MAX.
+// Both are handled lazily via #const.Clamp<f16_lowest, f16_max>.
+module @SelectBothClampedWithSplatAndNonSplatInput {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        // CHECK: DataInfo "cond" : tensor<1x2xi8>
+        DataInfo "cond" : tensor<1x2xi8>
+    }
+    outputsInfo : {
+        // CHECK: DataInfo "out" : tensor<1x2xf32>
+        DataInfo "out" : tensor<1x2xf32>
+    }
+
+// CHECK: @main([[ARG0:[^:]+]]: tensor<1x2xf16>) -> tensor<1x2xf16>
+func.func @main(%arg0: tensor<1x2xi8>) -> tensor<1x2xf32> {
+    // Splat -FLT_MAX: all elements masked.
+    %splat = const.Declare tensor<1x2xf32> = dense<-3.4028235E+38> : tensor<1x2xf32>
+    // Non-splat {0, -FLT_MAX}: mixed mask; 0 stays, -FLT_MAX must be clamped.
+    %mixed = const.Declare tensor<1x2xf32> = dense<[[0.0, -3.4028235E+38]]> : tensor<1x2xf32>
+    %0 = IE.Select(%arg0, %splat, %mixed) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xi8>, tensor<1x2xf32>, tensor<1x2xf32> -> tensor<1x2xf32>
+    return %0 : tensor<1x2xf32>
+
+    // CHECK-DAG: [[SPLAT:%.+]] = const.Declare tensor<1x2xf16> = dense<-3.40282347E+38> : tensor<1x2xf32>, [#const.Clamp<-6.550400e+04 : f64, 6.550400e+04 : f64>, #const.CastElemType<f16>]
+    // CHECK-DAG: [[MIXED:%.+]] = const.Declare tensor<1x2xf16> = dense<{{\[\[}}0.000000e+00, -3.40282347E+38]]> : tensor<1x2xf32>, [#const.Clamp<-6.550400e+04 : f64, 6.550400e+04 : f64>, #const.CastElemType<f16>]
+    // CHECK:     [[SELECT:%.+]] = IE.Select([[ARG0]], [[SPLAT]], [[MIXED]])
+    // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK-SAME:      tensor<1x2xf16>, tensor<1x2xf16>, tensor<1x2xf16> -> tensor<1x2xf16>
+    // CHECK:     return [[SELECT]] : tensor<1x2xf16>
+}
+
+}
+
+// -----
+
+// CHECK-LABEL: @SelectBothClampedWithNonSplatAndSplatInput
+module @SelectBothClampedWithNonSplatAndSplatInput {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        // CHECK: DataInfo "cond" : tensor<1x2xi8>
+        DataInfo "cond" : tensor<1x2xi8>
+    }
+    outputsInfo : {
+        // CHECK: DataInfo "out" : tensor<1x2xf32>
+        DataInfo "out" : tensor<1x2xf32>
+    }
+
+// CHECK: @main([[ARG0:[^:]+]]: tensor<1x2xf16>) -> tensor<1x2xf16>
+func.func @main(%arg0: tensor<1x2xi8>) -> tensor<1x2xf32> {
+    // Splat -FLT_MAX as data2.
+    %splat = const.Declare tensor<1x2xf32> = dense<-3.4028235E+38> : tensor<1x2xf32>
+    // Non-splat {0, -FLT_MAX} as data1.
+    %mixed = const.Declare tensor<1x2xf32> = dense<[[0.0, -3.4028235E+38]]> : tensor<1x2xf32>
+    %0 = IE.Select(%arg0, %mixed, %splat) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xi8>, tensor<1x2xf32>, tensor<1x2xf32> -> tensor<1x2xf32>
+    return %0 : tensor<1x2xf32>
+
+    // CHECK-DAG: [[MIXED:%.+]] = const.Declare tensor<1x2xf16> = dense<{{\[\[}}0.000000e+00, -3.40282347E+38]]> : tensor<1x2xf32>, [#const.Clamp<-6.550400e+04 : f64, 6.550400e+04 : f64>, #const.CastElemType<f16>]
+    // CHECK-DAG: [[SPLAT:%.+]] = const.Declare tensor<1x2xf16> = dense<-3.40282347E+38> : tensor<1x2xf32>, [#const.Clamp<-6.550400e+04 : f64, 6.550400e+04 : f64>, #const.CastElemType<f16>]
+    // CHECK:     [[SELECT:%.+]] = IE.Select([[ARG0]], [[MIXED]], [[SPLAT]])
+    // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK-SAME:      tensor<1x2xf16>, tensor<1x2xf16>, tensor<1x2xf16> -> tensor<1x2xf16>
+    // CHECK:     return [[SELECT]] : tensor<1x2xf16>
+}
+
+}
+
+// -----
+
+// CHECK-LABEL: @SelectClampedWithOverflowInputData2
+module @SelectClampedWithOverflowInputData2 {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        // CHECK: DataInfo "cond" : tensor<1x2xi8>
+        DataInfo "cond" : tensor<1x2xi8>
+    }
+    outputsInfo : {
+        // CHECK: DataInfo "out" : tensor<1x2xf32>
+        DataInfo "out" : tensor<1x2xf32>
+    }
+
+// CHECK: @main([[ARG0:[^:]+]]: tensor<1x2xf16>) -> tensor<1x2xf16>
+func.func @main(%arg0: tensor<1x2xi8>) -> tensor<1x2xf32> {
+    // In-range splat as data1: no clamping needed.
+    %no_overflow = const.Declare tensor<1x2xf32> = dense<1.0> : tensor<1x2xf32>
+    // Overflow splat as data2: -FLT_MAX overflows to -inf in f16, must be clamped.
+    %overflow = const.Declare tensor<1x2xf32> = dense<-3.4028235E+38> : tensor<1x2xf32>
+    %0 = IE.Select(%arg0, %no_overflow, %overflow) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xi8>, tensor<1x2xf32>, tensor<1x2xf32> -> tensor<1x2xf32>
+    return %0 : tensor<1x2xf32>
+
+    // CHECK-DAG: [[NO_OVF:%.+]] = const.Declare tensor<1x2xf16> = dense<1.000000e+00> : tensor<1x2xf32>, [#const.CastElemType<f16>]
+    // CHECK-DAG: [[OVF:%.+]]    = const.Declare tensor<1x2xf16> = dense<-3.40282347E+38> : tensor<1x2xf32>, [#const.Clamp<-6.550400e+04 : f64, 6.550400e+04 : f64>, #const.CastElemType<f16>]
+    // CHECK:     [[SELECT:%.+]] = IE.Select([[ARG0]], [[NO_OVF]], [[OVF]])
+    // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK-SAME:      tensor<1x2xf16>, tensor<1x2xf16>, tensor<1x2xf16> -> tensor<1x2xf16>
+    // CHECK:     return [[SELECT]] : tensor<1x2xf16>
+}
+
+}
+
+// -----
+
+// CHECK-LABEL: @SelectClampedWithOverflowInputData1
+module @SelectClampedWithOverflowInputData1 {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        // CHECK: DataInfo "cond" : tensor<1x2xi8>
+        DataInfo "cond" : tensor<1x2xi8>
+    }
+    outputsInfo : {
+        // CHECK: DataInfo "out" : tensor<1x2xf32>
+        DataInfo "out" : tensor<1x2xf32>
+    }
+
+// CHECK: @main([[ARG0:[^:]+]]: tensor<1x2xf16>) -> tensor<1x2xf16>
+func.func @main(%arg0: tensor<1x2xi8>) -> tensor<1x2xf32> {
+    // Overflow splat as data1: -FLT_MAX overflows to -inf in f16, must be clamped.
+    %overflow = const.Declare tensor<1x2xf32> = dense<-3.4028235E+38> : tensor<1x2xf32>
+    // In-range splat as data2: no clamping needed.
+    %no_overflow = const.Declare tensor<1x2xf32> = dense<1.0> : tensor<1x2xf32>
+    %0 = IE.Select(%arg0, %overflow, %no_overflow) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xi8>, tensor<1x2xf32>, tensor<1x2xf32> -> tensor<1x2xf32>
+    return %0 : tensor<1x2xf32>
+
+    // CHECK-DAG: [[NO_OVF:%.+]] = const.Declare tensor<1x2xf16> = dense<1.000000e+00> : tensor<1x2xf32>, [#const.CastElemType<f16>]
+    // CHECK-DAG: [[OVF:%.+]]    = const.Declare tensor<1x2xf16> = dense<-3.40282347E+38> : tensor<1x2xf32>, [#const.Clamp<-6.550400e+04 : f64, 6.550400e+04 : f64>, #const.CastElemType<f16>]
+    // CHECK:     [[SELECT:%.+]] = IE.Select([[ARG0]], [[OVF]], [[NO_OVF]])
+    // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK-SAME:      tensor<1x2xf16>, tensor<1x2xf16>, tensor<1x2xf16> -> tensor<1x2xf16>
+    // CHECK:     return [[SELECT]] : tensor<1x2xf16>
+}
+
+}
+
+// -----
+
+// CHECK-LABEL: @SelectNotClampedWithOverflowNonSplatCondition
+module @SelectNotClampedWithOverflowNonSplatCondition {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo : {
+        // CHECK: DataInfo "data1" : tensor<1x2xf32>
+        DataInfo "data1" : tensor<1x2xf32>
+        // CHECK: DataInfo "data2" : tensor<1x2xf32>
+        DataInfo "data2" : tensor<1x2xf32>
+    }
+    outputsInfo : {
+        // CHECK: DataInfo "out" : tensor<1x2xf32>
+        DataInfo "out" : tensor<1x2xf32>
+    }
+
+// CHECK: @main([[ARG0:[^:]+]]: tensor<1x2xf16>, [[ARG1:[^:]+]]: tensor<1x2xf16>) -> tensor<1x2xf16>
+func.func @main(%arg0: tensor<1x2xf32>, %arg1: tensor<1x2xf32>) -> tensor<1x2xf32> {
+    // Non-splat condition with an overflow element: {0, -FLT_MAX}.
+    %cond = const.Declare tensor<1x2xf32> = dense<[[0.0, -3.4028235E+38]]> : tensor<1x2xf32>
+    %0 = IE.Select(%cond, %arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x2xf32>, tensor<1x2xf32>, tensor<1x2xf32> -> tensor<1x2xf32>
+    return %0 : tensor<1x2xf32>
+
+    // CHECK-DAG: [[COND:%.+]] = const.Declare tensor<1x2xf16> = dense<{{\[\[}}0.000000e+00, -3.40282347E+38]]> : tensor<1x2xf32>, [#const.CastElemType<f16>]
+    // CHECK:     [[SELECT:%.+]] = IE.Select([[COND]], [[ARG0]], [[ARG1]])
+    // CHECK-SAME:      {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK-SAME:      tensor<1x2xf16>, tensor<1x2xf16>, tensor<1x2xf16> -> tensor<1x2xf16>
+    // CHECK:     return [[SELECT]] : tensor<1x2xf16>
+}
+
 }

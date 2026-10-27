@@ -49,7 +49,7 @@ mlir::LogicalResult DequantizeConverter::matchAndRewrite(IE::DequantizeOp origOp
     auto origElemType = origOp.getDstElemType();
     auto cvtElemType = mlir::Float16Type::get(ctx);
 
-    auto newDequantizeOp = rewriter.create<IE::DequantizeOp>(origOp->getLoc(), origOp.getInput(), cvtElemType);
+    auto newDequantizeOp = IE::DequantizeOp::create(rewriter, origOp->getLoc(), origOp.getInput(), cvtElemType);
     const auto outputCvtToOrig = rewriter.createOrFold<IE::ConvertOp>(
             takeOpLoc(origOp, "outCvt"), newDequantizeOp.getOutput(), mlir::TypeAttr::get(origElemType));
     rewriter.replaceOp(origOp, outputCvtToOrig);
@@ -82,11 +82,16 @@ mlir::LogicalResult DynamicDequantizeConverter::matchAndRewrite(IE::DynamicDequa
 
     auto scaleCvt = rewriter.createOrFold<IE::ConvertOp>(takeOpLoc(origOp, "inCvt"), origOp.getScale(),
                                                          mlir::TypeAttr::get(cvtElemType));
-    auto newDynamicDequantizeOp = rewriter.create<IE::DynamicDequantizeOp>(origOp->getLoc(), origOp.getInput(),
-                                                                           scaleCvt, origOp.getZp(), cvtElemType);
+    auto newDynamicDequantizeOp = IE::DynamicDequantizeOp::create(rewriter, origOp->getLoc(), origOp.getInput(),
+                                                                  scaleCvt, origOp.getZp(), cvtElemType);
     if (origOp->hasAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR)) {
         newDynamicDequantizeOp->setAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR,
                                         origOp->getAttr(IE::SYNTHETIC_DYN_DEQUANT_ATTR));
+    }
+
+    if (origOp->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+        newDynamicDequantizeOp->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR,
+                                        origOp->getAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR));
     }
 
     const auto outputCvtToOrig = rewriter.createOrFold<IE::ConvertOp>(
@@ -152,8 +157,8 @@ mlir::LogicalResult FlashSDPAConverter::matchAndRewrite(IE::FlashSDPAOp origOp, 
 
     auto elemTypeFP32Attr = mlir::TypeAttr::get(mlir::Float32Type::get(ctx));
     auto inputRunningSum = origOp.getInputRunningSum();
-    auto inputRunningSumF32 = rewriter.create<IE::ConvertOp>(appendLoc(inputRunningSum.getLoc(), "convert_to_f32"),
-                                                             inputRunningSum, elemTypeFP32Attr);
+    auto inputRunningSumF32 = IE::ConvertOp::create(rewriter, appendLoc(inputRunningSum.getLoc(), "convert_to_f32"),
+                                                    inputRunningSum, elemTypeFP32Attr);
 
     mlir::IRMapping mapper;
     mapper.map(inputRunningSum, inputRunningSumF32);
@@ -164,7 +169,7 @@ mlir::LogicalResult FlashSDPAConverter::matchAndRewrite(IE::FlashSDPAOp origOp, 
     auto newFlashSdpaOp = mlir::cast<IE::FlashSDPAOp>(newOp);
     auto resultRunningSum = newFlashSdpaOp.getResultRunningSum();
     auto resultRunningSumF16 =
-            rewriter.create<IE::ConvertOp>(takeOpLoc(origOp, "convert_to_f16"), resultRunningSum, elemTypeFP16Attr);
+            IE::ConvertOp::create(rewriter, takeOpLoc(origOp, "convert_to_f16"), resultRunningSum, elemTypeFP16Attr);
 
     rewriter.replaceOp(origOp, mlir::ValueRange{newFlashSdpaOp.getResultRunningOutput(),
                                                 newFlashSdpaOp.getResultRunningMax(), resultRunningSumF16});

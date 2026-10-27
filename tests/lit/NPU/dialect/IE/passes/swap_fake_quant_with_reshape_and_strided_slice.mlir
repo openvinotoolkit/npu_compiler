@@ -129,3 +129,44 @@ func.func @SwapPerChannelFakeQuantWithReshape(%arg0: tensor<1x128x768x1xf16> , %
 
     // CHECK:      return [[CONVOLUTION]] : tensor<1x768x1x1xf16>
 }
+
+// -----
+
+// The FakeQuantize is per-channel on axis 1 (not the last axis) and the following Reshape merges that axis into the
+// channel dimension (1x2x64x400 -> 1x128x20x20). The quantization arrays cannot be remapped by broadcasting, so the
+// swap must not happen. See the YOLO attention block regression (E-#... / reproducer.xml).
+
+// CHECK-LABEL: @DoNotSwapPerChannelFakeQuantOnNonLastAxis
+// CHECK-SAME:      [[ARG_0:%[^:]+]]: tensor<1x2x64x400xf16>
+// CHECK-SAME:      [[ARG_1:%[^:]+]]: tensor<128x128x3x3xf16>
+func.func @DoNotSwapPerChannelFakeQuantOnNonLastAxis(
+        %arg0: tensor<1x2x64x400xf16>,
+        %weights: tensor<128x128x3x3xf16>)
+            -> tensor<1x128x20x20xf16> {
+    %in_low = const.Declare tensor<1x2x1x1xf16> = dense<-1.000000e+00> : tensor<1x2x1x1xf16>
+    %in_high = const.Declare tensor<1x2x1x1xf16> = dense<1.000000e+00> : tensor<1x2x1x1xf16>
+
+    %0 = IE.Tanh(%arg0) : tensor<1x2x64x400xf16> -> tensor<1x2x64x400xf16>
+    %1 = IE.FakeQuantize(%0, %in_low, %in_high, %in_low, %in_high) {
+                     auto_broadcast = #IE.auto_broadcast_type<NUMPY>,
+                     levels = 256 : i64
+                 } : tensor<1x2x64x400xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16> -> tensor<1x2x64x400xf16>
+    %2 = IE.Reshape(%1) {shape_value = [1, 128, 20, 20]} : tensor<1x2x64x400xf16> -> tensor<1x128x20x20xf16>
+    %3 = IE.Convolution(%2, %weights) {
+                    strides = [1, 1],
+                    pads_begin = [1, 1],
+                    pads_end = [1, 1],
+                    dilations = [1, 1]
+                } : tensor<1x128x20x20xf16>, tensor<128x128x3x3xf16> -> tensor<1x128x20x20xf16>
+
+    return %3 : tensor<1x128x20x20xf16>
+
+    // The FakeQuantize stays before the Reshape (no swap).
+    // CHECK:       [[TANH:%.+]] = IE.Tanh([[ARG_0]]) : tensor<1x2x64x400xf16> -> tensor<1x2x64x400xf16>
+    // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[TANH]],
+    // CHECK-SAME:      tensor<1x2x64x400xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16>, tensor<1x2x1x1xf16> -> tensor<1x2x64x400xf16>
+    // CHECK:       [[RESHAPE:%.+]] = IE.Reshape([[FQ]]) {shape_value = [1, 128, 20, 20]} : tensor<1x2x64x400xf16> -> tensor<1x128x20x20xf16>
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[RESHAPE]], [[ARG_1]])
+    // CHECK-SAME:      tensor<1x128x20x20xf16>, tensor<128x128x3x3xf16> -> tensor<1x128x20x20xf16>
+    // CHECK:       return [[CONV]] : tensor<1x128x20x20xf16>
+}

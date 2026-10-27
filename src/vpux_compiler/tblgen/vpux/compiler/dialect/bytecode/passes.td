@@ -38,15 +38,15 @@ def ConvertIntermediateBytecodeOps : PassBase<"convert-intermediate-bytecode-ops
 //
 
 def DeduplicateAndLowerImmRegisterOps : PassBase<"deduplicate-and-lower-imm-register-ops", "vpux::ModulePass"> {
-    let summary = "Deduplicate and lower bytecode.imm_register to VirtualGeneralRegisterOp + SetImmOp";
+    let summary = "Deduplicate and lower bytecode.imm_register to VirtualValueRegisterOp + SetImmOp";
 
     let description = [{
-        Converts each bytecode.imm_register {value} op to a (VirtualGeneralRegisterOp + SetImmOp)
+        Converts each bytecode.imm_register {value} op to a (VirtualValueRegisterOp + SetImmOp)
         pair. Deduplication of same-value source uses is performed by this pass itself: entry-block
-        VGRs are reused across all successor blocks; within non-entry blocks, same-value source uses
-        share a single VGR. Destination uses always receive a fresh VGR so the shared source VGR is
+        VVRs are reused across all successor blocks; within non-entry blocks, same-value source uses
+        share a single VVR. Destination uses always receive a fresh VVR so the shared source VVR is
         never overwritten. Must run before AllocateBytecodeRegisters (which requires only concrete
-        VGR/VPR ops).
+        VVR/VPR ops).
     }];
 
     let constructor = "vpux::bytecode::createDeduplicateAndLowerImmRegisterOpsPass()";
@@ -64,14 +64,19 @@ def AllocateBytecodeRegisters : PassBase<"allocate-bytecode-registers", "vpux::M
     let summary = "Allocate concrete bytecode registers for virtual register operations";
 
     let description = [{
-        The pass replaces every `bytecode.virtual_general_register` and `bytecode.virtual_parameter_register`
+        The pass replaces every `bytecode.virtual_value_register` and `bytecode.virtual_parameter_register`
         operation with a corresponding `bytecode.general_register` operation whose register number follows the
-        bytecode calling convention: general registers are numbered `[0..G-1]` and parameter registers are
-        numbered `[G..G+P-1]`, where `G` is the number of general registers used by the function and `P` is
-        the number of parameters of the function.
+        bytecode calling convention: value registers are numbered `[0..G-1]` and parameter registers are
+        numbered `[G..G+P-1]`, where `G` is the number of value registers used by the function and `P` is
+        the number of parameters of the function. In other words, the allocated general registers are the
+        union of the two:
 
-        General registers are assigned using the linear scan algorithm (Poletto, Sarkar): the live interval
-        of each virtual general register is `[first_use, last_use]` in lexical op order; intervals are
+        ```
+        general_registers = virtual_value_registers + virtual_parameter_registers
+        ```
+
+        Value registers are assigned using the linear scan algorithm (Poletto, Sarkar): the live interval
+        of each virtual value register is `[first_use, last_use]` in lexical op order; intervals are
         processed in start-point order and share a free pool of returned register numbers. Parameter
         registers with the same index are collapsed to a single `bytecode.general_register` via CSE.
 

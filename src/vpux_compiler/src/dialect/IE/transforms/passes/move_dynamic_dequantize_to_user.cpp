@@ -82,26 +82,26 @@ mlir::LogicalResult AffineReshapePermuteCastRewriter::matchAndRewrite(IE::Dynami
 
     auto reshapeOp = mlir::dyn_cast<IE::AffineReshapeOp>(*origOp.getOutput().getUsers().begin());
     if (reshapeOp == nullptr || !reshapeOp->hasOneUse()) {
-        return matchFailed(rewriter, origOp, "Pattern mismatch");
+        return matchFailed(_log, rewriter, origOp, "Pattern mismatch");
     }
 
     // Currently, scale is simply reshaped by padding the lower dimension with ones.
     // Need to ensure AffineShape is reshaping tensor in the same way.
     // Otherwise, it would lead to mismatched shapes of input and scale after conversion.
     if (!isPaddingOneOnLowerDimension(getShape(reshapeOp.getInput()), getShape(reshapeOp.getOutput()))) {
-        return matchFailed(rewriter, origOp, "Unsupported reshape");
+        return matchFailed(_log, rewriter, origOp, "Unsupported reshape");
     }
 
     auto permuteOp = mlir::dyn_cast<IE::PermuteCastOp>(*reshapeOp.getOutput().getUsers().begin());
     if (permuteOp == nullptr) {
-        return matchFailed(rewriter, origOp, "Pattern mismatch");
+        return matchFailed(_log, rewriter, origOp, "Pattern mismatch");
     }
 
-    auto newReshapeOp = rewriter.create<IE::AffineReshapeOp>(
-            origOp->getLoc(), origOp.getInput(), reshapeOp.getDimMappingAttr(), reshapeOp.getShapeValueAttr());
+    auto newReshapeOp = IE::AffineReshapeOp::create(rewriter, origOp->getLoc(), origOp.getInput(),
+                                                    reshapeOp.getDimMappingAttr(), reshapeOp.getShapeValueAttr());
 
-    auto newPermuteOp = rewriter.create<IE::PermuteCastOp>(origOp->getLoc(), newReshapeOp.getOutput(),
-                                                           permuteOp.getDstOrderAttr(), permuteOp.getMemPermAttr());
+    auto newPermuteOp = IE::PermuteCastOp::create(rewriter, origOp->getLoc(), newReshapeOp.getOutput(),
+                                                  permuteOp.getDstOrderAttr(), permuteOp.getMemPermAttr());
 
     const auto origReshapeRank = reshapeOp.getOutput().getType().getRank();
     auto scaleShape = getShape(origOp.getScale()).raw();
@@ -111,11 +111,11 @@ mlir::LogicalResult AffineReshapePermuteCastRewriter::matchAndRewrite(IE::Dynami
     }
 
     const auto scaleShapeAttr = getIntArrayAttr(getContext(), newScaleShape);
-    auto scaleReshapeOp = rewriter.create<IE::AffineReshapeOp>(origOp->getLoc(), origOp.getScale(),
-                                                               reshapeOp.getDimMappingAttr(), scaleShapeAttr);
+    auto scaleReshapeOp = IE::AffineReshapeOp::create(rewriter, origOp->getLoc(), origOp.getScale(),
+                                                      reshapeOp.getDimMappingAttr(), scaleShapeAttr);
 
-    auto scalePermuteOp = rewriter.create<IE::PermuteCastOp>(origOp->getLoc(), scaleReshapeOp.getOutput(),
-                                                             permuteOp.getDstOrderAttr(), permuteOp.getMemPermAttr());
+    auto scalePermuteOp = IE::PermuteCastOp::create(rewriter, origOp->getLoc(), scaleReshapeOp.getOutput(),
+                                                    permuteOp.getDstOrderAttr(), permuteOp.getMemPermAttr());
 
     rewriter.replaceOpWithNewOp<IE::DynamicDequantizeOp>(permuteOp, newPermuteOp.getOutput(),
                                                          scalePermuteOp.getOutput(), origOp.getZp(),

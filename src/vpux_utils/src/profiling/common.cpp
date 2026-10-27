@@ -23,8 +23,6 @@ std::string convertExecTypeToName(ExecutorType execType) {
         return "dpu";
     case ExecutorType::WORKPOINT:
         return "pll";
-    case ExecutorType::M2I:
-        return "m2i";
     default:
         VPUX_THROW("Unknown execType");
     };
@@ -41,8 +39,6 @@ ExecutorType convertDataInfoNameToExecType(std::string_view name) {
         return ExecutorType::DPU;
     } else if (name == "pll") {
         return ExecutorType::WORKPOINT;
-    } else if (name == "m2i") {
-        return ExecutorType::M2I;
     }
     VPUX_THROW("Can not convert '{0}' to profiling::ExecutorType", name);
 }

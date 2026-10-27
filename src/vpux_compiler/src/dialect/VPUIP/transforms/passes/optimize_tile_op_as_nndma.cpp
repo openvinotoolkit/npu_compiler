@@ -122,7 +122,7 @@ SmallVector<int64_t> FuseTileWithConcatClusteredCopy::extractRepeats(VPUIP::SwKe
                       kernelRun->getLoc(), arrayAttrs.size());
 
     auto repeatsAttr = mlir::dyn_cast<mlir::ArrayAttr>(arrayAttrs.getValue()[1]);
-    VPUX_THROW_UNLESS(repeatsAttr != nullptr, "Failed to extract repeatsAttr at '{0}'", kernelRun->getLoc());
+    VPUX_THROW_WHEN(repeatsAttr == nullptr, "Failed to extract repeatsAttr at '{0}'", kernelRun->getLoc());
 
     SmallVector<int64_t> repeatsAxes;
     auto repeats = parseIntArrayAttr<int64_t>(repeatsAttr);
@@ -447,13 +447,13 @@ mlir::LogicalResult FuseTileWithConcatClusteredCopy::matchAndRewrite(VPUIP::Conc
 
                 auto newMemRefOutputType = inputType.changeShape(ShapeRef(newOutShape));
                 auto outputBuffer =
-                        rewriter.create<mlir::memref::AllocOp>(appendLoc(concatViewOp->getLoc(), "new_buffer"),
-                                                               mlir::cast<mlir::MemRefType>(newMemRefOutputType));
+                        mlir::memref::AllocOp::create(rewriter, appendLoc(concatViewOp->getLoc(), "new_buffer"),
+                                                      mlir::cast<mlir::MemRefType>(newMemRefOutputType));
 
                 rewriter.setInsertionPointAfter(perAxisTileInput.getDefiningOp());
-                auto newPerAxisTileDMAOp = rewriter.create<VPUIP::PerAxisTileDMAOp>(
-                        appendLoc(concatViewOp->getLoc(), "new_perAxisDMA_{0}", i), perAxisTileInput, outputBuffer,
-                        axisAttr, repeatsAttr, nullptr);
+                auto newPerAxisTileDMAOp = VPUIP::PerAxisTileDMAOp::create(
+                        rewriter, appendLoc(concatViewOp->getLoc(), "new_perAxisDMA_{0}", i), perAxisTileInput,
+                        outputBuffer, axisAttr, repeatsAttr, nullptr);
                 if (newPerAxisTileDMAOp->isBeforeInBlock(outputBuffer)) {
                     VPUIP::moveRootAllocBefore(outputBuffer, newPerAxisTileDMAOp);
                 }
@@ -461,8 +461,8 @@ mlir::LogicalResult FuseTileWithConcatClusteredCopy::matchAndRewrite(VPUIP::Conc
                 perAxisTileInput = perAxisTileOutput;
             } else {
                 rewriter.setInsertionPointAfter(childClusterOp);
-                perAxisTileOutput = rewriter.create<VPUIP::PerAxisTileDMAOp>(
-                        appendLoc(concatViewOp->getLoc(), "new_perAxisDMA_{0}", i), perAxisTileInput,
+                perAxisTileOutput = VPUIP::PerAxisTileDMAOp::create(
+                        rewriter, appendLoc(concatViewOp->getLoc(), "new_perAxisDMA_{0}", i), perAxisTileInput,
                         childClusterOp.getOutputBuff(), axisAttr, repeatsAttr, nullptr);
             }
         }

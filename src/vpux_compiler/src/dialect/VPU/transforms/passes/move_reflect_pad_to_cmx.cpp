@@ -43,8 +43,8 @@ void propagateReturnType(mlir::Operation*& op, mlir::OpBuilder& builder) {
             auto resultType = mlir::cast<NDTypeInterface>(permuteCastUser.getResult().getType());
             auto newResultType = resultType.changeMemSpace(
                     IndexedSymbolAttr::get(builder.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN), 0));
-            auto newPermuteCast = builder.create<VPU::PermuteCastOp>(
-                    permuteCastUser.getLoc(), newResultType, permuteCastUser.getInput(),
+            auto newPermuteCast = VPU::PermuteCastOp::create(
+                    builder, permuteCastUser.getLoc(), newResultType, permuteCastUser.getInput(),
                     permuteCastUser.getDstOrderAttr(), permuteCastUser.getMemPermAttr());
             permuteCastUser->getResult(0).replaceAllUsesWith(newPermuteCast);
             if (permuteCastUser.use_empty()) {
@@ -325,7 +325,7 @@ bool isMovingToCMXBeneficial(VPU::ConcatOp concatOp, const std::shared_ptr<VPUNN
     auto concatInputs = concatOp.getInputs();
     size_t dmasInDdrCost = 0;
     size_t dmasInCmxCost = 0;
-    auto archKind = config::getArch(concatOp.getOperation());
+    const auto archKind = config::getArch(concatOp.getOperation());
 
     for (auto input : concatInputs) {
         auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
@@ -393,7 +393,7 @@ void MoveReflectPadToCMXPass::safeRunOnFunc() {
                     IndexedSymbolAttr::get(concatOp.getContext(), stringifyEnum(vpux::VPU::MemoryKind::CMX_NN), 0);
             auto allocType = mlir::cast<NDTypeInterface>(opResult.getType());
             auto newOutputType = allocType.changeMemSpace(memSpaceCMX);
-            auto copyDDRToCMX = builder.create<VPU::CopyOp>(sourceOp->getLoc(), newOutputType, opResult, memSpaceCMX);
+            auto copyDDRToCMX = VPU::CopyOp::create(builder, sourceOp->getLoc(), newOutputType, opResult, memSpaceCMX);
             opResult.replaceUsesWithIf(copyDDRToCMX, [&](mlir::OpOperand& operand) {
                 return llvm::is_contained(opsWithSameSource, operand.getOwner());
             });
@@ -410,7 +410,7 @@ void MoveReflectPadToCMXPass::safeRunOnFunc() {
             auto opResult = inputCopy->getResult(0);
             auto allocType = mlir::cast<NDTypeInterface>(opResult.getType());
             auto newOutputType = allocType.changeMemSpace(memSpaceCMX);
-            auto copyDDRToCMX = builder.create<VPU::CopyOp>(inputCopy->getLoc(), newOutputType, opResult, memSpaceCMX);
+            auto copyDDRToCMX = VPU::CopyOp::create(builder, inputCopy->getLoc(), newOutputType, opResult, memSpaceCMX);
             opResult.replaceAllUsesExcept(copyDDRToCMX, copyDDRToCMX);
             propagateReturnType(inputCopy, builder);
         }
@@ -427,7 +427,7 @@ void MoveReflectPadToCMXPass::safeRunOnFunc() {
         // move concatOp output back to DDR
         builder.setInsertionPointAfter(concatOp);
         inferReturnTypes(concatOp, vpux::InferShapedTypeMode::ALL);
-        auto copyOutputToDdr = builder.create<VPU::CopyOp>(concatOp.getLoc(), concatOp.getOutput());
+        auto copyOutputToDdr = VPU::CopyOp::create(builder, concatOp.getLoc(), concatOp.getOutput());
         concatOp->getResult(0).replaceAllUsesExcept(copyOutputToDdr, copyOutputToDdr);
     });
 }

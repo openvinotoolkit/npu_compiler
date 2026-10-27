@@ -31,7 +31,7 @@ uint32_t to_dpu_multicast(uint32_t addr, unsigned int& offset1, unsigned int& of
     VPUX_THROW_UNLESS(broadcast_mask < 16, "Broadcast mask out of range");
     const unsigned short multicast_mask = multicast_masks[broadcast_mask];
 
-    VPUX_THROW_UNLESS(multicast_mask != 0xffff, "Got an invalid multicast mask");
+    VPUX_THROW_WHEN(multicast_mask == 0xffff, "Got an invalid multicast mask");
 
     unsigned int base_mask = (static_cast<unsigned int>(multicast_mask) & 0xf) << 20;
     offset1 *= (multicast_mask >> 4) & 0xf;

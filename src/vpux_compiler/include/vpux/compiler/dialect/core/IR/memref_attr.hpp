@@ -12,6 +12,7 @@
 #include <llvm/ADT/ArrayRef.h>
 #include <mlir/IR/Diagnostics.h>
 
+#include <cstdint>
 #include <type_traits>
 
 namespace vpux {
@@ -55,8 +56,17 @@ public:
     mlir::ArrayAttr strides() const;
     mlir::IntegerAttr allocSize() const;
     BoundsRef bounds() const;
+    // Returns nullptr when the offset is (the common case) static zero, keeping the IR silent
+    // about it; non-null only for a view whose start is at a compile-time-unknown or non-zero
+    // position relative to its own base (e.g. a memref.subview lowering with a dynamic/non-zero
+    // offset operand).
+    mlir::IntegerAttr offset() const;
     HwFields hwSpecificFields() const;
     mlir::AffineMap getAffineMap() const;
+
+    // Returns a copy of this MemRefAttr with the offset field set to `offset`. Passing static
+    // zero clears the field, keeping the IR representation unchanged from the no-offset case.
+    MemRefAttr addOffset(int64_t offset) const;
 
     /// Returns a HW-specific field of the specified type from the MemRefAttr.
     template <typename AttributeType>
@@ -87,6 +97,9 @@ public:
 
     mlir::LogicalResult verifyLayout(mlir::Attribute attr, mlir::ArrayRef<int64_t> shape,
                                      FuncRef<mlir::InFlightDiagnostic()> emitError) const;
+
+    mlir::LogicalResult getStridesAndOffset(mlir::Attribute attr, mlir::ArrayRef<int64_t> shape,
+                                            llvm::SmallVectorImpl<int64_t>& strides, int64_t& offset) const;
 };
 
 }  // namespace vpux

@@ -802,7 +802,7 @@ bool checkPerAxisTilePattern(VPUIP::SwKernelOp swKernelOp, Logger log) {
         const auto distributedOutput = VPUIP::getLayerOutputs(copyToNCEOp)[0];
         const auto distributedType = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(distributedOutput.getType());
 
-        VPUX_THROW_UNLESS(distributedType != nullptr, "Can not get distributed type of Distributed Copy Op");
+        VPUX_THROW_WHEN(distributedType == nullptr, "Can not get distributed type of Distributed Copy Op");
         if (!isSplitContinuousBufferType(distributedType)) {
             return false;
         }
@@ -1098,7 +1098,7 @@ mlir::LogicalResult FuseExpandWithUpsampling::matchAndRewrite(VPUIP::ExpandOp or
             vpux::getMemRefType(outputShape, inputType.getElementType(), inputType.getDimsOrder()));
     auto constZeros = Const::createZerosConst(rewriter, origOp.getLoc(), mlir::cast<mlir::MemRefType>(zeroType));
 
-    auto copyZeroOp = rewriter.create<VPUIP::CopyOp>(origOp->getLoc(), constZeros, origOp.getOutputBuff());
+    auto copyZeroOp = VPUIP::CopyOp::create(rewriter, origOp->getLoc(), constZeros, origOp.getOutputBuff());
     if (vpux::VPUIP::hasDistributedOperand(copyZeroOp)) {
         return mlir::failure();
     }
@@ -1275,7 +1275,7 @@ mlir::LogicalResult FuseSpaceToDepthAndPermute::matchAndRewrite(VPUIP::SwKernelO
     auto input = swKernelOp.getOperand(0);
 
     auto outputMemRef = mlir::cast<mlir::MemRefType>(permuteOutType);
-    auto allocSpaceToDepthOp = rewriter.create<mlir::memref::AllocOp>(permuteSwKernelOp->getLoc(), outputMemRef);
+    auto allocSpaceToDepthOp = mlir::memref::AllocOp::create(rewriter, permuteSwKernelOp->getLoc(), outputMemRef);
 
     rewriter.replaceOpWithNewOp<VPUIP::SpaceToDepthDMAOp>(permuteSwKernelOp, input, allocSpaceToDepthOp, blockSizeAttr,
                                                           modeAttr, nullptr);
@@ -1534,11 +1534,11 @@ mlir::LogicalResult WrapDepthToSpaceAsDistributedNNDMA::matchAndRewrite(VPUIP::S
         auto uniformDistributedSegments = VPU::isUniformDistributedSegmentsSupported(swKernelOp);
         auto distributedCopyInAllocType = createDMADistributedTensorType(ctx, inputCopyOp.getOutput().getType(),
                                                                          tileCount, arch, uniformDistributedSegments);
-        auto distributedCopyInAllocOp = rewriter.create<VPURT::AllocDistributed>(
-                inputCopyOp.getLoc(), distributedCopyInAllocType, nullptr, nullptr);
+        auto distributedCopyInAllocOp = VPURT::AllocDistributed::create(rewriter, inputCopyOp.getLoc(),
+                                                                        distributedCopyInAllocType, nullptr, nullptr);
         opsToErase.push_back(inputCopyOp);
-        auto d2sCopyInOp = rewriter.create<VPUIP::CopyOp>(inputCopyOp.getLoc(), distributedCopyInAllocType,
-                                                          inputCopyOp.getInput(), distributedCopyInAllocOp.getBuffer());
+        auto d2sCopyInOp = VPUIP::CopyOp::create(rewriter, inputCopyOp.getLoc(), distributedCopyInAllocType,
+                                                 inputCopyOp.getInput(), distributedCopyInAllocOp.getBuffer());
         d2sInput = d2sCopyInOp.getResult();
         _log.nest().trace("Create new Distributed Copy-in op: {0}", d2sCopyInOp);
     }
@@ -1566,9 +1566,10 @@ mlir::LogicalResult WrapDepthToSpaceAsDistributedNNDMA::matchAndRewrite(VPUIP::S
             return mlir::failure();
         }
         auto d2sOutAllocOp =
-                rewriter.create<VPURT::AllocDistributed>(swKernelOp.getLoc(), d2sOutAllocType, nullptr, nullptr);
-        auto d2sOp = rewriter.create<VPUIP::DepthToSpaceDMAOp>(swKernelOp.getLoc(), d2sInput, d2sOutAllocOp.getBuffer(),
-                                                               blockSizeAttr, modeAttr, nullptr, paddedChannels);
+                VPURT::AllocDistributed::create(rewriter, swKernelOp.getLoc(), d2sOutAllocType, nullptr, nullptr);
+        auto d2sOp =
+                VPUIP::DepthToSpaceDMAOp::create(rewriter, swKernelOp.getLoc(), d2sInput, d2sOutAllocOp.getBuffer(),
+                                                 blockSizeAttr, modeAttr, nullptr, paddedChannels);
         _log.nest().trace("Create new distributed DepthToSpaceDMAOp: {0}", d2sOp);
         opsToErase.push_back(swKernelOp);
         // create output copy
@@ -1882,11 +1883,11 @@ mlir::LogicalResult FuseDistributedMemPermuteWithViewLikeOps::matchAndRewrite(VP
     auto newPermuteDistributedOutType = VPUIP::DistributedBufferType::get(
             ctx, outShape.raw(), outElemType, order, distributedCopyOutType.getMemSpace(), permuteDistribution);
 
-    auto newAlloc = rewriter.create<VPURT::AllocDistributed>(permuteOp->getLoc(), newPermuteDistributedOutType, nullptr,
-                                                             nullptr);
+    auto newAlloc = VPURT::AllocDistributed::create(rewriter, permuteOp->getLoc(), newPermuteDistributedOutType,
+                                                    nullptr, nullptr);
 
-    auto newPermuteOp = rewriter.create<VPUIP::PermuteDMAOp>(permuteOp->getLoc(), VPUIP::getLayerInputs(permuteOp)[0],
-                                                             newAlloc, memPerm, nullptr);
+    auto newPermuteOp = VPUIP::PermuteDMAOp::create(rewriter, permuteOp->getLoc(), VPUIP::getLayerInputs(permuteOp)[0],
+                                                    newAlloc, memPerm, nullptr);
     _log.trace("create new distributed permute op {0}", newPermuteOp);
 
     // create new view like ops
@@ -1925,7 +1926,7 @@ mlir::LogicalResult FuseDistributedMemPermuteWithViewLikeOps::matchAndRewrite(VP
         }
 
         auto distributedCastOp =
-                rewriter.create<VPUIP::DistributedCastOp>(permuteOp->getLoc(), distributedCopyOutType, newOutput);
+                VPUIP::DistributedCastOp::create(rewriter, permuteOp->getLoc(), distributedCopyOutType, newOutput);
         newOutput = distributedCastOp->getResult(0);
     }
 

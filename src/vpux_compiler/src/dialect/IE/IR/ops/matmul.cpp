@@ -40,6 +40,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -75,8 +76,16 @@ mlir::LogicalResult vpux::IE::MatMulOp::inferReturnTypeComponents(
         outBounds = shapeInfo.bounds;
     }
 
+    // MatMul unsqueezes the lower-rank input from the left before it broadcasts the batch axes, so
+    // the result takes the larger of the two input ranks. Input 1's order therefore describes the
+    // result only when the two ranks agree. An order map is a permutation with one result per
+    // dimension, so copying a narrower one leaves a type that TensorEncodingVerifier rejects.
+    const auto outRank = shapeInfo.shape.size();
+    const auto outOrder = outRank == checked_cast<size_t>(inType1.getRank()) ? inType1.getDimsOrder()
+                                                                             : DimsOrder::fromNumDims(outRank);
+
     const auto inElementType = inType1.getElementType();
-    const auto outDesc = vpux::getTensorAttr(ctx, inType1.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outBounds));
+    const auto outDesc = vpux::getTensorAttr(ctx, outOrder, /*memSpace=*/nullptr, BoundsRef(outBounds));
     inferredReturnShapes.emplace_back(shapeInfo.shape, inElementType, outDesc);
 
     return mlir::success();
@@ -127,8 +136,10 @@ mlir::LogicalResult UseFullyConnected::matchAndRewrite(IE::MatMulOp matmulOp, ml
         return mlir::failure();
     }
 
-    auto newOp = rewriter.replaceOpWithNewOp<IE::FullyConnectedOp>(matmulOp, matmulOp.getType(), matmulOp.getInput1(),
-                                                                   matmulOp.getInput2(), nullptr);
+    auto newOp = IE::FullyConnectedOp::create(rewriter, matmulOp.getLoc(), matmulOp.getType(), matmulOp.getInput1(),
+                                              matmulOp.getInput2(), nullptr);
+    copyLoopAttributes(matmulOp, newOp.getOperation());
+    rewriter.replaceOp(matmulOp, newOp.getOperation());
     extendOpLoc(newOp, "as_fc");
 
     return mlir::success();
@@ -185,8 +196,8 @@ mlir::LogicalResult TransposeInputs::matchAndRewrite(IE::MatMulOp matmulOp, mlir
 
         if (transposedOrderAttr(inputRank) != nullptr) {
             auto orderAttr = transposedOrderAttr(inputRank);
-            auto transpose = rewriter.create<IE::TransposeOp>(appendLoc(matmulOp->getLoc(), locSuffix), input, nullptr,
-                                                              orderAttr);
+            auto transpose = IE::TransposeOp::create(rewriter, appendLoc(matmulOp->getLoc(), locSuffix), input, nullptr,
+                                                     orderAttr);
             return transpose.getOutput();
         }
 

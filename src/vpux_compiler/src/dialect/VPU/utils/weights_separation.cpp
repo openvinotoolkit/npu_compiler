@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/utils/weights_separation.hpp"
 #include "vpux/compiler/core/force_link_macros.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
@@ -183,24 +184,24 @@ mlir::Value createTypeCorrectedQuantizedCast(mlir::OpBuilder& builder, mlir::Val
     // IE::QuantizeCastOp does not support directly casting from one quantized type to another one.
     // This is why we perform qTypeIn -> intType -> qTypeOut.
     if (qTypeIn != nullptr && qTypeOut != nullptr) {
-        auto cvtOp = builder.create<IE::QuantizeCastOp>(appendLoc(loc, "quant_cast_prepare_input"), input,
-                                                        qTypeIn.getStorageType());
-        return builder.create<IE::QuantizeCastOp>(loc, cvtOp, outType);
+        auto cvtOp = IE::QuantizeCastOp::create(builder, appendLoc(loc, "quant_cast_prepare_input"), input,
+                                                qTypeIn.getStorageType());
+        return IE::QuantizeCastOp::create(builder, loc, cvtOp, outType);
     }
 
     // from normal type to quantized type:
     if (qTypeOut != nullptr && mlir::isa<mlir::FloatType>(inType) && inType != qTypeOut.getStorageType()) {
-        auto cvtOp = builder.create<IE::ConvertOp>(appendLoc(loc, "quant_cast_prepare_input"), input,
-                                                   qTypeOut.getStorageType());
-        return builder.create<IE::QuantizeCastOp>(loc, cvtOp, outType);
+        auto cvtOp = IE::ConvertOp::create(builder, appendLoc(loc, "quant_cast_prepare_input"), input,
+                                           qTypeOut.getStorageType());
+        return IE::QuantizeCastOp::create(builder, loc, cvtOp, outType);
     }
     // from quantized type to normal type:
     if (qTypeIn != nullptr && mlir::isa<mlir::FloatType>(outType) && qTypeIn.getStorageType() != outType) {
-        auto castOp = builder.create<IE::QuantizeCastOp>(loc, input, qTypeIn.getStorageType());
-        return builder.create<IE::ConvertOp>(appendLoc(loc, "quant_cast_prepare_output"), castOp, outType);
+        auto castOp = IE::QuantizeCastOp::create(builder, loc, input, qTypeIn.getStorageType());
+        return IE::ConvertOp::create(builder, appendLoc(loc, "quant_cast_prepare_output"), castOp, outType);
     }
 
-    return builder.create<IE::QuantizeCastOp>(loc, input, outType);
+    return IE::QuantizeCastOp::create(builder, loc, input, outType);
 }
 
 // This method attempts to create a matching IE::AvgPoolOp for per-axis
@@ -264,13 +265,13 @@ mlir::Value createAvgPoolForInterQuantizedConvert(mlir::OpBuilder& builder, mlir
     const auto prepareZpsForAvgPool =
             [&](int64_t inZeroPoint,
                 int64_t outZeroPoint) -> std::pair<mlir::Value, mlir::quant::UniformQuantizedType> {
-        auto normInQuantCast = builder.create<IE::QuantizeCastOp>(loc, value, normalizeQuantStorageType(inQType));
+        auto normInQuantCast = IE::QuantizeCastOp::create(builder, loc, value, normalizeQuantStorageType(inQType));
 
         auto perTensorInQType = mlir::quant::UniformQuantizedType::get(
                 inQType.getFlags(), inQType.getStorageType(), inQType.getExpressedType(),
                 /*scale=*/1.0, /*zeroPoint=*/inZeroPoint, inQType.getStorageTypeMin(), inQType.getStorageTypeMax());
 
-        auto resultValue = builder.create<IE::QuantizeCastOp>(loc, normInQuantCast, perTensorInQType).getResult();
+        auto resultValue = IE::QuantizeCastOp::create(builder, loc, normInQuantCast, perTensorInQType).getResult();
         auto resultOutElemType = mlir::quant::UniformQuantizedType::get(
                 outQType.getFlags(), outQType.getStorageType(), outQType.getExpressedType(),
                 /*scale=*/1.0, /*zeroPoint=*/outZeroPoint, outQType.getStorageTypeMin(), outQType.getStorageTypeMax());
@@ -321,8 +322,8 @@ mlir::Value createAvgPoolForInterQuantizedConvert(mlir::OpBuilder& builder, mlir
     // quantization types): such convert is essentially `IE.Add(%x, zero-point)`
     // and Add could be done via AvgPool.
     auto avgType = mlir::cast<NDTypeInterface>(value.getType()).changeElemType(avgOutElemType);
-    auto avgPool = builder.create<IE::AvgPoolOp>(
-            loc, avgType, value, nullptr, getIntArrayAttr(ctx, poolKernels), getIntArrayAttr(ctx, poolStrides),
+    auto avgPool = IE::AvgPoolOp::create(
+            builder, loc, avgType, value, nullptr, getIntArrayAttr(ctx, poolKernels), getIntArrayAttr(ctx, poolStrides),
             getIntArrayAttr(ctx, pads), getIntArrayAttr(ctx, pads),
             vpux::IE::RoundingTypeAttr::get(ctx, vpux::IE::RoundingType::FLOOR),
             mlir::UnitAttr::get(builder.getContext()), nullptr, nullptr, nullptr, nullptr, nullptr);
@@ -335,8 +336,8 @@ mlir::Value createAvgPoolForInterQuantizedConvert(mlir::OpBuilder& builder, mlir
     if (isSupportedPerAxis || hasNegativeZp) {
         // convert per-tensor case to per-axis (restore the original type):
         auto normOutQuantCast =
-                builder.create<IE::QuantizeCastOp>(loc, value, normalizeQuantStorageType(avgOutElemType));
-        return builder.create<IE::QuantizeCastOp>(loc, normOutQuantCast, outQType).getResult();
+                IE::QuantizeCastOp::create(builder, loc, value, normalizeQuantStorageType(avgOutElemType));
+        return IE::QuantizeCastOp::create(builder, loc, normOutQuantCast, outQType).getResult();
     }
 
     return value;
@@ -357,10 +358,13 @@ mlir::Value createMatchingIeOperation(mlir::OpBuilder& builder, mlir::Location l
                 };
                 auto bias = Const::createConst<float>(builder, biasLoc, biasType, {biasValue}, transform);
 
-                return builder.create<IE::AddOp>(loc, input, bias, IE::AutoBroadcastType::NUMPY,
-                                                 /*postOp=*/nullptr, /*clamp=*/nullptr,
-                                                 /*outputPadding=*/nullptr,
-                                                 /*inputPadding=*/nullptr);
+                return IE::AddOp::create(builder, loc, input, bias, IE::AutoBroadcastType::NUMPY,
+                                         /*postOp=*/nullptr, /*clamp=*/nullptr,
+                                         /*outputPadding=*/nullptr,
+                                         /*inputPadding=*/nullptr);
+            })
+            .Case<Const::ClampAttr>([&](Const::ClampAttr clamp) {
+                return IE::ClampOp::create(builder, loc, input, clamp.getLowerBound(), clamp.getUpperBound());
             })
             .Case<Const::BroadcastAttr>([&](Const::BroadcastAttr broadcast) {
                 const auto axis = broadcast.getAxis().getInt();
@@ -373,8 +377,8 @@ mlir::Value createMatchingIeOperation(mlir::OpBuilder& builder, mlir::Location l
                 auto targetShapeType = mlir::RankedTensorType::get(shapeRank, getInt64Type(builder.getContext()));
                 auto targetShape = Const::createConst<int64_t>(builder, targetShapeLoc, targetShapeType, shape);
 
-                return builder.create<IE::BroadcastOp>(loc, input, targetShape, /*axesMapping=*/nullptr,
-                                                       /*mode=*/nullptr);
+                return IE::BroadcastOp::create(builder, loc, input, targetShape, /*axesMapping=*/nullptr,
+                                               /*mode=*/nullptr);
             })
             .Case<Const::ChangeShapeAndElemTypeAttr>([&](Const::ChangeShapeAndElemTypeAttr changeShapeAndElemType) {
                 const auto inElemType = mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>(
@@ -392,7 +396,7 @@ mlir::Value createMatchingIeOperation(mlir::OpBuilder& builder, mlir::Location l
                         mlir::cast<vpux::NDTypeInterface>(input.getType()).getShape().raw(), outputShape);
                 const auto dimMapping =
                         getIntArrayOfArray(changeShapeAndElemType.getContext(), reassociationMap.value());
-                return builder.create<IE::AffineReshapeOp>(loc, input, dimMapping, changeShapeAndElemType.getShape());
+                return IE::AffineReshapeOp::create(builder, loc, input, dimMapping, changeShapeAndElemType.getShape());
             })
             .Case<Const::CastElemTypeAttr>([&](Const::CastElemTypeAttr cast) -> mlir::Value {
                 const auto inElemType = mlir::cast<NDTypeInterface>(input.getType()).getElementType();
@@ -404,7 +408,7 @@ mlir::Value createMatchingIeOperation(mlir::OpBuilder& builder, mlir::Location l
                 if (inputQuantized || outputQuantized) {
                     return createTypeCorrectedQuantizedCast(builder, input, loc, inElemType, outElemType);
                 }
-                return builder.create<IE::ConvertOp>(loc, input, outElemType);
+                return IE::ConvertOp::create(builder, loc, input, outElemType);
             })
             .Case<Const::ConvertElemTypeAttr>([&](Const::ConvertElemTypeAttr convert) -> mlir::Value {
                 const auto inElemType = mlir::dyn_cast_or_null<mlir::quant::QuantizedType>(
@@ -415,18 +419,18 @@ mlir::Value createMatchingIeOperation(mlir::OpBuilder& builder, mlir::Location l
                 if (inElemType != nullptr && outElemType != nullptr) {
                     return createAvgPoolForInterQuantizedConvert(builder, input, loc, inElemType, outElemType);
                 }
-                return builder.create<IE::ConvertOp>(loc, input, convert.getElemType());
+                return IE::ConvertOp::create(builder, loc, input, convert.getElemType());
             })
             .Case<Const::DequantizeAttr>([&](Const::DequantizeAttr /*dequantize*/) {
                 const auto qElemType = mlir::cast<mlir::quant::QuantizedType>(
                         mlir::cast<vpux::NDTypeInterface>(input.getType()).getElementType());
-                return builder.create<IE::DequantizeOp>(loc, input, qElemType.getExpressedType());
+                return IE::DequantizeOp::create(builder, loc, input, qElemType.getExpressedType());
             })
             .Case<Const::QuantizeAttr>([&](Const::QuantizeAttr quantizeAttr) {
-                return builder.create<IE::QuantizeOp>(loc, input, quantizeAttr.getTargetType());
+                return IE::QuantizeOp::create(builder, loc, input, quantizeAttr.getTargetType());
             })
             .Case<Const::LayoutCastAttr>([&](Const::LayoutCastAttr layoutCast) {
-                return builder.create<IE::LayoutCastOp>(loc, input, layoutCast.getDstOrder());
+                return IE::LayoutCastOp::create(builder, loc, input, layoutCast.getDstOrder());
             })
             .Case<Const::MemPermuteAttr>([&](Const::MemPermuteAttr memPermute) -> mlir::Value {
                 const auto inType = mlir::cast<NDTypeInterface>(input.getType());
@@ -435,21 +439,21 @@ mlir::Value createMatchingIeOperation(mlir::OpBuilder& builder, mlir::Location l
 
                 const auto memShapeAttr = getIntArrayAttr(builder.getContext(), inMemShape.raw());
                 auto memShapeCastOp =
-                        builder.create<IE::ShapeCastOp>(appendLoc(loc, "inMemShape"), input, memShapeAttr);
+                        IE::ShapeCastOp::create(builder, appendLoc(loc, "inMemShape"), input, memShapeAttr);
 
-                auto castToIdentityLayoutOp = builder.create<IE::LayoutCastOp>(
-                        appendLoc(memShapeCastOp.getLoc(), "identityLayout"), memShapeCastOp, identityLayout);
+                auto castToIdentityLayoutOp = IE::LayoutCastOp::create(
+                        builder, appendLoc(memShapeCastOp.getLoc(), "identityLayout"), memShapeCastOp, identityLayout);
 
-                auto transpose = builder.create<IE::TransposeOp>(
-                        appendLoc(castToIdentityLayoutOp.getLoc(), "transpose"), castToIdentityLayoutOp,
+                auto transpose = IE::TransposeOp::create(
+                        builder, appendLoc(castToIdentityLayoutOp.getLoc(), "transpose"), castToIdentityLayoutOp,
                         /*order=*/nullptr, mlir::AffineMapAttr::get(memPermuteMap));
 
                 const auto outShapeAttr = getIntArrayAttr(builder.getContext(), outShape.raw());
-                auto newOutShapeCastOp = builder.create<IE::ShapeCastOp>(
-                        appendLoc(transpose.getLoc(), "tranposedShape"), transpose, outShapeAttr);
+                auto newOutShapeCastOp = IE::ShapeCastOp::create(
+                        builder, appendLoc(transpose.getLoc(), "tranposedShape"), transpose, outShapeAttr);
 
-                return builder.create<IE::LayoutCastOp>(appendLoc(newOutShapeCastOp.getLoc(), "recreateLayout"),
-                                                        newOutShapeCastOp, dstOrder);
+                return IE::LayoutCastOp::create(builder, appendLoc(newOutShapeCastOp.getLoc(), "recreateLayout"),
+                                                newOutShapeCastOp, dstOrder);
             })
             .Case<Const::PadWithZeroAttr>([&](Const::PadWithZeroAttr padWithZero) {
                 auto extractPadValue = [](mlir::Type type) {
@@ -469,14 +473,13 @@ mlir::Value createMatchingIeOperation(mlir::OpBuilder& builder, mlir::Location l
 
                 const auto inType = mlir::cast<NDTypeInterface>(input.getType());
                 const auto outElemType = padWithZero.inferOutputType(inType).getElementType();
-                return builder.create<IE::PadOp>(loc, input, /*padsBegin=*/nullptr, /*padsEnd=*/nullptr,
-                                                 /*padValue=*/nullptr, padWithZero.getPadBefore(),
-                                                 padWithZero.getPadAfter(),
-                                                 getFPAttr(builder.getContext(), extractPadValue(outElemType)),
-                                                 IE::PadMode::CONSTANT, nullptr, nullptr, nullptr, nullptr);
+                return IE::PadOp::create(builder, loc, input, /*padsBegin=*/nullptr, /*padsEnd=*/nullptr,
+                                         /*padValue=*/nullptr, padWithZero.getPadBefore(), padWithZero.getPadAfter(),
+                                         getFPAttr(builder.getContext(), extractPadValue(outElemType)),
+                                         IE::PadMode::CONSTANT, nullptr, nullptr, nullptr, nullptr);
             })
             .Case<Const::ReorderAttr>([&](Const::ReorderAttr reorder) {
-                return builder.create<IE::ReorderOp>(loc, input, reorder.getOrder());
+                return IE::ReorderOp::create(builder, loc, input, reorder.getOrder());
             })
             .Case<Const::RescaleAttr>([&](Const::RescaleAttr rescale) {
                 auto foldedAttr = rescale.getScale().fold();
@@ -490,26 +493,26 @@ mlir::Value createMatchingIeOperation(mlir::OpBuilder& builder, mlir::Location l
                 };
                 auto scale = Const::createConst<float>(builder, scaleLoc, scaleType, {scaleValue}, transform);
 
-                return builder.create<IE::MultiplyOp>(loc, input, scale, IE::AutoBroadcastType::NUMPY,
-                                                      /*postOp=*/nullptr, /*clamp=*/nullptr,
-                                                      /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
+                return IE::MultiplyOp::create(builder, loc, input, scale, IE::AutoBroadcastType::NUMPY,
+                                              /*postOp=*/nullptr, /*clamp=*/nullptr,
+                                              /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
             })
             .Case<Const::ReshapeAttr>([&](Const::ReshapeAttr reshape) -> mlir::Value {
                 if (mlir::cast<NDTypeInterface>(input.getType()).getDimsOrder().isIdentity()) {
-                    return builder.create<IE::ReshapeOp>(loc, input, reshape.getShape());
+                    return IE::ReshapeOp::create(builder, loc, input, reshape.getShape());
                 }
 
-                return builder.create<IE::ShapeCastOp>(loc, input, reshape.getShape());
+                return IE::ShapeCastOp::create(builder, loc, input, reshape.getShape());
             })
             .Case<Const::AffineReshapeAttr>([&](Const::AffineReshapeAttr affineReshape) -> mlir::Value {
-                return builder.create<IE::AffineReshapeOp>(loc, input, affineReshape.getDimMapping(),
-                                                           affineReshape.getShapeValue());
+                return IE::AffineReshapeOp::create(builder, loc, input, affineReshape.getDimMapping(),
+                                                   affineReshape.getShapeValue());
             })
             .Case<Const::GatherElementsAttr>([&](Const::GatherElementsAttr gatherElements) {
                 auto indicesContentAttr = Const::ContentAttr::get(gatherElements.getIndices());
-                auto indices = builder.create<Const::DeclareOp>(
-                        appendLoc(loc, "indices"), gatherElements.getIndices().getType(), indicesContentAttr);
-                return builder.create<IE::GatherElementsOp>(loc, input, indices, gatherElements.getAxis().getInt());
+                auto indices = Const::DeclareOp::create(builder, appendLoc(loc, "indices"),
+                                                        gatherElements.getIndices().getType(), indicesContentAttr);
+                return IE::GatherElementsOp::create(builder, loc, input, indices, gatherElements.getAxis().getInt());
             })
             .Case<Const::ScalarMultInverseAttr>([&](Const::ScalarMultInverseAttr /*scalarMultInverse*/) -> mlir::Value {
                 const auto inverseLoc = appendLoc(loc, "inverse");
@@ -532,14 +535,14 @@ mlir::Value createMatchingIeOperation(mlir::OpBuilder& builder, mlir::Location l
                 }
 
                 auto contentAttr = Const::ContentAttr::get(data);
-                auto inverse = builder.create<Const::DeclareOp>(inverseLoc, inverseType, std::move(contentAttr));
-                return builder.create<IE::DivideOp>(loc, inverse, input, IE::AutoBroadcastType::NUMPY);
+                auto inverse = Const::DeclareOp::create(builder, inverseLoc, inverseType, std::move(contentAttr));
+                return IE::DivideOp::create(builder, loc, inverse, input, IE::AutoBroadcastType::NUMPY);
             })
             .Case<Const::SubViewAttr>([&](Const::SubViewAttr subview) {
-                return builder.create<IE::SliceOp>(loc, input, subview.getOffset(), subview.getShape());
+                return IE::SliceOp::create(builder, loc, input, subview.getOffset(), subview.getShape());
             })
             .Case<Const::TransposeAttr>([&](Const::TransposeAttr transpose) {
-                return builder.create<IE::TransposeOp>(loc, input, /*order=*/nullptr, transpose.getOrder());
+                return IE::TransposeOp::create(builder, loc, input, /*order=*/nullptr, transpose.getOrder());
             })
             .Default([](Const::TransformAttrInterface) {
                 return nullptr;
@@ -567,7 +570,7 @@ bool isSupportedTransformation(vpux::NDTypeInterface inType, Const::TransformAtt
                      Const::ConvertElemTypeAttr, Const::QuantizeAttr, Const::LayoutCastAttr, Const::MemPermuteAttr,
                      Const::PadWithZeroAttr, Const::ReorderAttr, Const::RescaleAttr, Const::ReshapeAttr,
                      Const::ScalarMultInverseAttr, Const::SubViewAttr, Const::TransposeAttr, Const::AffineReshapeAttr,
-                     Const::GatherElementsAttr>(t);
+                     Const::GatherElementsAttr, Const::ClampAttr>(t);
 }
 
 /// Returns a VPU operation for the given constant transformation.
@@ -583,40 +586,40 @@ mlir::Value createMatchingVpuOperation(mlir::OpBuilder& builder, mlir::Location 
                 if (inputType.getDimsOrder().isIdentity()) {
                     // Type inference rules between the attribute and the operation doesn't match
                     // Example: 2x4 #CN -> 2x2x2 isn't possible
-                    return builder.create<VPU::ReshapeOp>(loc, input, reshape.getShape());
+                    return VPU::ReshapeOp::create(builder, loc, input, reshape.getShape());
                 }
 
-                return builder.create<VPU::ShapeCastOp>(loc, input, reshape.getShape());
+                return VPU::ShapeCastOp::create(builder, loc, input, reshape.getShape());
             })
             .Case([&](Const::SubViewAttr subView) -> mlir::Value {
-                return builder.create<VPU::SliceOp>(loc, input, subView.getOffset(), subView.getShape());
+                return VPU::SliceOp::create(builder, loc, input, subView.getOffset(), subView.getShape());
             })
             .Case([&](Const::LayoutCastAttr layoutCast) -> mlir::Value {
-                return builder.create<VPU::LayoutCastOp>(loc, input, layoutCast.getDstOrder());
+                return VPU::LayoutCastOp::create(builder, loc, input, layoutCast.getDstOrder());
             })
             .Case([&](Const::MemPermuteAttr permute) -> mlir::Value {
-                return builder.create<VPU::PermuteCastOp>(loc, input, permute.getDstOrder(), permute.getMemPerm());
+                return VPU::PermuteCastOp::create(builder, loc, input, permute.getDstOrder(), permute.getMemPerm());
             })
             .Case([&](Const::TransposeAttr transpose) -> mlir::Value {
                 const auto outType = transpose.inferOutputType(inputType);
                 const auto outShape = getIntArrayAttr(builder, outType.getShape());
 
                 if (transpose.getOrder().getValue().isIdentity()) {
-                    return builder.create<VPU::ReshapeOp>(loc, input, outShape);
+                    return VPU::ReshapeOp::create(builder, loc, input, outShape);
                 }
 
-                return builder.create<VPU::ShapeCastOp>(loc, input, outShape);
+                return VPU::ShapeCastOp::create(builder, loc, input, outShape);
             })
             .Case([&](Const::ReorderAttr reorder) -> mlir::Value {
                 const auto inOrder = inputType.getDimsOrder();
                 const auto outOrder = DimsOrder::fromAffineMap(reorder.getOrder().getValue());
                 const auto memPerm = getPermutationFromOrders(inOrder, outOrder, ctx);
-                return builder.create<VPU::PermuteCastOp>(loc, input, reorder.getOrder(),
-                                                          mlir::AffineMapAttr::get(memPerm));
+                return VPU::PermuteCastOp::create(builder, loc, input, reorder.getOrder(),
+                                                  mlir::AffineMapAttr::get(memPerm));
             })
             .Case([&](Const::AffineReshapeAttr affineReshape) -> mlir::Value {
-                return builder.create<VPU::AffineReshapeOp>(loc, input, affineReshape.getDimMapping(),
-                                                            affineReshape.getShapeValue());
+                return VPU::AffineReshapeOp::create(builder, loc, input, affineReshape.getDimMapping(),
+                                                    affineReshape.getShapeValue());
             })
             .Default([](Const::TransformAttrInterface) -> mlir::Value {
                 return nullptr;
@@ -1291,8 +1294,8 @@ void obfuscateInputsImpl(const Logger& log, mlir::Location loc, mlir::Block& bod
         const auto shape = mlir::cast<NDTypeInterface>(obfuscatedType).getShape();
         const auto inputValueLoc = inputValue.getLoc();
         auto sliceOp = createSlice(builder, appendLoc(inputValueLoc, "slice"), blobArg, offsets, shape.raw());
-        auto castOp = builder.create<Core::ReinterpretCastOp>(appendLoc(sliceOp->getLoc(), "deobfuscated"),
-                                                              inputValue.getType(), sliceOp->getResult(0));
+        auto castOp = Core::ReinterpretCastOp::create(builder, appendLoc(sliceOp->getLoc(), "deobfuscated"),
+                                                      inputValue.getType(), sliceOp->getResult(0));
         inputValue.replaceAllUsesWith(castOp.getResult());
 
         offsets[0] += shape[Dim(0)];
@@ -1365,7 +1368,7 @@ void obfuscateOutputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp 
         const auto returnValueLoc = returnValue.getLoc();
         const auto type = obfuscateType(returnValue.getType());
         auto castOp =
-                builder.create<Core::ReinterpretCastOp>(appendLoc(returnValueLoc, "obfuscated"), type, returnValue);
+                Core::ReinterpretCastOp::create(builder, appendLoc(returnValueLoc, "obfuscated"), type, returnValue);
         allReturns[index] = castOp.getResult();
 
         log.debug("value #{0} is {1}, obfuscated as {2}", index, returnValue.getType(), type);
@@ -1390,7 +1393,7 @@ void obfuscateOutputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp 
     newReturns.reserve(allReturns.size() - concatReturns.size() + 1);
     std::copy_if(allReturns.begin(), allReturns.end(), std::back_inserter(newReturns), std::not_fn(isObfuscated));
     newReturns.push_back(concatOp->getResult(0));
-    auto newReturnOp = builder.create<mlir::func::ReturnOp>(returnOp.getLoc(), newReturns);
+    auto newReturnOp = mlir::func::ReturnOp::create(builder, returnOp.getLoc(), newReturns);
 
     returnOp->replaceAllUsesWith(newReturnOp);
     returnOp->erase();

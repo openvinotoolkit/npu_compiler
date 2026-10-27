@@ -11,6 +11,7 @@
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/nce_workload_channels.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/sparsity_constraint.hpp"
 #include "vpux/compiler/NPU50XX/conversion/impl/convert_IE_to_VPU_NCE_strategy.hpp"
+#include "vpux/compiler/NPU50XX/dialect/VPU/impl/convert_tile_with_eltwise_to_nce_pool_strategy.hpp"
 #include "vpux/compiler/NPU50XX/dialect/VPU/impl/small_kernel_optimization.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
@@ -112,8 +113,13 @@ class StrategyFactory50XX : public VPU::StrategyFactory {
         return false;
     }
 
-    bool isConvertTileWithEltwiseToNCEPoolSupported() override {
+    bool useNewWeightTableFormat(mlir::Operation* /*op*/, bool /*isCompressConv*/) override {
         return false;
+    }
+
+    std::unique_ptr<IIterativeWalkPassStrategy> getConvertTileWithEltwiseToNCEPoolStrategy(
+            mlir::MLIRContext* ctx) override {
+        return std::make_unique<arch50xx::ConvertTileWithEltwiseToNCEPoolStrategy>(ctx);
     }
 
     std::unique_ptr<IConvertIEToVPUNCEStrategy> getConvertIEToVPUNCEStrategy(const Logger& log) override {

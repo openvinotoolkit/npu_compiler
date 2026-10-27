@@ -27,8 +27,8 @@ void padInput(mlir::Operation* firstOp) {
     for (unsigned i = 0; i < firstOp->getNumOperands(); ++i) {
         auto operand = firstOp->getOperand(i);
         if (IE::hasDynamicShapeAttr(operand)) {
-            auto expand = builder.create<IE::DynamicExpandOp>(
-                    appendLoc(firstOp->getLoc(), "expand_" + std::to_string(i)), operand);
+            auto expand = IE::DynamicExpandOp::create(
+                    builder, appendLoc(firstOp->getLoc(), "expand_" + std::to_string(i)), operand);
             firstOp->setOperand(i, expand.getOutput());
         }
     }
@@ -66,7 +66,7 @@ SmallVector<mlir::Operation*> getDynamicOperations(mlir::Operation* op, Logger l
 void freezeOutputShape(mlir::Operation* op) {
     auto origType = mlir::cast<NDTypeInterface>(op->getResult(0).getType());
     auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(origType);
-    VPUX_THROW_UNLESS(boundedType != nullptr, "Expected to get BoundedTensorType at {0}", op->getResult(0).getLoc());
+    VPUX_THROW_WHEN(boundedType == nullptr, "Expected to get BoundedTensorType at {0}", op->getResult(0).getLoc());
     auto bounds = boundedType.getBounds();
     const auto newShape = bounds.raw();
     const auto newType = mlir::RankedTensorType::get(newShape, origType.getElementType(),

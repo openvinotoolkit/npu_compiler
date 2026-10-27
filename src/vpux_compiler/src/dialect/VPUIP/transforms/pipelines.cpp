@@ -38,6 +38,9 @@ void vpux::VPUIP::buildHardwareAdaptationPipeline(mlir::OpPassManager& pm, Logge
     pm.addPass(VPUIP::createConvertAllocationsToDeclarationsPass(log));
     pm.addPass(VPUIP::createLinearizeCallOpsPass(log));
     pm.addPass(VPUIP::createConvertAsyncOpsToTasksPass(log));
+    // run canonicalization before inserting declarations to ensure IR legality
+    // (boundary casts on function outputs should fold)
+    pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(VPUIP::createConvertFuncArgsToDeclarationsPass(log));
     pm.addPass(VPUIP::createConvertViewOpsToDeclarationsPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));

@@ -3,60 +3,69 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
+#include "vpux/compiler/dialect/core/IR/dynamic_attrs.hpp"
+#include "vpux/compiler/utils/error.hpp"
+
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Support/LogicalResult.h>
-#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 
 using namespace vpux;
 
-mlir::LogicalResult VPUIP::GroupBoundedBufferOp::inferReturnTypes(mlir::MLIRContext* ctx,
-                                                                  std::optional<mlir::Location> optLoc,
-                                                                  mlir::ValueRange operands, mlir::DictionaryAttr attrs,
-                                                                  mlir::OpaqueProperties props,
-                                                                  mlir::RegionRange /*ranges*/,
-                                                                  SmallVectorImpl<mlir::Type>& inferredReturnTypes) {
-    const auto loc = optLoc.value_or(mlir::UnknownLoc::get(ctx));
+namespace {
+mlir::LogicalResult verifyTypeIsEitherBoundedBufferOrDynamicMemref(mlir::Operation* op, mlir::Type type) {
+    return mlir::TypeSwitch<mlir::Type, mlir::LogicalResult>(type)
+            .Case([](VPUIP::BoundedBufferType) {
+                return mlir::success();
+            })
+            .Case([op](mlir::MemRefType memref) {
+                if (memref.hasStaticShape()) {
+                    return errorAt(op, "memref must have dynamic shape, but got static: {0}", memref);
+                }
+                const auto bounds = getBounds(memref);
+                if (bounds.empty()) {
+                    return errorAt(op, "dynamic memref must have bounds, but got none: {0}", memref);
+                }
+                return mlir::success();
+            })
+            .Default([op](mlir::Type unknown) {
+                return errorAt(op, "type must be either VPUIP.BoundedBuffer or dynamic memref with bounds, got: {0}",
+                               unknown);
+            });
+}
+}  // namespace
 
-    VPUIP::GroupBoundedBufferOpAdaptor op(operands, attrs, props);
-    if (mlir::failed(op.verify(loc))) {
-        return mlir::failure();
-    }
-
-    const auto dataTy = op.getData().getType();
-    const auto shapeTy = op.getDynamicShape().getType();
-
-    inferredReturnTypes.push_back(VPUIP::BoundedBufferType::get(dataTy, shapeTy));
-
-    return mlir::success();
+void VPUIP::GroupBoundedBufferOp::build(mlir::OpBuilder&, mlir::OperationState& state, mlir::Value data,
+                                        mlir::Value shape) {
+    state.addOperands({data, shape});
+    const auto dataType = data.getType();
+    const auto shapeType = shape.getType();
+    state.addTypes(VPUIP::BoundedBufferType::get(dataType, shapeType));
 }
 
 mlir::ValueRange VPUIP::GroupBoundedBufferOp::getViewSources() {
     return getOperands();
 }
 
-mlir::LogicalResult VPUIP::UngroupBoundedBufferOp::inferReturnTypes(
-        mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc, mlir::ValueRange operands,
-        mlir::DictionaryAttr attrs, mlir::OpaqueProperties props, mlir::RegionRange /*ranges*/,
-        SmallVectorImpl<mlir::Type>& inferredReturnTypes) {
-    const auto loc = optLoc.value_or(mlir::UnknownLoc::get(ctx));
+mlir::LogicalResult VPUIP::GroupBoundedBufferOp::verify() {
+    return verifyTypeIsEitherBoundedBufferOrDynamicMemref(getOperation(), getOutput().getType());
+}
 
-    VPUIP::UngroupBoundedBufferOpAdaptor op(operands, attrs, props);
-    if (mlir::failed(op.verify(loc))) {
-        return mlir::failure();
-    }
-
-    const auto boundedBufferTy = mlir::cast<vpux::VPUIP::BoundedBufferType>(op.getInput().getType());
-    inferredReturnTypes.push_back(boundedBufferTy.getData());
-    inferredReturnTypes.push_back(boundedBufferTy.getDynamicShape());
-
-    return mlir::success();
+void VPUIP::UngroupBoundedBufferOp::build(mlir::OpBuilder&, mlir::OperationState& state, mlir::Value input) {
+    state.addOperands({input});
+    const auto boundedBufferType = mlir::cast<VPUIP::BoundedBufferType>(input.getType());
+    state.addTypes({boundedBufferType.getData(), boundedBufferType.getDynamicShape()});
 }
 
 mlir::Value VPUIP::UngroupBoundedBufferOp::getViewSource(ptrdiff_t idx) {
     VPUX_THROW_UNLESS(idx == 0 || idx == 1,
                       "UngroupBoundedBufferOp should have one view source with two aliases, got {0} offset", idx);
     return getOperand();
+}
+
+mlir::LogicalResult VPUIP::UngroupBoundedBufferOp::verify() {
+    return verifyTypeIsEitherBoundedBufferOrDynamicMemref(getOperation(), getInput().getType());
 }

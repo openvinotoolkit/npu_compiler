@@ -397,7 +397,6 @@ def VPU_ReduceSquareOp :
         I64ArrayAttr:$axes_value,
         UnitAttr:$keep_dims,
         OptionalAttr<F64Attr>:$epsilon,
-        OptionalAttr<I64Attr>:$scale,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
@@ -415,8 +414,7 @@ def VPU_ReduceSquareOp :
             "::mlir::Value":$input,
             "::mlir::ArrayAttr":$axes_value,
             "::mlir::UnitAttr":$keep_dims,
-            "::mlir::FloatAttr":$epsilon,
-            "::mlir::IntegerAttr":$scale
+            "::mlir::FloatAttr":$epsilon
         )>
     ];
 

@@ -72,16 +72,6 @@ SmallVector<mlir::Value> getOuterMostMappingOperand(VPUIP::SwKernelRun swKernelR
     return outerMostOperands;
 }
 
-VPUIP::SwProfilingMetadataAttr getUpdatedSwProfilingMetadataAttr(VPUIP::SwProfilingMetadataAttr attr, size_t tileId,
-                                                                 std::optional<size_t> maybeClusterId) {
-    const size_t bufferId = attr.getBufferId().getInt();
-    const size_t bufferOffset = attr.getBufferOffset().getInt();
-    const size_t clusterSize = attr.getClusterSize().getInt();
-    const size_t dataIndex = attr.getDataIndex().getInt();
-    return vpux::getSwProfilingMetaAttr(attr.getContext(), bufferId, bufferOffset, clusterSize, dataIndex + tileId,
-                                        tileId, maybeClusterId);
-}
-
 //
 // SwKernelRewriter
 //
@@ -117,7 +107,7 @@ mlir::LogicalResult SwKernelRewriter::matchAndRewrite(VPUIP::SwKernelOp swKernel
     }
 
     auto vpurtTask = swKernelOp->getParentOfType<VPURT::TaskOp>();
-    VPUX_THROW_UNLESS(vpurtTask != nullptr, "Can't get VPURT task operation");
+    VPUX_THROW_WHEN(vpurtTask == nullptr, "Can't get VPURT task operation");
 
     rewriter.setInsertionPointAfter(vpurtTask);
     auto swKernelRunList = swKernelOp.getBody().getOps<VPUIP::SwKernelRun>();
@@ -169,36 +159,6 @@ VPURT::TaskOp SwKernelRewriter::createNewTaskOp(VPUIP::SwKernelOp swKernelOp, VP
         swKernelInputDynamicShapesMap = to_small_vector(fullInputShapesMap);
         swKernelOutputDynamicShapesMap = to_small_vector(fullOutputShapesMap);
     }
-
-    mlir::Value newProfilingBuffer = nullptr;
-    VPUIP::SwProfilingMetadataAttr maybeProfMeta = nullptr;
-    if (auto profilingBuffer = swKernelOp.getProfilingData()) {
-        // In case task has profiling buffer as SwKernelOp operand, each individual SwKernelRun will be given
-        // its own chunk of this buffer. Buffer size was properly prepared by act-shave-profiling pass with
-        // enough space for each SwKernelRun inside
-        VPUX_THROW_WHEN(swKernelOp.getProfilingMetadataAttr() == nullptr, "Missed profilingMetadata for '{0}'",
-                        swKernelOp);
-        maybeProfMeta =
-                getUpdatedSwProfilingMetadataAttr(swKernelOp.getProfilingMetadataAttr(), index, /*clusterId=*/0);
-        auto profilingBufferDecl = profilingBuffer.getDefiningOp<VPURT::DeclareBufferOp>();
-        auto profilingBufferNDType = mlir::cast<vpux::NDTypeInterface>(profilingBuffer.getType());
-
-        int64_t numEl =
-                VPUIP::HW_ACT_SHAVE_PROFILING_SIZE_BYTES / vpux::Byte(profilingBufferNDType.getElemTypeSize()).count();
-        if (auto distrProfilingType = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(profilingBuffer.getType())) {
-            numEl *= distrProfilingType.getDistribution().getNumClusters().getInt();
-        }
-
-        const auto newMemType = profilingBufferNDType.changeShape({numEl});
-        auto newProfilingBufferDecl = rewriter.create<VPURT::DeclareBufferOp>(
-                profilingBufferDecl->getLoc(), newMemType, profilingBufferDecl.getSectionAttr(),
-                profilingBufferDecl.getSectionIndexAttr(),
-                getIntAttr(_ctx,
-                           profilingBufferDecl.getByteOffset() + VPUIP::HW_ACT_SHAVE_PROFILING_SIZE_BYTES * index),
-                nullptr);
-
-        newProfilingBuffer = newProfilingBufferDecl.getBuffer();
-    }
     // NOTE: use of cluster, tile and list indexes is not consistent. When tile is used in combination with
     // cluster it is understood that cluster identifies NCE unit and tile identifies its SHAVE sub unit
     // (typically used in profiling). When tile index is used in combination with list index it is the tile that
@@ -210,21 +170,18 @@ VPURT::TaskOp SwKernelRewriter::createNewTaskOp(VPUIP::SwKernelOp swKernelOp, VP
             return VPURT::wrapIntoTaskOp<VPUIP::SwKernelOp>(
                     rewriter, origTaskOp.getWaitBarriers(), origTaskOp.getUpdateBarriers(), opLoc, newInputs,
                     newOutBuffers, swKernelInputDynamicShapes, swKernelInputDynamicShapesMap,
-                    swKernelOutputDynamicShapes, swKernelOutputDynamicShapesMap, newProfilingBuffer,
+                    swKernelOutputDynamicShapes, swKernelOutputDynamicShapesMap, nullptr,
                     swKernelOp.getKernelFunctionAttr(), swKernelOp.getTileIndexAttr(), swKernelOp.getInputStridesAttr(),
                     swKernelOp.getOutputStridesAttr());
         }
         return VPURT::wrapIntoTaskOp<VPUIP::SwKernelOp>(
                 rewriter, origTaskOp.getWaitBarriers(), origTaskOp.getUpdateBarriers(), opLoc, newInputs, newOutBuffers,
-                newProfilingBuffer, swKernelOp.getKernelFunctionAttr(), swKernelOp.getTileIndexAttr(),
+                nullptr, swKernelOp.getKernelFunctionAttr(), swKernelOp.getTileIndexAttr(),
                 swKernelOp.getInputStridesAttr(), swKernelOp.getOutputStridesAttr());
     }();
 
     if (auto logicalTask = swKernelOp->getAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME)) {
         newSwKernelOp->setAttr(VPUIP::LOGICAL_TASK_INDEX_ATTR_NAME, logicalTask);
-    }
-    if (maybeProfMeta != nullptr) {
-        newSwKernelOp.setProfilingMetadataAttr(maybeProfMeta);
     }
     if (_enableSwKernelFifoPerShaveEngine) {
         newSwKernelOp.setListIndexAttr(getIntAttr(_ctx, index));

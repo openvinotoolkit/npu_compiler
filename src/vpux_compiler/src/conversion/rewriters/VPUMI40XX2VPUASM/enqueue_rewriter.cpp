@@ -41,9 +41,9 @@ mlir::FailureOr<SymbolizationResult> EnqueueRewriter::symbolize(VPURegMapped::En
 
     auto realTaskIdx = mlir::TypeAttr::get(startIndexType);
 
-    auto newOp = rewriter.create<VPUASM::WorkItemOp>(op.getLoc(), symName, taskIdx, realTaskIdx, nextWorkItemIndexAttr,
-                                                     op.getTaskTypeAttr(), firstTaskSym,
-                                                     rewriter.getI64IntegerAttr(static_cast<int64_t>(count)));
+    auto newOp = VPUASM::WorkItemOp::create(rewriter, op.getLoc(), symName, taskIdx, realTaskIdx, nextWorkItemIndexAttr,
+                                            op.getTaskTypeAttr(), firstTaskSym,
+                                            rewriter.getI64IntegerAttr(static_cast<int64_t>(count)));
     rewriter.eraseOp(op);
 
     return SymbolizationResult(newOp);

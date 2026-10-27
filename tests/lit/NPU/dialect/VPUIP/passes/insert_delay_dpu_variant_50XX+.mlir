@@ -14,7 +14,7 @@
 
 // CHECK-LABEL: @DPUTaskWithoutSprLUT
 func.func nested @DPUTaskWithoutSprLUT(%input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType, %output: !DataType) -> !DataType {
-    %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %dpu_output = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                             kernel_size = [1, 1],
                             kernel_strides = [1, 1],
@@ -51,7 +51,7 @@ func.func nested @DPUTaskWithoutSprLUT(%input: !DataType, %weights: !WeightsType
 
 // CHECK-LABEL: @ConvWithSprLUTKernel1x1
 func.func nested @ConvWithSprLUTKernel1x1(%input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
-    %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %dpu_output = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                             kernel_size = [1, 1],
                             kernel_strides = [1, 1],
@@ -95,7 +95,7 @@ func.func nested @ConvWithSprLUTKernel1x1(%input: !DataType, %weights: !WeightsT
 
 // CHECK-LABEL: @ConvWithSprLUTKernel3x3
 func.func nested @ConvWithSprLUTKernel3x3(%input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
-    %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %dpu_output = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                             kernel_size = [3, 3],
                             kernel_strides = [1, 1],
@@ -139,7 +139,7 @@ func.func nested @ConvWithSprLUTKernel3x3(%input: !DataType, %weights: !WeightsT
 
 // CHECK-LABEL: @ConvWithSprLUTKernel3x3Padding1x1x1x1
 func.func nested @ConvWithSprLUTKernel3x3Padding1x1x1x1(%input: !DataType, %weights: !WeightsType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
-    %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %dpu_output = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                             kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                             kernel_size = [3, 3],
                             kernel_strides = [1, 1],
@@ -182,7 +182,7 @@ func.func nested @ConvWithSprLUTKernel3x3Padding1x1x1x1(%input: !DataType, %weig
 
 // CHECK-LABEL: @ConvWithSprLUTKernel1x1Autopad
 func.func nested @ConvWithSprLUTKernel1x1Autopad(%input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
-    %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %dpu_output = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                             kernel_size = [1, 1],
                             kernel_strides = [1, 1],
@@ -263,7 +263,7 @@ func.func nested @ConvWithSprLUTKernel1x1Autopad(%input: !DataType, %weights: !W
 func.func nested @ConvWithODUAutopadAndHalo(
         %input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType,
         %output_iti0: !OutputITICluster0, %output_iti1: !OutputITICluster1, %output_iti2: !OutputITICluster2) -> !OutputITICluster0 {
-    %nce = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %nce = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             is_superdense,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],
@@ -323,7 +323,7 @@ func.func nested @ConvWithODUAutopadAndHalo(
 
 // CHECK-LABEL: @EltwiseAddWithSprLUT
 func.func nested @EltwiseAddWithSprLUT(%input1: !DataType, %input2: !DataType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
-    %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %dpu_output = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                             eltwise_type = #VPU.eltwise_type<ADD>,
                             mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
                             task_type = #VPUIP.nce_task_type<ELTWISE>
@@ -364,7 +364,7 @@ func.func nested @EltwiseAddWithSprLUT(%input1: !DataType, %input2: !DataType, %
 
 // CHECK-LABEL: @MaxPoolWithSprLUT
 func.func nested @MaxPoolWithSprLUT(%input1: !DataType, %weight_table: !WeightTableType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
-    %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %dpu_output = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                             kernel_size = [2, 2],
                             kernel_strides = [2, 2],
@@ -395,49 +395,3 @@ func.func nested @MaxPoolWithSprLUT(%input1: !DataType, %weight_table: !WeightTa
 // CHECK-DAG: inStart = [0, 0, 0]
 // CHECK-DAG: outEnd = [15, 15, 31]
 // CHECK-DAG: outStart = [0, 0, 0]
-
-// -----
-
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-
-!DataType = memref<1x32x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
-!WeightsType = memref<32x32x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
-!WeightTableType = memref<32x1x1x4xsi32, {order = #NHWC}, [@CMX_NN, 0]>
-!SrplutType = memref<512xui16, [@CMX_NN, 0]>
-
-// CHECK-LABEL: @ConvWithSprLUTAndProfiling
-func.func nested @ConvWithSprLUTAndProfiling(%input: !DataType, %weights: !WeightsType, %sprlut: !SrplutType, %output: !DataType) -> !DataType {
-    %dpu_output = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
-                            kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                            kernel_size = [1, 1],
-                            kernel_strides = [1, 1],
-                            task_type = #VPUIP.nce_task_type<CONV>,
-                            profilingMetadata = #VPUIP.DpuProfilingMetadataAttr<bufferId = 1 : i64, taskId = 1 : i64, maxVariants = 1 : i64>
-                        }>
-                        input(%input : !DataType)
-                        weights(%weights : !WeightsType)
-                        spr_lookup_table(%sprlut: !SrplutType)
-                        parent_input(%input : !DataType)
-                        parent_output(%output : !DataType)
-                        outputs(%output : !DataType) -> !DataType
-                        variants : {
-        DPUTask {inEnd = [15, 15, 31], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [15, 15, 31], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, workload_id = 42 : i64}
-    } PPE : {
-    }
-    return %dpu_output : !DataType
-}
-
-// CHECK:     DPUTask
-// CHECK-DAG: inEnd = [0, 0, 15]
-// CHECK-DAG: inStart = [0, 0, 0]
-// CHECK-DAG: is_dummy
-// CHECK-DAG: outEnd = [0, 0, 15]
-// CHECK-DAG: outStart = [0, 0, 0]
-// CHECK:     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
-// CHECK-DAG: workload_id = 42
-// CHECK:     DPUTask
-// CHECK-DAG: inEnd = [15, 15, 31]
-// CHECK-DAG: inStart = [0, 0, 0]
-// CHECK-DAG: outEnd = [15, 15, 31]
-// CHECK-DAG: outStart = [0, 0, 0]
-// CHECK-DAG: workload_id = 42

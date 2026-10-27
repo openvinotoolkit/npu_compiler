@@ -1288,6 +1288,40 @@ func.func @NotMoveDifferentInLayoutPermutesPostAddNoNHWC(%arg0: tensor<1x49x1024
 
 // -----
 
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// The two Add operands are permuted differently. Keeping only one of the permutes and replaying it on
+// the sum would drop the other operand's permutation, so the pattern must not be applied.
+
+// CHECK-LABEL: @NotMoveDifferentMemPermsPostAdd
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x16x16x16xf16, {order = #NHWC}>,
+// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x16x16x16xf16, {order = #NHWC}>
+func.func @NotMoveDifferentMemPermsPostAdd(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>, %arg1: tensor<1x16x16x16xf16, {order = #NHWC}>) -> tensor<1x16x16x16xf16, {order = #NHWC}> {
+    %cst = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}> = dense<0.230000e+00> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]
+
+    %0 = IE.Convolution(%arg0, %cst) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}> -> tensor<1x16x16x16xf16, {order = #NHWC}>
+    %1 = IE.MemPermute(%0) {dst_order = #NHWC, mem_perm = #NCWH} : tensor<1x16x16x16xf16, {order = #NHWC}> -> tensor<1x16x16x16xf16, {order = #NHWC}>
+
+    %2 = IE.Convolution(%arg1, %cst) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}> -> tensor<1x16x16x16xf16, {order = #NHWC}>
+    %3 = IE.MemPermute(%2) {dst_order = #NHWC, mem_perm = #NWCH} : tensor<1x16x16x16xf16, {order = #NHWC}> -> tensor<1x16x16x16xf16, {order = #NHWC}>
+
+    %4 = IE.Add(%1, %3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x16x16xf16, {order = #NHWC}>, tensor<1x16x16x16xf16, {order = #NHWC}> -> tensor<1x16x16x16xf16, {order = #NHWC}>
+
+    return %4 : tensor<1x16x16x16xf16, {order = #NHWC}>
+
+    // CHECK-DAG:   [[CST:%.+]] = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}>
+    // CHECK:       [[CONV_0:%.+]] = IE.Convolution([[INPUT_0]], [[CST]])
+    // CHECK:       [[MEM_PERMUTE_0:%.+]] = IE.MemPermute([[CONV_0]]) {dst_order = #NHWC, mem_perm = #NCWH}
+    // CHECK:       [[CONV_1:%.+]] = IE.Convolution([[INPUT_1]], [[CST]])
+    // CHECK:       [[MEM_PERMUTE_1:%.+]] = IE.MemPermute([[CONV_1]]) {dst_order = #NHWC, mem_perm = #NWCH}
+    // CHECK:       [[ADD:%.+]] = IE.Add([[MEM_PERMUTE_0]], [[MEM_PERMUTE_1]])
+    // CHECK:       return [[ADD]] : tensor<1x16x16x16xf16, {order = #NHWC}>
+}
+
+// -----
+
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 !qElemType5 = !quant.uniform<u8:f16, 0.0038406767097173954>

@@ -148,7 +148,7 @@ mlir::LogicalResult OptDynamicEltwiseWithShapeOf::matchAndRewrite(IE::ShapeOfOp 
     if (findOperandMatchingOutput(definingOp) != -1) {
         int matchingIndex = findOperandMatchingOutput(definingOp);
         auto operand = definingOp->getOperand(matchingIndex);
-        auto newResult = rewriter.create<IE::ShapeOfOp>(takeOpLoc(shapeOfOp, "new_result"), operand, outElemType);
+        auto newResult = IE::ShapeOfOp::create(rewriter, takeOpLoc(shapeOfOp, "new_result"), operand, outElemType);
         rewriter.replaceOp(shapeOfOp, newResult);
         return mlir::success();
     } else {
@@ -171,16 +171,15 @@ mlir::LogicalResult OptDynamicEltwiseWithShapeOf::matchAndRewrite(IE::ShapeOfOp 
         }
 
         auto outputboundedType = mlir::dyn_cast<Core::BoundedTensorType>(output.getType());
-        VPUX_THROW_UNLESS(outputboundedType != nullptr, "Expected to get bounded output type, got {0}",
-                          output.getType());
+        VPUX_THROW_WHEN(outputboundedType == nullptr, "Expected to get bounded output type, got {0}", output.getType());
         auto outBounds = outputboundedType.getBounds();
 
         const auto reshapeLoc = appendLoc(shapeOfOp->getLoc(), "dynamic_reshape");
-        auto reshapeResult = rewriter.create<IE::DynamicReshapeOp>(reshapeLoc, inputOperand, shapeTensor,
-                                                                   getIntArrayAttr(getContext(), outShape),
-                                                                   getIntArrayAttr(getContext(), outBounds));
+        auto reshapeResult = IE::DynamicReshapeOp::create(rewriter, reshapeLoc, inputOperand, shapeTensor,
+                                                          getIntArrayAttr(getContext(), outShape),
+                                                          getIntArrayAttr(getContext(), outBounds));
         auto newResult =
-                rewriter.create<IE::ShapeOfOp>(takeOpLoc(shapeOfOp, "dyn_reshape_result"), reshapeResult, outElemType);
+                IE::ShapeOfOp::create(rewriter, takeOpLoc(shapeOfOp, "dyn_reshape_result"), reshapeResult, outElemType);
 
         rewriter.replaceOp(shapeOfOp, newResult);
         return mlir::success();

@@ -54,15 +54,15 @@ void AddElfSymbolTablePass::safeRunOnFunc() {
         if (auto symTabEntry = symTabMap.find(symTabSignature); symTabEntry != symTabMap.end()) {
             symTab = symTabEntry->second;
         } else {
-            symTab = sectionBuilder.create<ELF::CreateSymbolTableSectionOp>(elfMain.getLoc(), symTabSignature.getName(),
-                                                                            symTabSignature.getFlags());
+            symTab = ELF::CreateSymbolTableSectionOp::create(sectionBuilder, elfMain.getLoc(),
+                                                             symTabSignature.getName(), symTabSignature.getFlags());
             symTabMap[symTabSignature] = symTab;
         }
 
         auto symbolSignature = symbolicallyRepresentedSection.getSymbolSignature();
 
         symbolBuilder.setInsertionPointToEnd(symTab.getBlock());
-        symbolBuilder.create<ELF::SymbolOp>(section.getLoc(), symbolSignature);
+        ELF::SymbolOp::create(symbolBuilder, section.getLoc(), symbolSignature);
     }
 }
 }  // namespace

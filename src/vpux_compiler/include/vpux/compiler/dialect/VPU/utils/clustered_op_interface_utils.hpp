@@ -68,7 +68,8 @@ bool isEltwiseSWOpSplitOverHeightCompatible(mlir::Operation* op, vpux::ShapeRef 
 
 // Simplified SOW compatibility check for SW eltwise ops.
 // Enforces a minimum output width threshold for ops without cycle cost support.
-bool isEltwiseSWOpSplitOverWidthCompatible(mlir::Operation* op, vpux::ShapeRef outputShape, int64_t alignment = 1);
+bool isEltwiseSWOpSplitOverWidthCompatible(mlir::Operation* op, vpux::ShapeRef outputShape, int64_t alignment = 1,
+                                           int64_t minWidthForSOW = 128);
 
 // Simplified SOK compatibility check for SW eltwise ops.
 // Performs a direct numTiles/numClusters check without full NCE tiling back-inference.

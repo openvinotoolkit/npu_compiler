@@ -191,6 +191,7 @@ def IE_ClampOp :
 
     let hasVerifier = 1;
     let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 def IE_CosOp :

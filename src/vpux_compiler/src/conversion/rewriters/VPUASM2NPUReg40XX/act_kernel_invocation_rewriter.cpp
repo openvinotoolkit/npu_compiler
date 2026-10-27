@@ -60,10 +60,10 @@ mlir::LogicalResult ActKernelInvocationRewriter::matchAndRewrite(VPUASM::ActKern
     descriptor.write<Fields::perf_packet_out>(perfPacketTileMask);
     descriptor.write<Fields::next_aki_wl_addr>(nextAkiTileMask);
 
-    rewriter.create<NPUReg40XX::ActKernelInvocationOp>(origOp->getLoc(), origOp.getSymNameAttr(), std::move(descriptor),
-                                                       origOp.getTaskLocationAttr(), origOp.getNextLinkAttr(),
-                                                       origOp.getKernelRangeAttr(), origOp.getKernelDataAttr(),
-                                                       origOp.getKernelParamsAttr(), origOp.getProfilingDataAttr());
+    NPUReg40XX::ActKernelInvocationOp::create(
+            rewriter, origOp->getLoc(), origOp.getSymNameAttr(), std::move(descriptor), origOp.getTaskLocationAttr(),
+            origOp.getNextLinkAttr(), origOp.getKernelRangeAttr(), origOp.getKernelDataAttr(),
+            origOp.getKernelParamsAttr(), origOp.getProfilingDataAttr());
 
     rewriter.eraseOp(origOp);
 

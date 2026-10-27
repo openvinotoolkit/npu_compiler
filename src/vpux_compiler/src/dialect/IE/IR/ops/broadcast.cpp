@@ -48,8 +48,8 @@ mlir::LogicalResult vpux::IE::BroadcastOp::inferReturnTypeComponents(
 
     const auto inType = mlir::cast<mlir::RankedTensorType>(broadcast.getInput().getType());
 
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
-                      IE::BroadcastOp::getOperationName());
+    VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
+                    IE::BroadcastOp::getOperationName());
 
     auto inShape = to_small_vector(inType.getShape());
     const auto broadcastMode = broadcast.getMode().has_value() ? broadcast.getMode().value() : IE::BroadcastType::NUMPY;

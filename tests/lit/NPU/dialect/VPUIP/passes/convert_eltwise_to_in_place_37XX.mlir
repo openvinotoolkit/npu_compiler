@@ -20,7 +20,7 @@ func.func @InplaceEltwiseSameType(%in: memref<1x32x96x96xf16, {order = #NHWC}>, 
 
     %1 = VPUIP.Copy inputs(%cst0 : memref<1x32x96x96xf16, {order = #NHWC}>) outputs(%buf0 : memref<1x32x96x96xf16, {order = #NHWC}, @CMX_NN>) -> memref<1x32x96x96xf16, {order = #NHWC}, @CMX_NN>
 
-    %2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                 task_type = #VPUIP.nce_task_type<ELTWISE>,
                 is_inplace = true
             }>
@@ -84,7 +84,7 @@ func.func @InplaceEltwiseFpDistributedOp(%in: memref<1x256x56x56xf16, {order = #
     %1 = VPUIP.Copy
         inputs(%in : memref<1x256x56x56xf16, {order = #NHWC}>)
         outputs(%buf_in : !VPUIP.DistributedBuffer<1x256x56x56xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)  ->  !VPUIP.DistributedBuffer<1x256x56x56xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
-    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%0 : !VPUIP.DistributedBuffer<1x256x56x56xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
         weights(%1 : !VPUIP.DistributedBuffer<1x256x56x56xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
         parent_input(%0 : !VPUIP.DistributedBuffer<1x256x56x56xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>)
@@ -160,7 +160,7 @@ func.func @InplaceEltwiseQuantizedView(%in: !qType0, %in2: !qType1, %out: !qType
     %0 = VPUIP.Copy inputs(%in : !qType0) outputs(%buf_in : !qType0CMX) -> !qType0CMX
     %1 = VPUIP.Copy inputs(%in2 : !qType1) outputs(%buf0 : !qType1CMX) -> !qType1CMX
 
-    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 11669 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 11669 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%0 : !qType0CMX)
         weights(%1 : !qType1CMX)
         parent_input(%0 : !qType0CMX)
@@ -227,7 +227,7 @@ func.func @InplaceEltwiseNeedsCast(%input : memref<1x512x28x28xf16, {order = #NH
     %eltwiseIn1 = VPUIP.DistributedCast inputs(%copyInput1 : !InputDistType1) -> !EltwiseDistType
     // This buffer will be eliminated, input 0 will be used insted
     %eltwiseOutBuf = VPURT.AllocDistributed -> !EltwiseDistType
-    %eltwise_output = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 32317 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %eltwise_output = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 32317 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%eltwiseIn0 : !EltwiseDistType)
         weights(%eltwiseIn1 : !EltwiseDistType)
         parent_input(%eltwiseIn0 : !EltwiseDistType)
@@ -310,7 +310,7 @@ func.func @InplaceEltwiseFirstInputHas2Consumers(%in: memref<1x256x56x56xf16, {o
     %1 = VPUIP.Copy
         inputs(%in : memref<1x256x56x56xf16, {order = #NHWC}>)
         outputs(%buf_in : !DistributedType)  ->  !DistributedType
-    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%0 : !DistributedType)
         weights(%1 : !DistributedType)
         parent_input(%0 : !DistributedType)
@@ -328,7 +328,7 @@ func.func @InplaceEltwiseFirstInputHas2Consumers(%in: memref<1x256x56x56xf16, {o
     %5 = VPUIP.Copy
         inputs(%in : memref<1x256x56x56xf16, {order = #NHWC}>)
         outputs(%buf_in_1 : !DistributedType)  ->  !DistributedType
-    %6 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %6 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%5 : !DistributedType)
         weights(%4 : !DistributedType)
         parent_input(%5 : !DistributedType)
@@ -429,7 +429,7 @@ func.func @InplaceEltwiseFirstInput2ConsumersSecondInputFromNCEPermute(%in: memr
     %1 = VPUIP.Copy
         inputs(%in : memref<1x256x56x56xf16, {order = #NHWC}>)
         outputs(%buf_in : !EltwiseDistributedType)  ->  !EltwiseDistributedType
-    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%0 : !EltwiseDistributedType)
         weights(%1 : !EltwiseDistributedType)
         parent_input(%0 : !EltwiseDistributedType)
@@ -444,7 +444,7 @@ func.func @InplaceEltwiseFirstInput2ConsumersSecondInputFromNCEPermute(%in: memr
     %4 = VPUIP.Copy
         inputs(%cst1 : memref<1x56x256x56xf16, {order = #NHWC}>)
         outputs(%buf_1 : !PermuteInDistributedType)  ->  !PermuteInDistributedType
-    %5 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 17144 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %5 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 17144 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_permute_quantize, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%4 : !PermuteInDistributedType)
         weights(%4 : !PermuteInDistributedType)
         parent_input(%4 : !PermuteInDistributedType)
@@ -462,7 +462,7 @@ func.func @InplaceEltwiseFirstInput2ConsumersSecondInputFromNCEPermute(%in: memr
 
     %7 = VPUIP.ViewOp %5 : !PermuteOutDistributedType to !EltwiseDistributedType
 
-    %8 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %8 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%6 : !EltwiseDistributedType)
         weights(%7 : !EltwiseDistributedType)
         parent_input(%6 : !EltwiseDistributedType)
@@ -610,7 +610,7 @@ func.func @InplaceEltwiseSubViewInterp(%in1: memref<1x128x104x104xf16, {order = 
     %13 = VPUIP.Copy
         inputs(%6 : memref<1x128x52x104xf16, {order = #NHWC, strides = [1384448, 1, 13312, 128]}>)
         outputs(%buf_in_2 : !DistributedType1)  ->  !DistributedType1
-    %14 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %14 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%12 : !DistributedType1)
         weights(%13 : !DistributedType1)
         parent_input(%12 : !DistributedType1)
@@ -734,7 +734,7 @@ func.func @InplaceEltwisePermQuantSubView(%in1: memref<1x64x52x52x!qElemType1>, 
     %4 = VPUIP.Copy
         inputs(%2 : memref<1x64x26x52x!qElemType2, {order = #NHWC, strides = [173056, 1, 3328, 64]}>)
         outputs(%buf_in : !DistributedType1)  ->  !DistributedType1
-    %6 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10325 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [2, 2], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<MAXPOOL>}>
+    %6 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10325 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [2, 2], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<MAXPOOL>}>
         input(%4 : !DistributedType1)
         weight_table(%wt : memref<64x1x1x4xsi32, @CMX_NN>)
         parent_input(%4 : !DistributedType1)
@@ -760,7 +760,7 @@ func.func @InplaceEltwisePermQuantSubView(%in1: memref<1x64x52x52x!qElemType1>, 
     %12 = VPUIP.Copy
         inputs(%10 : memref<1x64x26x52x!qElemType2, {order = #NHWC, strides = [173056, 1, 3328, 64]}>)
         outputs(%buf_in_1 : !DistributedType1)  ->  !DistributedType1
-    %13 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10325 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [2, 2], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<MAXPOOL>}>
+    %13 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 10325 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [2, 2], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<MAXPOOL>}>
         input(%12 : !DistributedType1)
         weight_table(%wt : memref<64x1x1x4xsi32, @CMX_NN>)
         parent_input(%12 : !DistributedType1)
@@ -778,7 +778,7 @@ func.func @InplaceEltwisePermQuantSubView(%in1: memref<1x64x52x52x!qElemType1>, 
     %15 = VPUIP.Copy
         inputs(%11 : memref<1x64x26x52x!qElemType2, {order = #NHWC, strides = [173056, 1, 3328, 64]}>)
         outputs(%buf_in_2 : !DistributedType1)  ->  !DistributedType1
-    %16 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
+    %16 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 31170 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_inplace = true, task_type = #VPUIP.nce_task_type<ELTWISE>}>
         input(%14 : !DistributedType1)
         weights(%15 : !DistributedType1)
         parent_input(%14 : !DistributedType1)

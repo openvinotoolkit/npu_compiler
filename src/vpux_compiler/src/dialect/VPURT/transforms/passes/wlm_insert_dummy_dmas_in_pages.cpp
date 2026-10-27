@@ -77,7 +77,7 @@ void WlmInsertDummyDmasInPagesPass::safeRunOnFunc() {
 
             // Create new barrier that will be consumed by original barrier consumers
             builder.setInsertionPointAfter(barOp);
-            auto newBarOp = builder.create<VPURT::DeclareVirtualBarrierOp>(barOp->getLoc());
+            auto newBarOp = VPURT::DeclareVirtualBarrierOp::create(builder, barOp->getLoc());
             newBarOp.setWlmPage(pageInd);
             barrierInfo.addNewBarrier(newBarOp);
             auto newBarrierIdx = barrierInfo.getIndex(newBarOp);

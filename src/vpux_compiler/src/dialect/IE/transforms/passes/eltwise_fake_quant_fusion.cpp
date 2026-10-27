@@ -139,7 +139,7 @@ mlir::LogicalResult EltwiseFakeQuantizeFusion<ConcreteOp>::matchAndRewrite(IE::F
 
     auto scalarProducerOp = scalarInput.getDefiningOp();
     mlir::Operation* maybeDequantOrFQ = nullptr;
-    if (mlir::isa_and_present<IE::FakeQuantizeOp, IE::DequantizeOp>(scalarProducerOp)) {
+    if (mlir::isa_and_present<IE::FakeQuantizeOp, IE::DequantizeOp, IE::DynamicDequantizeOp>(scalarProducerOp)) {
         maybeDequantOrFQ = scalarProducerOp;
         scalarProducerOp = scalarProducerOp->getOperand(0).getDefiningOp();
     }
@@ -208,6 +208,27 @@ mlir::LogicalResult EltwiseFakeQuantizeFusion<ConcreteOp>::matchAndRewrite(IE::F
         }
 
         scalarConstantValue = dequantize(scalarConstantValue, concreteScaleValue, concreteZeroPointValue);
+    } else if (auto scalarInputDynDeqOp = mlir::dyn_cast_if_present<IE::DynamicDequantizeOp>(maybeDequantOrFQ)) {
+        auto scaleConst = scalarInputDynDeqOp.getScale().getDefiningOp<Const::DeclareOp>();
+        if (scaleConst == nullptr || !scaleConst.getContentAttr().isSplat()) {
+            _log.nest().trace("DynamicDequantize scale is not a scalar constant at '{0}'",
+                              scalarInputDynDeqOp->getLoc());
+            return mlir::failure();
+        }
+        const auto concreteScaleValue = scaleConst.getContentAttr().fold().getSplatValue<float>();
+
+        float concreteZeroPointValue = 0.0f;
+        if (auto zp = scalarInputDynDeqOp.getZp()) {
+            auto zpConst = zp.getDefiningOp<Const::DeclareOp>();
+            if (zpConst == nullptr || !zpConst.getContentAttr().isSplat()) {
+                _log.nest().trace("DynamicDequantize zero-point is not a scalar constant at '{0}'",
+                                  scalarInputDynDeqOp->getLoc());
+                return mlir::failure();
+            }
+            concreteZeroPointValue = zpConst.getContentAttr().fold().getSplatValue<float>();
+        }
+
+        scalarConstantValue = (scalarConstantValue - concreteZeroPointValue) * concreteScaleValue;
     }
 
     // NOTE: Fallback for when adaptive stripping is disabled

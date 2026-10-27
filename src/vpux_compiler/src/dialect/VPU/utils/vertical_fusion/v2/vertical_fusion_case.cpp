@@ -102,7 +102,8 @@ StrategyCost VFCase::getCost() const {
     return _cachedCost.value();
 }
 
-StrategyCost VFCase::getCost(const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log) {
+StrategyCost VFCase::getCost(const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
+                             bool enableOutputTileAdjustmentForSW, Logger log) {
     VPUX_THROW_WHEN(!isInitialized(), "Cannot get cost of uninitialized VF case");
 
     auto loc = _config.getOutputs().front()->getLoc();
@@ -111,7 +112,8 @@ StrategyCost VFCase::getCost(const std::unique_ptr<VPU::LayerVPUNNCost>& costFun
         if (_vfTilingStorage == nullptr) {
             _vfTilingStorage = std::make_unique<TilingOperationStorage>();
             auto tilingDims = parseIntArrayAttr<int64_t>(getTiling());
-            auto tilingStorage = calculateTilingRegions(_config, tilingDims, log, _vfTilingStorage);
+            auto tilingStorage =
+                    calculateTilingRegions(_config, tilingDims, log, _vfTilingStorage, enableOutputTileAdjustmentForSW);
             VPUX_THROW_WHEN(mlir::failed(tilingStorage), "Cannot get tiling regions for {0} and {1} tiles", loc,
                             tilingDims);
         }

@@ -108,8 +108,8 @@ void WrapOpsInSparsifyDesparsifyPairsPass::safeRunOnFunc() {
         if (!constraint.areChannelsFitForSESize(channels)) {
             return;
         }
-        const auto sparsifyOp = builder.create<VPU::SparsifyOp>(loc, result);
-        const auto desparsifyOp = builder.create<VPU::DesparsifyOp>(loc, sparsifyOp->getResult(0));
+        const auto sparsifyOp = VPU::SparsifyOp::create(builder, loc, result);
+        const auto desparsifyOp = VPU::DesparsifyOp::create(builder, loc, sparsifyOp->getResult(0));
         result.replaceAllUsesExcept(desparsifyOp->getResult(0), sparsifyOp);
         _log.trace("Added Desparsify->Sparsify chain for '{0}' output", producerOp->getLoc());
     };
@@ -131,10 +131,10 @@ void WrapOpsInSparsifyDesparsifyPairsPass::safeRunOnFunc() {
         if (!constraint.areChannelsFitForSESize(producer.getType(), channels)) {
             return;
         }
-        const auto sparsifyOp = builder.create<VPU::SparsifyOp>(loc, producer);
+        const auto sparsifyOp = VPU::SparsifyOp::create(builder, loc, producer);
         auto newResult = sparsifyOp->getResult(0);
         if (_sparsityProfile == ActivationSparsityProfile::S1) {
-            const auto desparsifyOp = builder.create<VPU::DesparsifyOp>(loc, newResult);
+            const auto desparsifyOp = VPU::DesparsifyOp::create(builder, loc, newResult);
             newResult = desparsifyOp->getResult(0);
             _log.trace("Added Desparsify->Sparsify chain for input #{0} of '{1}'", operandId, consumerOp->getLoc());
         } else {

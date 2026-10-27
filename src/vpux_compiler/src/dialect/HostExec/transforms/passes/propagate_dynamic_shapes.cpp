@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -80,26 +80,27 @@ void writeShapeToBuffer(mlir::PatternRewriter& rewriter, mlir::Location loc, mli
     }
 
     for (int64_t dimIdx = 0; dimIdx < rank; ++dimIdx) {
-        auto storeIndex = rewriter.create<mlir::arith::ConstantIndexOp>(loc, dimIdx);
+        auto storeIndex = mlir::arith::ConstantIndexOp::create(rewriter, loc, dimIdx);
         const auto sourceDimIdx = rank - 1 - dimIdx;
 
         auto dimAsIndex = [&]() -> mlir::Value {
-            auto sourceIndex = rewriter.create<mlir::arith::ConstantIndexOp>(loc, sourceDimIdx);
+            auto sourceIndex = mlir::arith::ConstantIndexOp::create(rewriter, loc, sourceDimIdx);
             if (sourceType.getShape()[sourceDimIdx] == mlir::ShapedType::kDynamic) {
-                return rewriter.create<mlir::memref::DimOp>(loc, source, sourceIndex);
+                return mlir::memref::DimOp::create(rewriter, loc, source, sourceIndex);
             }
 
-            return rewriter.create<mlir::arith::ConstantIndexOp>(loc, sourceType.getShape()[sourceDimIdx]);
+            return mlir::arith::ConstantIndexOp::create(rewriter, loc, sourceType.getShape()[sourceDimIdx]);
         }();
 
-        auto dimSignless = rewriter.create<mlir::arith::IndexCastOp>(loc, signlessElemType, dimAsIndex);
+        auto dimSignless = mlir::arith::IndexCastOp::create(rewriter, loc, signlessElemType, dimAsIndex);
         mlir::Value dimForStore = dimSignless;
         if (signlessElemType != shapeElemType) {
-            dimForStore = rewriter.create<mlir::UnrealizedConversionCastOp>(loc, shapeElemType, dimSignless.getResult())
-                                  .getResult(0);
+            dimForStore =
+                    mlir::UnrealizedConversionCastOp::create(rewriter, loc, shapeElemType, dimSignless.getResult())
+                            .getResult(0);
         }
 
-        rewriter.create<mlir::memref::StoreOp>(loc, dimForStore, shapeBuffer, mlir::ValueRange{storeIndex});
+        mlir::memref::StoreOp::create(rewriter, loc, dimForStore, shapeBuffer, mlir::ValueRange{storeIndex});
     }
 }
 

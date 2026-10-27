@@ -35,6 +35,7 @@
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/odu_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tile_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
@@ -57,6 +58,23 @@ namespace {
 //
 // TilingInfoOpModel
 //
+
+template <class NCEOpType>
+bool hasUnsupportedChannelSplitForBlockFirstS2DD2S(NCEOpType origOp, const OutputTiling& tiles) {
+    const auto s2dd2sCfg = origOp.getS2dd2sConfigAttr();
+    if (s2dd2sCfg == nullptr) {
+        return false;
+    }
+    if (VPU::isS2DD2SDimSplitSupported(s2dd2sCfg, Dims4D::Act::C)) {
+        return false;
+    }
+
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
+    const auto outputChannels = outputType.getShape()[Dims4D::Act::C];
+    return llvm::any_of(tiles, [&](const TileInfo& outputTile) {
+        return outputTile.offsets[Dims4D::Act::C] != 0 || outputTile.shape[Dims4D::Act::C] != outputChannels;
+    });
+}
 
 template <class ConcreteOp>
 bool isSupportedIsolatedTilingConvBased(ConcreteOp origOp, const OutputTiling& tiles, Logger log) {
@@ -118,6 +136,10 @@ bool isSupportedIsolatedTilingConvBased(ConcreteOp origOp, const OutputTiling& t
 }
 
 bool isSupportedIsolatedTiling(VPU::NCEConvolutionOp origOp, const OutputTiling& tiles, Logger log) {
+    if (hasUnsupportedChannelSplitForBlockFirstS2DD2S(origOp, tiles)) {
+        log.trace("[Rejected] BLOCK_FIRST S2DD2S does not support C-dim tiling");
+        return false;
+    }
     return isSupportedIsolatedTilingConvBased(origOp, tiles, log);
 }
 
@@ -173,6 +195,11 @@ bool isSupportedIsolatedTiling(VPU::NCEReduceOp origOp, const OutputTiling& tile
 }
 
 bool isSupportedIsolatedTiling(VPU::NCEMaxPoolOp origOp, const OutputTiling& tiles, Logger log) {
+    if (hasUnsupportedChannelSplitForBlockFirstS2DD2S(origOp, tiles)) {
+        log.trace("[Rejected] BLOCK_FIRST S2DD2S does not support C-dim tiling");
+        return false;
+    }
+
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
 
@@ -190,7 +217,7 @@ bool isSupportedIsolatedTiling(VPU::NCEMaxPoolOp origOp, const OutputTiling& til
     return llvm::all_of(tiles, [&](const TileInfo& outputTile) {
         const auto inputTiles = origOp.backInferTileInfo(outputTile, log).tiles;
 
-        VPUX_THROW_UNLESS(!inputTiles.empty(), "Got empty tile information");
+        VPUX_THROW_WHEN(inputTiles.empty(), "Got empty tile information");
         const auto& inputTile = inputTiles[0];
 
         const auto inputTileType = inputType.extractDenseTile(inputTile.offsets, inputTile.shape);
@@ -230,7 +257,7 @@ bool isSupportedIsolatedTiling(VPU::NCEAveragePoolOp origOp, const OutputTiling&
     return llvm::all_of(tiles, [&](const TileInfo& outputTile) {
         const auto inputTiles = origOp.backInferTileInfo(outputTile, log).tiles;
 
-        VPUX_THROW_UNLESS(!inputTiles.empty(), "Got empty tile information");
+        VPUX_THROW_WHEN(inputTiles.empty(), "Got empty tile information");
         const auto& inputTile = inputTiles[0];
 
         const auto inputTileType = inputType.extractDenseTile(inputTile.offsets, inputTile.shape);
@@ -364,6 +391,10 @@ bool isSupportedPrefetchTilingConvBased(ConcreteOp origOp, const OutputTiling& t
 
 bool isSupportedPrefetchTiling(VPU::NCEConvolutionOp origOp, const OutputTiling& tiles, Logger log,
                                TilingMode tilingMode) {
+    if (hasUnsupportedChannelSplitForBlockFirstS2DD2S(origOp, tiles)) {
+        log.trace("[Rejected] BLOCK_FIRST S2DD2S does not support C-dim tiling");
+        return false;
+    }
     return isSupportedPrefetchTilingConvBased(origOp, tiles, log, tilingMode);
 }
 
@@ -387,6 +418,11 @@ bool isSupportedPrefetchTiling(VPU::NCEReduceOp origOp, const OutputTiling& tile
 }
 
 bool isSupportedPrefetchTiling(VPU::NCEMaxPoolOp origOp, const OutputTiling& tiles, Logger log, TilingMode tilingMode) {
+    if (hasUnsupportedChannelSplitForBlockFirstS2DD2S(origOp, tiles)) {
+        log.trace("[Rejected] BLOCK_FIRST S2DD2S does not support C-dim tiling");
+        return false;
+    }
+
     auto tileAxis = tiles.front().axis;
     auto tileDims = getTileDims(tileAxis);
 
@@ -826,6 +862,7 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::MemPermuteOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ConvertOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::PadOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::PadDmaOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::DepthToSpaceOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::SpaceToDepthOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ExperimentalDetectronROIFeatureExtractorOp::attachInterface<SoftwareLayerOpModel>(*ctx);
@@ -951,6 +988,7 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::FlashSDPAOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::YuvToRgbOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ReduceSquareOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::GroupQuantCorrectionOp::attachInterface<SoftwareLayerOpModel>(*ctx);
     });
 
     registry.addExtension(+[](mlir::MLIRContext* ctx, vpux::Shave::ShaveDialect*) {

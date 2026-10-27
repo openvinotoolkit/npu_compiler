@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/types/quantile_float/dialect.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "mlir/Dialect/Quant/IR/Quant.h"
+#include "mlir/Dialect/Quant/IR/QuantTypes.h"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
 #include <gtest/gtest.h>
@@ -21,15 +22,16 @@ using namespace vpux;
 
 TEST(MLIR_ElementTypeToString, CoversAllSupportedElementTypes) {
     mlir::DialectRegistry registry;
-    registry.insert<vpux::type::QuantileDialect>();
+    registry.insert<mlir::quant::QuantDialect>();
 
     mlir::MLIRContext ctx(registry);
-    ctx.loadDialect<vpux::type::QuantileDialect>();
+    ctx.loadDialect<mlir::quant::QuantDialect>();
 
     // NF4 stores values as 4-bit codes, so the LUT must provide 2^4 = 16 entries for codes [0..15].
     const SmallVector<double> quantileLUT = {0.0, 1.0, 2.0,  3.0,  4.0,  5.0,  6.0,  7.0,
                                              8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0};
-    const auto nf4Type = vpux::type::QuantileType::get(&ctx, getSInt8Type(&ctx), getUInt4Type(&ctx), quantileLUT);
+    const auto nf4Type = mlir::quant::QuantileType::get(&ctx, getSInt8Type(&ctx), getUInt4Type(&ctx), quantileLUT,
+                                                        /*storageMin=*/0, /*storageMax=*/15);
 
     const std::vector<std::pair<mlir::Type, std::string>> testCases = {
             {mlir::Float64Type::get(&ctx), "f64"},
@@ -60,7 +62,7 @@ TEST(MLIR_ElementTypeToString, CoversAllSupportedElementTypes) {
 
     // For NF4 type, verify it prints with QuantileType signature
     const auto nf4TypeStr = elementTypeToString(nf4Type);
-    EXPECT_TRUE(nf4TypeStr.find("QuantileType") != std::string::npos);
+    EXPECT_TRUE(nf4TypeStr.find("!quant.quantile") != std::string::npos);
 
     // NoneType should print as "none"
     EXPECT_EQ(elementTypeToString(mlir::NoneType::get(&ctx)), "none");

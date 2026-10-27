@@ -93,6 +93,54 @@ mlir::FailureOr<std::tuple<SmallVector<double>, SmallVector<int64_t>>> getScales
         IE::AutoBroadcastType broadcast, const std::optional<int64_t> levels, const std::optional<mlir::Type> lowFpType,
         bool isSigned, const Logger& log = Logger::global());
 
+//
+// Precise scales/zero-points carried on weights FakeQuantize ops.
+//
+// ConvertDynamicDequantizeToFakeQuantize sets these attributes on the FQ op while the scales are
+// still the original fp32 values from the DynamicDequantize operands. ConvertPrecisionToFP later
+// rounds the FQ output-limit constants to f16, and a scale recomputed from those rounded limits
+// loses precision (observed ~1e-4 relative error vs the cached fp32 value).
+// SplitFakeQuant prefers them over recomputing from output limits.
+inline constexpr llvm::StringLiteral FQ_PRECISE_SCALES_ATTR = "vpux.fq_precise_scales";
+inline constexpr llvm::StringLiteral FQ_PRECISE_ZERO_POINTS_ATTR = "vpux.fq_precise_zero_points";
+
+struct PreciseQuantParams {
+    SmallVector<float> scales;
+    SmallVector<int32_t> zeroPoints;
+};
+
+// Stores precise dequantization scales/zero-points on a FakeQuantize op
+void setPreciseScalesZeroPoints(IE::FakeQuantizeOp fqOp, ArrayRef<float> scales, ArrayRef<int32_t> zeroPoints);
+
+// Reads back the precise scales/zero-points. Fails when either attribute is absent
+mlir::FailureOr<PreciseQuantParams> getPreciseScalesZeroPoints(IE::FakeQuantizeOp fqOp);
+
+// Copies the precise scales/zero-points attributes from src to dst FakeQuantize (values unchanged).
+// No-op when src carries no such attribute
+void copyPreciseScalesZeroPoints(IE::FakeQuantizeOp srcFq, IE::FakeQuantizeOp dstFq);
+
+// Drops the precise scales/zero-points attributes. Must be called by any pass that rewrites the FakeQuantize
+// output limits, since the stored values then no longer describe the op and SplitFakeQuant would prefer them
+// over the rewritten limits
+void clearPreciseScalesZeroPoints(IE::FakeQuantizeOp fqOp);
+
+// Const value operands for an IE::DynamicDequantizeOp. zeroPoint is null when all zero-points are 0.
+struct DynamicDequantizeConsts {
+    mlir::Value scale;
+    mlir::Value zeroPoint;
+};
+
+// Builds the scale/zero-point const operands for an IE::DynamicDequantizeOp from already-computed
+// per-tensor or per-axis values. scaleShape/zpShape must have rank equal to the dequantized tensor's rank,
+// with the quantized axis (if any) set to scales.size()/zeroPoints.size() and all other dims set to 1.
+// rawStorageType is only used to resolve the zero-point element type (QuantileType uses its inner storage type).
+// scaleElemType selects the scale const's element type; defaults (null) to F32 for maximum precision.
+DynamicDequantizeConsts buildDynamicDequantizeScaleZpConsts(mlir::PatternRewriter& rewriter, mlir::Location scaleLoc,
+                                                            mlir::Location zpLoc, mlir::Type rawStorageType,
+                                                            ArrayRef<int64_t> scaleShape, ArrayRef<int64_t> zpShape,
+                                                            ArrayRef<float> scales, ArrayRef<int32_t> zeroPoints,
+                                                            mlir::Type scaleElemType = nullptr);
+
 static constexpr float QUANT_RANGE_RATIO = 5.0;
 
 std::optional<int64_t> getFQAxisIndex(IE::FakeQuantizeOp fq, Logger log = Logger::global());

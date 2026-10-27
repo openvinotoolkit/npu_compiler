@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
@@ -25,7 +26,29 @@ using namespace vpux;
 namespace {
 
 //
-// GenericConverter
+// FusePostOpsRewriter
+//
+//               |
+//     Conv (w/clamp || w/o clamp) w/o postOp
+//               |                                                   |
+//             PostOp                              ->     Conv (w/ clamp || w/o clamp) w/ PostOp
+//               |                                                   |
+//
+//  PPE tasks apply post-op first then clamp. If the following subgraph is given:
+//  ```
+//  Conv {clamp = {max = 1.0, min = -1.0} }
+//   |
+//  Tanh
+//  ```
+//
+//  If activation function is monotonically non-decreasing like Tanh then given activation function 'f':
+//  `f(clamp_[min, max](x)) == clamp_[f(min), f(max)](f(x))`
+//
+//  Creates a clamp attribute:
+//  `clamp = {max = tanh(1.0), min = tanh(-1.0)} ~== clamp = {max = 0.76, min = -0.76}`
+//
+//  This enables the Tanh to be fused later:
+//  `Conv {clamp = {max = 0.76, min = -0.76}, post_op=#IE.Tanh<>}`
 //
 
 class FusePostOpsRewriter final : public mlir::OpTraitRewritePattern<IE::EltwiseOp> {
@@ -66,9 +89,10 @@ mlir::LogicalResult FusePostOpsRewriter::matchAndRewrite(mlir::Operation* postOp
     if (!producerOp.isSupportedPostOp(postOp, logCb)) {
         return matchFailed(_log, rewriter, postOp, "PostOp producer does not support post-processing for current case");
     }
-    if (const auto postOpAttr = producerOp.getPostOp()) {
+    auto producerPostOpAttr = producerOp.getPostOp();
+    if (producerPostOpAttr != nullptr) {
         return matchFailed(_log, rewriter, postOp, "PostOp producer already has post-processing '{0}'",
-                           postOpAttr.getName());
+                           producerPostOpAttr.getName());
     }
     if (postOp->getNumOperands() != 1) {
         return matchFailed(_log, rewriter, postOp,
@@ -76,10 +100,29 @@ mlir::LogicalResult FusePostOpsRewriter::matchAndRewrite(mlir::Operation* postOp
                            postOp->getNumOperands());
     }
 
-    producerOp.setPostOp(postOp);
+    auto postOpAttr = IE::attributizePostOp(postOp);
+    if (postOpAttr == nullptr) {
+        return matchFailed(_log, rewriter, postOp, "Unable to attributize Op '{0}' at loc '{1}'", postOp->getName(),
+                           postOp->getLoc());
+    }
+
+    auto fusedClamp = IE::getFusedClamp(_log, producerOp.getClampAttr(), postOpAttr, nullptr, producerOp,
+                                        postOp->getResult(0).getType());
+    if (!fusedClamp.has_value()) {
+        return matchFailed(_log, rewriter, postOp, "Fusing Clamp is not supported");
+    }
+
     auto origElemType = mlir::cast<vpux::NDTypeInterface>(postOp->getResult(0).getType()).getElementType();
     auto newType = mlir::cast<vpux::NDTypeInterface>(producerOp->getOpResult(0).getType());
-    producerOp->getOpResult(0).setType(newType.changeElemType(origElemType));
+    rewriter.modifyOpInPlace(producerOp, [&] {
+        producerOp->getOpResult(0).setType(newType.changeElemType(origElemType));
+
+        producerOp.setPostOpAttr(postOpAttr);
+
+        if (fusedClamp.value() != nullptr) {
+            producerOp.setClampAttr(fusedClamp.value());
+        }
+    });
     rewriter.replaceOp(postOp, producerOp->getResult(0));
 
     return mlir::success();
@@ -125,7 +168,10 @@ mlir::LogicalResult FuseClampRewriter::matchAndRewrite(IE::ClampOp clampOp, mlir
                            "ClampOp producer does not support post-processing for current case");
     }
 
-    producerOp.setClampOp(clampOp);
+    rewriter.modifyOpInPlace(producerOp, [&] {
+        producerOp.setClampOp(clampOp);
+    });
+
     rewriter.replaceOp(clampOp, producerOp->getResult(0));
 
     return mlir::success();
@@ -187,21 +233,20 @@ mlir::LogicalResult SwapSliceWithActivation::matchAndRewrite(IE::SliceOp sliceOp
         return mlir::failure();
     }
 
-    // Swap: create activation on the unsliced tensor, then slice the result
-    rewriter.setInsertionPoint(sliceOp);
-    auto* newActivation = rewriter.clone(*userOp);
+    // Swap: retarget activation to the unsliced tensor, then slice its result
     auto sourceType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getSource().getType());
     auto activationElemType = mlir::cast<vpux::NDTypeInterface>(userOp->getResult(0).getType()).getElementType();
-    rewriter.modifyOpInPlace(newActivation, [&] {
-        newActivation->setOperand(0, sliceOp.getSource());
-        newActivation->getResult(0).setType(sourceType.changeElemType(activationElemType));
+    rewriter.modifyOpInPlace(userOp, [&] {
+        userOp->setOperand(0, sliceOp.getSource());
+        userOp->getResult(0).setType(sourceType.changeElemType(activationElemType));
     });
 
-    auto newSlice = rewriter.create<IE::SliceOp>(sliceOp.getLoc(), newActivation->getResult(0),
-                                                 sliceOp.getStaticOffsetsAttr(), sliceOp.getStaticSizesAttr());
+    rewriter.setInsertionPointAfter(userOp);
+    auto newSlice = IE::SliceOp::create(rewriter, sliceOp.getLoc(), userOp->getResult(0),
+                                        sliceOp.getStaticOffsetsAttr(), sliceOp.getStaticSizesAttr());
     extendOpLoc(newSlice, "swap_act");
 
-    rewriter.replaceOp(userOp, newSlice.getResult());
+    rewriter.replaceAllUsesExcept(userOp->getResult(0), newSlice.getResult(), newSlice);
     rewriter.eraseOp(sliceOp);
 
     return mlir::success();

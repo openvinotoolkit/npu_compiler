@@ -6,13 +6,13 @@
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -78,13 +78,13 @@ inline Dim getFilterChannelDim(size_t rank) {
 
 SmallVector<SmallVector<int32_t>> extractWorkloadChannels(VPU::NCEOpInterface nceOp, bool& shouldSwitchToSegmented) {
     auto workloads = nceOp.getWorkloads().getOps<VPU::DPUWorkloadOp>();
-    VPUX_THROW_UNLESS(!workloads.empty(), "No workloads were retrieved from '{0}' at '{1}'", nceOp->getName(),
-                      nceOp->getLoc());
+    VPUX_THROW_WHEN(workloads.empty(), "No workloads were retrieved from '{0}' at '{1}'", nceOp->getName(),
+                    nceOp->getLoc());
 
     const auto weightTableOperand = nceOp.getWeightZeroPointsOperand() ? nceOp.getWeightZeroPointsOperand()
                                                                        : nceOp.getWeightTableDataPtrOperand();
-    VPUX_THROW_UNLESS(weightTableOperand != nullptr, "Can't get weight table operand for '{0}' at '{1}'",
-                      nceOp->getName(), nceOp->getLoc());
+    VPUX_THROW_WHEN(weightTableOperand == nullptr, "Can't get weight table operand for '{0}' at '{1}'",
+                    nceOp->getName(), nceOp->getLoc());
 
     const auto distributedType = mlir::dyn_cast<VPU::DistributedTensorType>(weightTableOperand.getType());
 
@@ -155,9 +155,9 @@ template <typename WeightTableType>
 mlir::Value sliceZeroPoints(mlir::IRRewriter& rewriter, WeightTableType weightTableOp, Const::DeclareOp& zpConstOp,
                             VPU::SliceOp sliceOp) {
     zpConstOp = weightTableOp.getZeroPoints().template getDefiningOp<Const::DeclareOp>();
-    VPUX_THROW_UNLESS(zpConstOp != nullptr,
-                      "ZeroPoints operand of '{0}' at '{1}' is not a const.Declare, cannot perform slicing",
-                      weightTableOp->getName(), weightTableOp->getLoc());
+    VPUX_THROW_WHEN(zpConstOp == nullptr,
+                    "ZeroPoints operand of '{0}' at '{1}' is not a const.Declare, cannot perform slicing",
+                    weightTableOp->getName(), weightTableOp->getLoc());
 
     const auto sliceOffsets = Shape(parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets()));
     const auto sliceShape = Shape(parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes()));
@@ -206,7 +206,7 @@ mlir::Value sliceZeroPoints(mlir::IRRewriter& rewriter, WeightTableType weightTa
 
     auto zpType = zpOrigNDType.changeShape(sliceShape);
     auto newContentAttr = zpConstOp.transformContentAttr().subview(sliceOffsets, sliceShape).get();
-    return rewriter.create<Const::DeclareOp>(zpConstOp.getLoc(), zpType, newContentAttr).getOutput();
+    return Const::DeclareOp::create(rewriter, zpConstOp.getLoc(), zpType, newContentAttr).getOutput();
 }
 
 template <typename WeightTableType>
@@ -283,9 +283,9 @@ WeightTableType updateWeightTableOp(mlir::IRRewriter& rewriter, VPU::NCEOpInterf
 
     rewriter.setInsertionPoint(weightTableOp);
     auto newWeightTableOp =
-            rewriter.create<WeightTableType>(weightTableOp->getLoc(), newOutputType, adjustedZeroPoints,
-                                             getIntArrayAttr(rewriter.getContext(), flatWorkloadChannels),
-                                             getIntArrayAttr(rewriter.getContext(), weightTableData));
+            WeightTableType::create(rewriter, weightTableOp->getLoc(), newOutputType, adjustedZeroPoints,
+                                    getIntArrayAttr(rewriter.getContext(), flatWorkloadChannels),
+                                    getIntArrayAttr(rewriter.getContext(), weightTableData));
 
     // Track this newly created table
     createdTables[key] = newWeightTableOp;

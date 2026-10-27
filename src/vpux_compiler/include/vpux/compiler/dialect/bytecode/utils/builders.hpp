@@ -53,13 +53,13 @@ inline std::optional<int64_t> getI64ImmediateValueBits(mlir::TypedAttr attr) {
 }
 
 inline mlir::Value materializeI64ImmediateRegister(mlir::OpBuilder& builder, mlir::Location loc, int64_t value) {
-    return builder.create<ImmRegisterOp>(loc, builder.getI64IntegerAttr(value)).getResult();
+    return ImmRegisterOp::create(builder, loc, builder.getI64IntegerAttr(value)).getResult();
 }
 
 inline mlir::Value materializeSymbolIndexRegister(mlir::OpBuilder& builder, mlir::Location loc,
                                                   mlir::SymbolRefAttr symbol) {
-    auto registerValue = builder.create<VirtualGeneralRegisterOp>(loc).getResult();
-    builder.create<SetImmIdxOp>(loc, registerValue, symbol);
+    auto registerValue = VirtualValueRegisterOp::create(builder, loc).getResult();
+    SetImmIdxOp::create(builder, loc, registerValue, symbol);
     return registerValue;
 }
 

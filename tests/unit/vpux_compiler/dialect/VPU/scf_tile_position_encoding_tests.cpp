@@ -250,9 +250,9 @@ TEST_F(SCFEncodingWithContext, EncodePointPosition_ShiftAmountsShorterThanValues
     builder.setInsertionPointToStart(&block);
     auto loc = builder.getUnknownLoc();
 
-    auto hVal = builder.create<mlir::arith::ConstantIndexOp>(loc, 2).getResult();
-    auto wVal = builder.create<mlir::arith::ConstantIndexOp>(loc, 1).getResult();
-    auto hShift = builder.create<mlir::arith::ConstantIndexOp>(loc, getTilePositionShift(Dims4D::Act::H)).getResult();
+    auto hVal = mlir::arith::ConstantIndexOp::create(builder, loc, 2).getResult();
+    auto wVal = mlir::arith::ConstantIndexOp::create(builder, loc, 1).getResult();
+    auto hShift = mlir::arith::ConstantIndexOp::create(builder, loc, getTilePositionShift(Dims4D::Act::H)).getResult();
     SmallVector<mlir::Value> values = {hVal, wVal};
     SmallVector<mlir::Value> shiftAmounts = {hShift};  // missing wShift
 

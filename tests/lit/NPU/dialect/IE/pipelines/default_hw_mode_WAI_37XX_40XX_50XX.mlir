@@ -12,7 +12,7 @@ module @MoEQuantizedWeightsMatMul {
 net.NetworkInfo entryPoint : @main
     inputsInfo : {
         DataInfo "input" : tensor<1x2880xf16>
-        DataInfo "w1_weights" : tensor<4x5760x2880x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>
+        DataInfo "w1_weights" : tensor<4x5760x2880x!quant.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>
         DataInfo "w1_scale" : tensor<4x5760x1xf16>
     } outputsInfo : {
         DataInfo "output" : tensor<1x4x1x5760xf32>
@@ -21,7 +21,7 @@ net.NetworkInfo entryPoint : @main
     // CHECK: func.func @main([[INPUT:%.+]]: tensor<1x2880xf16>,
     // CHECK-SAME:              [[W1_WEIGHTS:%.+]]: tensor<4x5760x2880x!{{.+}}>, [[W1_SCALE:%.+]]: tensor<4x5760x1xf16>) -> tensor<1x4x1x5760xf32>
     func.func @main(%arg0: tensor<1x2880xf16>,
-                    %arg1: tensor<4x5760x2880x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>,
+                    %arg1: tensor<4x5760x2880x!quant.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>,
                     %arg2: tensor<4x5760x1xf16>) -> tensor<1x4x1x5760xf32> {
 
         // Convert input and tile from 1x2880 to 4x2880
@@ -30,7 +30,7 @@ net.NetworkInfo entryPoint : @main
         %2 = IE.AffineReshape(%1) {dim_mapping = [[0, 1], [2]], shape_value = [4, 1, 2880]} : tensor<4x2880xf32> -> tensor<4x1x2880xf32>
 
         // Convert -> Multiply -> Convert for quantized weights
-        %3 = IE.Convert(%arg1) {dstElemType = f16} : tensor<4x5760x2880x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>> -> tensor<4x5760x2880xf16>
+        %3 = IE.Convert(%arg1) {dstElemType = f16} : tensor<4x5760x2880x!quant.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>> -> tensor<4x5760x2880xf16>
         %4 = IE.Multiply(%3, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x5760x2880xf16>, tensor<4x5760x1xf16> -> tensor<4x5760x2880xf16>
         %5 = IE.Convert(%4) {dstElemType = f32} : tensor<4x5760x2880xf16> -> tensor<4x5760x2880xf32>
 
@@ -90,25 +90,25 @@ net.NetworkInfo entryPoint : @main
         // CHECK-SAME:      : tensor<4x2880x1x1xf16, {order = #NHWC}> to tensor<1x2880x1x1xf16, {order = #NHWC}>
 
         // CHECK:       [[CONV0:%.+]] = IE.Convolution([[INPUT_SLICE0]], [[WEIGHT_SLICE0]]) {
-        // CHECK-SAME:      dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+        // CHECK-SAME:      dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
         // CHECK-SAME:      : tensor<1x2880x1x1xf16, {order = #NHWC}>, tensor<5760x2880x1x1x!qElemType, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[GCONV0:%.+]] = IE.GroupConvolution([[CONV0]], [[SCALE_SLICE0]]) {
         // CHECK-SAME:      dilations = [1, 1], groups = 5760 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
         // CHECK-SAME:      : tensor<1x5760x1x1xf16, {order = #NHWC}>, tensor<5760x1x1x1xf16, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[CONV1:%.+]] = IE.Convolution([[INPUT_SLICE1]], [[WEIGHT_SLICE1]]) {
-        // CHECK-SAME:      dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+        // CHECK-SAME:      dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
         // CHECK-SAME:      : tensor<1x2880x1x1xf16, {order = #NHWC}>, tensor<5760x2880x1x1x!qElemType, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[GCONV1:%.+]] = IE.GroupConvolution([[CONV1]], [[SCALE_SLICE1]]) {
         // CHECK-SAME:      dilations = [1, 1], groups = 5760 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
         // CHECK-SAME:      : tensor<1x5760x1x1xf16, {order = #NHWC}>, tensor<5760x1x1x1xf16, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[CONV2:%.+]] = IE.Convolution([[INPUT_SLICE2]], [[WEIGHT_SLICE2]]) {
-        // CHECK-SAME:      dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+        // CHECK-SAME:      dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
         // CHECK-SAME:      : tensor<1x2880x1x1xf16, {order = #NHWC}>, tensor<5760x2880x1x1x!qElemType, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[GCONV2:%.+]] = IE.GroupConvolution([[CONV2]], [[SCALE_SLICE2]]) {
         // CHECK-SAME:      dilations = [1, 1], groups = 5760 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
         // CHECK-SAME:      : tensor<1x5760x1x1xf16, {order = #NHWC}>, tensor<5760x1x1x1xf16, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[CONV3:%.+]] = IE.Convolution([[INPUT_SLICE3]], [[WEIGHT_SLICE3]]) {
-        // CHECK-SAME:      dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+        // CHECK-SAME:      dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]
         // CHECK-SAME:      : tensor<1x2880x1x1xf16, {order = #NHWC}>, tensor<5760x2880x1x1x!qElemType, {order = #NHWC}> -> tensor<1x5760x1x1xf16, {order = #NHWC}>
         // CHECK:       [[GCONV3:%.+]] = IE.GroupConvolution([[CONV3]], [[SCALE_SLICE3]]) {
         // CHECK-SAME:      dilations = [1, 1], groups = 5760 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}

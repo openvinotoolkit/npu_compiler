@@ -38,11 +38,11 @@ mlir::LogicalResult SingleClusterPermuteDMARewriter::matchAndRewrite(VPUIP::Perm
 mlir::LogicalResult SingleClusterPermuteDMARewriter::unroll(VPUIP::PermuteDMAOp permuteDMAOp,
                                                             mlir::PatternRewriter& rewriter) const {
     auto vpurtTask = permuteDMAOp->getParentOfType<VPURT::TaskOp>();
-    VPUX_THROW_UNLESS(vpurtTask != nullptr, "Can't get VPURT task operation");
+    VPUX_THROW_WHEN(vpurtTask == nullptr, "Can't get VPURT task operation");
     rewriter.setInsertionPointAfter(vpurtTask);
 
     auto srcDeclBuff = permuteDMAOp.getInput().getDefiningOp<VPURT::DeclareBufferOp>();
-    VPUX_THROW_UNLESS(srcDeclBuff != nullptr, "Can't get buffer for operand: {0}", permuteDMAOp.getInput());
+    VPUX_THROW_WHEN(srcDeclBuff == nullptr, "Can't get buffer for operand: {0}", permuteDMAOp.getInput());
 
     auto dstDeclBuff = permuteDMAOp.getOutputBuff().getDefiningOp<VPURT::DeclareBufferOp>();
 

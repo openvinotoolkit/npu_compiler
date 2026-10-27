@@ -314,7 +314,7 @@ void vpux::VPURT::BarrierSimulator::parseTasks(mlir::Operation* parentOp) {
 
         case config::ExecutorKind::DPU: {
             auto nceOp = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(wrappedTaskOp);
-            VPUX_THROW_UNLESS(nceOp != nullptr, "Could not cast to NCE task");
+            VPUX_THROW_WHEN(nceOp == nullptr, "Could not cast to NCE task");
 
             int64_t numVariants = BarrierInfo::getNumOfSlotsUsed(taskOp);
             _nceTasks.emplace_back(virtualDep, numVariants);
@@ -407,7 +407,7 @@ vpux::VPURT::BarrierSimulator::getBarrierBatchesToLegalize() {
 
         for (const auto& barrierVID : batch) {
             auto barrierOp = mlir::dyn_cast<VPURT::DeclareVirtualBarrierOp>(_barrierVID[barrierVID]);
-            VPUX_THROW_UNLESS(barrierOp != nullptr, "Got invalid barrier type {0}", _barrierVID[barrierVID]);
+            VPUX_THROW_WHEN(barrierOp == nullptr, "Got invalid barrier type {0}", _barrierVID[barrierVID]);
             if (barrierOp.getBarrier().use_empty()) {
                 // barrier will be removed
                 continue;

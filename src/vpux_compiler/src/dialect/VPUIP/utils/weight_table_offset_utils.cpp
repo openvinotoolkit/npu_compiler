@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPUIP/utils/weight_table_offset_utils.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/utils/types.hpp"
@@ -53,7 +53,7 @@ std::unique_ptr<WtOffsetBuilder> WtOffsetBuilder::create(NCEClusterTaskOp nceOp,
 
     auto storageType = quantType.getStorageType();
     // Unwrap QuantileType to reach the inner integer storage type.
-    if (const auto quantileType = mlir::dyn_cast<type::QuantileType>(storageType)) {
+    if (const auto quantileType = mlir::dyn_cast<mlir::quant::QuantileType>(storageType)) {
         storageType = quantileType.getStorageType();
     }
 

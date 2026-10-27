@@ -54,8 +54,8 @@ mlir::LogicalResult DPUInvariantRewriter::matchAndRewrite(VPUIPDPU::DPUInvariant
 
     descriptor.write<Fields::nvar_tag>(origOp.getIndex() + 1);
 
-    rewriter.create<NPUReg40XX::DPUInvariantOp>(
-            origOp->getLoc(), origOp.getSymNameAttr(), origOp.getTaskIndexAttr(), std::move(descriptor),
+    NPUReg40XX::DPUInvariantOp::create(
+            rewriter, origOp->getLoc(), origOp.getSymNameAttr(), origOp.getTaskIndexAttr(), std::move(descriptor),
             origOp.getTaskLocationAttr(), origOp.getInputAttr(), origOp.getInputSparsityMapAttr(),
             origOp.getInputStorageElementTableAttr(), origOp.getWeightsAttr(), origOp.getWeightsSparsityMapAttr(),
             origOp.getWeightTableAttr(), origOp.getSprLookupTableAttr(), origOp.getOutputAttr(),

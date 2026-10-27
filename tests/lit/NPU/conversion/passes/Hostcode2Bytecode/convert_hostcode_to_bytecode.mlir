@@ -91,7 +91,7 @@ func.func @fn10(%arg0 : f64) -> () attributes {config.pureHostCompileFunc} {
 // CHECK:      [[PARAM_REG:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK:      [[REG_C32F:%.+]] = bytecode.imm_register 4629700416936869888
 // CHECK:      [[REG_C32I:%.+]] = bytecode.imm_register 32
-// CHECK:      [[REG_ADD:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_ADD:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.add.i64 [[REG_ADD]], [[PARAM_REG]], [[REG_C32I]]
 // CHECK:      bytecode.ret
 // CHECK:    }
@@ -106,69 +106,69 @@ func.func @fn10(%arg0 : f64) -> () attributes {config.pureHostCompileFunc} {
 // CHECK:      [[PARAM1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK:      [[PARAM0:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK:      [[REG_MINUS_ONE:%.+]] = bytecode.imm_register -1
-// CHECK:      [[REG_MUL:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_MUL:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.mul.i64 [[REG_MUL]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_MIN:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_MIN:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.min.i64 [[REG_MIN]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_MAX:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_MAX:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.max.i64 [[REG_MAX]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_AND:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_AND:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.and.64 [[REG_AND]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_OR:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_OR:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.or.64 [[REG_OR]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_XOR:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_XOR:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.xor.64 [[REG_XOR]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_NOT:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_NOT:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.not.64 [[REG_NOT]], [[PARAM0]]
-// CHECK:      [[REG_NOT_SWAPPED:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_NOT_SWAPPED:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.not.64 [[REG_NOT_SWAPPED]], [[PARAM1]]
-// CHECK:      [[REG_SLL:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_SLL:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.sll.64 [[REG_SLL]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_SRL:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_SRL:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.srl.64 [[REG_SRL]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_SRA:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_SRA:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.sra.64 [[REG_SRA]], [[PARAM0]], [[PARAM1]]
 // CHECK:      bytecode.ret
 // CHECK:    }
 // CHECK:    bytecode.ext.func @fn4 (i64, i64) -> () {
 // CHECK:      [[PARAM1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK:      [[PARAM0:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[REG_EQ:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_EQ:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.cmp.i64 [[REG_EQ]], [[PARAM0]], [[PARAM1]], 0
-// CHECK:      [[REG_SLT:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_SLT:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.cmp.i64 [[REG_SLT]], [[PARAM0]], [[PARAM1]], 260
-// CHECK:      [[REG_ULT:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_ULT:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.cmp.i64 [[REG_ULT]], [[PARAM0]], [[PARAM1]], 4
 // CHECK:      bytecode.ret
 // CHECK:    }
 // CHECK:    bytecode.ext.func @fn5 (i64, i64) -> () {
 // CHECK:      [[PARAM1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK:      [[PARAM0:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[REG_SUB:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_SUB:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.sub.i64 [[REG_SUB]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_DIV:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_DIV:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.div.i64 [[REG_DIV]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_DIVU:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_DIVU:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.div.u64 [[REG_DIVU]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_MINU:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_MINU:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.min.u64 [[REG_MINU]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_MAXU:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_MAXU:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.max.u64 [[REG_MAXU]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_REMU:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_REMU:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.rem.u64 [[REG_REMU]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_ADDU:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_ADDU:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.add.u64 [[REG_ADDU]], [[PARAM0]], [[PARAM1]]
-// CHECK:      {{%.+}} = bytecode.virtual_general_register
-// CHECK:      [[REG_MULU:%.+]] = bytecode.virtual_general_register
+// CHECK:      {{%.+}} = bytecode.virtual_value_register
+// CHECK:      [[REG_MULU:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.mul.u64 [[REG_MULU]], [[PARAM0]], [[PARAM1]]
-// CHECK:      {{%.+}} = bytecode.virtual_general_register
-// CHECK:      [[REG_REM:%.+]] = bytecode.virtual_general_register
+// CHECK:      {{%.+}} = bytecode.virtual_value_register
+// CHECK:      [[REG_REM:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.rem.i64 [[REG_REM]], [[PARAM0]], [[PARAM1]]
 // CHECK:      bytecode.ret
 // CHECK:    }
 // CHECK:    bytecode.ext.func @fn6 (i64) -> () {
 // CHECK:      [[PARAM0:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[REG_ABS:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_ABS:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.abs.i64 [[REG_ABS]], [[PARAM0]]
 // CHECK:      bytecode.ret
 // CHECK:    }
@@ -176,48 +176,48 @@ func.func @fn10(%arg0 : f64) -> () attributes {config.pureHostCompileFunc} {
 // CHECK:      [[PARAM2:%.+]] = bytecode.virtual_parameter_register 2
 // CHECK:      [[PARAM1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK:      [[PARAM0:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[REG_SEL:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_SEL:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.select [[REG_SEL]], [[PARAM0]], [[PARAM1]], [[PARAM2]]
 // CHECK:      bytecode.ret
 // CHECK:    }
 // CHECK:    bytecode.ext.func @fn8 (f64, f64) -> () {
 // CHECK:      [[PARAM1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK:      [[PARAM0:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[REG_ADD_F64:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_ADD_F64:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.add.f64 [[REG_ADD_F64]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_SUB_F64:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_SUB_F64:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.sub.f64 [[REG_SUB_F64]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_MUL_F64:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_MUL_F64:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.mul.f64 [[REG_MUL_F64]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_DIV_F64:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_DIV_F64:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.div.f64 [[REG_DIV_F64]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_REM_F64:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_REM_F64:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.rem.f64 [[REG_REM_F64]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_MAX_F64:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_MAX_F64:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.max.f64 [[REG_MAX_F64]], [[PARAM0]], [[PARAM1]]
-// CHECK:      [[REG_MIN_F64:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_MIN_F64:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.min.f64 [[REG_MIN_F64]], [[PARAM0]], [[PARAM1]]
 // CHECK:      bytecode.ret
 // CHECK:    }
 // CHECK:    bytecode.ext.func @fn9 (f64) -> () {
 // CHECK:      [[PARAM_F:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[REG_ABS:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_ABS:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.abs.f64 [[REG_ABS]], [[PARAM_F]]
-// CHECK:      [[REG_NEG:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_NEG:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.neg.f64 [[REG_NEG]], [[PARAM_F]]
-// CHECK:      [[REG_CEIL:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_CEIL:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.ceil.f64 [[REG_CEIL]], [[PARAM_F]]
-// CHECK:      [[REG_FLOOR:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_FLOOR:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.floor.f64 [[REG_FLOOR]], [[PARAM_F]]
 // CHECK:      bytecode.ret
 // CHECK:    }
 // CHECK:    bytecode.ext.func @fn10 (f64) -> () {
 // CHECK:      [[PARAM_F10:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[REG_RNE:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_RNE:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.round.f64 [[REG_RNE]], [[PARAM_F10]], 0
-// CHECK:      [[REG_RNA:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_RNA:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.round.f64 [[REG_RNA]], [[PARAM_F10]], 1
-// CHECK:      [[REG_RTZ:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_RTZ:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.round.f64 [[REG_RTZ]], [[PARAM_F10]], 4
 // CHECK:      bytecode.ret
 // CHECK:    }
@@ -238,7 +238,7 @@ module @test_async_create_group {
 // CHECK-LABEL: module @test_async_create_group
 // CHECK:    bytecode.ext.func @fn_create_group () -> () {
 // CHECK:      [[SIZE_REG:%.+]] = bytecode.imm_register 4
-// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.cmd_list.create [[CMD_LIST]]
 // CHECK:      bytecode.ret
 // CHECK:    }
@@ -260,10 +260,10 @@ module @test_async_create_group {
 // CHECK:      [[PARAM_REG:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK:      [[CONST:%.+]] = bytecode.imm_register 4
 
-// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.cmd_list.create [[CMD_LIST]]
 
-// CHECK:      [[ADD_REG:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[ADD_REG:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.add.i64 [[ADD_REG]], [[PARAM_REG]], [[CONST]]
 // CHECK:      bytecode.ret
 // CHECK:    }
@@ -282,10 +282,10 @@ module @test_async_create_group {
 // CHECK-LABEL: module @test_async_create_group
 // CHECK:    bytecode.ext.func @fn_create_group () -> () {
 // CHECK:      [[SIZE_REG:%.+]] = bytecode.imm_register 4
-// CHECK:      [[CMD_LIST0:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[CMD_LIST0:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.cmd_list.create [[CMD_LIST0]]
 
-// CHECK:      [[CMD_LIST1:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[CMD_LIST1:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.cmd_list.create [[CMD_LIST1]]
 // CHECK:      bytecode.ret
 // CHECK:    }
@@ -304,7 +304,7 @@ module @test_async_await_all {
 // CHECK-LABEL: module @test_async_await_all
 // CHECK:    bytecode.ext.func @fn_await_all () -> () {
 // CHECK:      [[SIZE_REG:%.+]] = bytecode.imm_register 4
-// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.cmd_list.create [[CMD_LIST]]
 // CHECK:      bytecode.cmd_list.close [[CMD_LIST]]
 // CHECK:      bytecode.cmd_list.exec [[CMD_LIST]]
@@ -333,7 +333,7 @@ module @test_async_execute_kernel_create {
 // CHECK:    bytecode.ext.func @fn (memref<16xf32>, memref<16xf32>) -> () {
 // CHECK:      [[PARAM1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK:      [[PARAM0:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[DST:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[DST:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.kernel.create [[DST]], @kernel_section::@compute, inputs([[PARAM0]], [[PARAM1]]), outputs()
 // CHECK:    }
 
@@ -352,7 +352,7 @@ module @test_async_add_to_group {
 // CHECK:    bytecode.ext.func @fn_add_to_group (!async.token) -> () {
 // CHECK:      [[PARAM_TOKEN:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK:      [[SIZE_REG:%.+]] = bytecode.imm_register 1
-// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.cmd_list.create [[CMD_LIST]]
 // CHECK:      bytecode.cmd_list.add_kernel [[CMD_LIST]], [[PARAM_TOKEN]], (), ()
 // CHECK:      bytecode.ret
@@ -388,7 +388,7 @@ module {
   }
 }
 
-// CHECK:      [[CANON_X:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[CANON_X:%.+]] = bytecode.virtual_value_register
 // CHECK:      [[C0:%.+]] = bytecode.imm_register 0
 // CHECK-NEXT: bytecode.set [[CANON_X]], [[C0]]
 // CHECK:      bytecode.jmp ^bb1
@@ -411,8 +411,8 @@ module {
 
 // CHECK-DAG: [[PARAM0:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK-DAG: [[PARAM1:%.+]] = bytecode.virtual_parameter_register 1
-// CHECK-DAG: [[CANON_X:%.+]] = bytecode.virtual_general_register
-// CHECK-DAG: [[CANON_Y:%.+]] = bytecode.virtual_general_register
+// CHECK-DAG: [[CANON_X:%.+]] = bytecode.virtual_value_register
+// CHECK-DAG: [[CANON_Y:%.+]] = bytecode.virtual_value_register
 // CHECK-DAG: bytecode.set [[CANON_X]], [[PARAM0]]
 // CHECK-DAG: bytecode.set [[CANON_Y]], [[PARAM1]]
 // CHECK:     bytecode.jmp ^bb1
@@ -434,7 +434,7 @@ module {
   }
 }
 
-// CHECK:      [[CANON_I:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[CANON_I:%.+]] = bytecode.virtual_value_register
 // CHECK:      [[C0:%.+]] = bytecode.imm_register 0
 // CHECK-NEXT: bytecode.set [[CANON_I]], [[C0]]
 // CHECK:      bytecode.jmp ^bb1
@@ -472,9 +472,9 @@ module @test_kernel_submission_ops_together {
 // CHECK:      [[PARAM1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK:      [[PARAM0:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK:      [[SIZE_REG:%.+]] = bytecode.imm_register 1
-// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.cmd_list.create [[CMD_LIST]]
-// CHECK:      [[KERNEL:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[KERNEL:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.kernel.create [[KERNEL]], @kernel_section::@compute, inputs([[PARAM0]], [[PARAM1]]), outputs()
 // CHECK:      bytecode.cmd_list.add_kernel [[CMD_LIST]], [[KERNEL]], (), ()
 // CHECK:      bytecode.cmd_list.close [[CMD_LIST]]
@@ -501,7 +501,7 @@ func.func @caller(%arg0 : i64) -> () attributes {config.pureHostCompileFunc} {
 // CHECK:    }
 // CHECK:    bytecode.ext.func @caller (i64) -> () {
 // CHECK:      [[CALLER_ARG:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[FUNC_IDX:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[FUNC_IDX:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm_idx [[FUNC_IDX]], @func_section::@callee
 // CHECK:      bytecode.call [[FUNC_IDX]], results(), args([[CALLER_ARG]] : !bytecode.Register)
 // CHECK:      bytecode.ret
@@ -531,9 +531,9 @@ func.func @caller_multi(%arg0 : i64, %arg1 : i64) -> () attributes {config.pureH
 // CHECK:    bytecode.ext.func @caller_multi (i64, i64) -> () {
 // CHECK-DAG:  [[CALLER_ARG1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK-DAG:  [[CALLER_ARG0:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[REG_SUM:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG_SUM:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.add.i64 [[REG_SUM]], [[CALLER_ARG0]], [[CALLER_ARG1]]
-// CHECK:      [[FUNC_IDX:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[FUNC_IDX:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm_idx [[FUNC_IDX]], @func_section::@callee_multi
 // CHECK:      bytecode.call [[FUNC_IDX]], results(), args([[CALLER_ARG1]], [[REG_SUM]], [[CALLER_ARG0]] : !bytecode.Register, !bytecode.Register, !bytecode.Register)
 // CHECK:      bytecode.ret
@@ -571,13 +571,13 @@ func.func @caller_chain(%arg0 : i64, %arg1 : i64) -> () attributes {config.pureH
 // CHECK:    bytecode.ext.func @caller_chain (i64, i64) -> () {
 // CHECK-DAG:  [[CHAIN_ARG1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK-DAG:  [[CHAIN_ARG0:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[FUNC_IDX_A0:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[FUNC_IDX_A0:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm_idx [[FUNC_IDX_A0]], @func_section::@callee_a
 // CHECK:      bytecode.call [[FUNC_IDX_A0]], results(), args([[CHAIN_ARG0]] : !bytecode.Register)
-// CHECK:      [[FUNC_IDX_B:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[FUNC_IDX_B:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm_idx [[FUNC_IDX_B]], @func_section::@callee_b
 // CHECK:      bytecode.call [[FUNC_IDX_B]], results(), args([[CHAIN_ARG1]] : !bytecode.Register)
-// CHECK:      [[FUNC_IDX_A1:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[FUNC_IDX_A1:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm_idx [[FUNC_IDX_A1]], @func_section::@callee_a
 // CHECK:      bytecode.call [[FUNC_IDX_A1]], results(), args([[CHAIN_ARG1]] : !bytecode.Register)
 // CHECK:      bytecode.ret
@@ -615,13 +615,13 @@ func.func @caller_mem_chain(%arg0 : memref<2x3xf32>, %arg1 : memref<2x3xf32>) ->
 // CHECK:    bytecode.ext.func @caller_mem_chain (memref<2x3xf32>, memref<2x3xf32>) -> () {
 // CHECK-DAG:  [[MEM_ARG1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK-DAG:  [[MEM_ARG0:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[FUNC_IDX_MEM_A0:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[FUNC_IDX_MEM_A0:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm_idx [[FUNC_IDX_MEM_A0]], @func_section::@callee_mem_a
 // CHECK:      bytecode.call [[FUNC_IDX_MEM_A0]], results(), args([[MEM_ARG0]] : !bytecode.Register)
-// CHECK:      [[FUNC_IDX_MEM_B:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[FUNC_IDX_MEM_B:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm_idx [[FUNC_IDX_MEM_B]], @func_section::@callee_mem_b
 // CHECK:      bytecode.call [[FUNC_IDX_MEM_B]], results(), args([[MEM_ARG0]], [[MEM_ARG1]] : !bytecode.Register, !bytecode.Register)
-// CHECK:      [[FUNC_IDX_MEM_A1:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[FUNC_IDX_MEM_A1:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm_idx [[FUNC_IDX_MEM_A1]], @func_section::@callee_mem_a
 // CHECK:      bytecode.call [[FUNC_IDX_MEM_A1]], results(), args([[MEM_ARG1]] : !bytecode.Register)
 // CHECK:      bytecode.ret
@@ -658,33 +658,33 @@ func.func @caller_chain_dep(%arg0 : i64, %arg1 : i64) -> i64 attributes {config.
 // CHECK:    bytecode.ext.func @callee_dep_a (i64) -> i64 {
 // CHECK-DAG:  [[A_ARG:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK:      [[A_C1:%.+]] = bytecode.imm_register 1
-// CHECK:      [[A_SUM:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[A_SUM:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.add.i64 [[A_SUM]], [[A_ARG]], [[A_C1]]
 // CHECK:      bytecode.retv [[A_SUM]]
 // CHECK:    }
 // CHECK:    bytecode.ext.func @callee_dep_b (i64) -> i64 {
 // CHECK-DAG:  [[B_ARG:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK:      [[B_C2:%.+]] = bytecode.imm_register 2
-// CHECK:      [[B_PROD:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[B_PROD:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.mul.i64 [[B_PROD]], [[B_ARG]], [[B_C2]]
 // CHECK:      bytecode.retv [[B_PROD]]
 // CHECK:    }
 // CHECK:    bytecode.ext.func @caller_chain_dep (i64, i64) -> i64 {
 // CHECK-DAG:  [[CHAIN_ARG1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK-DAG:  [[CHAIN_ARG0:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[FUNC_IDX_A0:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[FUNC_IDX_A0:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm_idx [[FUNC_IDX_A0]], @func_section::@callee_dep_a
-// CHECK:      [[A0_RES:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[A0_RES:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.call [[FUNC_IDX_A0]], results([[A0_RES]] : !bytecode.Register), args([[CHAIN_ARG0]] : !bytecode.Register)
-// CHECK:      [[MIX:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[MIX:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.add.i64 [[MIX]], [[A0_RES]], [[CHAIN_ARG1]]
-// CHECK:      [[FUNC_IDX_B:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[FUNC_IDX_B:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm_idx [[FUNC_IDX_B]], @func_section::@callee_dep_b
-// CHECK:      [[B_RES:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[B_RES:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.call [[FUNC_IDX_B]], results([[B_RES]] : !bytecode.Register), args([[MIX]] : !bytecode.Register)
-// CHECK:      [[FUNC_IDX_A1:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[FUNC_IDX_A1:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm_idx [[FUNC_IDX_A1]], @func_section::@callee_dep_a
-// CHECK:      [[A1_RES:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[A1_RES:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.call [[FUNC_IDX_A1]], results([[A1_RES]] : !bytecode.Register), args([[B_RES]] : !bytecode.Register)
 // CHECK:      bytecode.retv [[A1_RES]]
 // CHECK:    }
@@ -707,10 +707,10 @@ module {
   // CHECK:      [[ARG0:%.+]] = bytecode.virtual_parameter_register 0
   // CHECK:      [[REG0:%.+]] = bytecode.imm_register 2
   // CHECK:      [[REG1:%.+]] = bytecode.imm_register 16
-  // CHECK:      [[REG2:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[REG2:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.buffer.get_dim [[REG2]], [[ARG0]], [[REG0]]
   // CHECK-NOT:  arith.index_cast
-  // CHECK:      [[REG3:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[REG3:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.add.i64 [[REG3]], [[REG2]], [[REG1]]
   // CHECK:      bytecode.ret
 }
@@ -765,8 +765,8 @@ module {
   }
 }
 
-// CHECK-DAG:  [[CANON_X:%.+]] = bytecode.virtual_general_register
-// CHECK-DAG:  [[CANON_Y:%.+]] = bytecode.virtual_general_register
+// CHECK-DAG:  [[CANON_X:%.+]] = bytecode.virtual_value_register
+// CHECK-DAG:  [[CANON_Y:%.+]] = bytecode.virtual_value_register
 // CHECK:      [[ONE:%.+]] = bytecode.imm_register 1
 // CHECK:      bytecode.jmp ^bb3
 // CHECK-NOT:  cf.br
@@ -831,28 +831,28 @@ module {
   }
 }
 
-// CHECK-DAG:   [[CANON_I:%.+]] = bytecode.virtual_general_register
-// CHECK-DAG:   [[CANON_SUM:%.+]] = bytecode.virtual_general_register
-// CHECK-DAG:   [[CANON_RESULT:%.+]] = bytecode.virtual_general_register
+// CHECK-DAG:   [[CANON_I:%.+]] = bytecode.virtual_value_register
+// CHECK-DAG:   [[CANON_SUM:%.+]] = bytecode.virtual_value_register
+// CHECK-DAG:   [[CANON_RESULT:%.+]] = bytecode.virtual_value_register
 // CHECK:       [[ONE:%.+]] = bytecode.imm_register 1
 // CHECK:       bytecode.set [[CANON_I]], {{%.+}}
 // CHECK-NEXT:  bytecode.set [[CANON_SUM]], {{%.+}}
 // CHECK-NEXT:  bytecode.jmp ^bb1
 // CHECK-NOT:   cf.br
 // CHECK:       ^bb1:
-// CHECK:       [[VGR_C1:%.+]] = bytecode.imm_register 1
-// CHECK:       [[VGR_NEW_I:%.+]] = bytecode.virtual_general_register
-// CHECK-NEXT:  bytecode.add.i64 [[VGR_NEW_I]], [[CANON_I]], [[VGR_C1]]
-// CHECK:       [[VGR_NEW_SUM:%.+]] = bytecode.virtual_general_register
-// CHECK-NEXT:  bytecode.add.i64 [[VGR_NEW_SUM]], [[CANON_SUM]], [[CANON_I]]
+// CHECK:       [[VVR_C1:%.+]] = bytecode.imm_register 1
+// CHECK:       [[VVR_NEW_I:%.+]] = bytecode.virtual_value_register
+// CHECK-NEXT:  bytecode.add.i64 [[VVR_NEW_I]], [[CANON_I]], [[VVR_C1]]
+// CHECK:       [[VVR_NEW_SUM:%.+]] = bytecode.virtual_value_register
+// CHECK-NEXT:  bytecode.add.i64 [[VVR_NEW_SUM]], [[CANON_SUM]], [[CANON_I]]
 // CHECK-NEXT:  bytecode.je {{%.+}}, [[ONE]], ^bb3, ^bb2
 // CHECK-NOT:   cf.cond_br
 // CHECK:       ^bb2:
 // CHECK-NEXT:  bytecode.set [[CANON_RESULT]], [[CANON_SUM]]
 // CHECK-NEXT:  bytecode.jmp ^bb4
 // CHECK:       ^bb3:
-// CHECK-NEXT:  bytecode.set [[CANON_I]], [[VGR_NEW_I]]
-// CHECK-NEXT:  bytecode.set [[CANON_SUM]], [[VGR_NEW_SUM]]
+// CHECK-NEXT:  bytecode.set [[CANON_I]], [[VVR_NEW_I]]
+// CHECK-NEXT:  bytecode.set [[CANON_SUM]], [[VVR_NEW_SUM]]
 // CHECK-NEXT:  bytecode.jmp ^bb1
 // CHECK:       ^bb4:
 // CHECK-NEXT:  bytecode.retv [[CANON_RESULT]]
@@ -896,7 +896,7 @@ module {
 }
 
 // CHECK:      [[FLAG:%.+]] = bytecode.virtual_parameter_register
-// CHECK:      [[COMP_REG:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[COMP_REG:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm [[COMP_REG]], 42
 // CHECK-NEXT: bytecode.je [[FLAG]], [[COMP_REG]], ^bb2, ^bb1
 // CHECK-NOT:  cf.switch
@@ -938,7 +938,7 @@ module {
 }
 
 // CHECK:      [[FLAG:%.+]] = bytecode.virtual_parameter_register
-// CHECK:      [[COMP_REG:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[COMP_REG:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm [[COMP_REG]], 10
 // CHECK-NEXT: bytecode.je [[FLAG]], [[COMP_REG]], ^bb4, ^bb1
 // CHECK-NOT:  cf.switch
@@ -987,9 +987,9 @@ module {
 
 // CHECK:      [[VAL:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK:      [[FLAG:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK:      [[CANON_X:%.+]] = bytecode.virtual_general_register
-// CHECK:      [[CANON_Y:%.+]] = bytecode.virtual_general_register
-// CHECK:      [[COMP_REG:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[CANON_X:%.+]] = bytecode.virtual_value_register
+// CHECK:      [[CANON_Y:%.+]] = bytecode.virtual_value_register
+// CHECK:      [[COMP_REG:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.set_imm [[COMP_REG]], 42
 // CHECK-NEXT: bytecode.je [[FLAG]], [[COMP_REG]], ^bb2, ^bb1
 // CHECK-NOT:  cf.switch
@@ -1039,7 +1039,7 @@ func.func @memref_cast_op(%Parameter_10: memref<1x16x?x1280xf32>, %main: memref<
   }
 }
 
-// CHECK:      [[REG0:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[REG0:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.buffer.subview
 // CHECK-NOT:  memref.cast
 // CHECK:      bytecode.buffer.subview
@@ -1091,7 +1091,7 @@ module {
   // i1 values are stored as 0/1 (zero-extended). extsi i1 must produce 0/-1: emit 0 - val.
   // CHECK:      [[ARG:%.+]] = bytecode.virtual_parameter_register 0
   // CHECK:      [[ZERO:%.+]] = bytecode.imm_register 0
-  // CHECK:      [[RES:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[RES:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.sub.i64 [[RES]], [[ZERO]], [[ARG]]
   // CHECK:      bytecode.retv [[RES]]
 }
@@ -1109,13 +1109,13 @@ module {
   }
   // CHECK:      [[ARG1:%.+]] = bytecode.virtual_parameter_register 1
   // CHECK:      [[ARG0:%.+]] = bytecode.virtual_parameter_register 0
-  // CHECK:      [[R0:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R0:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.i64toi8 [[R0]], [[ARG0]]
-  // CHECK:      [[R1:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R1:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.i64toi16 [[R1]], [[ARG0]]
-  // CHECK:      [[R2:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R2:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.i64toi32 [[R2]], [[ARG0]]
-  // CHECK:      [[R3:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R3:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.i32toi8 [[R3]], [[ARG1]]
   // CHECK:      bytecode.ret
 }
@@ -1133,13 +1133,13 @@ module {
   }
   // CHECK:      [[ARG1:%.+]] = bytecode.virtual_parameter_register 1
   // CHECK:      [[ARG0:%.+]] = bytecode.virtual_parameter_register 0
-  // CHECK:      [[R0:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R0:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.i32tof32 [[R0]], [[ARG0]]
-  // CHECK:      [[R1:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R1:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.i32tof64 [[R1]], [[ARG0]]
-  // CHECK:      [[R2:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R2:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.i64tof32 [[R2]], [[ARG1]]
-  // CHECK:      [[R3:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R3:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.i64tof64 [[R3]], [[ARG1]]
   // CHECK:      bytecode.ret
 }
@@ -1157,13 +1157,13 @@ module {
   }
   // CHECK:      [[ARG1:%.+]] = bytecode.virtual_parameter_register 1
   // CHECK:      [[ARG0:%.+]] = bytecode.virtual_parameter_register 0
-  // CHECK:      [[R0:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R0:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.f32toi32 [[R0]], [[ARG0]]
-  // CHECK:      [[R1:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R1:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.f32toi64 [[R1]], [[ARG0]]
-  // CHECK:      [[R2:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R2:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.f64toi32 [[R2]], [[ARG1]]
-  // CHECK:      [[R3:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R3:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.f64toi64 [[R3]], [[ARG1]]
   // CHECK:      bytecode.ret
 }
@@ -1179,9 +1179,9 @@ module {
   }
   // CHECK:      [[ARG1:%.+]] = bytecode.virtual_parameter_register 1
   // CHECK:      [[ARG0:%.+]] = bytecode.virtual_parameter_register 0
-  // CHECK:      [[R0:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R0:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.f32tof64 [[R0]], [[ARG0]]
-  // CHECK:      [[R1:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[R1:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.convert.f64tof32 [[R1]], [[ARG1]]
   // CHECK:      bytecode.ret
 }
@@ -1216,14 +1216,14 @@ module @test_preprocessing_single_group {
 // CHECK:      [[PARAM0:%.+]] = bytecode.virtual_parameter_register 0
 // Injected create_group at entry: arith.constant 1 (imm_register), then cmd_list.create.
 // CHECK:      [[SIZE0:%.+]] = bytecode.imm_register 1
-// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_value_register
 // Existing create_group has no_reset_cmdlist → assert exactly one cmd_list.create in the chunk.
 // CHECK-COUNT-1: bytecode.cmd_list.create [[CMD_LIST]]
 // CHECK-NOT:     bytecode.cmd_list.create
 // Existing arith.constant 1 for original group size.
 // CHECK:      {{%.+}} = bytecode.imm_register 1
 // Kernel is submitted through the existing create_group (reuses CMD_LIST).
-// CHECK:      [[KERNEL:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[KERNEL:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.kernel.create [[KERNEL]], @kernel_section::@compute, inputs([[PARAM0]], [[PARAM1]]), outputs()
 // CHECK:      bytecode.cmd_list.add_kernel [[CMD_LIST]], [[KERNEL]], (), ()
 // Existing await_all is noop → no close/exec emitted for it.
@@ -1273,19 +1273,19 @@ module @test_preprocessing_multiple_groups {
 // CHECK:      [[PARAM0:%.+]] = bytecode.virtual_parameter_register 0
 // Injected create_group at entry: arith.constant 1 (imm_register), then cmd_list.create.
 // CHECK:      [[SIZE0:%.+]] = bytecode.imm_register 1
-// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[CMD_LIST:%.+]] = bytecode.virtual_value_register
 // Both existing create_groups have no_reset_cmdlist → assert exactly one cmd_list.create in the chunk.
 // CHECK-COUNT-1: bytecode.cmd_list.create [[CMD_LIST]]
 // CHECK-NOT:     bytecode.cmd_list.create
 // Existing arith.constant 1 for groupA size, then kernel A submitted (reuses CMD_LIST).
 // CHECK:      {{%.+}} = bytecode.imm_register 1
-// CHECK:      [[KERNEL_A:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[KERNEL_A:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.kernel.create [[KERNEL_A]], @kernel_section::@computeA, inputs([[PARAM0]], [[PARAM1]]), outputs()
 // CHECK:      bytecode.cmd_list.add_kernel [[CMD_LIST]], [[KERNEL_A]], (), ()
 // First await_all is "barrier" → erased (no close/exec per E-221988).
 // groupB's arith.constant 1 is CSE'd with groupA's (same value), so no second set_imm.
 // Kernel B submitted (reuses CMD_LIST).
-// CHECK:      [[KERNEL_B:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[KERNEL_B:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.kernel.create [[KERNEL_B]], @kernel_section::@computeB, inputs([[PARAM0]], [[PARAM1]]), outputs()
 // CHECK:      bytecode.cmd_list.add_kernel [[CMD_LIST]], [[KERNEL_B]], (), ()
 // Second await_all is "noop" → erased. Injected final await_all emits close + exec.
@@ -1318,9 +1318,9 @@ module @test_async_execute_value_used_in_scf_for {
 // CHECK:    bytecode.ext.func @fn (memref<1x16x256x16xf16>, memref<1x16x256x16xf16>) -> () {
 // CHECK-DAG: [[PARAM1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK-DAG: [[PARAM0:%.+]] = bytecode.virtual_parameter_register 0
-// CHECK-DAG: [[OUT:%.+]] = bytecode.virtual_general_register
+// CHECK-DAG: [[OUT:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.ext.buffer.create [[OUT]], memref<1x16x256x16xf16>
-// CHECK-DAG: [[KERNEL:%.+]] = bytecode.virtual_general_register
+// CHECK-DAG: [[KERNEL:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.kernel.create [[KERNEL]], @kernel_section::@compute, inputs([[PARAM0]], [[PARAM1]]), outputs([[OUT]])
 // CHECK:      bytecode.ret
 // CHECK:    }
@@ -1349,28 +1349,71 @@ module {
 
 
 // CHECK-COUNT-1: bytecode.virtual_parameter_register
-// CHECK: [[VGRA:%.+]] = bytecode.virtual_general_register
-// CHECK: [[VGRB:%.+]] = bytecode.virtual_general_register
-// CHECK: [[VGRC:%.+]] = bytecode.virtual_general_register
+// CHECK: [[VVRA:%.+]] = bytecode.virtual_value_register
+// CHECK: [[VVRB:%.+]] = bytecode.virtual_value_register
+// CHECK: [[VVRC:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.jmp ^bb1
 // CHECK:      ^bb1
-// VGR for bytecode.add result
-// CHECK:      bytecode.virtual_general_register
+// VVR for bytecode.add result
+// CHECK:      bytecode.virtual_value_register
 // CHECK:      bytecode.add.i64
-// VGR for bytecode.cmp result
-// CHECK:      bytecode.virtual_general_register
+// VVR for bytecode.cmp result
+// CHECK:      bytecode.virtual_value_register
 // CHECK:      bytecode.cmp.i64
 // CHECK:      bytecode.je {{.+}}, {{.+}}, ^bb3, ^bb2
 // CHECK:      ^bb2
 // CHECK:      bytecode.jmp ^bb5
 // CHECK:      ^bb3
 // CHECK:      bytecode.jmp ^bb4
-// CHECK:      [[TMP:%.+]] = bytecode.virtual_general_register
-// CHECK:      bytecode.set [[TMP]], [[VGRA]]
-// CHECK:      bytecode.set [[VGRA]], [[VGRB]]
-// CHECK:      bytecode.set [[VGRB]], [[TMP]]
-// CHECK:      bytecode.set [[VGRC]], {{%.+}}
+// CHECK:      [[TMP:%.+]] = bytecode.virtual_value_register
+// CHECK:      bytecode.set [[TMP]], [[VVRA]]
+// CHECK:      bytecode.set [[VVRA]], [[VVRB]]
+// CHECK:      bytecode.set [[VVRB]], [[TMP]]
+// CHECK:      bytecode.set [[VVRC]], {{%.+}}
 // CHECK:      bytecode.jmp ^bb1
+
+// -----
+
+module @constant_output_shape_copy {
+  memref.global "private" constant @shape : memref<4xi64> = dense<[1, 16, 1440, 2560]>
+
+  func.func @output_shape(%out: memref<4xi64>) attributes {config.pureHostCompileFunc} {
+    %shape = memref.get_global @shape : memref<4xi64>
+    memref.copy %shape, %out : memref<4xi64> to memref<4xi64>
+    return
+  }
+}
+
+// CHECK-LABEL: module @constant_output_shape_copy
+// CHECK:      bytecode.constant_section @constant_section {
+// CHECK:        bytecode.constant @host_constant dense<[1, 16, 1440, 2560]> : tensor<4xi64>
+// CHECK:      }
+// CHECK:      bytecode.ext.func @output_shape (memref<4xi64>) -> () {
+// CHECK:        [[OUT:%.+]] = bytecode.virtual_parameter_register 0
+// CHECK-DAG:    [[CONSTANT:%.+]] = bytecode.virtual_value_register
+// CHECK-DAG:    [[V4:%.+]] = bytecode.imm_register 4
+// CHECK-DAG:    [[V1:%.+]] = bytecode.imm_register 1
+// CHECK:        bytecode.buffer.from_const [[CONSTANT]], @constant_section::@host_constant, {{@type_section::@.+}} shape([[V4]]) strides([[V1]])
+// CHECK:        bytecode.buffer.copy [[OUT]], [[CONSTANT]]
+// CHECK:        bytecode.ret
+// CHECK:      }
+
+// -----
+
+module @dynamic_identity_memref_copy {
+  func.func @copy(%src: memref<?xi64>, %dst: memref<?xi64>) attributes {config.pureHostCompileFunc} {
+    memref.copy %src, %dst : memref<?xi64> to memref<?xi64>
+    return
+  }
+}
+
+// CHECK-LABEL: module @dynamic_identity_memref_copy
+// CHECK:      bytecode.ext.func @copy (memref<?xi64>, memref<?xi64>) -> () {
+// CHECK-DAG:    [[SRC:%.+]] = bytecode.virtual_parameter_register 0
+// CHECK-DAG:    [[DST:%.+]] = bytecode.virtual_parameter_register 1
+// CHECK:        bytecode.buffer.copy [[DST]], [[SRC]]
+// CHECK:        bytecode.ret
+// CHECK:      }
 
 // -----
 
@@ -1417,9 +1460,9 @@ module {
   }
 }
 
-// CHECK: [[VGRA:%.+]] = bytecode.virtual_general_register
-// CHECK: [[VGRB:%.+]] = bytecode.virtual_general_register
-// CHECK: [[VGRC:%.+]] = bytecode.virtual_general_register
+// CHECK: [[VVRA:%.+]] = bytecode.virtual_value_register
+// CHECK: [[VVRB:%.+]] = bytecode.virtual_value_register
+// CHECK: [[VVRC:%.+]] = bytecode.virtual_value_register
 // Main loop block that contains switch case
 // CHECK:      ^bb1
 // CHECK:      bytecode.set_imm {{%.+}}, 0
@@ -1444,23 +1487,23 @@ module {
 // CHECK:      bytecode.jmp ^bb10
 // NO TMP NEEDED EXCEPT FOR DEFAULT CASE
 // CHECK:      ^bb8
-// CHECK:      bytecode.set [[VGRA]], {{%.+}}
-// CHECK:      bytecode.set [[VGRB]], {{%.+}}
-// CHECK:      bytecode.set [[VGRC]], {{%.+}}
+// CHECK:      bytecode.set [[VVRA]], {{%.+}}
+// CHECK:      bytecode.set [[VVRB]], {{%.+}}
+// CHECK:      bytecode.set [[VVRC]], {{%.+}}
 // CHECK:      ^bb10
 // CHECK-COUNT-3: bytecode.set
 // CHECK:      bytecode.jmp ^bb1
 // DEFAULT CASE NEEDS TMP TO SWAP X AND Y
 // CHECK:      ^bb11
-// CHECK:      [[ADD_RESULT0:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[ADD_RESULT0:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.add.i64 [[ADD_RESULT0]]
-// CHECK:      [[ADD_RESULT1:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[ADD_RESULT1:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.add.i64 [[ADD_RESULT1]]
-// CHECK:      [[TMP:%.+]] = bytecode.virtual_general_register
-// CHECK:      bytecode.set [[TMP]], [[VGRA]]
-// CHECK:      bytecode.set [[VGRA]], [[VGRB]]
-// CHECK:      bytecode.set [[VGRB]], [[TMP]]
-// CHECK:      bytecode.set [[VGRC]], {{%.+}}
+// CHECK:      [[TMP:%.+]] = bytecode.virtual_value_register
+// CHECK:      bytecode.set [[TMP]], [[VVRA]]
+// CHECK:      bytecode.set [[VVRA]], [[VVRB]]
+// CHECK:      bytecode.set [[VVRB]], [[TMP]]
+// CHECK:      bytecode.set [[VVRC]], {{%.+}}
 // CHECK:      bytecode.jmp ^bb1
 
 // -----
@@ -1476,6 +1519,6 @@ module {
 }
 
 // CHECK:      [[C0:%.+]] = bytecode.imm_register 0
-// CHECK:      [[VAL:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[VAL:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.buffer.load [[VAL]], {{%.+}} indices([[C0]])
 // CHECK:      bytecode.buffer.store {{%.+}}, [[VAL]] indices([[C0]])

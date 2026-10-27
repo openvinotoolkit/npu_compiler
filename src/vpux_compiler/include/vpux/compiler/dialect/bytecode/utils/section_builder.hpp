@@ -8,7 +8,7 @@
 #include "vpux/compiler/dialect/bytecode/IR/ops/section.hpp"
 #include "vpux/utils/core/string_ref.hpp"
 
-#include <llvm/ADT/STLExtras.h>
+#include <llvm/ADT/DenseMap.h>
 #include <llvm/ADT/StringMap.h>
 #include <llvm/ADT/StringSet.h>
 #include <mlir/IR/Builders.h>
@@ -19,6 +19,7 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 
 namespace vpux::bytecode {
 
@@ -48,8 +49,7 @@ public:
     mlir::StringAttr addConstant(mlir::StringRef cacheKey, mlir::StringRef symBase, mlir::Location loc,
                                  mlir::ElementsAttr data);
 
-    mlir::StringAttr getCachedTypeSymName(mlir::StringRef cacheKey) const;
-    mlir::StringAttr getCachedTypeSymName(mlir::Type type) const;
+    mlir::StringAttr getCachedTypeSymName(mlir::Type type, mlir::Location loc);
 
 private:
     mlir::OpBuilder& getStringBuilder();
@@ -58,8 +58,8 @@ private:
     mlir::OpBuilder& getKernelBuilder();
 
     mlir::StringAttr makeUniqueSymbolName(mlir::StringRef base);
-    mlir::StringAttr getOrCreateType(mlir::StringRef cacheKey, mlir::StringRef symBase, mlir::Location loc,
-                                     llvm::function_ref<mlir::Attribute()> makeAttr);
+    std::pair<mlir::Attribute, std::string> makeTypeAttr(mlir::Type type, mlir::Location loc);
+    mlir::StringAttr getOrCreateType(mlir::Attribute typeAttr, mlir::StringRef symBase, mlir::Location loc);
 
     mlir::ModuleOp _module;
     mlir::MLIRContext* _ctx;
@@ -79,7 +79,7 @@ private:
     llvm::StringSet<> _usedSymNames;
 
     llvm::StringMap<mlir::StringAttr> _stringSymByValue;
-    llvm::StringMap<mlir::StringAttr> _typeSymByKey;
+    llvm::DenseMap<mlir::Attribute, mlir::StringAttr> _typeSymByAttr;
     llvm::StringMap<mlir::StringAttr> _constantSymByKey;
 };
 

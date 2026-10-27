@@ -61,21 +61,26 @@ void fixForallOutputTypes(mlir::scf::ForallOp forallOp, mlir::Operation* origOp)
         forallOp.getResult(idx).setType(origOp->getResult(idx).getType());
     }
     auto* terminator = forallOp.getBody()->getTerminator();
-    if (auto inParallelOp = mlir::dyn_cast_or_null<mlir::scf::InParallelOp>(terminator)) {
-        for (auto insertOp : inParallelOp.getOps<mlir::tensor::ParallelInsertSliceOp>()) {
-            if (auto blockArg = mlir::dyn_cast_or_null<mlir::BlockArgument>(insertOp.getDest())) {
-                const auto argNum = blockArg.getArgNumber();
-                const auto inductionVarCount = forallOp.getInductionVars().size();
-                VPUX_THROW_UNLESS(argNum >= inductionVarCount,
-                                  "ParallelInsertSlice destination block argument index {0} is less than "
-                                  "induction variable count {1}; malformed scf.forall IR",
-                                  argNum, inductionVarCount);
-                auto argIndex = argNum - inductionVarCount;
-                auto outputType = origOp->getResult(argIndex).getType();
-                insertOp.getDestMutable().get().setType(outputType);
-                forallOp.getOutputs()[argIndex].setType(outputType);
-            }
+    auto inParallelOp = mlir::dyn_cast_if_present<mlir::scf::InParallelOp>(terminator);
+    if (!inParallelOp) {
+        return;
+    }
+
+    for (auto insertOp : inParallelOp.getOps<mlir::tensor::ParallelInsertSliceOp>()) {
+        auto blockArg = mlir::dyn_cast_if_present<mlir::BlockArgument>(insertOp.getDest());
+        if (!blockArg) {
+            continue;
         }
+        const auto argNum = blockArg.getArgNumber();
+        const auto inductionVarCount = forallOp.getInductionVars().size();
+        VPUX_THROW_UNLESS(argNum >= inductionVarCount,
+                          "ParallelInsertSlice destination block argument index {0} is less than "
+                          "induction variable count {1}; malformed scf.forall IR",
+                          argNum, inductionVarCount);
+        auto argIndex = argNum - inductionVarCount;
+        auto outputType = origOp->getResult(argIndex).getType();
+        insertOp.getDestMutable().get().setType(outputType);
+        forallOp.getOutputs()[argIndex].setType(outputType);
     }
 }
 
@@ -122,7 +127,7 @@ std::optional<BalancedTileSizes> getBalancedTileSizes(int64_t dimSize, int64_t n
 // the per-iteration arithmetic folds to constants for the supported cases.
 mlir::LogicalResult applyBalancedMulticlusterTilingImpl(mlir::Operation* operation, mlir::RewriterBase& builder,
                                                         int64_t numClusters, Dim mcDim, mlir::Value smallTileVal,
-                                                        mlir::Value numLargeVal, mlir::Value deltaVal, Logger /*log*/) {
+                                                        mlir::Value numLargeVal, mlir::Value deltaVal) {
     auto tilingOp = mlir::cast<mlir::TilingInterface>(operation);
     auto loc = operation->getLoc();
     const auto numResults = operation->getNumResults();
@@ -144,11 +149,11 @@ mlir::LogicalResult applyBalancedMulticlusterTilingImpl(mlir::Operation* operati
                     dynamicDims.push_back(mlir::getValueOrCreateConstantIndexOp(builder, loc, reifiedShapes[idx][d]));
                 } else {
                     dynamicDims.push_back(
-                            builder.create<mlir::tensor::DimOp>(loc, operation->getResult(idx), d).getResult());
+                            mlir::tensor::DimOp::create(builder, loc, operation->getResult(idx), d).getResult());
                 }
             }
         }
-        auto emptyOp = builder.create<mlir::tensor::EmptyOp>(loc, resultType, dynamicDims);
+        auto emptyOp = mlir::tensor::EmptyOp::create(builder, loc, resultType, dynamicDims);
         outputEmpties.push_back(emptyOp.getResult());
     }
 
@@ -158,7 +163,7 @@ mlir::LogicalResult applyBalancedMulticlusterTilingImpl(mlir::Operation* operati
     SmallVector<mlir::OpFoldResult> steps = {builder.getIndexAttr(1)};
 
     auto forallOp =
-            builder.create<mlir::scf::ForallOp>(loc, lbs, ubs, steps, mlir::ValueRange{outputEmpties}, std::nullopt);
+            mlir::scf::ForallOp::create(builder, loc, lbs, ubs, steps, mlir::ValueRange{outputEmpties}, std::nullopt);
 
     // Body: iv is the cluster index (0, 1, ..., numClusters-1)
     //   extraTiles = min(iv, numLarge)
@@ -168,14 +173,14 @@ mlir::LogicalResult applyBalancedMulticlusterTilingImpl(mlir::Operation* operati
     builder.setInsertionPointToStart(forallOp.getBody());
     auto iv = forallOp.getInductionVar(0);
 
-    auto extraTiles = builder.create<mlir::arith::MinUIOp>(loc, iv, numLargeVal);
-    auto baseOffset = builder.create<mlir::arith::MulIOp>(loc, iv, smallTileVal);
-    auto extraOffset = builder.create<mlir::arith::MulIOp>(loc, extraTiles, deltaVal);
-    auto realOffset = builder.create<mlir::arith::AddIOp>(loc, baseOffset, extraOffset);
+    auto extraTiles = mlir::arith::MinUIOp::create(builder, loc, iv, numLargeVal);
+    auto baseOffset = mlir::arith::MulIOp::create(builder, loc, iv, smallTileVal);
+    auto extraOffset = mlir::arith::MulIOp::create(builder, loc, extraTiles, deltaVal);
+    auto realOffset = mlir::arith::AddIOp::create(builder, loc, baseOffset, extraOffset);
 
-    auto isLarge = builder.create<mlir::arith::CmpIOp>(loc, mlir::arith::CmpIPredicate::ult, iv, numLargeVal);
-    auto largeTileVal = builder.create<mlir::arith::AddIOp>(loc, smallTileVal, deltaVal);
-    auto realSize = builder.create<mlir::arith::SelectOp>(loc, isLarge, largeTileVal, smallTileVal);
+    auto isLarge = mlir::arith::CmpIOp::create(builder, loc, mlir::arith::CmpIPredicate::ult, iv, numLargeVal);
+    auto largeTileVal = mlir::arith::AddIOp::create(builder, loc, smallTileVal, deltaVal);
+    auto realSize = mlir::arith::SelectOp::create(builder, loc, isLarge, largeTileVal, smallTileVal);
 
     // Build full-rank offsets and sizes for TilingInterface::getTiledImplementation.
     SmallVector<mlir::OpFoldResult> tileOffsets(rank, builder.getIndexAttr(0));
@@ -190,7 +195,7 @@ mlir::LogicalResult applyBalancedMulticlusterTilingImpl(mlir::Operation* operati
                     tileSizes.push_back(reifiedShapes[0][i]);
                 } else {
                     tileSizes.push_back(
-                            builder.create<mlir::tensor::DimOp>(loc, operation->getResult(0), i).getResult());
+                            mlir::tensor::DimOp::create(builder, loc, operation->getResult(0), i).getResult());
                 }
             } else {
                 tileSizes.push_back(builder.getIndexAttr(primaryOutputType.getDimSize(i)));
@@ -212,10 +217,10 @@ mlir::LogicalResult applyBalancedMulticlusterTilingImpl(mlir::Operation* operati
     }
 
     auto inParallelOp = forallOp.getTerminator();
-    builder.setInsertionPointToStart(inParallelOp.getBody());
     auto regionOutArgs = forallOp.getRegionOutArgs();
 
     for (unsigned idx = 0; idx < numResults; ++idx) {
+        builder.setInsertionPoint(inParallelOp);
         SmallVector<mlir::OpFoldResult> resultOffsets, resultSizes;
         if (mlir::failed(
                     tilingOp.getResultTilePosition(builder, idx, tileOffsets, tileSizes, resultOffsets, resultSizes))) {
@@ -224,8 +229,10 @@ mlir::LogicalResult applyBalancedMulticlusterTilingImpl(mlir::Operation* operati
         }
         auto resultRank = mlir::cast<mlir::RankedTensorType>(operation->getResult(idx).getType()).getRank();
         SmallVector<mlir::OpFoldResult> strides(resultRank, builder.getIndexAttr(1));
-        builder.create<mlir::tensor::ParallelInsertSliceOp>(loc, tiledResult->tiledValues[idx], regionOutArgs[idx],
-                                                            resultOffsets, resultSizes, strides);
+
+        builder.setInsertionPointToStart(inParallelOp.getBody());
+        mlir::tensor::ParallelInsertSliceOp::create(builder, loc, tiledResult->tiledValues[idx], regionOutArgs[idx],
+                                                    resultOffsets, resultSizes, strides);
     }
 
     fixForallOutputTypes(forallOp, operation);
@@ -256,9 +263,9 @@ std::optional<BalancedTileValues> computeBalancedTileValues(mlir::RewriterBase& 
             return std::nullopt;
         }
         const int64_t delta = balanced->largeTile - balanced->smallTile;
-        return BalancedTileValues{builder.create<mlir::arith::ConstantIndexOp>(loc, balanced->smallTile),
-                                  builder.create<mlir::arith::ConstantIndexOp>(loc, balanced->numLarge),
-                                  builder.create<mlir::arith::ConstantIndexOp>(loc, delta)};
+        return BalancedTileValues{mlir::arith::ConstantIndexOp::create(builder, loc, balanced->smallTile),
+                                  mlir::arith::ConstantIndexOp::create(builder, loc, balanced->numLarge),
+                                  mlir::arith::ConstantIndexOp::create(builder, loc, delta)};
     }
 
     // Dynamic path: emit runtime computation.
@@ -282,11 +289,11 @@ std::optional<BalancedTileValues> computeBalancedTileValues(mlir::RewriterBase& 
         }
     };
 
-    auto numClustersConst = builder.create<mlir::arith::ConstantIndexOp>(loc, numClusters);
+    auto numClustersConst = mlir::arith::ConstantIndexOp::create(builder, loc, numClusters);
     auto totalSmall = builder.createOrFold<mlir::arith::MulIOp>(loc, smallTileVal, numClustersConst);
     auto remainder = builder.createOrFold<mlir::arith::SubIOp>(loc, dimSizeVal, totalSmall);
-    auto deltaVal = builder.create<mlir::arith::ConstantIndexOp>(loc, alignment);
-    auto zeroVal = builder.create<mlir::arith::ConstantIndexOp>(loc, 0);
+    auto deltaVal = mlir::arith::ConstantIndexOp::create(builder, loc, alignment);
+    auto zeroVal = mlir::arith::ConstantIndexOp::create(builder, loc, 0);
 
     // Validate: all checks must fold to true constants; otherwise the balanced split is not applicable.
     // Equivalent to the static path guards:
@@ -410,9 +417,9 @@ mlir::LogicalResult MulticlusterTilingSCFAlgorithm::applyTiling(mlir::Operation*
                 expandedSizes[expandDimIdx] = builder.getIndexAttr(dim0 * numClusters);
             } else {
                 auto dim0Val = mlir::getValueOrCreateConstantIndexOp(builder, loc, origSizes[expandDimIdx]);
-                auto numClustersVal = builder.create<mlir::arith::ConstantIndexOp>(loc, numClusters);
+                auto numClustersVal = mlir::arith::ConstantIndexOp::create(builder, loc, numClusters);
                 expandedSizes[expandDimIdx] =
-                        builder.create<mlir::arith::MulIOp>(loc, dim0Val, numClustersVal).getResult();
+                        mlir::arith::MulIOp::create(builder, loc, dim0Val, numClustersVal).getResult();
             }
 
             // Build expanded encoding: if the original has bounds, update dim 0 bound.
@@ -428,8 +435,8 @@ mlir::LogicalResult MulticlusterTilingSCFAlgorithm::applyTiling(mlir::Operation*
                 }
             }
 
-            auto emptyOp = builder.create<mlir::tensor::EmptyOp>(loc, expandedSizes, resultType.getElementType(),
-                                                                 expandedEncoding);
+            auto emptyOp = mlir::tensor::EmptyOp::create(builder, loc, expandedSizes, resultType.getElementType(),
+                                                         expandedEncoding);
             outputEmpties.push_back(emptyOp.getResult());
             allOrigSizes.push_back(std::move(origSizes));
         }
@@ -441,9 +448,9 @@ mlir::LogicalResult MulticlusterTilingSCFAlgorithm::applyTiling(mlir::Operation*
         // Create scf.forall with numClusters iterations (normalized loop: only upper bounds)
         SmallVector<mlir::OpFoldResult> upperBounds = {builder.getIndexAttr(numClusters)};
 
-        auto forallOp = builder.create<mlir::scf::ForallOp>(loc, upperBounds,
-                                                            /*outputs=*/mlir::ValueRange{outputEmpties},
-                                                            /*mapping=*/std::nullopt);
+        auto forallOp = mlir::scf::ForallOp::create(builder, loc, upperBounds,
+                                                    /*outputs=*/mlir::ValueRange{outputEmpties},
+                                                    /*mapping=*/std::nullopt);
 
         auto* terminator = forallOp.getBody()->getTerminator();
         builder.setInsertionPoint(terminator);
@@ -463,7 +470,7 @@ mlir::LogicalResult MulticlusterTilingSCFAlgorithm::applyTiling(mlir::Operation*
                 }
             }
             auto step = mlir::getValueOrCreateConstantIndexOp(builder, loc, origDim0OFR);
-            dim0Offsets.push_back(builder.create<mlir::arith::MulIOp>(loc, iv, step).getResult());
+            dim0Offsets.push_back(mlir::arith::MulIOp::create(builder, loc, iv, step).getResult());
         }
 
         // Clone the original operation inside the forall
@@ -481,8 +488,8 @@ mlir::LogicalResult MulticlusterTilingSCFAlgorithm::applyTiling(mlir::Operation*
             offsets[expandDimIdx] = dim0Offsets[idx];
             SmallVector<mlir::OpFoldResult> strides(rank, builder.getIndexAttr(1));
 
-            builder.create<mlir::tensor::ParallelInsertSliceOp>(loc, clonedOp->getResult(idx), regionOutArgs[idx],
-                                                                offsets, allOrigSizes[idx], strides);
+            mlir::tensor::ParallelInsertSliceOp::create(builder, loc, clonedOp->getResult(idx), regionOutArgs[idx],
+                                                        offsets, allOrigSizes[idx], strides);
         }
 
         // Fix forall output types to include encoding from expanded shape.
@@ -519,8 +526,8 @@ mlir::LogicalResult MulticlusterTilingSCFAlgorithm::applyTiling(mlir::Operation*
             SmallVector<mlir::OpFoldResult> offsets(rank, builder.getIndexAttr(0));
             SmallVector<mlir::OpFoldResult> strides(rank, builder.getIndexAttr(1));
 
-            auto extractOp = builder.create<mlir::tensor::ExtractSliceOp>(loc, origType, forallOp.getResult(idx),
-                                                                          offsets, allOrigSizes[idx], strides);
+            auto extractOp = mlir::tensor::ExtractSliceOp::create(builder, loc, origType, forallOp.getResult(idx),
+                                                                  offsets, allOrigSizes[idx], strides);
             replacements.push_back(extractOp.getResult());
         }
         builder.replaceOp(operation, replacements);
@@ -602,7 +609,7 @@ mlir::LogicalResult MulticlusterTilingSCFAlgorithm::applyTiling(mlir::Operation*
         log.trace("Balanced multiclustering: dim={0}, numClusters={1}, alignment={2}", Dim(mcAxis), numClusters,
                   alignment[mcAxis]);
         return applyBalancedMulticlusterTilingImpl(operation, builder, numClusters, Dim(mcAxis), balanced->smallTile,
-                                                   balanced->numLarge, balanced->delta, log);
+                                                   balanced->numLarge, balanced->delta);
     }
 
     // E-162999 workaround: tileUsingSCF drops the output order in the ForAllOp and terminator.

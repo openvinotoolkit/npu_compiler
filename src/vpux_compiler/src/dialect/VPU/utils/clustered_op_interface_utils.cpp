@@ -7,7 +7,7 @@
 
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
@@ -352,7 +352,7 @@ bool VPU::isOperationSplitOverKernelCompatible(mlir::Operation* op, ShapeRef out
             newShape[Dims4D::Filter::OC] = OC;
             auto elemType = origType.getElementType();
             if (auto qElemType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(elemType)) {
-                if (auto quantileStorage = mlir::dyn_cast<vpux::type::QuantileType>(qElemType.getStorageType())) {
+                if (auto quantileStorage = mlir::dyn_cast<mlir::quant::QuantileType>(qElemType.getStorageType())) {
                     elemType = mlir::quant::UniformQuantizedType::get(
                             qElemType.getFlags(), quantileStorage, qElemType.getExpressedType(), /*scale=*/1.0,
                             /*zeroPoint=*/0, qElemType.getStorageTypeMin(), qElemType.getStorageTypeMax());
@@ -543,7 +543,8 @@ bool VPU::isEltwiseSWOpSplitOverHeightCompatible(mlir::Operation* op, vpux::Shap
     return OH >= numTiles && numClustersForSOH == numTiles;
 }
 
-bool VPU::isEltwiseSWOpSplitOverWidthCompatible(mlir::Operation* op, vpux::ShapeRef outputShape, int64_t alignment) {
+bool VPU::isEltwiseSWOpSplitOverWidthCompatible(mlir::Operation* op, vpux::ShapeRef outputShape, int64_t alignment,
+                                                int64_t minWidthForSOW) {
     if (!VPU::checkMCRestrictions(op)) {
         return false;
     }
@@ -554,13 +555,12 @@ bool VPU::isEltwiseSWOpSplitOverWidthCompatible(mlir::Operation* op, vpux::Shape
     const auto outShape = outputShape.empty() ? getBoundedShape(op->getResult(0)) : outputShape;
     const auto OW = outShape[Dims4D::Act::W];
 
-    // The threshold of 128 for MIN_WIDTH_FOR_SOW was chosen based on empirical benchmarking results.
+    // The default threshold of 128 for minWidthForSOW was chosen based on empirical benchmarking results.
     // Below this threshold, clustering yields better performance.
     // This value may be adjusted in the future if performance data change.
-    constexpr int64_t MIN_WIDTH_FOR_SOW = 128;
     const bool isTensorEffectively1D = OW == outShape.totalSize();
     auto swOp = mlir::dyn_cast<VPU::SWOpInterface>(op);
-    if (swOp != nullptr && !swOp.supportCycleCostCalculation() && isTensorEffectively1D && OW < MIN_WIDTH_FOR_SOW) {
+    if (swOp != nullptr && !swOp.supportCycleCostCalculation() && isTensorEffectively1D && OW < minWidthForSOW) {
         // Clustering is a preferred strategy
         return false;
     }

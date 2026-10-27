@@ -50,8 +50,8 @@ mlir::LogicalResult VPU::ClusteredOpRewriter::matchAndRewrite(VPU::ClusteredOpIn
     SmallVector<mlir::Value> newCopyOutputs;
     rewriter.setInsertionPointAfter(newOp);
     for (auto result : newOp->getResults() | indexed) {
-        auto outputCopyOp = rewriter.create<VPU::UnrolledTypeOp>(
-                newOp->getLoc(), origOp->getResult(result.index()).getType(), result.value());
+        auto outputCopyOp = VPU::UnrolledTypeOp::create(rewriter, newOp->getLoc(),
+                                                        origOp->getResult(result.index()).getType(), result.value());
         newCopyOutputs.push_back(outputCopyOp->getResult(0));
     }
 
@@ -68,8 +68,7 @@ mlir::LogicalResult VPU::NCEEltwiseRewriter::matchAndRewrite(VPU::NCEEltwiseOp o
     _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
 
     auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(origOp.getOperation());
-    VPUX_THROW_UNLESS(clusteredOp != nullptr, "Operation '{0}' cannot be converted to VPU::ClusteredOpInterface",
-                      origOp);
+    VPUX_THROW_WHEN(clusteredOp == nullptr, "Operation '{0}' cannot be converted to VPU::ClusteredOpInterface", origOp);
 
     SmallVector<mlir::Value> distributedCopyOps{};
     const auto& operandLookup = _inputTypeLookup.at(origOp.getOperation());
@@ -102,8 +101,8 @@ mlir::LogicalResult VPU::NCEEltwiseRewriter::matchAndRewrite(VPU::NCEEltwiseOp o
     SmallVector<mlir::Value> newCopyOutputs;
     rewriter.setInsertionPointAfter(newOp);
     for (auto result : newOp->getResults() | indexed) {
-        auto outputCopyOp = rewriter.create<VPU::UnrolledTypeOp>(
-                newOp->getLoc(), origOp->getResult(result.index()).getType(), result.value());
+        auto outputCopyOp = VPU::UnrolledTypeOp::create(rewriter, newOp->getLoc(),
+                                                        origOp->getResult(result.index()).getType(), result.value());
         newCopyOutputs.push_back(outputCopyOp->getResult(0));
     }
 

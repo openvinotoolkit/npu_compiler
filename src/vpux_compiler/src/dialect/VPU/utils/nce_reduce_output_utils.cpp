@@ -33,9 +33,8 @@ SmallVector<VPU::ReduceOutputKind> VPU::getReduceOutputKinds(mlir::Operation* op
 }
 
 bool VPU::hasReduceOutputs(mlir::Operation* op) {
-    // getReduceOutputKinds always prepends None for the main output, so a size > 1
-    // means at least one extra reduce result is active.
-    return getReduceOutputKinds(op).size() > 1;
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
+    return nceOp != nullptr && nceOp.hasReduceOutput();
 }
 
 std::optional<Dim> VPU::getReducedDim(mlir::Operation* op) {

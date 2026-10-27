@@ -157,7 +157,7 @@ mlir::Operation* vpux::VPU::details::addWorkload(mlir::Region& workloads, mlir::
     const auto offsetsAttr = mlir::DenseI64ArrayAttr::get(builder.getContext(), offsets);
     const auto sizesAttr = mlir::DenseI64ArrayAttr::get(builder.getContext(), sizes);
 
-    return builder.create<DPUWorkloadOp>(loc, offsetsAttr, sizesAttr, pad, mpeMode, clusterId);
+    return DPUWorkloadOp::create(builder, loc, offsetsAttr, sizesAttr, pad, mpeMode, clusterId);
 }
 
 mlir::LogicalResult vpux::VPU::details::verifyInputTypeOp(mlir::Operation* op, vpux::NDTypeInterface inputType) {
@@ -209,7 +209,7 @@ mlir::Value vpux::VPU::makeTile(mlir::OpBuilder& builder, mlir::Location baseLoc
 
     const auto loc = appendLoc(baseLoc, "{0} tile {1}", valName, tile.offsets);
 
-    auto sliceOp = builder.create<VPU::SliceOp>(loc, origVal, tile.offsets, tile.shape);
+    auto sliceOp = VPU::SliceOp::create(builder, loc, origVal, tile.offsets, tile.shape);
     return sliceOp.getResult();
 }
 
@@ -516,6 +516,7 @@ void vpux::VPU::registerSWTilingInfoOpInterfaceCommon(mlir::DialectRegistry& reg
         VPU::FlashSDPAOp::attachInterface<SwLayerTilingInfoOpModel<VPU::FlashSDPAOp>>(*ctx);
         VPU::GatedDeltaNetOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GatedDeltaNetOp>>(*ctx);
         VPU::ScatterElementsUpdateOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ScatterElementsUpdateOp>>(*ctx);
+        VPU::GroupQuantCorrectionOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GroupQuantCorrectionOp>>(*ctx);
         VPU::GenericSwLayerOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GenericSwLayerOp>>(*ctx);
     });
 }

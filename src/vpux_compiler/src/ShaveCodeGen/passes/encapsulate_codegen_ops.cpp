@@ -48,11 +48,11 @@ private:
 
 mlir::Operation* EncapsulateCodeGenOpsPass::wrapInCodeGenCapsule(mlir::Operation* op, mlir::OpBuilder& opBuilder) {
     opBuilder.setInsertionPoint(op);
-    auto cgCapsule = opBuilder.create<IE::CodeGenCapsuleOp>(op->getLoc(), op->getResultTypes(), op->getOperands());
+    auto cgCapsule = IE::CodeGenCapsuleOp::create(opBuilder, op->getLoc(), op->getResultTypes(), op->getOperands());
     auto& cgBlock = cgCapsule.getContent().emplaceBlock();
 
     opBuilder.setInsertionPointToEnd(&cgBlock);
-    auto yieldOp = opBuilder.create<IE::CGCYieldOp>(opBuilder.getUnknownLoc(), mlir::ValueRange());
+    auto yieldOp = IE::CGCYieldOp::create(opBuilder, opBuilder.getUnknownLoc(), mlir::ValueRange());
 
     op->replaceAllUsesWith(cgCapsule->getResults());
     op->moveBefore(yieldOp);

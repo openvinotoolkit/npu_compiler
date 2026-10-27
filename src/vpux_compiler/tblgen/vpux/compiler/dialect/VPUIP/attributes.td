@@ -352,8 +352,8 @@ def VPUIP_DpuProfilingMetadataAttr : VPUIP_Attr<"DpuProfilingMetadata", [
         "mlir::IntegerAttr":$bufferId,
         "mlir::IntegerAttr":$taskId,
         "mlir::IntegerAttr":$maxVariants,
-        OptionalParameter<"mlir::IntegerAttr">:$numVariants,
-        OptionalParameter<"mlir::IntegerAttr">:$clusterId
+        "mlir::IntegerAttr":$numVariants,
+        "mlir::IntegerAttr":$clusterId
     );
 
     let assemblyFormat = "`<` struct(params) `>`";
@@ -394,27 +394,8 @@ def VPUIP_SwProfilingMetadataAttr : VPUIP_Attr<"SwProfilingMetadata", [
         "mlir::IntegerAttr":$bufferOffset,                  // Offset from beginning of profiling buffer to current
         "mlir::IntegerAttr":$clusterSize,                   // Size of one CMX tile corresponding to this buffer
         "mlir::IntegerAttr":$dataIndex,                     // Index of data in current buffer
-        OptionalParameter<"mlir::IntegerAttr">:$tileId,     // Index of tile(similar to workload_id)
-        OptionalParameter<"mlir::IntegerAttr">:$clusterId   // clusterId
-    );
-
-    let assemblyFormat = "`<` struct(params) `>`";
-}
-
-//
-// M2IProfilingMetadata
-//
-
-def VPUIP_M2IProfilingMetadataAttr : VPUIP_Attr<"M2IProfilingMetadata", [
-        DeclareAttrInterfaceMethods<VPUIP_ProfilingMetadataAttrInterface>
-    ] > {
-    let description = [{
-        Attribute attached to opearion to keep M2I profiling information
-    }];
-
-    let parameters = (ins
-        "mlir::IntegerAttr":$bufferId,                      // ID of high level buffer
-        "mlir::IntegerAttr":$bufferOffset                   // Offset from beginning of profiling buffer to current
+        "mlir::IntegerAttr":$tileId,                        // Index of tile(similar to workload_id)
+        "mlir::IntegerAttr":$clusterId                      // clusterId
     );
 
     let assemblyFormat = "`<` struct(params) `>`";

@@ -114,7 +114,7 @@ void config::setWorkloadManagementMode(mlir::ModuleOp moduleOp, WorkloadManageme
         wlmModeConfigOp.setOptionValueAttr(attrValue);
     } else {
         auto optionsBuilder = mlir::OpBuilder::atBlockBegin(&pipelineOptionsOp.getOptions().front());
-        optionsBuilder.create<config::OptionOp>(optionsBuilder.getUnknownLoc(), attrName, attrValue);
+        config::OptionOp::create(optionsBuilder, optionsBuilder.getUnknownLoc(), attrName, attrValue);
     }
 }
 
@@ -215,6 +215,10 @@ double config::getSoftmaxMaskAwareThreshold(mlir::Operation* op) {
 
 bool config::isBarrierFifoDummyEntrySupported([[maybe_unused]] config::ArchKind arch) {
     return false;
+}
+
+bool config::isShvToDmaImplicitDep([[maybe_unused]] config::ArchKind arch) {
+    return true;
 }
 
 bool config::isFinalBarrierConsumerRequired([[maybe_unused]] config::ArchKind arch,

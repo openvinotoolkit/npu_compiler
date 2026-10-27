@@ -17,6 +17,7 @@
 
 #include <llvm/Support/MD5.h>
 
+#include <map>
 #include <mutex>
 #include <shared_mutex>
 
@@ -34,6 +35,7 @@ namespace {
 // mutex to protect file r/w for multi-threading
 static std::shared_mutex writeStrategyFileMutex;
 static std::shared_mutex dumpStrategyFileMutex;
+static std::mutex loopIndexMutex;
 
 // Function to get the model ID based on the NetworkInfoOp
 std::string getModelID(mlir::ModuleOp moduleOp) {
@@ -70,7 +72,7 @@ std::string getModelID(mlir::ModuleOp moduleOp) {
 
 // Count how many func.func ops are in the module
 int countFunctions(mlir::ModuleOp moduleOp) {
-    VPUX_THROW_UNLESS(moduleOp != nullptr, "ModuleOp is null");
+    VPUX_THROW_WHEN(moduleOp == nullptr, "ModuleOp is null");
     auto funcOps = moduleOp.getOps<mlir::func::FuncOp>();
     return std::distance(funcOps.begin(), funcOps.end());
 }
@@ -409,17 +411,38 @@ std::unique_ptr<mlir::Pass> VPU::createManualStrategyUtilsPass(
             updateStrategyForOutputPipelining, dumpStrategyToLog, contextId, log);
 }
 
+TileCoordinateAttr vpux::getTileCoordinateAttr(mlir::MLIRContext* context, const TileCoordinate& coordinate) {
+    SmallVector<int64_t> axes;
+    SmallVector<int64_t> indices;
+    axes.reserve(coordinate.values.size());
+    indices.reserve(coordinate.values.size());
+    for (const auto& [axis, index] : coordinate.values) {
+        axes.push_back(axis.ind());
+        indices.push_back(index);
+    }
+    mlir::Builder builder(context);
+    return builder.getDictionaryAttr({
+            builder.getNamedAttr("axes", builder.getDenseI64ArrayAttr(axes)),
+            builder.getNamedAttr("indices", builder.getDenseI64ArrayAttr(indices)),
+    });
+}
+
 LoopAttributes vpux::getLoopAttributes(mlir::Operation* op) {
     auto tilingLoopIndexAttr = op->getAttrOfType<TilingLoopIndexAttr>(TILING_LOOP_INDEX_ATTR_NAME);
+    auto loopTileCoord = op->getAttrOfType<TileCoordinateAttr>(LOOP_TILE_COORD);
     auto vfLoopIndexAttr = op->getAttrOfType<VFLoopIndexAttr>(VF_LOOP_INDEX_ATTR_NAME);
     auto vfLoopTileIndexAttr = op->getAttrOfType<VFLoopTileIndexAttr>(VF_LOOP_TILE_INDEX_ATTR_NAME);
-    return LoopAttributes(tilingLoopIndexAttr, vfLoopIndexAttr, vfLoopTileIndexAttr);
+    return LoopAttributes(tilingLoopIndexAttr, loopTileCoord, vfLoopIndexAttr, vfLoopTileIndexAttr);
 }
 
 void vpux::copyLoopAttributes(mlir::Operation* srcOp, mlir::Operation* dstOp) {
-    const auto [tilingLoopIndexAttr, vfLoopIndexAttr, vfLoopTileIndexAttr] = getLoopAttributes(srcOp);
+    const auto [tilingLoopIndexAttr, loopTileCoord, vfLoopIndexAttr, vfLoopTileIndexAttr] = getLoopAttributes(srcOp);
+    const auto isLoopOperation = tilingLoopIndexAttr != nullptr || vfLoopIndexAttr != nullptr;
     if (tilingLoopIndexAttr != nullptr) {
         dstOp->setAttr(TILING_LOOP_INDEX_ATTR_NAME, tilingLoopIndexAttr);
+    }
+    if (isLoopOperation && loopTileCoord != nullptr) {
+        dstOp->setAttr(LOOP_TILE_COORD, loopTileCoord);
     }
     if (vfLoopIndexAttr != nullptr) {
         dstOp->setAttr(VF_LOOP_INDEX_ATTR_NAME, vfLoopIndexAttr);
@@ -427,4 +450,41 @@ void vpux::copyLoopAttributes(mlir::Operation* srcOp, mlir::Operation* dstOp) {
     if (vfLoopTileIndexAttr != nullptr) {
         dstOp->setAttr(VF_LOOP_TILE_INDEX_ATTR_NAME, vfLoopTileIndexAttr);
     }
+}
+
+namespace {
+
+int64_t getNextLoopIndex(mlir::ModuleOp module, StringRef loopIndexAttrName, StringRef loopType) {
+    VPUX_THROW_UNLESS(module != nullptr, "Cannot allocate {0} loop index without a module", loopType);
+    std::lock_guard<std::mutex> guard(loopIndexMutex);
+
+    // The next index is always derived from the IR, so that it cannot be affected by the state
+    // left over from another module. Every caller stores the returned index into the IR before
+    // requesting the next one, which keeps the allocated indices unique.
+    int64_t nextIndex = 0;
+    bool hasLoopIndex = false;
+    int64_t maxLoopIndex = std::numeric_limits<int64_t>::min();
+    module.walk([&](mlir::Operation* op) {
+        if (const auto loopIndex = op->getAttrOfType<I64Attr>(loopIndexAttrName)) {
+            maxLoopIndex = std::max(maxLoopIndex, mlir::cast<mlir::IntegerAttr>(loopIndex).getInt());
+            hasLoopIndex = true;
+        }
+    });
+    if (hasLoopIndex) {
+        VPUX_THROW_WHEN(maxLoopIndex == std::numeric_limits<int64_t>::max(),
+                        "Cannot allocate {0} loop index: all int64_t values are exhausted", loopType);
+        nextIndex = maxLoopIndex + 1;
+    }
+
+    return nextIndex;
+}
+
+}  // namespace
+
+int64_t vpux::getNextTilingLoopIndex(mlir::ModuleOp module) {
+    return getNextLoopIndex(module, TILING_LOOP_INDEX_ATTR_NAME, "tiling");
+}
+
+int64_t vpux::getNextVFLoopIndex(mlir::ModuleOp module) {
+    return getNextLoopIndex(module, VF_LOOP_INDEX_ATTR_NAME, "VF");
 }

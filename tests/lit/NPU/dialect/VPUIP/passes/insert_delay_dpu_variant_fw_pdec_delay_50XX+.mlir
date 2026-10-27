@@ -52,7 +52,7 @@
 func.func  @SkipConvWithODUAutopadAndHaloFwPdecDelay(
         %input: !DataType, %weights: !WeightsType, %weight_table: !WeightTableType,
         %output_iti0: !OutputITICluster0, %output_iti1: !OutputITICluster1, %output_iti2: !OutputITICluster2) -> !OutputITICluster0 {
-    %nce = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+    %nce = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
             is_superdense,
             kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             kernel_size = [1, 1],

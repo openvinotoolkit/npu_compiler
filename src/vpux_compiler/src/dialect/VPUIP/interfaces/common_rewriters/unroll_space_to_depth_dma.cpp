@@ -175,7 +175,7 @@ mlir::LogicalResult MultiClusterSpaceToDepthDMARewriter::unroll(VPUIP::SpaceToDe
     const auto getInputOperand = [&](mlir::Value operand, vpux::NDTypeInterface newType,
                                      mlir::Operation* insertionPoint, Byte offset) -> mlir::Value {
         auto declBuff = operand.getDefiningOp<VPURT::DeclareBufferOp>();
-        VPUX_THROW_UNLESS(declBuff != nullptr, "Can't get buffer offset");
+        VPUX_THROW_WHEN(declBuff == nullptr, "Can't get buffer offset");
 
         Byte cmxOffset{declBuff.getByteOffset()};
         cmxOffset += offset;
@@ -208,7 +208,7 @@ mlir::LogicalResult MultiClusterSpaceToDepthDMARewriter::unroll(VPUIP::SpaceToDe
     const auto getOutputOperand = [&](int64_t clusterId, mlir::Value operand, vpux::NDTypeInterface newType,
                                       mlir::Operation* insertionPoint) -> mlir::Value {
         auto declBuff = operand.getDefiningOp<VPURT::DeclareBufferOp>();
-        VPUX_THROW_UNLESS(declBuff != nullptr, "Can't get buffer offset");
+        VPUX_THROW_WHEN(declBuff == nullptr, "Can't get buffer offset");
 
         const auto symbolAttr = vpux::IndexedSymbolAttr::get(ctx, {cmxNameAttr, vpux::getIntAttr(ctx, clusterId)});
         auto newCMXType = newType.changeMemSpace(symbolAttr);

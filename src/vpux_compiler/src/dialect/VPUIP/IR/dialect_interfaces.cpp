@@ -97,11 +97,6 @@ struct CallOPPreInliner {
 
     private:
         ResourceDescriptor() = delete;
-        ResourceDescriptor(FunctionAnalyticBase base, DebatchedCallOpData data, std::optional<size_t> ddr)
-                : FunctionAnalyticBase(std::move(base)),
-                  callOpData(std::move(data)),
-                  singleFunctionDDRConsumptionBytes(ddr) {
-        }
     };
     /*
      * Delegates processing to appropriate handler if conditions apt the hadler invocation,
@@ -815,7 +810,7 @@ CallOPPreInlinerVisitor::CallOPPreInlinerVisitor(Logger log): _log(log.nest()) {
 
 void CallOPPreInlinerVisitor::visit(mlir::Operation* op,
                                     mlir::iterator_range<mlir::Region::iterator> inlinedBlocks) const {
-    VPUX_THROW_UNLESS(op != nullptr, "Empty operation");
+    VPUX_THROW_WHEN(op == nullptr, "Empty operation");
     _log.trace("CallOPPreInlinerVisitor started");
     for (const auto& p : preInliners) {
         if (p->isApplicable(op)) {

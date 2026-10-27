@@ -389,15 +389,15 @@ mlir::LogicalResult FuseMemPermuteThroughViewOps::matchAndRewrite(IE::MemPermute
 
     auto newInputType =
             mlir::cast<NDTypeInterface>(convOp.getInput().getType()).changeShape(ShapeRef(newConvInShapeVec));
-    auto inShapeCast = rewriter.create<IE::ShapeCastOp>(appendLoc(convOp.getLoc(), "in_reshape"), newInputType,
-                                                        convOp.getInput(), getIntArrayAttr(ctx, newConvInShapeVec));
+    auto inShapeCast = IE::ShapeCastOp::create(rewriter, appendLoc(convOp.getLoc(), "in_reshape"), newInputType,
+                                               convOp.getInput(), getIntArrayAttr(ctx, newConvInShapeVec));
 
     auto convType = mlir::cast<NDTypeInterface>(convOp.getOutput().getType()).changeShape(ShapeRef(newConvOutShapeVec));
 
     auto newConv = cloneConvolutionOp(rewriter, convOp, convType, inShapeCast, convOp.getFilter());
     // New MemPermute has the same dstOrder and memPerm attributes
-    auto newPermute = rewriter.create<IE::MemPermuteOp>(origOp->getLoc(), newConv.getOutput(), origOp.getDstOrderAttr(),
-                                                        origOp.getMemPermAttr());
+    auto newPermute = IE::MemPermuteOp::create(rewriter, origOp->getLoc(), newConv.getOutput(),
+                                               origOp.getDstOrderAttr(), origOp.getMemPermAttr());
 
     if (sliceOp == nullptr) {
         rewriter.replaceOp(origOp, newPermute.getOutput());
@@ -414,8 +414,8 @@ mlir::LogicalResult FuseMemPermuteThroughViewOps::matchAndRewrite(IE::MemPermute
         auto newSizes = to_small_vector(getShape(newPermute.getOutput()));
         newSizes[newSliceAxis.ind()] = origShape[sliceAxis];
 
-        auto newSlice = rewriter.create<IE::SliceOp>(sliceOp.getLoc(), newPermute.getOutput(),
-                                                     getIntArrayAttr(ctx, newOffsets), getIntArrayAttr(ctx, newSizes));
+        auto newSlice = IE::SliceOp::create(rewriter, sliceOp.getLoc(), newPermute.getOutput(),
+                                            getIntArrayAttr(ctx, newOffsets), getIntArrayAttr(ctx, newSizes));
 
         rewriter.replaceOp(origOp, newSlice.getResult());
     }
@@ -629,9 +629,9 @@ mlir::LogicalResult FusePermuteQuantizeThroughViewOps::matchAndRewrite(IE::Permu
     const auto nchwDstOrder = mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{0, 1, 2, 3}, ctx);
 
     // Verify ODU support using a temporary MemPermute with the NHWC→NCHW attributes.
-    auto tempMemPermute = rewriter.create<IE::MemPermuteOp>(origOp->getLoc(), nceOp->getResult(0),
-                                                            mlir::AffineMapAttr::get(nchwDstOrder),
-                                                            mlir::AffineMapAttr::get(nhwcToNchwPerm));
+    auto tempMemPermute =
+            IE::MemPermuteOp::create(rewriter, origOp->getLoc(), nceOp->getResult(0),
+                                     mlir::AffineMapAttr::get(nchwDstOrder), mlir::AffineMapAttr::get(nhwcToNchwPerm));
     const bool isPermutationSupported = permuteInterface.isSupportedPermutation(tempMemPermute);
     rewriter.eraseOp(tempMemPermute);
     if (!isPermutationSupported) {
@@ -650,32 +650,31 @@ mlir::LogicalResult FusePermuteQuantizeThroughViewOps::matchAndRewrite(IE::Permu
                             .getOutput();
     } else {
         auto groupConvOp = mlir::cast<IE::GroupConvolutionOp>(nceOp);
-        newNceOut =
-                rewriter.create<IE::GroupConvolutionOp>(
-                                groupConvOp.getLoc(), groupConvOp.getOutput().getType(), groupConvOp.getInput(),
-                                groupConvOp.getFilter(), groupConvOp.getBias(), groupConvOp.getStridesAttr(),
-                                groupConvOp.getPadsBegin(), groupConvOp.getPadsEnd(), groupConvOp.getDilations(),
-                                groupConvOp.getGroupsAttr(), groupConvOp.getPostOpAttr(), groupConvOp.getClampAttr(),
-                                groupConvOp.getOutputPaddingAttr(), groupConvOp.getInputPaddingAttr())
-                        .getOutput();
+        newNceOut = IE::GroupConvolutionOp::create(
+                            rewriter, groupConvOp.getLoc(), groupConvOp.getOutput().getType(), groupConvOp.getInput(),
+                            groupConvOp.getFilter(), groupConvOp.getBias(), groupConvOp.getStridesAttr(),
+                            groupConvOp.getPadsBegin(), groupConvOp.getPadsEnd(), groupConvOp.getDilations(),
+                            groupConvOp.getGroupsAttr(), groupConvOp.getPostOpAttr(), groupConvOp.getClampAttr(),
+                            groupConvOp.getOutputPaddingAttr(), groupConvOp.getInputPaddingAttr())
+                            .getOutput();
     }
 
     // MemPermute: NHWC[1,C_out,H,W] → NCHW[1,C_out,H,W]
     // Fused into the NCE ODU by MemPermuteRewriter in a subsequent iteration.
     auto newMemPermute =
-            rewriter.create<IE::MemPermuteOp>(origOp->getLoc(), newNceOut, mlir::AffineMapAttr::get(nchwDstOrder),
-                                              mlir::AffineMapAttr::get(nhwcToNchwPerm));
+            IE::MemPermuteOp::create(rewriter, origOp->getLoc(), newNceOut, mlir::AffineMapAttr::get(nchwDstOrder),
+                                     mlir::AffineMapAttr::get(nhwcToNchwPerm));
 
     // PermuteCast + ShapeCast: restore the original PermuteQuantize output shape and layout.
     const auto nhwcDstOrder = mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{0, 2, 3, 1}, ctx);
     const auto identityPerm = mlir::AffineMap::getPermutationMap(SmallVector<unsigned>{0, 1, 2, 3}, ctx);
-    auto newPermuteCast = rewriter.create<IE::PermuteCastOp>(origOp->getLoc(), newMemPermute.getOutput(),
-                                                             mlir::AffineMapAttr::get(nhwcDstOrder),
-                                                             mlir::AffineMapAttr::get(identityPerm));
+    auto newPermuteCast =
+            IE::PermuteCastOp::create(rewriter, origOp->getLoc(), newMemPermute.getOutput(),
+                                      mlir::AffineMapAttr::get(nhwcDstOrder), mlir::AffineMapAttr::get(identityPerm));
 
     const auto pqOutShape = to_small_vector(getShape(origOp.getOutput()));
-    auto newShapeCast = rewriter.create<IE::ShapeCastOp>(origOp->getLoc(), origOp.getOutput().getType(),
-                                                         newPermuteCast.getOutput(), getIntArrayAttr(ctx, pqOutShape));
+    auto newShapeCast = IE::ShapeCastOp::create(rewriter, origOp->getLoc(), origOp.getOutput().getType(),
+                                                newPermuteCast.getOutput(), getIntArrayAttr(ctx, pqOutShape));
 
     rewriter.replaceOp(origOp, newShapeCast.getOutput());
     return mlir::success();

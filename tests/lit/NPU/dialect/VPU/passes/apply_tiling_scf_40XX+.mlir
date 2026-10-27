@@ -52,9 +52,9 @@ func.func @ApplyTilingNCEConv(%arg0: tensor<1x32x64x64xf16, {order = #NHWC}>) ->
     //CHECK-SAME:           {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     //CHECK-SAME:           -> tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
 
-    // CHECK:               [[CAST:%.+]] = tensor.cast [[CONV]] : tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 64, 64]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x256x32x64xf16, {order = #NHWC}>
+    // CHECK:               [[CAST:%.+]] = tensor.cast [[CONV]] : tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 64, 64]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x256x32x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 64, 64]> : tensor<4xsi64>, order = #NHWC}>
 
-    //CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[CAST]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER]], 0] [1, 256, 32, 64] [1, 1, 1, 1] : tensor<1x256x32x64xf16, {order = #NHWC}> into tensor<1x256x64x64xf16, {order = #NHWC}>
+    //CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[CAST]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER]], 0] [1, 256, 32, 64] [1, 1, 1, 1] : tensor<1x256x32x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 64, 64]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x256x64x64xf16, {order = #NHWC}>
     //CHECK: scf.yield [[INSERT]] : tensor<1x256x64x64xf16, {order = #NHWC}>
     //CHECK: return [[LOOP]] : tensor<1x256x64x64xf16, {order = #NHWC}>
 }
@@ -238,9 +238,9 @@ func.func @ApplyTilingMaxPool(%arg0: tensor<1x16x200x200xf16, {order = #NHWC}>) 
     //CHECK-SAME:           pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     //CHECK-SAME:           tensor<1x16x?x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 200, 200]> : tensor<4xsi64>, order = #NHWC}>
 
-    // CHECK:               [[CAST:%.+]] = tensor.cast [[MAXPOOL]] : tensor<1x16x?x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 200, 200]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x100x200xf16, {order = #NHWC}>
+    // CHECK:               [[CAST:%.+]] = tensor.cast [[MAXPOOL]] : tensor<1x16x?x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 200, 200]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x100x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 200, 200]> : tensor<4xsi64>, order = #NHWC}>
 
-    //CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[CAST]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER]], 0] [1, 16, 100, 200] [1, 1, 1, 1] : tensor<1x16x100x200xf16, {order = #NHWC}> into tensor<1x16x200x200xf16, {order = #NHWC}>
+    //CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[CAST]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER]], 0] [1, 16, 100, 200] [1, 1, 1, 1] : tensor<1x16x100x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 200, 200]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x16x200x200xf16, {order = #NHWC}>
     //CHECK:                scf.yield [[INSERT]] : tensor<1x16x200x200xf16, {order = #NHWC}>
     //CHECK: return [[LOOP]] : tensor<1x16x200x200xf16, {order = #NHWC}>
 
@@ -299,9 +299,9 @@ func.func @ApplyTilingMaxPool4Tiles(%arg0: tensor<1x16x200x200xf16, {order = #NH
     //CHECK-SAME:           pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     //CHECK-SAME:           tensor<1x16x?x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 200, 200]> : tensor<4xsi64>, order = #NHWC}>
 
-    // CHECK:               [[CAST:%.+]] = tensor.cast [[MAXPOOL]] : tensor<1x16x?x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 200, 200]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x50x200xf16, {order = #NHWC}>
+    // CHECK:               [[CAST:%.+]] = tensor.cast [[MAXPOOL]] : tensor<1x16x?x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 200, 200]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x50x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 200, 200]> : tensor<4xsi64>, order = #NHWC}>
 
-    //CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[CAST]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER]], 0] [1, 16, 50, 200] [1, 1, 1, 1] : tensor<1x16x50x200xf16, {order = #NHWC}> into tensor<1x16x200x200xf16, {order = #NHWC}>
+    //CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[CAST]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER]], 0] [1, 16, 50, 200] [1, 1, 1, 1] : tensor<1x16x50x200xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 200, 200]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x16x200x200xf16, {order = #NHWC}>
     //CHECK:                scf.yield [[INSERT]] : tensor<1x16x200x200xf16, {order = #NHWC}>
     //CHECK: return [[LOOP]] : tensor<1x16x200x200xf16, {order = #NHWC}>
 }
@@ -690,9 +690,9 @@ func.func @DynamicEltwiseTiling(
     //CHECK:                                 [[POOL:%.+]] = VPU.NCE.MaxPool([[PAD]])
     //CHECK-SAME:                                           pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
 
-    //CHECK:                                 [[CAST:%.+]] = tensor.cast [[POOL]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 257, 480]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x256x120xf16, {order = #NHWC}>
+    //CHECK:                                 [[CAST:%.+]] = tensor.cast [[POOL]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 257, 480]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x256x120xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 257, 480]> : tensor<4xsi64>, order = #NHWC}>
     //CHECK:                                 [[INSERT:%.+]] = tensor.insert_slice [[CAST]] into [[LOOP_OUT_W]][0, 0, [[LOOP_ITER_H]], [[LOOP_ITER_W]]] [1, 16, 256, 120] [1, 1, 1, 1]
-    //CHECK-SAME:                            tensor<1x16x256x120xf16, {order = #NHWC}> into tensor<1x16x512x480xf16, {order = #NHWC}>
+    //CHECK-SAME:                            tensor<1x16x256x120xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 257, 480]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x16x512x480xf16, {order = #NHWC}>
 
     //CHECK:  scf.yield [[INSERT]] : tensor<1x16x512x480xf16, {order = #NHWC}>
     //CHECK:  scf.yield [[LOOP_W]] : tensor<1x16x512x480xf16, {order = #NHWC}>
@@ -1158,9 +1158,9 @@ func.func @SCFTilingWithChannelPaddedWeights(%arg0: tensor<1x32x56x56xf16, {orde
     //CHECK-SAME:           {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     //CHECK-SAME:           -> tensor<1x64x?x56xf16, {bounds = #const.OpaqueI64Elements<[1, 64, 56, 56]> : tensor<4xsi64>, order = #NHWC}>
 
-    // CHECK:               [[CAST:%.+]] = tensor.cast [[CONV]] : tensor<1x64x?x56xf16, {bounds = #const.OpaqueI64Elements<[1, 64, 56, 56]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x64x28x56xf16, {order = #NHWC}>
+    // CHECK:               [[CAST:%.+]] = tensor.cast [[CONV]] : tensor<1x64x?x56xf16, {bounds = #const.OpaqueI64Elements<[1, 64, 56, 56]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x64x28x56xf16, {bounds = #const.OpaqueI64Elements<[1, 64, 56, 56]> : tensor<4xsi64>, order = #NHWC}>
 
-    //CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[CAST]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER]], 0] [1, 64, 28, 56] [1, 1, 1, 1] : tensor<1x64x28x56xf16, {order = #NHWC}> into tensor<1x64x56x56xf16, {order = #NHWC}>
+    //CHECK:                [[INSERT:%.+]] = tensor.insert_slice [[CAST]] into [[LOOP_OUT]][0, 0, [[LOOP_ITER]], 0] [1, 64, 28, 56] [1, 1, 1, 1] : tensor<1x64x28x56xf16, {bounds = #const.OpaqueI64Elements<[1, 64, 56, 56]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x64x56x56xf16, {order = #NHWC}>
     //CHECK: scf.yield [[INSERT]] : tensor<1x64x56x56xf16, {order = #NHWC}>
     //CHECK: return [[LOOP]] : tensor<1x64x56x56xf16, {order = #NHWC}>
 }
@@ -1187,13 +1187,7 @@ module @test {
           input_padding = [0, 13, 0, 0],
           multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
           op_type = #VPU.eltwise_type<ADD>,
-          ppe = #VPU.PPEFp<mode = <NOOP>,
-          clamp_low = -3.4028234663852886E+38 : f64,
-          clamp_high = 3.4028234663852886E+38 : f64,
-          scale = 1.000000e+00 : f64,
-          prelu_alpha = [1.000000e+00],
-          bias = 0.000000e+00 : f64,
-          adder = 0.000000e+00 : f64>,
+          ppe = #VPU.PPEStub<>,
           tilingStrategy = [1, 1, 10, 37]
       } -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 1080, 1920]> : tensor<4xsi64>, order = #NCHW}>
 

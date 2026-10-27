@@ -68,6 +68,7 @@ TEST_P(ConvWithTanhTest, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(ConvWithTanhTest, NPU5020_HW) {
     abs_threshold = 0.0001;
     setDefaultHardwareMode();

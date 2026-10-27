@@ -24,10 +24,10 @@ void moveWaitResults(mlir::async::AwaitOp waitOp, Logger log) {
     const auto futureVal = waitOp.getOperand();
 
     auto producerExecOp = mlir::dyn_cast_or_null<mlir::async::ExecuteOp>(futureVal.getDefiningOp());
-    VPUX_THROW_UNLESS(producerExecOp != nullptr, "'async.await' operand is produced by unsupported operation");
+    VPUX_THROW_WHEN(producerExecOp == nullptr, "'async.await' operand is produced by unsupported operation");
 
     const auto futureType = mlir::dyn_cast<mlir::async::ValueType>(futureVal.getType());
-    VPUX_THROW_UNLESS(futureType != nullptr, "'async.await' operand has unexpected type : '{0}'", futureVal.getType());
+    VPUX_THROW_WHEN(futureType == nullptr, "'async.await' operand has unexpected type : '{0}'", futureVal.getType());
 
     log.trace("Collect all uses inside 'async.execute' regions");
 

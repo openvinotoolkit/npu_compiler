@@ -300,8 +300,8 @@ VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 409
     func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
-// CHECK-LABEL: @ConvertMemPermuteI4
-func.func @ConvertMemPermuteI4(%arg0: memref<86x4x256x4x!quant.uniform<i4:f16, 1.000000e+00>, @DDR>)
+// CHECK-LABEL: @DoNotConvertMemPermuteI4SubByteStride
+func.func @DoNotConvertMemPermuteI4SubByteStride(%arg0: memref<86x4x256x4x!quant.uniform<i4:f16, 1.000000e+00>, @DDR>)
                                        -> memref<4x4x86x256x!quant.uniform<i4:f16, 1.000000e+00>, @DDR> {
     %0 = memref.alloc() : memref<86x4x256x4x!quant.uniform<i4:f16, 1.000000e+00>, [@CMX_NN, 0]>
     %1 = VPUIP.Copy
@@ -325,9 +325,8 @@ func.func @ConvertMemPermuteI4(%arg0: memref<86x4x256x4x!quant.uniform<i4:f16, 1
 
     return %5: memref<4x4x86x256x!quant.uniform<i4:f16, 1.000000e+00>, @DDR>
 
-    // CHECK-NOT:       VPUIP.SW.Kernel
-    // CHECK:   VPUIP.PermuteDMA
-    // CHECK-NOT:       VPUIP.SW.Kernel
+    // CHECK:       VPUIP.SW.Kernel
+    // CHECK-NOT:   VPUIP.PermuteDMA
 }
 
 // -----
@@ -767,4 +766,47 @@ func.func @ConvertMemPermuteNCHWToCNWH(%arg0: memref<4x86x256x4xf16, @DDR>)
     // CHECK-SAME:     inputs([[PERMUTE_DMA_0]]
     // CHECK-SAME:     outputs([[COPY_BUFF_1]]
     // CHECK:   return [[COPY_1]]
+}
+
+// -----
+
+VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
+  module @VPU.SW {
+    func.func nested @builtin_MemPermute(memref<*xui2, [@CMX_NN, 0]>, memref<*xui2, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "reorder.cpp", VPU.kernel_entry = "reorder"}
+    func.func nested @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+  }
+
+// Strided sub-byte MemPermute must not be lowered to PermuteDMA.
+// CHECK-LABEL: @DoNotConvertSubByteStridedMemPermute
+// CHECK-NOT: VPUIP.PermuteDMA
+// CHECK: VPUIP.SW.Kernel {{.*}} @VPU.SW::@builtin_MemPermute
+func.func @DoNotConvertSubByteStridedMemPermute(%arg0: memref<1x80x128x1xui2, @DDR>)
+                                               -> memref<1x64x80x1xui2, @DDR> {
+    %0 = memref.alloc() : memref<1x80x128x1xui2, [@CMX_NN, 0]>
+    %1 = VPUIP.Copy
+        inputs(%arg0 : memref<1x80x128x1xui2, @DDR>)
+        outputs(%0 : memref<1x80x128x1xui2, [@CMX_NN, 0]>) -> memref<1x80x128x1xui2, [@CMX_NN, 0]>
+
+    // Input is a strided SubView of a larger sub-byte buffer (stride in dim 1 is 128, slice size is 64).
+    %2 = VPUIP.SubView %1 [0, 0, 0, 0] [1, 80, 64, 1]
+        : memref<1x80x128x1xui2, [@CMX_NN, 0]>
+        to memref<1x80x64x1xui2, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [10240, 128, 1, 1]}, [@CMX_NN, 0]>
+
+    %3 = memref.alloc() : memref<1x64x80x1xui2, [@CMX_NN, 0]>
+    %4 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
+                @VPU.SW::@builtin_MemPermute
+                inputs(%2 as %arg2: memref<1x80x64x1xui2, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [10240, 128, 1, 1]}, [@CMX_NN, 0]>)
+                outputs(%3 as %arg3: memref<1x64x80x1xui2, [@CMX_NN, 0]>)
+                on tile 0 -> memref<1x64x80x1xui2, [@CMX_NN, 0]> {
+        VPUIP.SW.Kernel.run {attrs = [[0, 2, 1, 3]]}(%arg2, %arg3)
+            : memref<1x80x64x1xui2, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [10240, 128, 1, 1]}, [@CMX_NN, 0]>,
+              memref<1x64x80x1xui2, [@CMX_NN, 0]>
+    }
+
+    %5 = memref.alloc() : memref<1x64x80x1xui2, @DDR>
+    %6 = VPUIP.Copy
+        inputs(%4 : memref<1x64x80x1xui2, [@CMX_NN, 0]>)
+        outputs(%5 : memref<1x64x80x1xui2, @DDR>) -> memref<1x64x80x1xui2, @DDR>
+
+    return %6 : memref<1x64x80x1xui2, @DDR>
 }

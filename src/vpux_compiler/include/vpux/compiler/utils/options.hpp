@@ -45,12 +45,14 @@ enum class SkipOCMode { SKIP_NONE = 0, SKIP_LARGE_SPATIAL = 1, SKIP_ALL = 2 };
 enum class AutoUnrollingMode { DISABLED = 0, INNER = 1, OUTER = 2, ALL = 3, BIGGEST = 4 };
 
 enum class VFMergeConfiguration { COST_BASED = 0, GREEDY = 1 };
+enum class VFMergeCostMode { PERFORMANCE = 0, POWER = 1 };
 
 std::optional<WorkloadManagementMode> symbolizeWorkloadManagementMode(llvm::StringRef str);
 StringLiteral stringifyEnum(WorkloadManagementBarrierProgrammingMode val);
 StringLiteral stringifyEnum(DMAFifoType val);
 StringLiteral stringifyEnum(WeightsTableReuseMode val);
 StringLiteral stringifyEnum(VFMergeConfiguration val);
+StringLiteral stringifyEnum(VFMergeCostMode val);
 std::optional<std::string> convertToOptional(const StrOption& strOption);
 StringLiteral stringifyEnum(WorkloadManagementMode val);
 StringLiteral stringifyEnum(SkipOCMode val);
@@ -86,6 +88,17 @@ struct format_provider<vpux::SkipOCMode> {
 inline ::llvm::raw_ostream& operator<<(::llvm::raw_ostream& p, vpux::AutoUnrollingMode value) {
     return p << vpux::stringifyEnum(value);
 }
+
+inline ::llvm::raw_ostream& operator<<(::llvm::raw_ostream& p, vpux::VFMergeCostMode value) {
+    return p << vpux::stringifyEnum(value);
+}
+
+template <>
+struct format_provider<vpux::VFMergeCostMode> {
+    static void format(const vpux::VFMergeCostMode& val, raw_ostream& OS, StringRef /*Options*/) {
+        OS << vpux::stringifyEnum(val);
+    }
+};
 
 template <>
 struct format_provider<vpux::AutoUnrollingMode> {

@@ -24,6 +24,8 @@
 #include <llvm/ADT/MapVector.h>
 #include <llvm/ADT/STLFunctionalExtras.h>
 
+#include <algorithm>
+
 namespace vpux::ShaveCodeGen {
 #define GEN_PASS_DECL_PARAMETRICCAPSULETILING
 #define GEN_PASS_DEF_PARAMETRICCAPSULETILING
@@ -294,13 +296,15 @@ public:
     }
 
 private:
-    /// @brief Determines whether tiling the current subgraph is profitable given the accumulated slice size map.
+    /// @brief Determines whether the current subgraph is profitable to fuse, and along which axes it can be
+    /// tiled, given the accumulated slice size map.
     /// @param newSizes Affine map representing the total memory footprint as a function of root op slice sizes.
     /// @return A map from tiling dimension index to a profitability score (ideally 1.0) for each valid tiling axis
-    /// of the root op. If the subgraph already fits without tiling, all dimensions are returned
-    /// with a score of 1.0. Otherwise, each dimension is evaluated by comparing the ratio of non-tiled to
-    /// minimum-tiled memory footprint, and only dimensions exceeding minProfitableTilingRatio are kept.
-    /// Returns failure if no profitable tiling axes exist or the subgraph cannot be made to fit.
+    /// of the root op. If the subgraph is smaller than min(_minSizeToTile, _maxSize), it is too small to be worth
+    /// tiling, so we accept it as profitable to fuse but with no tiling axes. Otherwise, each dimension is evaluated
+    /// by comparing the ratio of non-tiled to minimum-tiled memory footprint, and only dimensions exceeding
+    /// _minProfitableTilingRatio are kept.
+    /// Returns the map of tiling axes and their scores on success, or failure if it is not profitable to fuse.
     mlir::FailureOr<llvm::MapVector<int64_t, double>> isProfitableToFuseOp(mlir::AffineMap newSizes) {
         auto shapedType = mlir::dyn_cast<mlir::ShapedType>(_rootOp->getResult(0).getType());
         auto rank = shapedType.getRank();
@@ -323,19 +327,9 @@ private:
             return mlir::failure();
         }
 
-        if (nonTiledSizeExpr.getValue() <= _maxSize) {
-            llvm::MapVector<int64_t, double> allDims;
-            for (int64_t dim = 0; dim < rank; ++dim) {
-                auto boundedDim = getBoundedDim(_rootOp->getResult(0), dim);
-                if (mlir::failed(boundedDim)) {
-                    return mlir::failure();
-                }
-                if ((*boundedDim).getValue() <= _minDimTileSize) {
-                    continue;
-                }
-                allDims[dim] = 1.0;
-            }
-            return allDims;
+        // Don't tile very small subgraphs, although still profitable to fuse.
+        if (nonTiledSizeExpr.getValue() <= std::min(_minSizeToTile, _maxSize)) {
+            return llvm::MapVector<int64_t, double>{};
         }
 
         // Compute the profitability of tiling each dimension of the root op slice and collect the valid tiling
@@ -516,6 +510,8 @@ private:
     // cases that could blow up compile time.
     static int constexpr _maxSlices = 100;
     static int64_t constexpr _minDimTileSize = 1;
+    // Minimum size in bits of a non-tiled subgraph to consider for tiling.
+    static int64_t constexpr _minSizeToTile = Byte(3 * 4096).to<Bit>().count();
     static double constexpr _minProfitableTilingRatio = 0.9;
 };
 
@@ -803,7 +799,7 @@ mlir::FailureOr<mlir::scf::ForOp> ParametricCapsuleTilingPass::tileOp(
         }
     };
 
-    auto loopIdCst = rewriter.create<mlir::arith::ConstantIndexOp>(op->getLoc(), loopId);
+    auto loopIdCst = mlir::arith::ConstantIndexOp::create(rewriter, op->getLoc(), loopId);
     opsToCleanUp.push_back(loopIdCst);
 
     // Create a tiling root op that will be used for parametric tiling
@@ -817,8 +813,8 @@ mlir::FailureOr<mlir::scf::ForOp> ParametricCapsuleTilingPass::tileOp(
         tilingRanksVec.push_back(rewriter.getI64IntegerAttr(rank));
     }
     auto tilingRanksAttr = mlir::ArrayAttr::get(rewriter.getContext(), tilingRanksVec);
-    auto tilingRootOp = rewriter.create<Shave::TilingRootOp>(op->getLoc(), op->getResultTypes(), loopIdCst,
-                                                             tilingRootOperands, tilingRanksAttr);
+    auto tilingRootOp = Shave::TilingRootOp::create(rewriter, op->getLoc(), op->getResultTypes(), loopIdCst,
+                                                    tilingRootOperands, tilingRanksAttr);
     opsToCleanUp.push_back(tilingRootOp);
 
     // Tile tilingRootOp using mlir::tileConsumerAndFuseProducers with tile size 1

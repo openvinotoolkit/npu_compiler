@@ -14,6 +14,7 @@
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/sparsity_constraint.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/utils/core/error.hpp"
 
 #include <mlir/IR/MLIRContext.h>
 
@@ -113,8 +114,13 @@ class StrategyFactory40XX : public VPU::StrategyFactory {
         return false;
     }
 
-    bool isConvertTileWithEltwiseToNCEPoolSupported() override {
+    bool useNewWeightTableFormat(mlir::Operation* /*op*/, bool /*isCompressConv*/) override {
         return false;
+    }
+
+    std::unique_ptr<IIterativeWalkPassStrategy> getConvertTileWithEltwiseToNCEPoolStrategy(
+            mlir::MLIRContext*) override {
+        VPUX_THROW("ConvertTileWithEltwiseToNCEPool is not supported on NPU40XX");
     }
 
     std::unique_ptr<IConvertIEToVPUNCEStrategy> getConvertIEToVPUNCEStrategy(const Logger& log) override {

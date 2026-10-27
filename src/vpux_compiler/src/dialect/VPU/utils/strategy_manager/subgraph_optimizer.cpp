@@ -315,14 +315,14 @@ double SubgraphOptimizer::getInputSpillingCostToMultiClusterLayer(VPU::Clustered
 
     auto parent = input.getDefiningOp();
     if (parent == nullptr) {
-        return _layerCostModel.getSpillingDMACost(targetTensorType, targetTensorDistribution);
+        return _layerCostModel.getSpillingReadCost(targetTensorType, targetTensorDistribution);
     }
 
     if (mlir::isa<VPU::ShapeCastOp>(parent)) {
         // propagate ShapeCast
         parent = parent->getOperand(0).getDefiningOp();
         if (parent == nullptr) {
-            return _layerCostModel.getSpillingDMACost(targetTensorType, targetTensorDistribution);
+            return _layerCostModel.getSpillingReadCost(targetTensorType, targetTensorDistribution);
         }
     }
 
@@ -340,7 +340,7 @@ double SubgraphOptimizer::getInputSpillingCostToMultiClusterLayer(VPU::Clustered
                 return currentSpillingCost.writeCost + currentSpillingCost.readCost;
             })
             .Default([&](mlir::Operation*) {
-                return _layerCostModel.getSpillingDMACost(targetTensorType, targetTensorDistribution);
+                return _layerCostModel.getSpillingReadCost(targetTensorType, targetTensorDistribution);
             });
 }
 

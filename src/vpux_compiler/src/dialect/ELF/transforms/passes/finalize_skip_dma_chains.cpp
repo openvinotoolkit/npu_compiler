@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2026 Intel Corporation.
+// Copyright (C) 2026 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -99,8 +99,8 @@ void formSkipDMALoopPerLogicalTask(llvm::DenseMap<SkipGroupKey, SmallVector<VPUA
             auto next = group[(i + 1) % group.size()];
 
             auto nextTaskLoc = next.getTaskLocationAttr();
-            VPUX_THROW_UNLESS(nextTaskLoc != nullptr,
-                              "Skip DMA in group for logical task '{0}' is missing taskLocationAttr", key.second);
+            VPUX_THROW_WHEN(nextTaskLoc == nullptr,
+                            "Skip DMA in group for logical task '{0}' is missing taskLocationAttr", key.second);
             current.setNextLinkAttr(nextTaskLoc);
         }
     }
@@ -131,22 +131,22 @@ void resolveAndSetReleaseDescriptorForSkipDMAs(ELF::SymbolReferenceMap& symRefMa
     llvm::DenseMap<VPUASM::KernelParamsOp, SmallVector<std::pair<int64_t, mlir::SymbolRefAttr>>> kernelToReleaseDescs;
     for (auto& [key, skipDma] : skipMap) {
         auto releaseDma = resolveReleaseDMA(skipDma, symRefMap, taskLocToDMA);
-        VPUX_THROW_UNLESS(releaseDma != nullptr, "Failed to resolve release DMA for skip DMA '{0}' (descId={1})",
-                          skipDma.getSymName(), key);
+        VPUX_THROW_WHEN(releaseDma == nullptr, "Failed to resolve release DMA for skip DMA '{0}' (descId={1})",
+                        skipDma.getSymName(), key);
 
         auto symNameAttr = releaseDma.getSymNameAttr();
-        VPUX_THROW_UNLESS(symNameAttr != nullptr, "Release DMA must have symbol");
+        VPUX_THROW_WHEN(symNameAttr == nullptr, "Release DMA must have symbol");
 
         auto secIt = dmaToSection.find(symNameAttr.getValue());
-        VPUX_THROW_UNLESS(secIt != dmaToSection.end(), "Release DMA must have root section reference");
+        VPUX_THROW_WHEN(secIt == dmaToSection.end(), "Release DMA must have root section reference");
 
         auto rootAttr = mlir::StringAttr::get(skipDma.getContext(), secIt->second);
         auto symRef = mlir::SymbolRefAttr::get(rootAttr, {mlir::FlatSymbolRefAttr::get(symNameAttr)});
 
         // Collect for KernelParams (with key for ordering)
         auto kernelParamIt = descIdToKernelParams.find(key);
-        VPUX_THROW_UNLESS(kernelParamIt != descIdToKernelParams.end(),
-                          "No KernelParamsOp found for Skip DMA with descId {0}", key);
+        VPUX_THROW_WHEN(kernelParamIt == descIdToKernelParams.end(),
+                        "No KernelParamsOp found for Skip DMA with descId {0}", key);
         auto kernelParamOp = kernelParamIt->second;
         kernelToReleaseDescs[kernelParamOp].emplace_back(key, symRef);
     }
@@ -199,13 +199,13 @@ void patchFetchDMAsForSkipDmas(llvm::DenseMap<int64_t, VPUASM::NNDMAOp>& fetchMa
     for (auto it : llvm::make_early_inc_range(fetchMap)) {
         auto fetchDmaOp = it.second;
         auto skipIt = skipMap.find(it.first);
-        VPUX_THROW_UNLESS(skipIt != skipMap.end(), "Fetch DMA {0} has no corresponding Skip DMA",
-                          fetchDmaOp.getSymName());
+        VPUX_THROW_WHEN(skipIt == skipMap.end(), "Fetch DMA {0} has no corresponding Skip DMA",
+                        fetchDmaOp.getSymName());
 
         auto skipDmaOp = skipIt->second;
         const auto sectionIt = dmaToSection.find(skipDmaOp.getSymName());
-        VPUX_THROW_UNLESS(sectionIt != dmaToSection.end(), "DMA '{0}' has no associated ELF section",
-                          skipDmaOp.getSymName());
+        VPUX_THROW_WHEN(sectionIt == dmaToSection.end(), "DMA '{0}' has no associated ELF section",
+                        skipDmaOp.getSymName());
         auto rootAttr = mlir::StringAttr::get(skipDmaOp.getContext(), sectionIt->second);
         auto symName = mlir::SymbolRefAttr::get(rootAttr, {mlir::FlatSymbolRefAttr::get(skipDmaOp.getSymNameAttr())});
         fetchDmaOp.setInputAttr(symName);

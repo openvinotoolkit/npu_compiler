@@ -194,20 +194,20 @@ mlir::LogicalResult PropagateSoftmax::matchAndRewrite(IE::SoftMaxOp origOp, mlir
     for (auto concatInput : concatOp.getInputs() | indexed) {
         mlir::Value sliceSoftmaxInput = concatInput.value();
         if (maybeAddOp != nullptr) {
-            auto newAddOp = rewriter.create<IE::AddOp>(
-                    takeOpLoc(maybeAddOp, "slice_{0}", concatInput.index()), concatInput.value(),
+            auto newAddOp = IE::AddOp::create(
+                    rewriter, takeOpLoc(maybeAddOp, "slice_{0}", concatInput.index()), concatInput.value(),
                     maybeAddOp.getInput2(), maybeAddOp.getAutoBroadcastAttr(), maybeAddOp.getPostOpAttr(),
                     maybeAddOp.getClampAttr(), maybeAddOp.getOutputPaddingAttr(), maybeAddOp.getInputPaddingAttr());
             sliceSoftmaxInput = newAddOp.getOutput();
         }
 
-        auto sliceSoftmaxOp = rewriter.create<IE::SoftMaxOp>(
-                takeOpLoc(origOp, "slice_{0}", concatInput.index()), sliceSoftmaxInput, origOp.getAxisIndAttr(),
-                origOp.getPadSizeAttr(), origOp.getDstElemTypeAttr(), origOp.getMaskAwareAttr());
+        auto sliceSoftmaxOp = IE::SoftMaxOp::create(rewriter, takeOpLoc(origOp, "slice_{0}", concatInput.index()),
+                                                    sliceSoftmaxInput, origOp.getAxisIndAttr(), origOp.getPadSizeAttr(),
+                                                    origOp.getDstElemTypeAttr(), origOp.getMaskAwareAttr());
         newConcatInputs.push_back(sliceSoftmaxOp.getOutput());
     }
 
-    auto newConcatOp = rewriter.create<IE::ConcatOp>(concatOp->getLoc(), newConcatInputs, Dim(concatAxis));
+    auto newConcatOp = IE::ConcatOp::create(rewriter, concatOp->getLoc(), newConcatInputs, Dim(concatAxis));
     rewriter.replaceOp(origOp, newConcatOp.getOutput());
 
     return mlir::success();
@@ -274,14 +274,15 @@ mlir::LogicalResult PropagateReshape<ReshapeT>::matchAndRewrite(ReshapeT origOp,
 
     SmallVector<mlir::Value> newConcatInputs;
     for (const auto& concatInput : concatInputs) {
-        auto sliceReshape4D = rewriter.create<IE::ReshapeOp>(
-                takeOpLoc(origOp, "slice_{0}_reshape", newConcatInputs.size()), concatInput, sliceOutShape4DAttr);
+        auto sliceReshape4D =
+                IE::ReshapeOp::create(rewriter, takeOpLoc(origOp, "slice_{0}_reshape", newConcatInputs.size()),
+                                      concatInput, sliceOutShape4DAttr);
         _log.nest(2).trace("Inserted ReshapeOp: {0}", sliceReshape4D);
         newConcatInputs.push_back(sliceReshape4D.getOutput());
     }
 
     auto newConcatOp =
-            rewriter.create<IE::ConcatOp>(takeOpLoc(concatOp, "out_concat"), newConcatInputs, batchDim.value());
+            IE::ConcatOp::create(rewriter, takeOpLoc(concatOp, "out_concat"), newConcatInputs, batchDim.value());
     rewriter.replaceOp(origOp, newConcatOp.getOutput());
 
     return mlir::success();
@@ -338,8 +339,8 @@ mlir::LogicalResult PropagateFakeQuantize::matchAndRewrite(IE::FakeQuantizeOp or
     for (auto concatInput : concatOp.getInputs() | indexed) {
         auto sliceFQInput = concatInput.value();
 
-        auto sliceFQOp = rewriter.create<IE::FakeQuantizeOp>(
-                takeOpLoc(origOp, "slice_{0}", concatInput.index()), sliceFQInput, origOp.getInputLow(),
+        auto sliceFQOp = IE::FakeQuantizeOp::create(
+                rewriter, takeOpLoc(origOp, "slice_{0}", concatInput.index()), sliceFQInput, origOp.getInputLow(),
                 origOp.getInputHigh(), origOp.getOutputLow(), origOp.getOutputHigh(), origOp.getLevelsAttr(),
                 origOp.getLowFpTypeAttr(), origOp.getAutoBroadcastAttr());
         concatOp.setOperand(checked_cast<uint32_t>(concatInput.index()), sliceFQOp.getOutput());
@@ -459,15 +460,15 @@ mlir::LogicalResult PropagateMultiply::matchAndRewrite(IE::MultiplyOp origOp, ml
             constSliceOffset += sliceSize[concatAxis];
         }
 
-        auto newMul = rewriter.create<IE::MultiplyOp>(takeOpLoc(origOp, "slice_{0}", index), inVal, constInput,
-                                                      origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(),
-                                                      origOp.getClampAttr(), origOp.getOutputPaddingAttr(),
-                                                      origOp.getInputPaddingAttr());
+        auto newMul =
+                IE::MultiplyOp::create(rewriter, takeOpLoc(origOp, "slice_{0}", index), inVal, constInput,
+                                       origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+                                       origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
         newConcatInputs.push_back(newMul.getOutput());
     }
 
-    auto newConcat = rewriter.create<IE::ConcatOp>(takeOpLoc(concatOp, "prop_mul_out"), newConcatInputs,
-                                                   concatOp.getPerAxisAttr(), concatOp.getStaticOffsetsAttr());
+    auto newConcat = IE::ConcatOp::create(rewriter, takeOpLoc(concatOp, "prop_mul_out"), newConcatInputs,
+                                          concatOp.getPerAxisAttr(), concatOp.getStaticOffsetsAttr());
     rewriter.replaceOp(origOp, newConcat.getOutput());
 
     if (concatOp->use_empty()) {
@@ -564,9 +565,8 @@ mlir::LogicalResult PropagateMatMul::matchAndRewrite(IE::MatMulOp origOp, mlir::
         SmallVector<int64_t> sliceSize(rhsShape.raw());
         sliceSize[concatAxis] = 1;
 
-        auto rhsSlice =
-                rewriter.create<IE::SliceOp>(takeOpLoc(origOp, "rhs_slice_{0}", index), rhsInput,
-                                             getIntArrayAttr(ctx, sliceOffset), getIntArrayAttr(ctx, sliceSize));
+        auto rhsSlice = IE::SliceOp::create(rewriter, takeOpLoc(origOp, "rhs_slice_{0}", index), rhsInput,
+                                            getIntArrayAttr(ctx, sliceOffset), getIntArrayAttr(ctx, sliceSize));
 
         // Create MatMul for this slice
         auto newMatMul = cloneMatMulOp(rewriter, origOp, lhs, rhsSlice.getOutput());
@@ -576,8 +576,8 @@ mlir::LogicalResult PropagateMatMul::matchAndRewrite(IE::MatMulOp origOp, mlir::
     }
 
     // Create new concat with all sliced MatMul outputs
-    auto newConcat = rewriter.create<IE::ConcatOp>(takeOpLoc(concatOp, "prop_matmul_out"), newConcatInputs,
-                                                   concatOp.getPerAxisAttr(), concatOp.getStaticOffsetsAttr());
+    auto newConcat = IE::ConcatOp::create(rewriter, takeOpLoc(concatOp, "prop_matmul_out"), newConcatInputs,
+                                          concatOp.getPerAxisAttr(), concatOp.getStaticOffsetsAttr());
 
     rewriter.replaceOp(origOp, newConcat.getOutput());
 

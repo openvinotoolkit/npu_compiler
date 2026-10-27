@@ -102,7 +102,7 @@ template <typename ConcreteOp>
 TileInfo getWeightsTableTile(ConcreteOp* origOp, const vpux::TileInfo& outputTile,
                              std::optional<int64_t> weightsOutputChannels = std::nullopt) {
     const auto origWeightsTable = origOp->getWeightsTable();
-    VPUX_THROW_UNLESS(origWeightsTable != nullptr, "The operation {0} doesn't have a WeightsTable", *origOp);
+    VPUX_THROW_WHEN(origWeightsTable == nullptr, "The operation {0} doesn't have a WeightsTable", *origOp);
 
     const auto origWeightsTableShape = getShape(origWeightsTable);
     VPUX_THROW_UNLESS((weightsOutputChannels.has_value() ||
@@ -126,7 +126,7 @@ template <typename ConcreteOp>
 TileInfo getDataPointerTableTile(ConcreteOp* origOp, const vpux::TileInfo& outputTile,
                                  std::optional<int64_t> weightsOutputChannels = std::nullopt) {
     const auto origDataPointerTable = origOp->getWeightTableDataPtr();
-    VPUX_THROW_UNLESS(origDataPointerTable != nullptr, "The operation {0} doesn't have a DataPointerTable", *origOp);
+    VPUX_THROW_WHEN(origDataPointerTable == nullptr, "The operation {0} doesn't have a DataPointerTable", *origOp);
 
     const auto origDataPointerTableShape = getShape(origDataPointerTable);
     VPUX_THROW_UNLESS(
@@ -151,7 +151,7 @@ template <typename ConcreteOp>
 TileInfo getScaleTableTile(ConcreteOp* origOp, const vpux::TileInfo& outputTile,
                            std::optional<int64_t> weightsOutputChannels = std::nullopt) {
     const auto origScaleTable = origOp->getWeightTableScale();
-    VPUX_THROW_UNLESS(origScaleTable != nullptr, "The operation {0} doesn't have a ScaleTable", *origOp);
+    VPUX_THROW_WHEN(origScaleTable == nullptr, "The operation {0} doesn't have a ScaleTable", *origOp);
 
     const auto origScaleTableShape = getShape(origScaleTable);
     VPUX_THROW_UNLESS((weightsOutputChannels.has_value() ||
@@ -175,7 +175,7 @@ template <typename ConcreteOp>
 TileInfo getBiasTableTile(ConcreteOp* origOp, const vpux::TileInfo& outputTile,
                           std::optional<int64_t> weightsOutputChannels = std::nullopt) {
     const auto origBiasTable = origOp->getWeightTableBias();
-    VPUX_THROW_UNLESS(origBiasTable != nullptr, "The operation {0} doesn't have a BiasTable", *origOp);
+    VPUX_THROW_WHEN(origBiasTable == nullptr, "The operation {0} doesn't have a BiasTable", *origOp);
 
     const auto origBiasTableShape = getShape(origBiasTable);
     VPUX_THROW_UNLESS((weightsOutputChannels.has_value() ||
@@ -199,7 +199,7 @@ template <typename ConcreteOp>
 TileInfo getZeroPointTableTile(ConcreteOp* origOp, const vpux::TileInfo& outputTile,
                                std::optional<int64_t> weightsOutputChannels = std::nullopt) {
     const auto origZeroPointTable = origOp->getWeightZeroPoints();
-    VPUX_THROW_UNLESS(origZeroPointTable != nullptr, "The operation {0} doesn't have a ZeroPointTable", *origOp);
+    VPUX_THROW_WHEN(origZeroPointTable == nullptr, "The operation {0} doesn't have a ZeroPointTable", *origOp);
 
     const auto origZeroPointTableShape = getShape(origZeroPointTable);
     VPUX_THROW_UNLESS(

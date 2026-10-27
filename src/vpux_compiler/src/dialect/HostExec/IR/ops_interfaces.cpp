@@ -15,25 +15,30 @@ void HostExec::getOpEffects(mlir::Operation* op, mlir::SmallVectorImpl<HostExec:
     }
 
     if (auto callOp = mlir::dyn_cast<mlir::func::CallOp>(op); callOp != nullptr) {
+        // Note: the effects are queried by function-scoped passes which may run in parallel on sibling functions,
+        // so all the information local to the call operation must be checked before the callee is resolved through
+        // the parent-module symbol table, which reads the operations owned by the other functions.
+        auto numOperands = callOp.getOperands().size();
+        if (numOperands < HostMainFuncArgs::HOST_MAIN_FUNC_ARGS_COUNT) {
+            return;
+        }
+
         auto module = vpux::getModuleOp(callOp);
-        VPUX_THROW_UNLESS(module != nullptr, "Call operation: {0} must have a parent-module", callOp->getName());
-        mlir::func::FuncOp firstFuncOp = module.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
-        VPUX_THROW_UNLESS(firstFuncOp != nullptr, "Call operation: {0} must have an associated parent-function",
-                          callOp->getName());
+        VPUX_THROW_WHEN(module == nullptr, "Call operation: {0} must have a parent-module", callOp->getName());
+        auto firstFuncOp = module.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
+        VPUX_THROW_WHEN(firstFuncOp == nullptr, "Call operation: {0} must have an associated parent-function",
+                        callOp->getName());
         if (isHostCompileInferenceExecFunc(firstFuncOp)) {
-            auto numOperands = callOp.getOperands().size();
-            if (numOperands >= HostMainFuncArgs::HOST_MAIN_FUNC_ARGS_COUNT) {
-                effects.emplace_back(mlir::MemoryEffects::Write::get(),
-                                     callOp.getOperand(GET_ARG_INDEX_COMMAND_FENCE(numOperands)));
-                effects.emplace_back(mlir::MemoryEffects::Write::get(),
-                                     callOp.getOperand(GET_ARG_INDEX_COMMAND_EVENT(numOperands)));
-                effects.emplace_back(mlir::MemoryEffects::Write::get(),
-                                     callOp.getOperand(GET_ARG_INDEX_COMMAND_QUEUE(numOperands)));
-                effects.emplace_back(mlir::MemoryEffects::Write::get(),
-                                     callOp.getOperand(GET_ARG_INDEX_COMMAND_LIST(numOperands)));
-                effects.emplace_back(mlir::MemoryEffects::Write::get(),
-                                     callOp.getOperand(GET_ARG_INDEX_COMMAND_EXECUTION_CONTEXT(numOperands)));
-            }
+            effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                                 callOp.getOperand(GET_ARG_INDEX_COMMAND_FENCE(numOperands)));
+            effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                                 callOp.getOperand(GET_ARG_INDEX_COMMAND_EVENT(numOperands)));
+            effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                                 callOp.getOperand(GET_ARG_INDEX_COMMAND_QUEUE(numOperands)));
+            effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                                 callOp.getOperand(GET_ARG_INDEX_COMMAND_LIST(numOperands)));
+            effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                                 callOp.getOperand(GET_ARG_INDEX_COMMAND_EXECUTION_CONTEXT(numOperands)));
         }
     }
 }

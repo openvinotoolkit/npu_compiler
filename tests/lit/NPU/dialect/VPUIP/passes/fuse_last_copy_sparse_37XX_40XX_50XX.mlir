@@ -34,7 +34,7 @@ func.func @NoChangesDifferentMemSpaceSparse(
 
     %out_data_0 = memref.alloc() : !IDataCMXType
     %out_sm_0 = memref.alloc() : !ISMCMXType
-    %mp:2 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>} <{
+    %mp:2 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 1, 0, 0, 0, 0>,
             kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 0 : i64, bottom = 1 : i64>,
             kernel_size = [2, 2],
             kernel_strides = [1, 1],

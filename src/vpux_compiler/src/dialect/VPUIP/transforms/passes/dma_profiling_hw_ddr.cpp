@@ -184,7 +184,7 @@ void DMATaskProfilingHwDdrPass::setupStaticProfiling(mlir::MLIRContext* ctx, net
     mlir::OpBuilder builder(&funcOp.getBody().front().front());
     auto profilingResult = addNewProfilingOutput(ctx, funcOp, netInfo, outputResult, profiling::ExecutorType::DMA_HW);
     auto returnOp = mlir::dyn_cast_or_null<mlir::func::ReturnOp>(funcOp.getBody().front().getTerminator());
-    VPUX_THROW_UNLESS(returnOp != nullptr, "No ReturnOp was found");
+    VPUX_THROW_WHEN(returnOp == nullptr, "No ReturnOp was found");
     builder.setInsertionPoint(returnOp);
     returnOp.getOperandsMutable().append(profilingResult);
 }
@@ -296,7 +296,7 @@ void DMATaskProfilingHwDdrPass::setupProfiling(mlir::MLIRContext* ctx, mlir::Mod
 
     mlir::func::ReturnOp returnOp =
             mlir::dyn_cast_or_null<mlir::func::ReturnOp>(funcOp.getBody().front().getTerminator());
-    VPUX_THROW_UNLESS(returnOp != nullptr, "No ReturnOp was found");
+    VPUX_THROW_WHEN(returnOp == nullptr, "No ReturnOp was found");
     builder.setInsertionPoint(returnOp);
 
     returnOp.getOperandsMutable().append(profilingResult);
@@ -323,18 +323,18 @@ VPURT::TaskOp DMATaskProfilingHwDdrPass::generateBufferCopyAfter(mlir::OpBuilder
     }
     firstDMATracker.reset();
 
-    auto profCopyStartBarrier = builder.create<VPURT::DeclareVirtualBarrierOp>(loc);
-    auto profCopyEndBarrier = builder.create<VPURT::DeclareVirtualBarrierOp>(loc);
+    auto profCopyStartBarrier = VPURT::DeclareVirtualBarrierOp::create(builder, loc);
+    auto profCopyEndBarrier = VPURT::DeclareVirtualBarrierOp::create(builder, loc);
 
     const auto memKind = IndexedSymbolAttr::get(ctx, stringifyEnum(VPU::MemoryKind::DDR));
-    auto sourceBuffer = builder.create<VPURT::DeclareBufferOp>(
-            mlir::NameLoc::get(mlir::StringAttr::get(ctx, "dmaHwpBase_slice")),
+    auto sourceBuffer = VPURT::DeclareBufferOp::create(
+            builder, mlir::NameLoc::get(mlir::StringAttr::get(ctx, "dmaHwpBase_slice")),
             mlir::cast<vpux::NDTypeInterface>(getMemRefType({bufferSize}, getUInt8Type(ctx), DimsOrder::C, memKind)),
             VPURT::BufferSection::DDR, dmaHwpBase);
 
-    auto targetProfOutputBuffer = builder.create<VPURT::DeclareBufferOp>(
-            loc, vpux::getMemRefType({bufferSize}, getUInt8Type(ctx)), VPURT::BufferSection::ProfilingOutput,
-            profOutputId, profOutputOffset);
+    auto targetProfOutputBuffer =
+            VPURT::DeclareBufferOp::create(builder, loc, vpux::getMemRefType({bufferSize}, getUInt8Type(ctx)),
+                                           VPURT::BufferSection::ProfilingOutput, profOutputId, profOutputOffset);
 
     mlir::OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointAfter(taskOp);

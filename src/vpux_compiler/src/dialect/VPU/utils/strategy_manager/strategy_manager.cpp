@@ -297,6 +297,26 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
                         return;
                     }
 
+                    if (mlir::isa<VPU::PadDmaOp>(origOp)) {
+                        _log.trace("PadDmaOp at '{0}' kept as single-cluster (DMA-bound, single-tile kernel)",
+                                   origOp->getLoc());
+                        return;
+                    }
+
+                    if (auto groupQuantCorrectionOp =
+                                mlir::dyn_cast<VPU::GroupQuantCorrectionOp>(origOp.getOperation())) {
+                        auto outputType =
+                                mlir::cast<vpux::NDTypeInterface>(groupQuantCorrectionOp.getOutput().getType());
+                        auto outputChannels = outputType.getShape()[Dims4D::Act::C];
+                        // Makes compatible with DPU MatMul in case of VF
+                        if (outputChannels > VPU::NCEInvariant::VPU_DIMENSION_LIMIT &&
+                            groupQuantCorrectionOp.isOperationSplitOverKernelCompatible(
+                                    /*outputShape=*/ShapeRef(), /*offset=*/ShapeRef(), /*axis=*/ShapeRef())) {
+                            setLayerStrategy(VPU::MultiClusterStrategy::SplitOverKernel, origOp.getOperation());
+                            return;
+                        }
+                    }
+
                     // Non 4D Tensor or Tensor with larger batch size cannot be tiled properly.
                     // [E90039]MC support for Non 4D Tensor.
                     std::optional<VPU::MultiClusterStrategy> bestStrategy;

@@ -298,7 +298,9 @@ std::optional<mlir::Type> VPUIP::inferReshapeOutputType(vpux::NDTypeInterface ne
         return mlir::cast<mlir::Type>(distributedOutType.value());
     }
 
-    return mlir::cast<mlir::Type>(newInputNDType.changeShapeElemType(outShape, outElemType.value()));
+    auto outType = newInputNDType.changeShapeElemType(outShape, outElemType.value());
+    outType = outType.changeDimsOrder(origOutputNDType.getDimsOrder());
+    return mlir::cast<mlir::Type>(outType);
 }
 
 namespace {

@@ -5,7 +5,6 @@
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/IRMapping.h>
-#include <npu_40xx_nnrt.hpp>
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
@@ -43,7 +42,7 @@ private:
                                            const uint32_t& val);
 
     void updateInputAndOutput(mlir::OpBuilder& builder, VPUMI40XX::NNDMAOp enqueueDma,
-                              VPURegMapped::TaskOpInterface taskOp, uint32_t fifoAddr,
+                              VPURegMapped::TaskOpInterface taskOp, uint32_t fifoAddr, uint32_t metadataOffset,
                               mlir::Operation* bufferInsertionPoint, mlir::Operation* cstInsertionPoint,
                               llvm::DenseMap<std::pair<mlir::Type, uint32_t>, mlir::Value>& regBufferCache);
 
@@ -72,7 +71,7 @@ Const::DeclareOp UpdateEnqueueDMAInputAndOutput::createEnqueueConstant(mlir::OpB
     auto memType = getMemRefType(ShapeRef(dataStorageType.getShape()), dataStorageType.getElementType());
     builder.setInsertionPoint(insertionPoint);
     auto configurationConstOp =
-            builder.create<Const::DeclareOp>(builder.getUnknownLoc(), memType, Const::ContentAttr::get(dataAttr));
+            Const::DeclareOp::create(builder, builder.getUnknownLoc(), memType, Const::ContentAttr::get(dataAttr));
 
     return configurationConstOp;
 }
@@ -88,8 +87,8 @@ mlir::Value UpdateEnqueueDMAInputAndOutput::getOrCreateRegisterBuffer(
     }
 
     builder.setInsertionPoint(bufferInsertionPoint);
-    auto declBuf = builder.create<VPURT::DeclareBufferOp>(builder.getUnknownLoc(), memType,
-                                                          VPURT::BufferSection::Register, fifoAddr);
+    auto declBuf = VPURT::DeclareBufferOp::create(builder, builder.getUnknownLoc(), memType,
+                                                  VPURT::BufferSection::Register, fifoAddr);
 
     mlir::Value buffer = declBuf.getBuffer();
     regBufferCache[key] = buffer;
@@ -100,7 +99,8 @@ mlir::Value UpdateEnqueueDMAInputAndOutput::getOrCreateRegisterBuffer(
 // replace original op
 void UpdateEnqueueDMAInputAndOutput::updateInputAndOutput(
         mlir::OpBuilder& builder, VPUMI40XX::NNDMAOp enqueueDma, VPURegMapped::TaskOpInterface taskOp,
-        uint32_t fifoAddr, mlir::Operation* bufferInsertionPoint, mlir::Operation* cstInsertionPoint,
+        uint32_t fifoAddr, uint32_t metadataOffset, mlir::Operation* bufferInsertionPoint,
+        mlir::Operation* cstInsertionPoint,
         llvm::DenseMap<std::pair<mlir::Type, uint32_t>, mlir::Value>& regBufferCache) {
     auto ctx = builder.getContext();
     auto cmxTaskLocationBuf = mlir::cast<VPUMI40XX::DeclareTaskBufferOp>(taskOp.getTaskLocation().getDefiningOp());
@@ -110,9 +110,7 @@ void UpdateEnqueueDMAInputAndOutput::updateInputAndOutput(
     // ----------------------------------------
 
     // Convert CMX offset to metadata-relative offset in 32-byte units.
-    // 15360 = VPU_METADATA_OFFSET = start of metadata region in CMX.
-    const auto descriptorOffsetInCMX =
-            (cmxTaskLocationBuf.getOffset().value() + npu40xx::nn_public::VPU_METADATA_OFFSET) >> 5;
+    const auto descriptorOffsetInCMX = (cmxTaskLocationBuf.getOffset().value() + metadataOffset) >> 5;
     auto enqueueConstOp = createEnqueueConstant(builder, cstInsertionPoint, descriptorOffsetInCMX);
     const auto constOutputType = mlir::cast<vpux::NDTypeInterface>(enqueueConstOp.getOutput().getType());
 
@@ -164,6 +162,9 @@ void UpdateEnqueueDMAInputAndOutput::safeRunOnFunc() {
     auto parentModule = getOperation()->getParentOfType<mlir::ModuleOp>();
     auto shvFIFOAddrs = config::getConstraint<llvm::SmallVector<uint32_t>>(parentModule, config::SHV_FIFO_ADDRS);
     auto dpuFIFOAddrs = config::getConstraint<llvm::SmallVector<uint32_t>>(parentModule, config::DPU_FIFO_ADDRS);
+    auto metadataMem = config::getCMXMetadataReservedMemory(parentModule);
+    VPUX_THROW_UNLESS(metadataMem, "Missing reserved CMX memory for metadata");
+    const auto metadataOffset = static_cast<uint32_t>(metadataMem.getOffset().value());
 
     auto tilesCount = config::getTileExecutor(parentModule).getCount();
     auto shavesCountPerTile = config::getAvailableExecutor(parentModule, config::ExecutorKind::SHAVE_ACT).getCount();
@@ -247,8 +248,8 @@ void UpdateEnqueueDMAInputAndOutput::safeRunOnFunc() {
                     // output buffers so that this DMA will push task descriptor to HW FIFO register
                     if (taskInd == enqueueDmaStartIdx) {
                         _log.trace("Update input and output data of enqueue DMA for task {0} ", taskInd);
-                        updateInputAndOutput(builder, enqueueDmaOp, taskOp, fifoAddr, bufferInsertionPoint,
-                                             cstInsertionPoint, regBufferCache);
+                        updateInputAndOutput(builder, enqueueDmaOp, taskOp, fifoAddr, metadataOffset,
+                                             bufferInsertionPoint, cstInsertionPoint, regBufferCache);
                     }
 
                     taskOp = taskOp.getNextTask();
@@ -264,6 +265,10 @@ void UpdateEnqueueDMAInputAndOutput::safeRunOnFunc() {
 // createUpdateEnqueueDMAInputAndOutput
 //
 
-std::unique_ptr<mlir::Pass> vpux::VPUMI40XX::createUpdateEnqueueDMAInputAndOutput(Logger log) {
+namespace vpux::VPUMI40XX {
+
+std::unique_ptr<mlir::Pass> createUpdateEnqueueDMAInputAndOutput(Logger log) {
     return std::make_unique<UpdateEnqueueDMAInputAndOutput>(log);
 }
+
+}  // namespace vpux::VPUMI40XX

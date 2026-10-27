@@ -74,10 +74,7 @@ SmallVector<mlir::OpFoldResult> vpux::VPU::NCECompressConvolutionOp::getMixedRaw
  * Return the constant raw filter shape by extracting the constant values from the mixed raw filter shape.
  */
 SmallVector<int64_t> vpux::VPU::NCECompressConvolutionOp::getConstRawFilterShape() {
-    auto vals = mlir::getConstantIntValues(getMixedRawFilterShape());
-    VPUX_THROW_WHEN(!vals.has_value(), "Cannot get constant raw filter shape from NCECompressConvolutionOp '{0}'",
-                    getLoc());
-    return vals.value();
+    return VPU::getConstRawFilterShape(getMixedRawFilterShape(), getLoc());
 }
 
 //

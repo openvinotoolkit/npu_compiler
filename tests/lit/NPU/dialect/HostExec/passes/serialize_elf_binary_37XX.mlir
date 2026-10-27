@@ -19,7 +19,7 @@ module @OneInputOneOutput attributes {config.compilationMode = #config.compilati
     } outputsInfo : {
       DataInfo "output" : tensor<1x3x60x60xf16>
     }
-    func.func nested @dma_copy(%arg0: memref<1x3x60x60xf16, @DDR>, %arg1: memref<1x3x60x60xf16, @DDR>) -> memref<1x3x60x60xf16, @DDR> {
+    func.func @dma_copy(%arg0: memref<1x3x60x60xf16, @DDR>, %arg1: memref<1x3x60x60xf16, @DDR>) -> memref<1x3x60x60xf16, @DDR> {
       %0 = VPUMI37XX.ConfigureBarrier {consumer_count = 0 : ui8, producer_count = 1 : ui8}<0, -1> -> !VPURegMapped.Index<0:0:0>
       %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x60x60xf16, @DDR>
       %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x3x60x60xf16, @DDR>

@@ -62,8 +62,8 @@ mlir::Value createNewFQ(mlir::PatternRewriter& rewriter, IE::FakeQuantizeOp orig
     auto newOutLowConst = Const::createConst(rewriter, origFqOp->getLoc(), inLowConstType, ArrayRef(outLow));
     auto newOutHighConst = Const::createConst(rewriter, origFqOp->getLoc(), outLowConstType, ArrayRef(outHigh));
 
-    auto newFakeQuantizeOp = rewriter.create<IE::FakeQuantizeOp>(
-            origFqOp->getLoc(), origFqOp.getType(), input, newInLowConst, newInHighConst, newOutLowConst,
+    auto newFakeQuantizeOp = IE::FakeQuantizeOp::create(
+            rewriter, origFqOp->getLoc(), origFqOp.getType(), input, newInLowConst, newInHighConst, newOutLowConst,
             newOutHighConst, origFqOp.getLevelsAttr(), origFqOp.getLowFpTypeAttr(), origFqOp.getAutoBroadcastAttr());
 
     // We replace the old FakeQuantize op with the new one only for Divide users
@@ -78,7 +78,7 @@ mlir::Value createNewFQ(mlir::PatternRewriter& rewriter, IE::FakeQuantizeOp orig
 mlir::Value createNewDQ(mlir::PatternRewriter& rewriter, IE::DequantizeOp origDqOp, mlir::Value input) {
     rewriter.setInsertionPoint(origDqOp);
 
-    auto newDequantizeOp = rewriter.create<IE::DequantizeOp>(origDqOp->getLoc(), input, origDqOp.getDstElemTypeAttr());
+    auto newDequantizeOp = IE::DequantizeOp::create(rewriter, origDqOp->getLoc(), input, origDqOp.getDstElemTypeAttr());
 
     // We replace the old Dequantize op with the new one only for Divide users
     // if their second input is the old Dequantize
@@ -108,7 +108,7 @@ mlir::FailureOr<mlir::Value> replaceWithNewFakeQuantizeOp(mlir::PatternRewriter&
 
     auto newCstAttr = constOp.transformContentAttr().scalarMultInverse().get();
     rewriter.setInsertionPoint(constOp);
-    auto newCstOp = rewriter.create<Const::DeclareOp>(constOp->getLoc(), newCstAttr.getType(), std::move(newCstAttr));
+    auto newCstOp = Const::DeclareOp::create(rewriter, constOp->getLoc(), newCstAttr.getType(), std::move(newCstAttr));
 
     // Get inversed values for new input low/high params for FQ
     const auto inversedConstContent = newCstOp.getContent();
@@ -171,7 +171,7 @@ mlir::FailureOr<mlir::Value> replaceWithNewDequantizeOp(mlir::PatternRewriter& r
                               .scalarMultInverse()
                               .rescale(rescaleFactor)
                               .get();
-    auto newCstOp = rewriter.create<Const::DeclareOp>(constOp->getLoc(), newCstAttr.getType(), newCstAttr);
+    auto newCstOp = Const::DeclareOp::create(rewriter, constOp->getLoc(), newCstAttr.getType(), newCstAttr);
     auto constContent = newCstOp.getContent();
     auto constContentVals = constContent.getValues<float>();
     auto minFloatVal = std::min_element(constContentVals.begin(), constContentVals.end());
@@ -185,7 +185,7 @@ mlir::FailureOr<mlir::Value> replaceWithNewDequantizeOp(mlir::PatternRewriter& r
 
     newCstAttr = newCstAttr.transform().add(newZP).castElemType(storageType).get();
     rewriter.setInsertionPoint(constOp);
-    newCstOp = rewriter.create<Const::DeclareOp>(constOp->getLoc(), newType, std::move(newCstAttr));
+    newCstOp = Const::DeclareOp::create(rewriter, constOp->getLoc(), newType, std::move(newCstAttr));
     return createNewDQ(rewriter, dequantize, newCstOp.getOutput());
 }
 
@@ -233,7 +233,7 @@ mlir::LogicalResult ConstDivisorRewriter::matchAndRewrite(Const::DeclareOp origO
     }
 
     auto newCstAttr = origOp.transformContentAttr().scalarMultInverse().get();
-    auto newCstOp = rewriter.create<Const::DeclareOp>(origOp->getLoc(), newCstAttr.getType(), std::move(newCstAttr));
+    auto newCstOp = Const::DeclareOp::create(rewriter, origOp->getLoc(), newCstAttr.getType(), std::move(newCstAttr));
     // We replace the old Const.DeclareOp with the new one only for IE.Divide users
     rewriter.replaceUsesWithIf(origOp, newCstOp, [&](mlir::OpOperand& opOperand) {
         return isDivideUser(origOp, opOperand.getOwner());
@@ -244,8 +244,8 @@ mlir::LogicalResult ConstDivisorRewriter::matchAndRewrite(Const::DeclareOp origO
         auto divideOp = mlir::cast<IE::DivideOp>(userOp);
         rewriter.setInsertionPoint(divideOp);
         auto multiplyOp =
-                rewriter.create<IE::MultiplyOp>(appendLoc(divideOp.getLoc(), "as_mul"), divideOp.getInput1(), newCstOp,
-                                                divideOp.getAutoBroadcastAttr(), nullptr, nullptr, nullptr, nullptr);
+                IE::MultiplyOp::create(rewriter, appendLoc(divideOp.getLoc(), "as_mul"), divideOp.getInput1(), newCstOp,
+                                       divideOp.getAutoBroadcastAttr(), nullptr, nullptr, nullptr, nullptr);
         rewriter.replaceAllOpUsesWith(divideOp, multiplyOp);
     }
     return mlir::success();
@@ -440,8 +440,8 @@ mlir::LogicalResult FakeQuantizeDivideRewriter::matchAndRewrite(IE::FakeQuantize
         // Insertion point was changed in replaceWithNewFakeQuantizeOp, we have to reset it manually here
         rewriter.setInsertionPoint(divideOp);
         auto multiplyOp =
-                rewriter.create<IE::MultiplyOp>(appendLoc(divideOp.getLoc(), "as_mul"), divideOp.getInput1(), newFqOp,
-                                                divideOp.getAutoBroadcastAttr(), nullptr, nullptr, nullptr, nullptr);
+                IE::MultiplyOp::create(rewriter, appendLoc(divideOp.getLoc(), "as_mul"), divideOp.getInput1(), newFqOp,
+                                       divideOp.getAutoBroadcastAttr(), nullptr, nullptr, nullptr, nullptr);
         rewriter.replaceAllOpUsesWith(divideOp, multiplyOp);
     }
     return mlir::success();
@@ -515,8 +515,8 @@ mlir::LogicalResult DequantizeDivideRewriter::matchAndRewrite(IE::DequantizeOp o
         // Insertion point was changed in replaceWithNewDequantizeOp, we have to reset it manually here
         rewriter.setInsertionPoint(divideOp);
         auto multiplyOp =
-                rewriter.create<IE::MultiplyOp>(appendLoc(divideOp.getLoc(), "as_mul"), divideOp.getInput1(), newDqOp,
-                                                divideOp.getAutoBroadcastAttr(), nullptr, nullptr, nullptr, nullptr);
+                IE::MultiplyOp::create(rewriter, appendLoc(divideOp.getLoc(), "as_mul"), divideOp.getInput1(), newDqOp,
+                                       divideOp.getAutoBroadcastAttr(), nullptr, nullptr, nullptr, nullptr);
         rewriter.replaceAllOpUsesWith(divideOp, multiplyOp);
     }
     return mlir::success();

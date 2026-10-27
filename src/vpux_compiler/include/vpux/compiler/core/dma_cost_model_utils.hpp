@@ -44,14 +44,25 @@ bool correctStrideDMACostOnAllTiles(
 VPUNN::MemoryLocation getMemoryLocation(mlir::Type type);
 // VPUNN DMA Costs utils
 // VPU overloads
+
+// Direction of a DMA transfer, used to derive the VPUNN source/destination memory locations when
+// they cannot be deduced from the operand types (e.g. a spill, where both sides are the same buffer)
+enum class DmaDirectionType { CMX_TO_DDR, DDR_TO_CMX, CMX_TO_CMX, DDR_TO_DDR };
+
 size_t getDMACost(vpux::NDTypeInterface inTensorType, vpux::NDTypeInterface outTensorType, config::ArchKind archKind,
                   VPUNN::VPUDevice vpuDevice, const std::shared_ptr<VPUNN::VPUCostModel>& costModel,
                   int64_t numDMAPorts);
 size_t getDMACost(vpux::NDTypeInterface tensorType, config::ArchKind archKind, VPUNN::VPUDevice vpuDevice,
-                  const std::shared_ptr<VPUNN::VPUCostModel>& costModel, int64_t numDMAPorts);
+                  const std::shared_ptr<VPUNN::VPUCostModel>& costModel, int64_t numDMAPorts,
+                  vpux::DmaDirectionType dmaDirection);
 // VPUIP overload
 size_t getDMACost(mlir::Value input, mlir::Value output, config::ArchKind archKind, VPUNN::VPUDevice vpuDevice,
                   const std::shared_ptr<VPUNN::VPUCostModel>& costModel, int64_t numDMAPorts);
+// VPUIP overload with explicit DMA direction. Forces the VPUNN in/out memory locations from the
+// direction instead of deriving both from the single buffer type
+size_t getDMACost(mlir::Value input, config::ArchKind archKind, VPUNN::VPUDevice vpuDevice,
+                  const std::shared_ptr<VPUNN::VPUCostModel>& costModel, int64_t numDMAPorts,
+                  vpux::DmaDirectionType dmaDirection);
 
 // DMA Analytical cost utils (for archs for which VPUNN DMA cost model is not accurate)
 double getAnalyticalDMACost(vpux::NDTypeInterface, const VPU::DistributionInfo& distribution, double ddrLatency,

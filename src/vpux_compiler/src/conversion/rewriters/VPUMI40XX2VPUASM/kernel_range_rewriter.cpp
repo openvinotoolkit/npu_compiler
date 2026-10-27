@@ -23,8 +23,8 @@ mlir::FailureOr<SymbolizationResult> KernelRangeRewriter::symbolize(VPUMI40XX::A
 
     auto taskIdx = mlir::TypeAttr::get(op.getType());
 
-    auto newOp = rewriter.create<VPUASM::ActKernelRangeOp>(op.getLoc(), symName, taskIdx, taskLocation, kernelTextAttr,
-                                                           kernelEntryAttr, kernelTaskType);
+    auto newOp = VPUASM::ActKernelRangeOp::create(rewriter, op.getLoc(), symName, taskIdx, taskLocation, kernelTextAttr,
+                                                  kernelEntryAttr, kernelTaskType);
     rewriter.eraseOp(op);
 
     return SymbolizationResult(newOp);

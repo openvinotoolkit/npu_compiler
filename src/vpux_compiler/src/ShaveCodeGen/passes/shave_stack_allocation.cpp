@@ -89,7 +89,7 @@ mlir::LogicalResult appendScratchInfoToTilingInfoFunc(mlir::func::FuncOp kernelF
         mapper.map(kernelFunc.getArgument(kernelStart + i), infoFunc.getArgument(infoStart + i));
     }
 
-    auto zeroIdx = builder.create<mlir::arith::ConstantIndexOp>(returnOp.getLoc(), 0);
+    auto zeroIdx = mlir::arith::ConstantIndexOp::create(builder, returnOp.getLoc(), 0);
 
     // Map a scratch-buffer size value to its corresponding scratch-buffer offset. When the size
     // directly maps to an iteration-space size argument, the paired offset argument is used,
@@ -130,7 +130,7 @@ mlir::LogicalResult appendScratchInfoToTilingInfoFunc(mlir::func::FuncOp kernelF
             appendedResults.push_back(*mappedVal);
             appendedOffsets.push_back(getScratchOffsetFromScratchSize(*mappedVal));
         } else {
-            appendedResults.push_back(builder.create<mlir::arith::ConstantIndexOp>(returnOp.getLoc(), dim));
+            appendedResults.push_back(mlir::arith::ConstantIndexOp::create(builder, returnOp.getLoc(), dim));
             appendedOffsets.push_back(zeroIdx);
         }
     }
@@ -359,8 +359,8 @@ mlir::LogicalResult ShaveStackAllocationPass::addScratchBuffers(
             for (const auto scratchIdx : llvm::seq<size_t>(firstNewScratch, scratchInputs.size())) {
                 const auto& scratchTile = inputTiling.tiles[numInputs + scratchIdx];
                 for (auto dim : scratchTile.shape.raw()) {
-                    VPUX_THROW_UNLESS(dim != mlir::ShapedType::kDynamic,
-                                      "Dynamic scratch buffer shapes are not yet supported (E#192657)");
+                    VPUX_THROW_WHEN(dim == mlir::ShapedType::kDynamic,
+                                    "Dynamic scratch buffer shapes are not yet supported (E#192657)");
                 }
                 const auto newScratchIdx = scratchIdx - firstNewScratch;
                 const auto memrefTy = mlir::cast<mlir::MemRefType>(scratchMemRefTypes[newScratchIdx]);

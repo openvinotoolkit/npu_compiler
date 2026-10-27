@@ -50,12 +50,10 @@ module @PassOrderingScfComputeOpsOutlining {
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x3x64x640xf32>, [[ARG1:%.+]]: tensor<1x64x640x3xf32>)
 // CHECK-SAME: -> (tensor<1x64x640x16xi8>, tensor<1x16x64x640xf32>)
 // CHECK-DAG: [[CAST0:%.+]] = Core.ReinterpretCast([[ARG1]]) : tensor<1x64x640x3xf32> -> tensor<1x3x64x640xf32, {order = #NHWC}>
-// CHECK-DAG: [[CAST2:%.+]] = Core.ReinterpretCast([[ARG0]]) : tensor<1x3x64x640xf32> -> tensor<1x3x64x640xf32>
-// CHECK-DAG: [[UNREALIZED0:%.+]] = builtin.unrealized_conversion_cast [[CAST2]] : tensor<1x3x64x640xf32> to tensor<1x16x64x640x!qElemType, {order = #NHWC}>
+// CHECK-DAG: [[UNREALIZED0:%.+]] = builtin.unrealized_conversion_cast [[ARG0]] : tensor<1x3x64x640xf32> to tensor<1x16x64x640x!qElemType, {order = #NHWC}>
 // CHECK-DAG: [[CAST1:%.+]] = Core.ReinterpretCast([[UNREALIZED0]]) : tensor<1x16x64x640x!qElemType, {order = #NHWC}> -> tensor<1x64x640x16xi8>
 // CHECK-DAG: [[UNREALIZED1:%.+]] = builtin.unrealized_conversion_cast [[CAST0]] : tensor<1x3x64x640xf32, {order = #NHWC}> to tensor<1x16x64x640xf32>
-// CHECK-DAG: [[CAST3:%.+]] = Core.ReinterpretCast([[UNREALIZED1]]) : tensor<1x16x64x640xf32> -> tensor<1x16x64x640xf32>
-// CHECK: return [[CAST1]], [[CAST3]] : tensor<1x64x640x16xi8>, tensor<1x16x64x640xf32>
+// CHECK: return [[CAST1]], [[UNREALIZED1]] : tensor<1x64x640x16xi8>, tensor<1x16x64x640xf32>
 
 // CHECK: func.func @main
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x3x64x640xf32>, [[ARG1:%.+]]: tensor<1x64x640x3xf32>)

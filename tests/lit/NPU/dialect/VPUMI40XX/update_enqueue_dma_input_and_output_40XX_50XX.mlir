@@ -20,6 +20,9 @@ module @UpdateEnqueueDMAOpsDPU attributes {config.compilationMode = #config.comp
       module @DmaProfilingReservedMemory {
         config.MemoryResource 512 bytes of @CMX_NN offset 0
       }
+      module @CMXMetadataReservedMemory {
+        config.MemoryResource 1458176 bytes of @CMX_NN offset 15360
+      }
     }
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     config.ExecutorResource 2 of @SHAVE_ACT
@@ -122,6 +125,9 @@ module @UpdateEnqueueDMAOpsSHV attributes {config.compilationMode = #config.comp
     builtin.module @ReservedMemory {
       module @DmaProfilingReservedMemory {
         config.MemoryResource 512 bytes of @CMX_NN offset 0
+      }
+      module @CMXMetadataReservedMemory {
+        config.MemoryResource 1458176 bytes of @CMX_NN offset 15360
       }
     }
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "npu_interpreter_runtime/virtual_machine.h"
+#include "vm_runtime/virtual_machine.h"
 
 #include <gflags/gflags.h>
 
@@ -507,7 +507,7 @@ int main(int argc, char* argv[]) {
             std::cerr << "Error: Failed to create VM engine." << std::endl;
             return cleanupAndExitFailure(context, results);
         }
-        if (npu_vm_load_module(context.engine, context.module) != NPU_VM_SUCCESS) {
+        if (npu_vm_load_module(context.engine, /*load_params*/ nullptr, context.module) != NPU_VM_SUCCESS) {
             std::cerr << "Error: Failed to load module into VM engine." << std::endl;
             return cleanupAndExitFailure(context, results);
         }

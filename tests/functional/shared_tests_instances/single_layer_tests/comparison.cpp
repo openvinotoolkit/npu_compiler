@@ -382,7 +382,7 @@ const auto comparison_params_dynamic = ::testing::Combine(
 
 std::vector<ComparisonTypes> comparisonOpTypesBOOL_MLIR = {
         ComparisonTypes::EQUAL,     ComparisonTypes::LESS,    ComparisonTypes::LESS_EQUAL,
-        ComparisonTypes::NOT_EQUAL, ComparisonTypes::GREATER,
+        ComparisonTypes::NOT_EQUAL, ComparisonTypes::GREATER, ComparisonTypes::GREATER_EQUAL,
 };
 std::vector<ov::element::Type> precision_bool = {ov::element::boolean};
 

@@ -18,7 +18,7 @@ Cache& getCache(mlir::MLIRContext* ctx) {
 
 #if defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
     auto dialectTypeName = llvm::getTypeName<Dialect>().str();
-    VPUX_THROW_UNLESS(dialect != nullptr, "{0} must be present in the context", dialectTypeName);
+    VPUX_THROW_WHEN(dialect == nullptr, "{0} must be present in the context", dialectTypeName);
 #endif
 
     auto* iface = dialect->template getRegisteredInterface<Cache>();

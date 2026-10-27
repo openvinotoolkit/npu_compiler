@@ -67,7 +67,7 @@ module {
 // -----
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-!qElemType = !quant.uniform<!QuantileType.quantile<ui4:f16, {-1.000000e+00,-8.000000e-01,-0.69999999999999996,-6.000000e-01,-5.000000e-01,-4.000000e-01,-3.000000e-01,0.000000e+00,1.000000e-01,2.000000e-01,3.000000e-01,4.000000e-01,5.000000e-01,6.000000e-01,0.69999999999999996,1.000000e+00}>:f16, 0.02211761474609375>
+!qElemType = !quant.uniform<!quant.quantile<ui4:f16, {-1.000000e+00,-8.000000e-01,-0.69999999999999996,-6.000000e-01,-5.000000e-01,-4.000000e-01,-3.000000e-01,0.000000e+00,1.000000e-01,2.000000e-01,3.000000e-01,4.000000e-01,5.000000e-01,6.000000e-01,0.69999999999999996,1.000000e+00}>:f16, 0.02211761474609375>
 module {
   net.NetworkInfo entryPoint : @IDU_CONV_input_f16_weights_fp16FourbitPallet inputsInfo : {
     DataInfo "input_0" : tensor<1x64x16x16xf16>
@@ -252,7 +252,7 @@ module {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 !qElemType = !quant.uniform<i8:f32, 1.600000e+01:10>
-!wqElemType = !quant.uniform<!QuantileType.quantile<ui4:si8, {-8.0, -7.0, -6.0, -5.0, -4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0}>:f32, 1.600000e+01:16>
+!wqElemType = !quant.uniform<!quant.quantile<ui4:si8, {-8.0, -7.0, -6.0, -5.0, -4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0}>:f32, 1.600000e+01:16>
 module {
   net.NetworkInfo entryPoint : @IDU_CONV_input_i8_weights_i8FourBitPallet inputsInfo : {
     DataInfo "input_0" : tensor<1x64x16x16xi8>
@@ -940,7 +940,7 @@ module {
 // -----
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-!qElemType = !quant.uniform<!QuantileType.quantile<ui4:bf16, {-1.000000e+00,-8.000000e-01,-0.69999999999999996,-6.000000e-01,-5.000000e-01,-4.000000e-01,-3.000000e-01,0.000000e+00,1.000000e-01,2.000000e-01,3.000000e-01,4.000000e-01,5.000000e-01,6.000000e-01,0.69999999999999996,1.000000e+00}>:f16, 0.02211761474609375>
+!qElemType = !quant.uniform<!quant.quantile<ui4:bf16, {-1.000000e+00,-8.000000e-01,-0.69999999999999996,-6.000000e-01,-5.000000e-01,-4.000000e-01,-3.000000e-01,0.000000e+00,1.000000e-01,2.000000e-01,3.000000e-01,4.000000e-01,5.000000e-01,6.000000e-01,0.69999999999999996,1.000000e+00}>:f16, 0.02211761474609375>
 module {
   net.NetworkInfo entryPoint : @IDU_DWCONV_input_bf16_weights_bf16FourBitPallet_output_f16 inputsInfo : {
     DataInfo "input_0" : tensor<1x16x32x32xbf16>

@@ -10,7 +10,7 @@
 !wgtType = !quant.uniform<u4:f16, 2.0:0>
 
 // CHECK: !qElemType = !quant.uniform<f8E5M2:f16, 1.000000e+00>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:f8E4M3FN, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,8.000000e+00,9.000000e+00,1.000000e+01,1.100000e+01,1.200000e+01,1.300000e+01,1.400000e+01,1.500000e+01}>:f16, 2.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui4:f8E4M3FN, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,8.000000e+00,9.000000e+00,1.000000e+01,1.100000e+01,1.200000e+01,1.300000e+01,1.400000e+01,1.500000e+01}>:f16, 2.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<u4:f16, 2.000000e+00>
 
 // CHECK-LABEL: @ConvertBF8ActU4WgtAsymmetricZp
@@ -34,7 +34,7 @@ func.func @ConvertBF8ActU4WgtAsymmetricZp(%arg0: tensor<1x16x16x16x!actType>) ->
 !wgtType = !quant.uniform<u4:f16, 2.0:8>
 
 // CHECK: !qElemType = !quant.uniform<f8E5M2:f16, 1.000000e+00>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:f8E4M3FN, {-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00}>:f16, 2.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui4:f8E4M3FN, {-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00}>:f16, 2.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<u4:f16, 2.000000e+00:8>
 
 // CHECK-LABEL: @ConvertBF8ActU4WgtSymmetricZp
@@ -58,7 +58,7 @@ func.func @ConvertBF8ActU4WgtSymmetricZp(%arg0: tensor<1x16x16x16x!actType>) -> 
 !wgtType = !quant.uniform<u2:f16, 2.0:2>
 
 // CHECK: !qElemType = !quant.uniform<f8E4M3FN:f16, 1.000000e+00>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui2:f8E4M3FN, {-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00}>:f16, 2.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui2:f8E4M3FN, {-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00}>:f16, 2.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<u2:f16, 2.000000e+00:2>
 
 // CHECK-LABEL: @ConvertHF8ActU2WgtSymmetricZp
@@ -82,7 +82,7 @@ func.func @ConvertHF8ActU2WgtSymmetricZp(%arg0: tensor<1x16x16x16x!actType>) -> 
 !wgtType = !quant.uniform<i2:f16, 2.0:0>
 
 // CHECK: !qElemType = !quant.uniform<f8E4M3FN:f16, 1.000000e+00>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui2:f8E4M3FN, {0.000000e+00,1.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 2.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui2:f8E4M3FN, {0.000000e+00,1.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 2.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<i2:f16, 2.000000e+00>
 
 // CHECK-LABEL: @ConvertHF8ActI2WgtSymmetricZp
@@ -106,7 +106,7 @@ func.func @ConvertHF8ActI2WgtSymmetricZp(%arg0: tensor<1x16x16x16x!actType>) -> 
 !wgtType = !quant.uniform<i2:f16, 2.0:-1>
 
 // CHECK: !qElemType = !quant.uniform<f8E4M3FN:f16, 1.000000e+00>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui2:f8E4M3FN, {1.000000e+00,2.000000e+00,-1.000000e+00,0.000000e+00}>:f16, 2.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui2:f8E4M3FN, {1.000000e+00,2.000000e+00,-1.000000e+00,0.000000e+00}>:f16, 2.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<i2:f16, 2.000000e+00:-1>
 
 // CHECK-LABEL: @ConvertHF8ActI2WgtAsymmetricZp
@@ -130,7 +130,7 @@ func.func @ConvertHF8ActI2WgtAsymmetricZp(%arg0: tensor<1x16x16x16x!actType>) ->
 !wgtType = !quant.uniform<i4:f16, 3.0:1>
 
 // CHECK: !qElemType = !quant.uniform<f8E5M2:f16, 1.000000e+00>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:f8E4M3FN, {-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,-9.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00}>:f16, 3.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui4:f8E4M3FN, {-1.000000e+00,0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,-9.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00}>:f16, 3.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<i4:f16, 3.000000e+00:1>
 
 // CHECK-LABEL: @ConvertBF8ActI4WgtAsymmetricZp
@@ -154,7 +154,7 @@ func.func @ConvertBF8ActI4WgtAsymmetricZp(%arg0: tensor<1x16x16x16x!actType>) ->
 !wgtType = !quant.uniform<i4:f16, 1.0>
 
 // CHECK: !qElemType = !quant.uniform<f8E4M3FN:f16, 1.000000e+00>
-// CHECK: !quant.uniform<!QuantileType.quantile<ui4:f8E4M3FN, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 1.000000e+00>
+// CHECK: !quant.uniform<!quant.quantile<ui4:f8E4M3FN, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 1.000000e+00>
 // CHECK: !qElemType2 = !quant.uniform<i4:f16, 1.000000e+00>
 
 // CHECK-LABEL: @ConvertHF8ActI4WgtSymmetricZp
@@ -180,7 +180,7 @@ func.func @ConvertHF8ActI4WgtSymmetricZp(%arg0: tensor<1x16x16x16x!actType>) -> 
 
 // CHECK: !qElemType = !quant.uniform<f8E4M3FN:f16, 1.000000e+00>
 // CHECK: !qElemType1 = !quant.uniform<i4:f16, 1.000000e+00>
-// CHECK: !qElemType2 = !quant.uniform<!QuantileType.quantile<ui4:f8E4M3FN, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 1.000000e+00>
+// CHECK: !qElemType2 = !quant.uniform<!quant.quantile<ui4:f8E4M3FN, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 1.000000e+00>
 
 // CHECK-LABEL: @ConvertHF8ActI4WeightsAsInput
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x16x16x16x!qElemType>, [[ARG1:%.+]]: tensor<16x16x1x1x!qElemType1>)
@@ -205,7 +205,7 @@ func.func @ConvertHF8ActI4WeightsAsInput(%arg0: tensor<1x16x16x16x!actType>, %ar
 !wgtType = !quant.uniform<i4:f16, 1.000000e+00 : -1>
 
 // CHECK: !qElemType = !quant.uniform<i4:f16, 1.000000e+00:-1>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:f16, {1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00}>:f16, 1.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui4:f16, {1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00,0.000000e+00}>:f16, 1.000000e+00>
 
 // CHECK-LABEL: @ConvertFP16ActI4WeightsAsInput
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x16x16x16xf16>, [[ARG1:%.+]]: tensor<16x16x1x1x!qElemType>)
@@ -228,7 +228,7 @@ func.func @ConvertFP16ActI4WeightsAsInput(%arg0: tensor<1x16x16x16xf16>, %arg1: 
 !wgtType = !quant.uniform<i4:f16, 1.000000e+00 : 0>
 
 // CHECK: !qElemType = !quant.uniform<i4:f16, 1.000000e+00>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui4:f16, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 1.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui4:f16, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00,4.000000e+00,5.000000e+00,6.000000e+00,7.000000e+00,-8.000000e+00,-7.000000e+00,-6.000000e+00,-5.000000e+00,-4.000000e+00,-3.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 1.000000e+00>
 // CHECK-LABEL: @ConvertFP16ActI4WeightsAsInputSymmetric
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x16x16x16xf16>, [[ARG1:%.+]]: tensor<16x16x1x1x!qElemType>)
 func.func @ConvertFP16ActI4WeightsAsInputSymmetric(%arg0: tensor<1x16x16x16xf16>, %arg1: tensor<16x16x1x1x!wgtType>) -> tensor<1x16x16x16xf16> {
@@ -250,7 +250,7 @@ func.func @ConvertFP16ActI4WeightsAsInputSymmetric(%arg0: tensor<1x16x16x16xf16>
 !wgtType = !quant.uniform<i2:f16, 1.000000e+00 : 0>
 
 // CHECK: !qElemType = !quant.uniform<i2:f16, 1.000000e+00>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui2:f16, {0.000000e+00,1.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 1.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui2:f16, {0.000000e+00,1.000000e+00,-2.000000e+00,-1.000000e+00}>:f16, 1.000000e+00>
 // CHECK-LABEL: @ConvertFP16ActI2WeightsAsInputSymmetric
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x16x16x16xf16>, [[ARG1:%.+]]: tensor<16x16x1x1x!qElemType>)
 func.func @ConvertFP16ActI2WeightsAsInputSymmetric(%arg0: tensor<1x16x16x16xf16>, %arg1: tensor<16x16x1x1x!wgtType>) -> tensor<1x16x16x16xf16> {
@@ -271,7 +271,7 @@ func.func @ConvertFP16ActI2WeightsAsInputSymmetric(%arg0: tensor<1x16x16x16xf16>
 !wgtType = !quant.uniform<u2:f16, 1.000000e+00 : 2>
 
 // CHECK: !qElemType = !quant.uniform<u2:f16, 1.000000e+00:2>
-// CHECK: !qElemType1 = !quant.uniform<!QuantileType.quantile<ui2:f16, {-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00}>:f16, 1.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui2:f16, {-2.000000e+00,-1.000000e+00,0.000000e+00,1.000000e+00}>:f16, 1.000000e+00>
 // CHECK-LABEL: @ConvertFP16ActU2WeightsAsInputSymmetric
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x16x16x16xf16>, [[ARG1:%.+]]: tensor<16x16x1x1x!qElemType>)
 func.func @ConvertFP16ActU2WeightsAsInputSymmetric(%arg0: tensor<1x16x16x16xf16>, %arg1: tensor<16x16x1x1x!wgtType>) -> tensor<1x16x16x16xf16> {
@@ -285,4 +285,44 @@ func.func @ConvertFP16ActU2WeightsAsInputSymmetric(%arg0: tensor<1x16x16x16xf16>
   //CHECK: [[CONV:%.+]] = IE.Convolution([[ARG0]], [[WGTDEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
 
   //CHECK: return [[CONV]]
+}
+
+// -----
+
+!wgtType = !quant.uniform<u2:f16, 1.000000e+00>
+
+// CHECK: !qElemType = !quant.uniform<u2:f16, 1.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui2:f16, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00}>:f16, 1.000000e+00>
+
+// CHECK-LABEL: @MatMulFP16ActU2WgtDequantize
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x1x1x16xf16>, [[ARG1:%.+]]: tensor<1x1x32x16x!qElemType>)
+func.func @MatMulFP16ActU2WgtDequantize(%arg0: tensor<1x1x1x16xf16>, %arg1: tensor<1x1x32x16x!wgtType>) -> tensor<1x1x1x32xf16> {
+  %wgtDequant = IE.Dequantize(%arg1) {dstElemType = f16} : tensor<1x1x32x16x!wgtType> -> tensor<1x1x32x16xf16>
+  %result = IE.MatMul(%arg0, %wgtDequant) {transpose_b} : tensor<1x1x1x16xf16>, tensor<1x1x32x16xf16> -> tensor<1x1x1x32xf16>
+
+  return %result : tensor<1x1x1x32xf16>
+
+  //CHECK: [[QUANTIZECAST:%.+]] = IE.QuantizeCast([[ARG1]]) {dstElemType = !qElemType1} : tensor<1x1x32x16x!qElemType> -> tensor<1x1x32x16x!qElemType1>
+  //CHECK: [[WGTDEQUANT:%.+]] = IE.Dequantize([[QUANTIZECAST]]) {dstElemType = f16} : tensor<1x1x32x16x!qElemType1> -> tensor<1x1x32x16xf16>
+  //CHECK: [[MATMUL:%.+]] = IE.MatMul([[ARG0]], [[WGTDEQUANT]]) {transpose_b} : tensor<1x1x1x16xf16>, tensor<1x1x32x16xf16> -> tensor<1x1x1x32xf16>
+  //CHECK: return [[MATMUL]]
+}
+
+// -----
+
+!wgtType = !quant.uniform<u2:f16, 1.000000e+00>
+
+// CHECK: !qElemType = !quant.uniform<u2:f16, 1.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<!quant.quantile<ui2:f16, {0.000000e+00,1.000000e+00,2.000000e+00,3.000000e+00}>:f16, 1.000000e+00>
+
+// CHECK-LABEL: @MatMulFP16ActU2WgtDirectQuant
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x1x1x16xf16>, [[ARG1:%.+]]: tensor<1x1x32x16x!qElemType>)
+func.func @MatMulFP16ActU2WgtDirectQuant(%arg0: tensor<1x1x1x16xf16>, %arg1: tensor<1x1x32x16x!wgtType>) -> tensor<1x1x1x32xf16> {
+  %result = IE.MatMul(%arg0, %arg1) {transpose_b} : tensor<1x1x1x16xf16>, tensor<1x1x32x16x!wgtType> -> tensor<1x1x1x32xf16>
+
+  return %result : tensor<1x1x1x32xf16>
+
+  //CHECK: [[QUANTIZECAST:%.+]] = IE.QuantizeCast([[ARG1]]) {dstElemType = !qElemType1} : tensor<1x1x32x16x!qElemType> -> tensor<1x1x32x16x!qElemType1>
+  //CHECK: [[MATMUL:%.+]] = IE.MatMul([[ARG0]], [[QUANTIZECAST]]) {transpose_b} : tensor<1x1x1x16xf16>, tensor<1x1x32x16x!qElemType1> -> tensor<1x1x1x32xf16>
+  //CHECK: return [[MATMUL]]
 }

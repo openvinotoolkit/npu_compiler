@@ -53,7 +53,8 @@ vpux::VPU::DistributionInfo vpux::VPU::MultiplyOp::getExplicitDistributionInfoAt
 
 bool vpux::VPU::MultiplyOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& outputTile) {
     const auto arch = config::getArch(getOperation());
-    // TODO: Remove check when issue is fixed
+    // TODO: E#230157 - Corrected check reveals context violation on NPU40XX.
+    // Remove special case when root cause is fixed.
     if (arch == config::ArchKind::NPU40XX) {
         return VPU::isOperationSplitOverHeightCompatible(getOperation(), outputTile);
     }

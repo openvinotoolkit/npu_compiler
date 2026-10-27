@@ -60,7 +60,7 @@ size_t ConcatInitInputs::concatenateFunctionInputs(mlir::func::FuncOp funcOp) {
     VPU::obfuscateInputs(_log, appendLoc(funcOp.getLoc(), "obfuscated_inputs"), funcOp, indices,
                          [](mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input, ArrayRef<int64_t> offsets,
                             ArrayRef<int64_t> sizes) {
-                             return builder.create<IE::SliceOp>(loc, input, offsets, sizes);
+                             return IE::SliceOp::create(builder, loc, input, offsets, sizes);
                          });
     return 0;
 }
@@ -81,9 +81,9 @@ void ConcatInitInputs::updateNetworkInfo(net::NetworkInfoOp netInfo, mlir::func:
     net::eraseSectionEntries(inputsRegion, newInputsOffset);
     builder.setInsertionPointToEnd(&inputsRegion.front());
 
-    builder.create<net::DataInfoOp>(appendLoc(netInfo.getLoc(), "concat_in"),
-                                    getUniqueConcatenatedNameOfInitInputs(namesToBeMerged),
-                                    funcOp.getFunctionType().getInput(newInputsOffset));
+    net::DataInfoOp::create(builder, appendLoc(netInfo.getLoc(), "concat_in"),
+                            getUniqueConcatenatedNameOfInitInputs(namesToBeMerged),
+                            funcOp.getFunctionType().getInput(newInputsOffset));
 }
 
 void ConcatInitInputs::safeRunOnModule() {

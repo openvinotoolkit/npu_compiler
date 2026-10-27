@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/wlm_register_config.hpp"
+
 #include "vpux/utils/core/numeric.hpp"
 
 using namespace vpux::VPU::arch40xx;
@@ -30,4 +31,8 @@ uint32_t RegisterConfig::getNCEBarrierFifoAddr() {
 
 uint32_t RegisterConfig::getNCEBarrierFifoDepth() {
     return BARRIER_FIFO_DEPTH;
+}
+
+uint32_t RegisterConfig::getBarrierFifoDummyEntry() {
+    return 0;
 }

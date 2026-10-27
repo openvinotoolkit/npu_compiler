@@ -7,8 +7,10 @@
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
@@ -265,19 +267,41 @@ bool isEltwiseGroupConv(IE::GroupConvolutionOp convOp, bool isConstFilter) {
     return isSizeOneOrBroadCastFromOne(convOp.getFilter());
 }
 
+namespace {
+
+// Recursively check if a filter is compile-time constant: unwraps view-like ops and Concat.
+// INT4/INT8 group-quantized weights are dequantized per group and joined with Concat, but remain fully constant.
+bool isFoldableConstFilter(mlir::Value value) {
+    auto* parent = value.getDefiningOp();
+    if (parent == nullptr) {
+        return false;
+    }
+    if (mlir::isa<Const::DeclareOp>(parent)) {
+        return true;
+    }
+    // Only treat the value as compile-time constant if *all* operands feeding it are constant.
+    if (mlir::isa<IE::FakeQuantizeOp, IE::TransposeOp, IE::ReshapeOp, IE::BroadcastOp, IE::AffineReshapeOp,
+                  IE::DynamicDequantizeOp, IE::ConcatOp>(parent)) {
+        return llvm::all_of(parent->getOperands(), isFoldableConstFilter);
+    }
+    return false;
+}
+
+}  // namespace
+
 //
 // FuseConvAndBias
 //
 
 mlir::LogicalResult FuseConvAndBias::matchAndRewrite(IE::ScaleShiftOp biasOp, mlir::PatternRewriter& rewriter) const {
     if (biasOp.getWeights() != nullptr) {
-        return matchFailed(rewriter, biasOp, "ScaleShift has scales operand");
+        return matchFailed(_log, rewriter, biasOp, "ScaleShift has scales operand");
     }
     if (!biasOp.getInput().hasOneUse()) {
-        return matchFailed(rewriter, biasOp, "ScaleShift is not the only user of its operand");
+        return matchFailed(_log, rewriter, biasOp, "ScaleShift is not the only user of its operand");
     }
     if (biasOp.getBiases() == nullptr || mlir::failed(IE::getConstParentOp(biasOp.getBiases()))) {
-        return matchFailed(rewriter, biasOp, "ScaleShift has non constant biases");
+        return matchFailed(_log, rewriter, biasOp, "ScaleShift has non constant biases");
     }
 
     auto* op = biasOp.getInput().getDefiningOp();
@@ -288,31 +312,40 @@ mlir::LogicalResult FuseConvAndBias::matchAndRewrite(IE::ScaleShiftOp biasOp, ml
             break;
         }
         if (!op->getOperand(0).hasOneUse()) {
-            return matchFailed(rewriter, biasOp, "FakeQuantize is not the only user of its operand");
+            return matchFailed(_log, rewriter, biasOp, "FakeQuantize is not the only user of its operand");
         }
         op = op->getOperand(0).getDefiningOp();
     }
     if (op == nullptr || !mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::TransposedConvolutionOp>(op)) {
-        return matchFailed(rewriter, biasOp, "ScaleShift producer is not a Convolution layer");
+        return matchFailed(_log, rewriter, biasOp, "ScaleShift producer is not a Convolution layer");
     }
 
     // For those Convolutions/GroupConvolutions/TransposedConvolutions cannot convert to NCE task should not fuse
     // ScaleShift as Bias. Because SW kernel will not support any Post Ops.
     if (auto convOp = mlir::dyn_cast<IE::ConvolutionOp>(op)) {
         if (VPU::NCEConvolutionOp::verifyKernel(convOp).failed()) {
-            return matchFailed(rewriter, convOp, "Conv cannot convert to NCE, not fuse ScaleShift");
+            return matchFailed(_log, rewriter, convOp, "Conv cannot convert to NCE, not fuse ScaleShift");
+        }
+
+        // Do not fuse if the conv has any scale operand or a non-constant (runtime) filter.
+        // TODO: E#231464 - properly support bias fusion for these cases.
+        if (convOp.getScale() != nullptr || !isFoldableConstFilter(convOp.getFilter())) {
+            return matchFailed(_log, rewriter, convOp,
+                               "Conv has a scale operand or a non-constant filter; skipping bias fusion to "
+                               "preserve precision of the bias through quantization passes");
         }
     }
     if (auto grConvOp = mlir::dyn_cast<IE::GroupConvolutionOp>(op)) {
         if (VPU::NCEDepthConvolutionOp::verifyKernel(grConvOp).failed() &&
             mlir::failed(IE::canConvertGroupConvToConv(grConvOp))) {
-            return matchFailed(rewriter, grConvOp, "GroupConv cannot convert to NCE, not fuse ScaleShift");
+            return matchFailed(_log, rewriter, grConvOp, "GroupConv cannot convert to NCE, not fuse ScaleShift");
         }
     }
     if (auto transposedConv = mlir::dyn_cast<IE::TransposedConvolutionOp>(op)) {
         auto seOp = mlir::dyn_cast<IE::SEOpInterface>(transposedConv.getOperation());
         if (!seOp || !seOp.isSupported(emptyLogCb)) {
-            return matchFailed(rewriter, transposedConv, "TransposedConv cannot convert to NCE, not fuse ScaleShift");
+            return matchFailed(_log, rewriter, transposedConv,
+                               "TransposedConv cannot convert to NCE, not fuse ScaleShift");
         }
     }
 
@@ -320,19 +353,19 @@ mlir::LogicalResult FuseConvAndBias::matchAndRewrite(IE::ScaleShiftOp biasOp, ml
     const auto biasShape = getShape(biasOp.getBiases());
 
     if (biasShape.size() != 4) {
-        return matchFailed(rewriter, biasOp, "ScaleShift 'shift' operand shape doesn't match bias restrictions");
+        return matchFailed(_log, rewriter, biasOp, "ScaleShift 'shift' operand shape doesn't match bias restrictions");
     }
     if (biasShape[Dims4D::Act::N] != 1) {
-        return matchFailed(rewriter, biasOp, "ScaleShift 'shift' operand shape doesn't match bias restrictions");
+        return matchFailed(_log, rewriter, biasOp, "ScaleShift 'shift' operand shape doesn't match bias restrictions");
     }
     if (biasShape[Dims4D::Act::C] != convOutShape[Dims4D::Act::C]) {
-        return matchFailed(rewriter, biasOp, "ScaleShift 'shift' operand shape doesn't match bias restrictions");
+        return matchFailed(_log, rewriter, biasOp, "ScaleShift 'shift' operand shape doesn't match bias restrictions");
     }
     if (biasShape[Dims4D::Act::H] != 1) {
-        return matchFailed(rewriter, biasOp, "ScaleShift 'shift' operand shape doesn't match bias restrictions");
+        return matchFailed(_log, rewriter, biasOp, "ScaleShift 'shift' operand shape doesn't match bias restrictions");
     }
     if (biasShape[Dims4D::Act::W] != 1) {
-        return matchFailed(rewriter, biasOp, "ScaleShift 'shift' operand shape doesn't match bias restrictions");
+        return matchFailed(_log, rewriter, biasOp, "ScaleShift 'shift' operand shape doesn't match bias restrictions");
     }
 
     // HW applied bias before scale, so need to do following transformation to get correct result
@@ -350,13 +383,13 @@ mlir::LogicalResult FuseConvAndBias::matchAndRewrite(IE::ScaleShiftOp biasOp, ml
 
         auto biasConst = IE::getConstParentOp(biasOp.getBiases()).value();
         auto contentAttr = biasConst.transformContentAttr().rescale(1 / staticScale).get();
-        return rewriter.create<Const::DeclareOp>(takeOpLoc(biasConst, "rescaled"), biasConst.getType(), contentAttr)
+        return Const::DeclareOp::create(rewriter, takeOpLoc(biasConst, "rescaled"), biasConst.getType(), contentAttr)
                 .getOutput();
     }();
 
     if (mlir::isa<IE::GroupConvolutionOp>(op)) {
         if (op->getNumOperands() != 2) {
-            return matchFailed(rewriter, biasOp, "ScaleShift producer already has fused biases");
+            return matchFailed(_log, rewriter, biasOp, "ScaleShift producer already has fused biases");
         }
 
         auto* newConv = rewriter.clone(*op);
@@ -364,17 +397,17 @@ mlir::LogicalResult FuseConvAndBias::matchAndRewrite(IE::ScaleShiftOp biasOp, ml
         rewriter.replaceOp(biasOp, newConv->getOpResults());
     } else if (auto convOp = mlir::dyn_cast<IE::ConvolutionOp>(op)) {
         if (convOp.getBias() != nullptr) {
-            return matchFailed(rewriter, biasOp, "ScaleShift producer already has fused biases");
+            return matchFailed(_log, rewriter, biasOp, "ScaleShift producer already has fused biases");
         }
         auto newConv = cloneConvolutionOp(rewriter, convOp, convOp.getInput(), convOp.getFilter(), biasConst,
                                           convOp.getScale(), convOp.getZeroPoints());
         rewriter.replaceOp(biasOp, newConv->getOpResults());
     } else if (auto transposedConv = mlir::dyn_cast<IE::TransposedConvolutionOp>(op)) {
         if (transposedConv.getBias() != nullptr) {
-            return matchFailed(rewriter, biasOp, "ScaleShift producer already has fused biases");
+            return matchFailed(_log, rewriter, biasOp, "ScaleShift producer already has fused biases");
         }
-        auto newTransposedConv = rewriter.create<IE::TransposedConvolutionOp>(
-                transposedConv.getLoc(), transposedConv.getInput(), transposedConv.getFilter(),
+        auto newTransposedConv = IE::TransposedConvolutionOp::create(
+                rewriter, transposedConv.getLoc(), transposedConv.getInput(), transposedConv.getFilter(),
                 transposedConv.getOutputShape(), biasOp.getBiases(), transposedConv.getStrides(),
                 transposedConv.getPadsBegin(), transposedConv.getPadsEnd(), transposedConv.getDilations(),
                 transposedConv.getSpatialOutputPaddingAttr(), transposedConv.getPostOpAttr(),
@@ -383,7 +416,7 @@ mlir::LogicalResult FuseConvAndBias::matchAndRewrite(IE::ScaleShiftOp biasOp, ml
 
         rewriter.replaceOp(biasOp, newTransposedConv->getOpResults());
     } else {
-        return matchFailed(rewriter, op, "Unexpected operation");
+        return matchFailed(_log, rewriter, op, "Unexpected operation");
     }
 
     return mlir::success();

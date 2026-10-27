@@ -23,7 +23,7 @@ void vpux::ELF::CreateMetadataSectionOp::serialize(elf::Writer& writer, vpux::EL
     bool isMetadataSerialized = false;
     auto block = getBody();
     for (auto& op : block->getOperations()) {
-        VPUX_THROW_UNLESS(!isMetadataSerialized, "There should be only 1 metadata op in an ELF metadata section");
+        VPUX_THROW_WHEN(isMetadataSerialized, "There should be only 1 metadata op in an ELF metadata section");
 
         if (auto metadata_op = mlir::dyn_cast<vpux::VPUASM::NetworkMetadataOp>(op)) {
             isMetadataSerialized = true;
@@ -45,7 +45,7 @@ void vpux::ELF::CreateMetadataSectionOp::preserialize(elf::Writer& writer, vpux:
     auto block = getBody();
     size_t sectionSize = 0;
     for (auto& op : block->getOperations()) {
-        VPUX_THROW_UNLESS(!isMetadataSerialized, "There should be only 1 metadata op in an ELF metadata section");
+        VPUX_THROW_WHEN(isMetadataSerialized, "There should be only 1 metadata op in an ELF metadata section");
         if (auto metadata_op = mlir::dyn_cast<vpux::VPUASM::NetworkMetadataOp>(op)) {
             isMetadataSerialized = true;
             sectionSize = metadata_op.getBinarySize(config::ArchKind::UNKNOWN);

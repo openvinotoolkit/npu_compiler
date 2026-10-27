@@ -55,18 +55,18 @@ mlir::LogicalResult IESliceToExtractSlice::matchAndRewrite(IE::SliceOp op, OpAda
         auto storageInTy = mlir::RankedTensorType::get(inputTy.getShape(), storageElemType, inputTy.getEncoding());
         extractResultTy =
                 mlir::RankedTensorType::get(normalizedOutTy.getShape(), storageElemType, normalizedOutTy.getEncoding());
-        input = rewriter.create<mlir::quant::StorageCastOp>(op.getLoc(), storageInTy, input);
+        input = mlir::quant::StorageCastOp::create(rewriter, op.getLoc(), storageInTy, input);
     }
 
     // Build the extract slice op
-    auto extractSlice = rewriter.create<mlir::tensor::ExtractSliceOp>(
-            op.getLoc(), mlir::TypeRange{extractResultTy}, input, mlir::ValueRange{}, mlir::ValueRange{},
+    auto extractSlice = mlir::tensor::ExtractSliceOp::create(
+            rewriter, op.getLoc(), mlir::TypeRange{extractResultTy}, input, mlir::ValueRange{}, mlir::ValueRange{},
             mlir::ValueRange{}, memSliceOffsets, memSliceSizes, sliceStrides);
 
     mlir::Value result = extractSlice.getResult();
     if (quantType) {
         // Recast this back to the output quant type if needed.
-        result = rewriter.create<mlir::quant::StorageCastOp>(op.getLoc(), normalizedOutTy, result).getResult();
+        result = mlir::quant::StorageCastOp::create(rewriter, op.getLoc(), normalizedOutTy, result).getResult();
     }
 
     rewriter.replaceOp(op, result);

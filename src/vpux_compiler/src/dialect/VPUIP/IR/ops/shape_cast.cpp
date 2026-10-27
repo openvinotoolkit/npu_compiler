@@ -184,12 +184,10 @@ std::optional<vpux::NDTypeInterface> inferShapeCastOutputNDType(mlir::MLIRContex
                     distributedOutShape = seAttr.backInferInputShape(outShape);
                 }
             }
-            if (!VPUIP::isDistributedCompatibleAfterShapeChangeForViewOps<VPUIP::DistributedBufferType>(
-                        distBufType, ShapeRef(distributedOutShape), inputNDType.getDimsOrder(), arch)) {
-                return std::nullopt;
-            }
-            newDistAttr = VPUIP::getDistributedAttrAfterShapeCast<VPUIP::DistributedBufferType>(
-                    distributedIn, outShape.raw(), arch, explicitOutputAlignment);
+            auto maybeNewDistAttr = VPUIP::tryInferNewDistInfoAfterShapeChange<VPUIP::DistributedBufferType>(
+                    distBufType, ShapeRef(distributedOutShape), inputNDType.getDimsOrder(), arch,
+                    explicitOutputAlignment);
+            newDistAttr = maybeNewDistAttr.value_or(nullptr);
         }
         if (newDistAttr == nullptr) {
             return std::nullopt;

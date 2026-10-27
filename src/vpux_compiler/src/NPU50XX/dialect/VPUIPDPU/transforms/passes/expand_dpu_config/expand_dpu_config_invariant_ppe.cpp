@@ -15,30 +15,21 @@ using namespace vpux;
 using namespace VPUIPDPU;
 
 mlir::LogicalResult VPUIPDPU::arch50xx::PPE::configurePPE(VPUIPDPU::arch50xx::PPE::PPEConfig& config,
-                                                          mlir::Type outDataType,
-                                                          const vpux::NDTypeInterface& inActType,
-                                                          VPUIP::NCETaskType dpuTaskType,
+                                                          mlir::Type outDataType, VPUIP::NCETaskType dpuTaskType,
                                                           const arch50xx::PPE::PPETask& ppeTask,
                                                           bool isWeightTableProvided, bool isSprLookUpTableProvided) {
     // bias add & mult
     if (!isWeightTableProvided) {
         config.biasAdd.biasStatic = 0.0f;
         if (dpuTaskType == VPUIP::NCETaskType::ELTWISE || dpuTaskType == VPUIP::NCETaskType::AVEPOOL ||
-            dpuTaskType == VPUIP::NCETaskType::REDUCEMEAN) {
+            dpuTaskType == VPUIP::NCETaskType::REDUCEMEAN || dpuTaskType == VPUIP::NCETaskType::REDUCESUMSQUARE ||
+            dpuTaskType == VPUIP::NCETaskType::REDUCESUM) {
             config.scaleMult.scaleStatic = 1.0f;
             if (ppeTask.fpScaleData.has_value()) {
                 config.scaleMult.scaleStatic = ppeTask.fpScaleData;
             }
         } else if (dpuTaskType == VPUIP::NCETaskType::MAXPOOL) {
             config.scaleMult.scaleStatic = ppeTask.fpScaleData.value_or(1.0f);
-            //
-            // TODO: E#-156827 - fix ReduceSumSquare numericsbench operator; hw tests are currently failing with
-            // config.scaleMult.scaleStatic = 1.0f for ReduceSumSquare
-            //
-        } else if (dpuTaskType == VPUIP::NCETaskType::REDUCESUMSQUARE) {
-            config.scaleMult.scaleStatic = 1.0f / inActType.getShape()[Dims4D::Act::C];
-        } else if (dpuTaskType == VPUIP::NCETaskType::REDUCESUM) {
-            config.scaleMult.scaleStatic = 1.0f;
         }
         if (ppeTask.fpBias.has_value()) {
             config.biasAdd.biasStatic = ppeTask.fpBias.value();
@@ -106,52 +97,52 @@ mlir::LogicalResult VPUIPDPU::arch50xx::PPE::buildPPEConfig(mlir::OpBuilder& bui
     // PPEFpBiasAdd
     auto biasStaticAttr = getF32FloatAttrOrNull(builder, config.biasAdd.biasStatic);
     if (biasStaticAttr) {
-        builder.create<PPEFpBiasAddOp>(loc, nullptr, biasStaticAttr);
+        PPEFpBiasAddOp::create(builder, loc, nullptr, biasStaticAttr);
     } else {
         if (!weightsTable) {
             log.error("Expected weights_table operand in PPE FP pipeline");
             return mlir::failure();
         }
-        builder.create<PPEFpBiasAddOp>(loc, weightsTable, nullptr);
+        PPEFpBiasAddOp::create(builder, loc, weightsTable, nullptr);
     }
 
     // PPEFpScaleMult
     auto scaleStaticAttr = getF32FloatAttrOrNull(builder, config.scaleMult.scaleStatic);
     if (scaleStaticAttr) {
-        builder.create<PPEFpScaleMultOp>(loc, nullptr, scaleStaticAttr);
+        PPEFpScaleMultOp::create(builder, loc, nullptr, scaleStaticAttr);
     } else {
         if (!weightsTable) {
             log.error("Expected weights_table operand in PPE FP pipeline");
             return mlir::failure();
         }
-        builder.create<PPEFpScaleMultOp>(loc, weightsTable, nullptr);
+        PPEFpScaleMultOp::create(builder, loc, weightsTable, nullptr);
     }
 
     // PPEFpAddMultBypass
     if (hasBypassOp) {
-        builder.create<VPUIPDPU::PPEFpAddMultBypassOp>(loc, VPUIPDPU::PPEBypassMode::OFF);
+        VPUIPDPU::PPEFpAddMultBypassOp::create(builder, loc, VPUIPDPU::PPEBypassMode::OFF);
     }
 
     // PPEFpSprLUT
-    builder.create<PPEFpSprLUTModeOp>(loc, config.sprLUT.enableLookUpTable);
+    PPEFpSprLUTModeOp::create(builder, loc, config.sprLUT.enableLookUpTable);
 
     // PPEFpPreluMult
     auto preluMultAttr = getF32FloatAttrOrNull(builder, config.preluMult.preluAlpha);
-    builder.create<PPEFpPreluMultOp>(loc, preluMultAttr);
+    PPEFpPreluMultOp::create(builder, loc, preluMultAttr);
 
     // PPEFpClamps
     auto clampLowAttr = getF32FloatAttrOrNull(builder, config.clamp.clampLow);
     auto clampHighAttr = getF32FloatAttrOrNull(builder, config.clamp.clampHigh);
-    builder.create<PPEFpClampOp>(loc, clampLowAttr, clampHighAttr);
+    PPEFpClampOp::create(builder, loc, clampLowAttr, clampHighAttr);
 
     // PPEFpConvert
     auto clampModeAttr = getEnumAttrOrNull<PPEFpConvClampModeAttr>(builder, config.convert.clampMode);
     auto ftzModeAttr = getEnumAttrOrNull<PPEFpConvFTZModeAttr>(builder, config.convert.ftzMode);
     auto bf16RoundModeAttr = getEnumAttrOrNull<PPEFpConvBf16RoundModeAttr>(builder, config.convert.bf16RoundMode);
-    builder.create<PPEFpConvertOp>(loc, config.convert.convertMode, clampModeAttr, ftzModeAttr, bf16RoundModeAttr);
+    PPEFpConvertOp::create(builder, loc, config.convert.convertMode, clampModeAttr, ftzModeAttr, bf16RoundModeAttr);
 
     // PPEIntZeroPointOffset
-    builder.create<PPEIntZeroPointOffsetOp>(loc, config.zeroPointOffset.zeroPointStatic);
+    PPEIntZeroPointOffsetOp::create(builder, loc, config.zeroPointOffset.zeroPointStatic);
 
     return mlir::success();
 }
@@ -186,7 +177,7 @@ mlir::FailureOr<arch50xx::PPE::PPETask> VPUIPDPU::arch50xx::PPE::evalPPETasks(co
         if (const auto preluAlphaAttr = fpPpeAttr.getPreluAlpha()) {
             ppeTask.fpPreluAlpha.clear();
             llvm::transform(parseFPArrayAttr<double>(preluAlphaAttr), std::back_inserter(ppeTask.fpPreluAlpha), castCb);
-            VPUX_THROW_UNLESS(!ppeTask.fpPreluAlpha.empty(), "PPEFpAttr prelu_alpha must not be empty");
+            VPUX_THROW_WHEN(ppeTask.fpPreluAlpha.empty(), "PPEFpAttr prelu_alpha must not be empty");
         }
         ppeTask.fpAdder = castCb(fpPpeAttr.getAdder().getValueAsDouble());
 
@@ -214,7 +205,6 @@ mlir::LogicalResult vpux::VPUIPDPU::arch50xx::buildDPUInvariantPPE(
             mlir::cast<mlir::MemRefType>(getInvBlockArg(BlockArg::ACT_OUT, invBlock, invBlockArgsPos).getType())
                     .getElementType();
 
-    auto inAct = getInvBlockArg(BlockArg::ACT_IN, invBlock, invBlockArgsPos);
     auto dpuTaskType = origInvOp.getNceTaskType();
 
     auto ppeTask = arch50xx::PPE::evalPPETasks(log, origInvOp.getPpe());
@@ -222,7 +212,7 @@ mlir::LogicalResult vpux::VPUIPDPU::arch50xx::buildDPUInvariantPPE(
         return mlir::failure();
     }
 
-    if (arch50xx::PPE::configurePPE(config, outDataType, inAct.getType(), dpuTaskType, ppeTask.value(),
+    if (arch50xx::PPE::configurePPE(config, outDataType, dpuTaskType, ppeTask.value(),
                                     getInvBlockArg(BlockArg::WEIGHTS_TABLE, invBlock, invBlockArgsPos) != nullptr,
                                     getInvBlockArg(BlockArg::SPR_LOOKUP_TABLE, invBlock, invBlockArgsPos) != nullptr)
                 .failed()) {

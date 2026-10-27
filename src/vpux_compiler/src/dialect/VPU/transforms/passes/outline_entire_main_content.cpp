@@ -302,8 +302,8 @@ private:
             }
         }
         auto groupOp =
-                builder.create<VPU::GroupSparseTensorOp>(loc, data, sparsityMap, seTable, sparseType.getIsWeights(),
-                                                         sparseType.getSparsityCompression(), sparseType.getSeAttr());
+                VPU::GroupSparseTensorOp::create(builder, loc, data, sparsityMap, seTable, sparseType.getIsWeights(),
+                                                 sparseType.getSparsityCompression(), sparseType.getSeAttr());
         return groupOp->getResult(0);
     }
 
@@ -315,8 +315,8 @@ private:
         VPUX_THROW_WHEN(sparseType == nullptr, "Expected value to have sparse type, but got type {0}",
                         sparseValue.getType());
         auto ungroupOp =
-                builder.create<VPU::UngroupSparseTensorOp>(loc, sparseType.getData(), sparseType.getSparsityMap(),
-                                                           sparseType.getStorageElementTable(), sparseValue);
+                VPU::UngroupSparseTensorOp::create(builder, loc, sparseType.getData(), sparseType.getSparsityMap(),
+                                                   sparseType.getStorageElementTable(), sparseValue);
         return ungroupOp->getResults();
     }
 
@@ -337,7 +337,7 @@ private:
         const auto loc = (producerOp != nullptr) ? producerOp->getLoc() : mlir::UnknownLoc::get(&getContext());
         const auto newMemSpace = mlir::cast<NDTypeInterface>(newType).getMemSpace();
 
-        return builder.create<VPU::CopyOp>(loc, newType, copyInput, newMemSpace);
+        return VPU::CopyOp::create(builder, loc, newType, copyInput, newMemSpace);
     }
 
     void buildFuncOps(mlir::func::FuncOp mainFuncOp, std::vector<FuncInfo>& funcsInfo, ArrayRef<Instance> instances) {
@@ -355,7 +355,7 @@ private:
             auto builder = mlir::OpBuilder(mainFuncOp);
             const auto funcLoc = appendLoc(mainFuncOp.getLoc(), "outline{0}", instance.index() + 1);
             const auto funcType = mlir::FunctionType::get(&getContext(), inputTypes, outputTypes);
-            auto funcOp = builder.create<mlir::func::FuncOp>(funcLoc, funcName, funcType);
+            auto funcOp = mlir::func::FuncOp::create(builder, funcLoc, funcName, funcType);
             funcOp.setNested();
             funcsInfo[instance.index()].funcOp = funcOp;
 
@@ -428,7 +428,7 @@ private:
                 ++newIdx;
             }
             const auto returnLoc = appendLoc(mainFuncOp.getLoc(), "outline{0}_return", instance.index() + 1);
-            builder.create<mlir::func::ReturnOp>(returnLoc, funcOutputFromSlices);
+            mlir::func::ReturnOp::create(builder, returnLoc, funcOutputFromSlices);
         }
     }
 
@@ -464,7 +464,7 @@ private:
             }
 
             const auto callLoc = appendLoc(funcInfo.funcOp->getLoc(), "call");
-            auto newCall = builder.create<mlir::func::CallOp>(callLoc, funcInfo.funcOp, newInputs);
+            auto newCall = mlir::func::CallOp::create(builder, callLoc, funcInfo.funcOp, newInputs);
 
             for (size_t origIdx = 0, newIdx = 0; origIdx < funcInfo.outputs.size();) {
                 if (auto sparseType = mlir::dyn_cast<VPU::SparseTensorType>(funcInfo.outputs[origIdx].getType())) {

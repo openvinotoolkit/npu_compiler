@@ -8,8 +8,11 @@
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/minimal_vf_scheduling.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/pipelining_vf_scheduling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_cost_strategy_factory.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vf_scenario_cost_calculator.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 
 #include "common/utils.hpp"
@@ -28,24 +31,36 @@ namespace {
 
 class TestVFScheduling : public VPU::VF::v2::MinimalRequirementsVFScheduling {
 public:
-    TestVFScheduling(Logger log): MinimalRequirementsVFScheduling(log, true) {
+    TestVFScheduling(Logger log, VFMergeCostMode costMode = VFMergeCostMode::PERFORMANCE)
+            : MinimalRequirementsVFScheduling(log, true, VPU::VF::v2::VFCostStrategyFactory::create(costMode)) {
+    }
+
+    VPU::StrategyCost getCost(VPU::VF::v2::VFConfig& config, int64_t tilesNumber,
+                              const VPU::TilingOperationStorage::UPtr& tilingInfo,
+                              const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const {
+        return VFScheduling::getCost(config, tilesNumber, tilingInfo, costFunction);
     }
 
     VPU::StrategyCost getPrefetchCost(mlir::Operation* operation, VPU::VF::v2::VFConfig& config,
                                       const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
                                       const VPU::TilingOperationStorage::UPtr& tilingInfo, const int64_t tileIdx,
                                       const bool isInput) const {
-        auto params = fillInCostParam(operation, tilingInfo, tileIdx);
+        auto params = VPU::VF::v2::VFScenarioCostCalculator::fillInCostParam(operation, tilingInfo, tileIdx);
         VPU::VF::v2::ParentVFTilingInfoCache parentVFTilingInfoCache;
-        return getPrefetchingCost(operation, config, costFunction, params, isInput, tilingInfo, tileIdx,
-                                  parentVFTilingInfoCache);
+        return VPU::VF::v2::VFScenarioCostCalculator::getPrefetchingCost(
+                *this, operation, config,
+                [&](vpux::NDTypeInterface type, const std::optional<ShapeRef>& tileAxis) {
+                    return costFunction->getSpillingTypeCost(type, DmaDirectionType::DDR_TO_CMX, tileAxis);
+                },
+                params, isInput, tilingInfo, tileIdx, parentVFTilingInfoCache);
     }
 
     std::optional<VPU::StrategyCost> getViewLikeOpDMACost(
             mlir::Operation* operation, VPU::VF::v2::VFConfig& config,
             const VPU::TilingOperationStorage::UPtr& tilingInfo, size_t tileIdx,
             const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const {
-        return VFScheduling::getViewLikeOpDMACost(operation, config, tilingInfo, tileIdx, costFunction);
+        return VPU::VF::v2::VFScenarioCostCalculator::getViewLikeOpDMACost(operation, config, tilingInfo, tileIdx,
+                                                                           costFunction);
     }
 };
 }  // namespace
@@ -113,10 +128,10 @@ module @main {
             VPU::MultiClusterStrategy::SplitOverHeight, OutputTiling{secondOutputTile}, TilingMode::ISOLATED,
             SmallVector<SmallVector<TileInfo>>{SmallVector<TileInfo>{secondInputTile}}, false);
 
-    EXPECT_EQ(VPU::VF::v2::getStrategyCostHash(zeroPadConv.getOperation(), firstParams),
-              VPU::VF::v2::getStrategyCostHash(zeroPadConv.getOperation(), secondParams));
-    EXPECT_NE(VPU::VF::v2::getStrategyCostHash(paddedConv.getOperation(), firstParams),
-              VPU::VF::v2::getStrategyCostHash(paddedConv.getOperation(), secondParams));
+    EXPECT_EQ(VPU::VF::v2::VFScenarioCostCalculator::getStrategyCostHash(zeroPadConv.getOperation(), firstParams),
+              VPU::VF::v2::VFScenarioCostCalculator::getStrategyCostHash(zeroPadConv.getOperation(), secondParams));
+    EXPECT_NE(VPU::VF::v2::VFScenarioCostCalculator::getStrategyCostHash(paddedConv.getOperation(), firstParams),
+              VPU::VF::v2::VFScenarioCostCalculator::getStrategyCostHash(paddedConv.getOperation(), secondParams));
 }
 
 TEST_F(MLIR_VPU_VFScheduling, PrefetchDMAUsesVFBlockArgumentThroughViewLikeOp) {
@@ -174,12 +189,26 @@ module @main {
 
     VPU::VF::v2::VFCacheAnalysis cache(vfOp.getOperation());
     auto config = VPU::VF::v2::VFConfig(vfOp, cache);
-    auto layerCost = std::make_unique<VPU::LayerVPUNNCost>(func);
+    std::unique_ptr<VPU::LayerVPUNNCost> layerCost = std::make_unique<VPU::LayerVPUNNCost>(func);
     auto scheduling = TestVFScheduling(vpux::Logger::global());
 
     const auto prefetchCost =
             scheduling.getPrefetchCost(conv, config, layerCost, operationStorage, 0, /*isInput=*/false);
     EXPECT_GT(prefetchCost, 0U);
+
+    auto powerScheduling = TestVFScheduling(vpux::Logger::global(), VFMergeCostMode::POWER);
+    const auto powerCost = powerScheduling.getCost(config, 8, operationStorage, layerCost);
+    EXPECT_GT(powerCost, 0U);
+
+    auto pipelinePowerScheduling = VPU::VF::v2::PipeliningVFScheduling(
+            vpux::Logger::global(), true, VPU::VF::v2::VFCostStrategyFactory::create(VFMergeCostMode::POWER));
+    const auto pipelinePowerCost = pipelinePowerScheduling.getCost(config, 8, operationStorage, layerCost);
+    EXPECT_GT(pipelinePowerCost, 0U);
+
+    auto pipelinePerformanceScheduling = VPU::VF::v2::PipeliningVFScheduling(
+            vpux::Logger::global(), true, VPU::VF::v2::VFCostStrategyFactory::create(VFMergeCostMode::PERFORMANCE));
+    const auto pipelinePerformanceCost = pipelinePerformanceScheduling.getCost(config, 8, operationStorage, layerCost);
+    EXPECT_GT(pipelinePerformanceCost, 0U);
 }
 
 TEST_F(MLIR_VPU_VFScheduling, ViewLikeOpDMACostWithGroupSparseTensor) {
@@ -269,7 +298,7 @@ module @main {
     auto groupSparseOp = groupSparseOps.front();
     VPU::VF::v2::VFCacheAnalysis cache(vfOp.getOperation());
     auto config = VPU::VF::v2::VFConfig(vfOp, cache);
-    auto layerCost = std::make_unique<VPU::LayerVPUNNCost>(func);
+    std::unique_ptr<VPU::LayerVPUNNCost> layerCost = std::make_unique<VPU::LayerVPUNNCost>(func);
     auto scheduling = TestVFScheduling(vpux::Logger::global());
 
     const auto dmaCost = scheduling.getViewLikeOpDMACost(groupSparseOp, config, operationStorage, 0, layerCost);

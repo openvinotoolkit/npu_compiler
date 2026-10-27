@@ -6,8 +6,8 @@
 #include "bytecode_builder.hpp"
 #include "npu_bytecode_utils/instructions.hpp"
 #include "npu_bytecode_utils/type_section.hpp"
-#include "npu_interpreter_runtime/virtual_machine.h"
 #include "utils/common.hpp"
+#include "vm_runtime/virtual_machine.h"
 #include "vm_value_helpers.hpp"
 
 #include <llvm/Support/FormatVariadic.h>

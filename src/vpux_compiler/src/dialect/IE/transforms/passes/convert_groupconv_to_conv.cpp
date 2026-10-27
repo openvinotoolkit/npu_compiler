@@ -226,7 +226,7 @@ mlir::LogicalResult ConvertGroupConvToConvPass::DepthwiseConvSinglePixelInputToM
     const auto repeatsAttr = getIntArrayAttr(rewriter.getContext(), ArrayRef<int64_t>{1, 1, OH, OW});
 
     auto tileLoc = appendLoc(origOp->getLoc(), "_tile_input");
-    auto tiledInput = rewriter.create<IE::TileOp>(tileLoc, origOp.getInput(), repeatsAttr);
+    auto tiledInput = IE::TileOp::create(rewriter, tileLoc, origOp.getInput(), repeatsAttr);
 
     // Step 2: Create reorganized weights based on kernel dimension
     SmallVector<mlir::Value> weightSlices;
@@ -239,20 +239,20 @@ mlir::LogicalResult ConvertGroupConvToConvPass::DepthwiseConvSinglePixelInputToM
         auto sliceShape = getIntArrayAttr(rewriter.getContext(), ArrayRef<int64_t>{C, 1, 1, 1});
 
         auto sliceLoc = appendLoc(origOp->getLoc(), formatv("_slice_weight_{0}", outPos).str());
-        auto weightSlice = rewriter.create<IE::SliceOp>(sliceLoc, origOp.getFilter(), sliceOffsets, sliceShape);
+        auto weightSlice = IE::SliceOp::create(rewriter, sliceLoc, origOp.getFilter(), sliceOffsets, sliceShape);
         weightSlices.push_back(weightSlice.getResult());
     }
 
     const SmallVector<int64_t> finalWeightsShape = {1, C, shapeH, shapeW};
 
     auto concatLoc = appendLoc(origOp->getLoc(), "_concat_weights");
-    auto concatWeights = rewriter.create<IE::ConcatOp>(concatLoc, weightSlices, concatAxis);
+    auto concatWeights = IE::ConcatOp::create(rewriter, concatLoc, weightSlices, concatAxis);
 
     // Reshape to final shape
     const auto reshapedWeightsShapeAttr = getIntArrayAttr(rewriter.getContext(), ArrayRef<int64_t>(finalWeightsShape));
     auto reshapeLoc = appendLoc(origOp->getLoc(), "_reshape_weights");
     auto reshapedWeights =
-            rewriter.create<IE::ReshapeOp>(reshapeLoc, concatWeights.getOutput(), reshapedWeightsShapeAttr);
+            IE::ReshapeOp::create(rewriter, reshapeLoc, concatWeights.getOutput(), reshapedWeightsShapeAttr);
 
     // Broadcast weights to [1, C, OH, OW] if needed
     mlir::Value weightsForMultiply = reshapedWeights.getOutput();
@@ -262,13 +262,13 @@ mlir::LogicalResult ConvertGroupConvToConvPass::DepthwiseConvSinglePixelInputToM
         const auto weightTileRepeats = getIntArrayAttr(rewriter.getContext(), ArrayRef<int64_t>{1, 1, 1, OW});
         auto tileLoc = appendLoc(origOp->getLoc(), "_tile_weights");
         weightsForMultiply =
-                rewriter.create<IE::TileOp>(tileLoc, reshapedWeights.getOutput(), weightTileRepeats).getResult();
+                IE::TileOp::create(rewriter, tileLoc, reshapedWeights.getOutput(), weightTileRepeats).getResult();
     } else if (isXDimKernel && OH > 1) {
         // X-dim kernel: need to tile in H dimension
         const auto weightTileRepeats = getIntArrayAttr(rewriter.getContext(), ArrayRef<int64_t>{1, 1, OH, 1});
         auto tileLoc = appendLoc(origOp->getLoc(), "_tile_weights");
         weightsForMultiply =
-                rewriter.create<IE::TileOp>(tileLoc, reshapedWeights.getOutput(), weightTileRepeats).getResult();
+                IE::TileOp::create(rewriter, tileLoc, reshapedWeights.getOutput(), weightTileRepeats).getResult();
     }
 
     // Step 3: Element-wise multiply
@@ -277,10 +277,10 @@ mlir::LogicalResult ConvertGroupConvToConvPass::DepthwiseConvSinglePixelInputToM
 
     auto multiplyLoc = appendLoc(origOp->getLoc(), "_multiply");
     auto multiplyOp =
-            rewriter.create<IE::MultiplyOp>(multiplyLoc, outputType, tiledInput.getOutput(), weightsForMultiply,
-                                            autoBroadcastAttr, origOp.getPostOpAttr(), origOp.getClampAttr(),
-                                            /*output_padding=*/nullptr,
-                                            /*input_padding=*/nullptr);
+            IE::MultiplyOp::create(rewriter, multiplyLoc, outputType, tiledInput.getOutput(), weightsForMultiply,
+                                   autoBroadcastAttr, origOp.getPostOpAttr(), origOp.getClampAttr(),
+                                   /*output_padding=*/nullptr,
+                                   /*input_padding=*/nullptr);
     rewriter.replaceOp(origOp, multiplyOp.getOutput());
     _log.trace("Successfully converted depthwise GroupConv with single-pixel input to Tile + Multiply");
     return mlir::success();
@@ -309,8 +309,8 @@ std::optional<int64_t> getZeroPoint(IE::FakeQuantizeOp fqOp) {
     const auto realElemType = mlir::cast<mlir::FloatType>(realType.getElementType());
     auto inLowConst = fqOp.getInputLow().getDefiningOp<Const::DeclareOp>();
     auto inHighConst = fqOp.getInputHigh().getDefiningOp<Const::DeclareOp>();
-    VPUX_THROW_UNLESS(inLowConst != nullptr && inHighConst != nullptr,
-                      "Cannot get low and high constant of FakeQuantizeOp {0}", fqOp->getLoc());
+    VPUX_THROW_WHEN(inLowConst == nullptr || inHighConst == nullptr,
+                    "Cannot get low and high constant of FakeQuantizeOp {0}", fqOp->getLoc());
     const auto quantizeElemType = getQuantizedType(
             inLowConst.getContentAttr(), inHighConst.getContentAttr(), fqOp.getLevels(), fqOp.getLowFpType(),
             realElemType, Const::hasNegativeValues(inLowConst.getContent()), fqOp.getLoc(), fqOp.getAutoBroadcast());
@@ -512,8 +512,8 @@ mlir::LogicalResult ConvertGroupConvToConvPass::GroupConvToSingleConvConverter::
             }
 
             auto groupWeights = groupWeightsSetup.get();
-            concatInputs.push_back(rewriter.create<Const::DeclareOp>(origOp.getLoc(), groupWeights.getType(),
-                                                                     std::move(groupWeights)));
+            concatInputs.push_back(Const::DeclareOp::create(rewriter, origOp.getLoc(), groupWeights.getType(),
+                                                            std::move(groupWeights)));
 
             if (groupIdx < groupNumb) {
                 const auto padAfter = Shape{groupOutSize, (groupNumb - groupIdx) * groupInSize,
@@ -522,8 +522,8 @@ mlir::LogicalResult ConvertGroupConvToConvPass::GroupConvToSingleConvConverter::
                         createConstantOpForPadding(padAfter, weightsElemType, padValue, rewriter, origOp.getLoc()));
             }
 
-            return rewriter
-                    .create<IE::ConcatOp>(takeOpLoc(origOp, "concat_{0}", groupIdx), concatInputs, Dims4D::Filter::IC)
+            return IE::ConcatOp::create(rewriter, takeOpLoc(origOp, "concat_{0}", groupIdx), concatInputs,
+                                        Dims4D::Filter::IC)
                     .getResult();
         }
 
@@ -531,7 +531,8 @@ mlir::LogicalResult ConvertGroupConvToConvPass::GroupConvToSingleConvConverter::
         const auto paddingAfter = Shape{0, (groupNumb - groupIdx) * groupInSize, 0, 0};
         auto newGroupWeights = groupWeightsSetup.padWithZero(paddingBefore, paddingAfter).get();
 
-        return rewriter.create<Const::DeclareOp>(origOp.getLoc(), newGroupWeights.getType(), std::move(newGroupWeights))
+        return Const::DeclareOp::create(rewriter, origOp.getLoc(), newGroupWeights.getType(),
+                                        std::move(newGroupWeights))
                 .getResult();
     };
 
@@ -567,10 +568,9 @@ mlir::LogicalResult ConvertGroupConvToConvPass::GroupConvToSingleConvConverter::
         auto newInputHigh = updateQuantParams(weightsFQ.getInputHigh());
         auto newOutputLow = updateQuantParams(weightsFQ.getOutputLow());
         auto newOutputHigh = updateQuantParams(weightsFQ.getOutputHigh());
-        newWeights = rewriter.create<IE::FakeQuantizeOp>(takeOpLoc(origOp, "weights_fq"), newWeights, newInputLow,
-                                                         newInputHigh, newOutputLow, newOutputHigh,
-                                                         weightsFQ.getLevelsAttr(), weightsFQ.getLowFpTypeAttr(),
-                                                         weightsFQ.getAutoBroadcastAttr())
+        newWeights = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(origOp, "weights_fq"), newWeights, newInputLow,
+                                                newInputHigh, newOutputLow, newOutputHigh, weightsFQ.getLevelsAttr(),
+                                                weightsFQ.getLowFpTypeAttr(), weightsFQ.getAutoBroadcastAttr())
                              .getResult();
     }
 
@@ -671,10 +671,10 @@ mlir::LogicalResult ConvertGroupConvToConvPass::GroupConvToMultiConvConverter::m
                                                            outputHigh, weightsOffsetsAttr, fakeQuantizeParamShapeAttr));
             }
 
-            weightsSlice = rewriter.create<IE::FakeQuantizeOp>(
-                    takeOpLoc(fakeQuantizeOp, "weights_fq_{0}", sliceIdx), newInput, inputLow, inputHigh, outputLow,
-                    outputHigh, fakeQuantizeOp.getLevelsAttr(), fakeQuantizeOp.getLowFpTypeAttr(),
-                    fakeQuantizeOp.getAutoBroadcastAttr());
+            weightsSlice = IE::FakeQuantizeOp::create(rewriter, takeOpLoc(fakeQuantizeOp, "weights_fq_{0}", sliceIdx),
+                                                      newInput, inputLow, inputHigh, outputLow, outputHigh,
+                                                      fakeQuantizeOp.getLevelsAttr(), fakeQuantizeOp.getLowFpTypeAttr(),
+                                                      fakeQuantizeOp.getAutoBroadcastAttr());
         } else {
             weightsSlice = rewriter.createOrFold<IE::SliceOp>(takeOpLoc(origOp, "weights_slice_{0}", sliceIdx), weights,
                                                               weightsOffsetsAttr, weightsShapeAttr);
@@ -696,9 +696,9 @@ mlir::LogicalResult ConvertGroupConvToConvPass::GroupConvToMultiConvConverter::m
 
         // New conv
         auto newConvLoc = appendLoc(origOp->getLoc(), "ConvertGroupConv_{0}", sliceIdx);
-        auto convOp = rewriter.create<IE::ConvolutionOp>(
-                newConvLoc, inputSlice, weightsSlice, biasSlice, nullptr, /*zero_points*/ nullptr, origOp.getStrides(),
-                origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilations());
+        auto convOp = IE::ConvolutionOp::create(rewriter, newConvLoc, inputSlice, weightsSlice, biasSlice, nullptr,
+                                                /*zero_points*/ nullptr, origOp.getStrides(), origOp.getPadsBegin(),
+                                                origOp.getPadsEnd(), origOp.getDilations());
         slices.push_back(convOp);
     }
 

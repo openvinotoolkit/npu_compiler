@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/types.hpp"
 
 #include <intel_npu/prefix.hpp>
 
@@ -22,6 +23,20 @@ vpux::VPUIP::BoundedBufferComponents vpux::VPUIP::unpackBoundedBufferType(VPUIP:
     return {mlir::cast<mlir::MemRefType>(type.getData()), mlir::cast<mlir::MemRefType>(type.getDynamicShape())};
 }
 
+vpux::VPUIP::BoundedBufferComponents vpux::VPUIP::unpackDynamicMemRefType(mlir::MemRefType type, BoundsRef bounds) {
+    if (bounds.empty()) {
+        bounds = getBounds(type);
+    }
+    const auto ndType = mlir::cast<NDTypeInterface>(type);
+    const auto strides = ndType.getStrides();
+    // Note: shape change removes strides, but it makes sense to preserve them
+    const auto dataMemref = ndType.changeShape(ShapeRef(bounds.raw())).changeStrides(strides);
+    const auto shapeMemref = getMemRefType({static_cast<int32_t>(bounds.size())}, getSInt32Type(type.getContext()),
+                                           DimsOrder::C, ndType.getMemSpace());
+
+    return {mlir::cast<mlir::MemRefType>(dataMemref), shapeMemref};
+}
+
 void vpux::VPUIP::addShapeTensorDataInfo(mlir::func::FuncOp funcOp, mlir::MemRefType dynamicShapeMemRef,
                                          mlir::Block& infoBlock, mlir::StringRef dataInfoName, size_t dataBufferCount) {
     const auto type = mlir::RankedTensorType::get(dynamicShapeMemRef.getShape(), dynamicShapeMemRef.getElementType());
@@ -29,5 +44,5 @@ void vpux::VPUIP::addShapeTensorDataInfo(mlir::func::FuncOp funcOp, mlir::MemRef
 
     auto insertionPointAfter = std::next(infoBlock.begin(), static_cast<int64_t>(dataBufferCount));
     auto infoBuilder = mlir::OpBuilder(&infoBlock, insertionPointAfter);
-    infoBuilder.create<net::DataInfoOp>(takeOpLoc(funcOp, "{0}", funcOp.getName()), name, type);
+    net::DataInfoOp::create(infoBuilder, takeOpLoc(funcOp, "{0}", funcOp.getName()), name, type);
 }

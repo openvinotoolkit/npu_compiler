@@ -176,7 +176,7 @@ DOT::EdgeDir GraphWriter::getEdgeDirection(mlir::Operation* source, mlir::Operat
     const auto it = llvm::find_if(targetOperands, [&](mlir::Value arg) {
         return arg.getDefiningOp() == source;
     });
-    VPUX_THROW_UNLESS(it != targetOperands.end(), "Wrong edge");
+    VPUX_THROW_WHEN(it == targetOperands.end(), "Wrong edge");
 
     const auto val = *it;
     if (sideEffectsOp.getEffectOnValue<mlir::MemoryEffects::Write>(val).has_value()) {

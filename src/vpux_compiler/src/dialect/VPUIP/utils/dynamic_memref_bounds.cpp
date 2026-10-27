@@ -117,7 +117,7 @@ mlir::Value allocateDynamic(mlir::CallOpInterface callOp, size_t bufferIdx, bool
                           "[{0}] Bound array size {1} is smaller than dynamic dim index {2} for type '{3}'", sourceTag,
                           bounds.size(), dimIdx, memrefType);
         usedBounds.push_back(bounds[dimIdx]);
-        dynDimOperands.push_back(builder.create<mlir::arith::ConstantIndexOp>(callOp.getLoc(), bounds[dimIdx]));
+        dynDimOperands.push_back(mlir::arith::ConstantIndexOp::create(builder, callOp.getLoc(), bounds[dimIdx]));
     }
 
     log.trace("[{0}] Allocate dynamic memref with upper bounds: idx={1}, isInput={2}, type={3}, usedBounds={4}",
@@ -126,12 +126,12 @@ mlir::Value allocateDynamic(mlir::CallOpInterface callOp, size_t bufferIdx, bool
     // The alloc type has the same shape as memrefType but without strided layout, so
     // memref.alloc produces a contiguous buffer. If the original type was strided,
     // a memref.cast restores the layout for the rest of the IR to use.
-    auto alloc = builder.create<mlir::memref::AllocOp>(callOp.getLoc(), allocType, dynDimOperands).getMemref();
+    auto alloc = mlir::memref::AllocOp::create(builder, callOp.getLoc(), allocType, dynDimOperands).getMemref();
     if (allocType == memrefType) {
         return alloc;
     }
 
-    return builder.create<mlir::memref::CastOp>(callOp.getLoc(), memrefType, alloc).getResult();
+    return mlir::memref::CastOp::create(builder, callOp.getLoc(), memrefType, alloc).getResult();
 }
 
 }  // namespace
@@ -146,12 +146,12 @@ mlir::Value vpux::VPUIP::allocateCallBoundaryMemref(mlir::CallOpInterface callOp
     if (memrefType.getNumDynamicDims() == 0) {
         // Static memref: allocate directly. If the original type was strided,
         // cast back so callers see the correct layout
-        auto alloc = builder.create<mlir::memref::AllocOp>(callOp.getLoc(), allocType).getMemref();
+        auto alloc = mlir::memref::AllocOp::create(builder, callOp.getLoc(), allocType).getMemref();
         if (allocType == memrefType) {
             return alloc;
         }
 
-        return builder.create<mlir::memref::CastOp>(callOp.getLoc(), memrefType, alloc).getResult();
+        return mlir::memref::CastOp::create(builder, callOp.getLoc(), memrefType, alloc).getResult();
     }
 
     // Dynamic memref: resolve per-dim upper bounds from the callee's NetworkInfo and

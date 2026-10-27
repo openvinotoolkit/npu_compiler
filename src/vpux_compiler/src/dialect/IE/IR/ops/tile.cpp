@@ -111,7 +111,7 @@ mlir::LogicalResult AddUnsqueeze::matchAndRewrite(IE::TileOp origOp, mlir::Patte
 
         const auto unsqueezeParamsAttr = getIntArrayAttr(getContext(), unsqueezeParam);
         auto unsqueezeOp =
-                rewriter.create<IE::UnsqueezeOp>(origOp->getLoc(), origOp.getInput(), nullptr, unsqueezeParamsAttr);
+                IE::UnsqueezeOp::create(rewriter, origOp->getLoc(), origOp.getInput(), nullptr, unsqueezeParamsAttr);
         rewriter.replaceOpWithNewOp<IE::TileOp>(origOp, origOp.getType(), unsqueezeOp->getResult(0),
                                                 origOp.getRepeatsValuesAttr());
     }

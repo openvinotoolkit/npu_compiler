@@ -123,20 +123,20 @@ mlir::LogicalResult InsertReorderBetweenLayerAndConcat::ConcatOpConverter::match
     for (const auto& item : concatInputList | indexed) {
         const auto& concatInput = item.value();
         const auto& index = item.index();
-        auto nhwcReorderOp = rewriter.create<IE::ReorderOp>(appendLoc(origOp->getLoc(), "reorder_{0}", index),
-                                                            concatInput, nhwcOrderMap);
+        auto nhwcReorderOp = IE::ReorderOp::create(rewriter, appendLoc(origOp->getLoc(), "reorder_{0}", index),
+                                                   concatInput, nhwcOrderMap);
         newConcatInputs.push_back(nhwcReorderOp);
     }
 
     const auto axis = deduceAxis(newConcatInputs[0], origOp.getOutput());
-    VPUX_THROW_UNLESS(axis != -1, "ConcatOpConverter: failed to deduce axis");
+    VPUX_THROW_WHEN(axis == -1, "ConcatOpConverter: failed to deduce axis");
     const auto axisAttr = getIntAttr(rewriter.getContext(), axis);
 
-    auto newConcat = rewriter.create<IE::ConcatOp>(origOp->getLoc(), newConcatInputs, axisAttr);
+    auto newConcat = IE::ConcatOp::create(rewriter, origOp->getLoc(), newConcatInputs, axisAttr);
     const auto nchwOrder = DimsOrder::NCHW;
     const auto nchwOrderMap = nchwOrder.toAffineMap(rewriter.getContext());
-    auto outReorder = rewriter.create<IE::ReorderOp>(appendLoc(origOp->getLoc(), "reorder_output"),
-                                                     newConcat.getOutput(), nchwOrderMap);
+    auto outReorder = IE::ReorderOp::create(rewriter, appendLoc(origOp->getLoc(), "reorder_output"),
+                                            newConcat.getOutput(), nchwOrderMap);
     rewriter.replaceOp(origOp, outReorder);
     return mlir::success();
 }

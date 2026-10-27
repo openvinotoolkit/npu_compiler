@@ -156,20 +156,16 @@ private:
     }
 };
 
-class DynamicResizeConvSubgraphTest_Interpreter : public DynamicResizeConvSubgraphTest {};
+class DynamicResizeConvSubgraphTest_TileAgnostic : public DynamicResizeConvSubgraphTest {
+    void configure_model() override {
+        configuration["NPU_TILES"] = "1";
+    }
+};
 
 TEST_P(DynamicResizeConvSubgraphTest, NPU4000_HC_TestKindSubgraph) {
     abs_threshold = 0.08f;
     enableTurbo();
     setHostCompileMode();
-    setPluginCompilerType();
-    run(Platform::NPU4000);
-}
-
-TEST_P(DynamicResizeConvSubgraphTest_Interpreter, NPU4000_HC_TestKindSubgraph) {
-    abs_threshold = 0.08f;
-    enableTurbo();
-    setHostCompileMode("HostCompile_Interpreter");
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
@@ -181,9 +177,9 @@ TEST_P(DynamicResizeConvSubgraphTest, NPU5010_HC_TestKindSubgraph) {
     run(Platform::NPU5010);
 }
 
-TEST_P(DynamicResizeConvSubgraphTest_Interpreter, NPU5010_HC_TestKindSubgraph) {
+TEST_P(DynamicResizeConvSubgraphTest_TileAgnostic, NPU5010_HC_TestKindSubgraph) {
     abs_threshold = 0.08f;
-    setHostCompileMode("HostCompile_Interpreter");
+    setHostCompileMode();
     setPluginCompilerType();
     run(Platform::NPU5010);
 }
@@ -202,8 +198,8 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_DynamicResizeConvSubgraphTest, Dynam
                                             ::testing::ValuesIn(modelTypes), ::testing::ValuesIn(scalesList)),
                          PrintTestCaseName());
 
-INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_DynamicResizeConvSubgraphTest_Interpreter,
-                         DynamicResizeConvSubgraphTest_Interpreter,
+INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_DynamicResizeConvSubgraphTest_TileAgnostic,
+                         DynamicResizeConvSubgraphTest_TileAgnostic,
                          ::testing::Combine(::testing::Values(Height{256_Dyn}), ::testing::Values(Width{512_Dyn}),
                                             ::testing::ValuesIn(modelTypes), ::testing::ValuesIn(scalesList)),
                          PrintTestCaseName());

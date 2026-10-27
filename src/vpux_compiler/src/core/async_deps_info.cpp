@@ -135,8 +135,8 @@ SmallVector<size_t> vpux::AsyncDepsInfo::getDepsVec(const llvm::DenseSet<size_t>
 
 uint32_t vpux::AsyncDepsInfo::getIndex(mlir::async::ExecuteOp execOp) const {
     const auto attr = execOp->getAttrOfType<mlir::IntegerAttr>(_indexAttrName);
-    VPUX_THROW_UNLESS(attr != nullptr, "Attribute '{0}' was not set for '{1}' operation at '{2}'", _indexAttrName,
-                      execOp->getName(), execOp->getLoc());
+    VPUX_THROW_WHEN(attr == nullptr, "Attribute '{0}' was not set for '{1}' operation at '{2}'", _indexAttrName,
+                    execOp->getName(), execOp->getLoc());
 
     return checked_cast<uint32_t>(attr.getValue().getZExtValue());
 }
@@ -193,9 +193,9 @@ void vpux::AsyncDepsInfo::addExecOp(mlir::async::ExecuteOp execOp) {
 
     for (auto arg : execOp->getOperands()) {
         auto argExecOp = mlir::dyn_cast<mlir::async::ExecuteOp>(arg.getDefiningOp());
-        VPUX_THROW_UNLESS(argExecOp != nullptr,
-                          "'async.execute' at '{0}' has operand '{1}' produced by unsupported Operation",
-                          execOp->getLoc(), arg);
+        VPUX_THROW_WHEN(argExecOp == nullptr,
+                        "'async.execute' at '{0}' has operand '{1}' produced by unsupported Operation",
+                        execOp->getLoc(), arg);
 
         _log.trace("It has a dependency from other 'async.execute' Operation at '{0}'", argExecOp->getLoc());
 
@@ -347,6 +347,11 @@ void vpux::AsyncDepsInfo::preAllocateForNewOps(size_t numOfNewOps) {
 const llvm::SmallVector<size_t> vpux::AsyncDepsInfo::getOpDeps(size_t opIdx) const {
     VPUX_THROW_WHEN(opIdx >= _execOpCount, "Invalid index '{0}' for _depsMap", opIdx);
     return getDepsVec(_depsMap[opIdx]);
+}
+
+const llvm::DenseSet<size_t>& vpux::AsyncDepsInfo::getOpDepsUnordered(size_t opIdx) const {
+    VPUX_THROW_WHEN(opIdx >= _execOpCount, "Invalid index '{0}' for _depsMap", opIdx);
+    return _depsMap[opIdx];
 }
 
 const llvm::SmallVector<size_t> vpux::AsyncDepsInfo::getConsumerOps(size_t opIdx) const {

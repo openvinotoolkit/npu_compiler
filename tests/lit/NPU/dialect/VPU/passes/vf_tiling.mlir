@@ -38,30 +38,30 @@ func.func @VfTilingWithEltwise(%arg0: tensor<1x16x256x256x!qElemType, {order = #
     // CHECK: [[CONV0TILE0:%.+]] = VPU.NCE.Convolution([[SLICEARG0TILE0]], [[ARG_1]]) rawFilterShape [32, 16, 3, 3] {
     // CHECK-SAME:   multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
     // CHECK-SAME:   pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64>,
-    // CHECK-SAME:   strides = [1, 1], vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64}
+   // CHECK-SAME:   strides = [1, 1], vf_loop_index = 1 : i64, vf_loop_tile_index = 0 : i64}
     // CHECK-SAME:   -> tensor<1x32x129x256x!qElemType, {order = #NHWC}>
     // CHECK: [[CONV1TILE0:%.+]] = VPU.NCE.Convolution([[CONV0TILE0]], [[ARG_2]]) rawFilterShape [32, 32, 3, 3] {
     // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
     // CHECK-SAME: pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64>,
-    // CHECK-SAME: strides = [1, 1], vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64}
+    // CHECK-SAME: strides = [1, 1], vf_loop_index = 1 : i64, vf_loop_tile_index = 0 : i64}
     // CHECK-SAME:  -> tensor<1x32x128x256x!qElemType, {order = #NHWC}>
     // CHECK: [[SLICETILE0:%.+]] = VPU.Slice [[CONV0TILE0]] [0, 0, 0, 0] [1, 32, 128, 256]
     // CHECK: [[ELTWISETILE0:%.+]] = VPU.NCE.Eltwise([[SLICETILE0]], [[CONV1TILE0]])
-    // CHECK-SAME: vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64
+    // CHECK-SAME: vf_loop_index = 1 : i64, vf_loop_tile_index = 0 : i64
     // CHECK: [[SLICEARG0TILE1:%.+]] = VPU.Slice [[ARG_0]] [0, 0, 126, 0] [1, 16, 130, 256]
     // CHECK: [[CONV0TILE1:%.+]] = VPU.NCE.Convolution([[SLICEARG0TILE1]], [[ARG_1]]) rawFilterShape [32, 16, 3, 3] {
     // CHECK-SAME:   multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
     // CHECK-SAME:   pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>,
-   // CHECK-SAME:    strides = [1, 1], vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64}
+   // CHECK-SAME:    strides = [1, 1], vf_loop_index = 1 : i64, vf_loop_tile_index = 1 : i64}
    // CHECK-SAME:    -> tensor<1x32x129x256x!qElemType, {order = #NHWC}>
     // CHECK: [[CONV1TILE1:%.+]] = VPU.NCE.Convolution([[CONV0TILE1]], [[ARG_2]]) rawFilterShape [32, 32, 3, 3] {
     // CHECK-SAME:   multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
     // CHECK-SAME:   pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64>,
-    // CHECK-SAME:   strides = [1, 1], vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64}
+    // CHECK-SAME:   strides = [1, 1], vf_loop_index = 1 : i64, vf_loop_tile_index = 1 : i64}
     // CHECK-SAME:   -> tensor<1x32x128x256x!qElemType, {order = #NHWC}>
     // CHECK: [[SLICETILE1:%.+]] = VPU.Slice [[CONV0TILE1]] [0, 0, 1, 0] [1, 32, 128, 256]
     // CHECK: [[ELTWISETILE1:%.+]] = VPU.NCE.Eltwise([[SLICETILE1]], [[CONV1TILE1]])
-    // CHECK-SAME: vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64
+    // CHECK-SAME: vf_loop_index = 1 : i64, vf_loop_tile_index = 1 : i64
     // CHECK: [[CONCAT:%.+]] = VPU.Concat([[ELTWISETILE0]], [[ELTWISETILE1]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 0, 128, 0]]} : tensor<1x32x128x256x!qElemType, {order = #NHWC}>, tensor<1x32x128x256x!qElemType, {order = #NHWC}> -> tensor<1x32x256x256x!qElemType, {order = #NHWC}>
     // CHECK: return [[CONCAT]] : tensor<1x32x256x256x!qElemType, {order = #NHWC}>
 }
@@ -97,21 +97,21 @@ func.func @VfTilingWithEltwiseAdjustOffset(
 
     // CHECK:       [[HEAD_IN_SLICE_1:%.+]] = VPU.Slice {{.+}} [0, 0, 0, 0] [1, 16, 68, 128] : tensor<1x16x128x128xf16, {order = #NHWC}> to tensor<1x16x68x128xf16, {order = #NHWC}>
     // CHECK:       [[CONV1_1:%.+]] = VPU.NCE.Convolution([[HEAD_IN_SLICE_1]]
-    // CHECK-SAME:  vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64
+   // CHECK-SAME:  vf_loop_index = 1 : i64, vf_loop_tile_index = 0 : i64
     // CHECK:       [[CONV2_1:%.+]] = VPU.NCE.Convolution([[CONV1_1]]
-    // CHECK-SAME:  vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64
+    // CHECK-SAME:  vf_loop_index = 1 : i64, vf_loop_tile_index = 0 : i64
     // CHECK:       [[SLICE_1:%.+]] = VPU.Slice [[CONV1_1]] [0, 0, 0, 0] [1, 32, 64, 128]
     // CHECK:       [[ELTWISE_1:%.+]] = VPU.NCE.Eltwise([[SLICE_1]], [[CONV2_1]])
-    // CHECK-SAME:  vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64
+    // CHECK-SAME:  vf_loop_index = 1 : i64, vf_loop_tile_index = 0 : i64
 
     // CHECK:       [[HEAD_IN_SLICE_2:%.+]] = VPU.Slice {{.+}} [0, 0, 60, 0] [1, 16, 68, 128] : tensor<1x16x128x128xf16, {order = #NHWC}> to tensor<1x16x68x128xf16, {order = #NHWC}>
     // CHECK:       [[CONV1_2:%.+]] = VPU.NCE.Convolution([[HEAD_IN_SLICE_2]]
-    // CHECK-SAME:  vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64
+    // CHECK-SAME:  vf_loop_index = 1 : i64, vf_loop_tile_index = 1 : i64
     // CHECK:       [[CONV2_2:%.+]] = VPU.NCE.Convolution([[CONV1_2]]
-    // CHECK-SAME:  vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64
+    // CHECK-SAME:  vf_loop_index = 1 : i64, vf_loop_tile_index = 1 : i64
     // CHECK:       [[SLICE_2:%.+]] = VPU.Slice [[CONV1_2]] [0, 0, 3, 0] [1, 32, 64, 128]
     // CHECK:       [[ELTWISE_2:%.+]] = VPU.NCE.Eltwise([[SLICE_2]], [[CONV2_2]])
-    // CHECK-SAME:  vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64
+    // CHECK-SAME:  vf_loop_index = 1 : i64, vf_loop_tile_index = 1 : i64
 
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat([[ELTWISE_1]], [[ELTWISE_2]])
     // CHECK:       return [[CONCAT]] : tensor<1x32x128x128xf16, {order = #NHWC}>
@@ -141,17 +141,17 @@ func.func @TileGroupSparseTensor(%arg0: tensor<1x32x24x30xf16, {order = #NHWC}>)
     // CHECK: [[SLICE_CST_0:%.+]] = VPU.Slice [[CST]] [0, 0, 0, 0] [1, 32, 25, 61]
     // CHECK: [[SLICE_SET_0:%.+]] = VPU.Slice [[SET]] [0, 0, 0, 0] [1, 1, 25, 61]
     // CHECK: [[GST0:%.+]] = VPU.GroupSparseTensor([[SLICE_ARG_0]], [[SLICE_CST_0]], [[SLICE_SET_0]])
-    // CHECK-SAME: {seAttr = #VPU.SEUpsampling<factors = [1, 1], padding = [1, 1, 2, 2], offsets = [0, 0, 0, 0], sizes = [1, 32, 25, 61]>, vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64}
+   // CHECK-SAME: {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, seAttr = #VPU.SEUpsampling<factors = [1, 1], padding = [1, 1, 2, 2], offsets = [0, 0, 0, 0], sizes = [1, 32, 25, 61]>, vf_loop_index = 1 : i64, vf_loop_tile_index = 0 : i64}
     // CHECK: [[CONV0:%.+]] = VPU.NCE.Convolution([[GST0]], [[CST_0]])
-    // CHECK-SAME: vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64
+    // CHECK-SAME: vf_loop_index = 1 : i64, vf_loop_tile_index = 0 : i64
     // CHECK-SAME: tensor<1x16x24x60xf16, {order = #NHWC}>
     // CHECK: [[SLICE_ARG_1:%.+]] = VPU.Slice [[ARG_0]] [0, 0, 11, 0] [1, 32, 13, 30]
     // CHECK: [[SLICE_CST_1:%.+]] = VPU.Slice [[CST]] [0, 0, 24, 0] [1, 32, 25, 61]
     // CHECK: [[SLICE_SET_1:%.+]] = VPU.Slice [[SET]] [0, 0, 24, 0] [1, 1, 25, 61]
     // CHECK: [[GST1:%.+]] = VPU.GroupSparseTensor([[SLICE_ARG_1]], [[SLICE_CST_1]], [[SLICE_SET_1]])
-    // CHECK-SAME: {seAttr = #VPU.SEUpsampling<factors = [1, 1], padding = [1, 1, 2, 2], offsets = [0, 0, 2, 0], sizes = [1, 32, 25, 61]>, vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64}
+   // CHECK-SAME: {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, seAttr = #VPU.SEUpsampling<factors = [1, 1], padding = [1, 1, 2, 2], offsets = [0, 0, 2, 0], sizes = [1, 32, 25, 61]>, vf_loop_index = 1 : i64, vf_loop_tile_index = 1 : i64}
     // CHECK: [[CONV1:%.+]] = VPU.NCE.Convolution([[GST1]], [[CST_0]])
-    // CHECK-SAME: vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64
+    // CHECK-SAME: vf_loop_index = 1 : i64, vf_loop_tile_index = 1 : i64
     // CHECK-SAME: tensor<1x16x24x60xf16, {order = #NHWC}>
     // CHECK: [[CONCAT:%.+]] = VPU.Concat([[CONV0]], [[CONV1]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 0, 24, 0]]}
     // CHECK: return [[CONCAT]] : tensor<1x16x48x60xf16, {order = #NHWC}>
@@ -197,16 +197,16 @@ func.func @VfTilingWithQuantizeCast(%arg0: tensor<1x32x48x48x!qElemType, {order 
    return %0 : tensor<1x32x48x48xf16, {order = #NHWC}>
 
    // CHECK:         [[SLICE_ARG_0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 32, 24, 48]
-   // CHECK:         [[QUANTIZE_CAST_0:%.+]] = VPU.QuantizeCast([[SLICE_ARG_0]]) {dstElemType = !qElemType1, vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64}
+   // CHECK:         [[QUANTIZE_CAST_0:%.+]] = VPU.QuantizeCast([[SLICE_ARG_0]]) {dstElemType = !qElemType1, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, vf_loop_index = 1 : i64, vf_loop_tile_index = 0 : i64}
    // CHECK-SAME:        tensor<1x32x24x48x!qElemType, {order = #NHWC}> -> tensor<1x32x24x48x!qElemType1, {order = #NHWC}>
-   // CHECK:         [[ELTWISE_0:%.+]] = VPU.NCE.Eltwise([[QUANTIZE_CAST_0]], [[QUANTIZE_CAST_0]]) {op_type = #VPU.eltwise_type<ADD>
-   // CHECK-SAME:        vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64
+   // CHECK:         [[ELTWISE_0:%.+]] = VPU.NCE.Eltwise([[QUANTIZE_CAST_0]], [[QUANTIZE_CAST_0]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 0>}, op_type = #VPU.eltwise_type<ADD>
+   // CHECK-SAME:        vf_loop_index = 1 : i64, vf_loop_tile_index = 0 : i64
    // CHECK-SAME:        tensor<1x32x24x48xf16, {order = #NHWC}>
    // CHECK:         [[SLICE_ARG_1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 24, 0] [1, 32, 24, 48]
-   // CHECK:         [[QUANTIZE_CAST_1:%.+]] = VPU.QuantizeCast([[SLICE_ARG_1]]) {dstElemType = !qElemType1, vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64}
+   // CHECK:         [[QUANTIZE_CAST_1:%.+]] = VPU.QuantizeCast([[SLICE_ARG_1]]) {dstElemType = !qElemType1, loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, vf_loop_index = 1 : i64, vf_loop_tile_index = 1 : i64}
    // CHECK-SAME:        tensor<1x32x24x48x!qElemType, {order = #NHWC}> -> tensor<1x32x24x48x!qElemType1, {order = #NHWC}>
-   // CHECK:         [[ELTWISE_1:%.+]] = VPU.NCE.Eltwise([[QUANTIZE_CAST_1]], [[QUANTIZE_CAST_1]]) {op_type = #VPU.eltwise_type<ADD>
-   // CHECK-SAME:        vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64
+   // CHECK:         [[ELTWISE_1:%.+]] = VPU.NCE.Eltwise([[QUANTIZE_CAST_1]], [[QUANTIZE_CAST_1]]) {loop_tile_coord = {axes = array<i64: 2>, indices = array<i64: 1>}, op_type = #VPU.eltwise_type<ADD>
+   // CHECK-SAME:        vf_loop_index = 1 : i64, vf_loop_tile_index = 1 : i64
    // CHECK-SAME:        tensor<1x32x24x48xf16, {order = #NHWC}>
    // CHECK:         [[CONCAT:%.+]] = VPU.Concat([[ELTWISE_0]], [[ELTWISE_1]])
    // CHECK-SAME{LITERAL}:  {static_offsets = [[0, 0, 0, 0], [0, 0, 24, 0]]}

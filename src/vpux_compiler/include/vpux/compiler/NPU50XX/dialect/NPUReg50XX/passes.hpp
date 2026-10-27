@@ -19,6 +19,7 @@ namespace NPUReg50XX {
 //
 
 std::unique_ptr<mlir::Pass> createSetupIduCmxMuxModePass(Logger log = Logger::global(), uint8_t iduCmxMuxMode = 0);
+std::unique_ptr<mlir::Pass> createAddShaveDpuDescriptors(Logger log = Logger::global());
 
 //
 // Registration

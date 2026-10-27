@@ -121,8 +121,8 @@ mlir::LogicalResult ConcatOpConverter::matchAndRewrite(IE::ConcatOp origOp, mlir
         appendFqValues(fqOp.getOutputHigh(), totalOutHi);
     }
 
-    auto concatOp = rewriter.create<IE::ConcatOp>(origOp->getLoc(), concatInputList, origOp.getPerAxisAttr(),
-                                                  origOp.getStaticOffsetsAttr());
+    auto concatOp = IE::ConcatOp::create(rewriter, origOp->getLoc(), concatInputList, origOp.getPerAxisAttr(),
+                                         origOp.getStaticOffsetsAttr());
 
     auto inLowOp = createFqTensor(takeOpLoc(origOp, "in_low"), totalInLo, rewriter);
     auto inHighOp = createFqTensor(takeOpLoc(origOp, "in_high"), totalInHi, rewriter);

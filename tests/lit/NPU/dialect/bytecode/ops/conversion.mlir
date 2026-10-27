@@ -8,7 +8,7 @@
 
 bytecode.func_section @function_section {
     bytecode.ext.func @convert_integer (i64) -> () {
-        %dst = bytecode.virtual_general_register
+        %dst = bytecode.virtual_value_register
         %src = bytecode.virtual_parameter_register 0
         bytecode.convert.i16toi8  %dst, %src
         bytecode.convert.i32toi8  %dst, %src
@@ -21,7 +21,7 @@ bytecode.func_section @function_section {
 }
 
 // CHECK-LABEL: bytecode.ext.func @convert_integer
-// CHECK:         [[DST:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[DST:%.+]] = bytecode.virtual_value_register
 // CHECK:         [[SRC:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK:         bytecode.convert.i16toi8  [[DST]], [[SRC]]
 // CHECK:         bytecode.convert.i32toi8  [[DST]], [[SRC]]
@@ -35,7 +35,7 @@ bytecode.func_section @function_section {
 
 bytecode.func_section @function_section {
     bytecode.ext.func @convert_int_to_float (i64) -> () {
-        %dst = bytecode.virtual_general_register
+        %dst = bytecode.virtual_value_register
         %src = bytecode.virtual_parameter_register 0
         bytecode.convert.i8tof32  %dst, %src
         bytecode.convert.i8tof64  %dst, %src
@@ -50,7 +50,7 @@ bytecode.func_section @function_section {
 }
 
 // CHECK-LABEL: bytecode.ext.func @convert_int_to_float
-// CHECK:         [[DST:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[DST:%.+]] = bytecode.virtual_value_register
 // CHECK:         [[SRC:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK:         bytecode.convert.i8tof32  [[DST]], [[SRC]]
 // CHECK:         bytecode.convert.i8tof64  [[DST]], [[SRC]]
@@ -66,7 +66,7 @@ bytecode.func_section @function_section {
 
 bytecode.func_section @function_section {
     bytecode.ext.func @convert_float_to_int (i64) -> () {
-        %dst = bytecode.virtual_general_register
+        %dst = bytecode.virtual_value_register
         %src = bytecode.virtual_parameter_register 0
         bytecode.convert.f32toi8  %dst, %src
         bytecode.convert.f32toi16 %dst, %src
@@ -81,7 +81,7 @@ bytecode.func_section @function_section {
 }
 
 // CHECK-LABEL: bytecode.ext.func @convert_float_to_int
-// CHECK:         [[DST:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[DST:%.+]] = bytecode.virtual_value_register
 // CHECK:         [[SRC:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK:         bytecode.convert.f32toi8  [[DST]], [[SRC]]
 // CHECK:         bytecode.convert.f32toi16 [[DST]], [[SRC]]
@@ -97,7 +97,7 @@ bytecode.func_section @function_section {
 
 bytecode.func_section @function_section {
     bytecode.ext.func @convert_float_to_float (i64) -> () {
-        %dst = bytecode.virtual_general_register
+        %dst = bytecode.virtual_value_register
         %src = bytecode.virtual_parameter_register 0
         bytecode.convert.f32tof64 %dst, %src
         bytecode.convert.f64tof32 %dst, %src
@@ -106,7 +106,7 @@ bytecode.func_section @function_section {
 }
 
 // CHECK-LABEL: bytecode.ext.func @convert_float_to_float
-// CHECK:         [[DST:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[DST:%.+]] = bytecode.virtual_value_register
 // CHECK:         [[SRC:%.+]] = bytecode.virtual_parameter_register 0
 // CHECK:         bytecode.convert.f32tof64 [[DST]], [[SRC]]
 // CHECK:         bytecode.convert.f64tof32 [[DST]], [[SRC]]

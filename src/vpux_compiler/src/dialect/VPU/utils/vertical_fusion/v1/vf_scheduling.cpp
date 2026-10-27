@@ -181,7 +181,7 @@ StrategyCost VFScheduling::getPrefetchingCost(mlir::Operation* operation, VFConf
                 prefetchedCost += costFunction->getSpillingTypeCost(
                         config.getOperationTypes(operation, parameters._tiling[0],
                                                  parameters._operandsTiling[0])[input.index()],
-                        parameters._operandsTiling[0][input.index()].axis);
+                        DmaDirectionType::DDR_TO_CMX, parameters._operandsTiling[0][input.index()].axis);
             }
         }
     }
@@ -213,7 +213,7 @@ StrategyCost VFScheduling::getLinearCost(VFConfig& config, int64_t tilesNumber,
                 auto spillCost = costFunction->getSpillingTypeCost(
                         config.getOperationTypes(op, costParameters._tiling[0], costParameters._operandsTiling[0])
                                 .back(),
-                        costParameters._tiling[0].axis);
+                        DmaDirectionType::CMX_TO_DDR, costParameters._tiling[0].axis);
                 if (spillCost >= std::numeric_limits<StrategyCost>::max()) {
                     _log.warning("Invalid VPUNN cost");
                     return spillCost;

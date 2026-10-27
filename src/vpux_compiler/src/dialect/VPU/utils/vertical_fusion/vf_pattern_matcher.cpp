@@ -28,14 +28,30 @@ mlir::Operation* VFPattern::getSingleInnerOp(VPU::VerticalFusionOp vfOp) const {
     return singleOp;
 }
 
-VPU::VerticalFusionOp VFPattern::getSingleVFUser(VPU::VerticalFusionOp vfOp) const {
-    if (!vfOp->hasOneUse()) {
+VPU::VerticalFusionOp VFPattern::getUniqUser(VPU::VerticalFusionOp vfOp) const {
+    if (vfOp->use_empty()) {
         return nullptr;
     }
-    return mlir::dyn_cast<VPU::VerticalFusionOp>(*vfOp->user_begin());
+
+    VPU::VerticalFusionOp singleUser = nullptr;
+    for (auto* user : vfOp->getUsers()) {
+        auto vfUser = mlir::dyn_cast<VPU::VerticalFusionOp>(user);
+        if (vfUser == nullptr) {
+            return nullptr;
+        }
+        if (singleUser == nullptr) {
+            singleUser = vfUser;
+            continue;
+        }
+        if (singleUser.getOperation() != vfUser.getOperation()) {
+            return nullptr;
+        }
+    }
+
+    return singleUser;
 }
 
-VPU::VFPatternMatcher::VFPatternMatcher(Logger log): _log(log) {
+VPU::VFPatternMatcher::VFPatternMatcher(VFMergeCostMode costMode, Logger log): _costMode(costMode), _log(log) {
     addPattern(std::make_unique<DynamicDequantConvVFPattern>());
     addPattern(std::make_unique<SDPAVFPattern>());
 }
@@ -70,7 +86,7 @@ bool VPU::VFPatternMatcher::applyPatterns(mlir::func::FuncOp func, mlir::Rewrite
             for (const auto& pattern : _patterns) {
                 _log.trace("VFPatternMatcher::applyPatterns apply pattern={0} root={1}", pattern->getPatternName(),
                            rootLoc);
-                auto mergedOp = pattern->tryMerge(rootOp, rewriter, costFunction, _log);
+                auto mergedOp = pattern->tryMerge(rootOp, rewriter, costFunction, _costMode, _log);
                 if (mlir::failed(mergedOp)) {
                     continue;
                 }

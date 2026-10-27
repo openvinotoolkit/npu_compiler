@@ -107,6 +107,7 @@ TEST_P(ConvInterpolateTransposeTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(ConvInterpolateTransposeTestCommon, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);

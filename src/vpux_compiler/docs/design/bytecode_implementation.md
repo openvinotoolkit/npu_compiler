@@ -55,21 +55,21 @@ bytecode.func_section @func_section {
   bytecode.ext.func @main (i64) -> () {
     // Virtual registers are created at the start. In this case, the register refers
     // to the first parameter of the function. See the bytecode spec for details about
-    // general and parameter registers
+    // value and parameter registers
     %0 = bytecode.virtual_parameter_register 0
     // The `arith.constant` value is lowered to a register via a `bytecode.imm_register` operation
     // (note: `bytecode.imm_register` is a compilation-only helper that will later be lowered to a
-    // new virtual general register + `bytecode.set_imm` instruction; it is used to simplify the
+    // new virtual value register + `bytecode.set_imm` instruction; it is used to simplify the
     // logic of deduplicating registers that are assigned constants)
     %1 = bytecode.imm_register 10
-    // The `arith.addi` instruction is lowered into a new general register, which will store the
+    // The `arith.addi` instruction is lowered into a new value register, which will store the
     // result, and a `bytecode.add.i64` instruction
-    %2 = bytecode.virtual_general_register
+    %2 = bytecode.virtual_value_register
     bytecode.add.i64 %2, %0, %1
-    // Similarly, the `arith.cmpi` instruction is lowered to a new general register, plus the
+    // Similarly, the `arith.cmpi` instruction is lowered to a new value register, plus the
     // `bytecode.cmp.i64` instruction. Value `259` represents a 'greater-or-equal' comparison
     // between signed integers, as per the bytecode spec
-    %3 = bytecode.virtual_general_register
+    %3 = bytecode.virtual_value_register
     bytecode.cmp.i64 %3, %2, %1, 259
     // The assert instruction is lowered into an intermediate `bytecode.ext.assert` operation which
     // stores the message as an attribute
@@ -100,9 +100,9 @@ bytecode.func_section @func_section {
   bytecode.func @main @string_section::@function_name @type_section::@function_type {
     %0 = bytecode.virtual_parameter_register 0
     %1 = bytecode.imm_register 10
-    %2 = bytecode.virtual_general_register
+    %2 = bytecode.virtual_value_register
     bytecode.add.i64 %2, %0, %1
-    %3 = bytecode.virtual_general_register
+    %3 = bytecode.virtual_value_register
     bytecode.cmp.i64 %3, %2, %1, 259
     // The `bytecode.ext.assert` operation is lowered to the `bytecode.assert` instruction,
     // which uses the symbol of the string from the string section to refer to the message
@@ -167,10 +167,10 @@ Multiple VM engines can be created, which allows the user to run executions in p
 
 The virtual machine offers two APIs, each intended for different purposes:
 
-1. The VM API, found in [virtual_machine.h](../../../../src/npu_interpreter_runtime/include/npu_interpreter_runtime/virtual_machine.h).
+1. The VM API, found in [virtual_machine.h](../../../../src/vm_runtime/include/vm_runtime/virtual_machine.h).
     - This API allows direct control over the VM and exposes functions for printing and parsing a bytecode blob, querying functions, creating engines, loading modules into engines, executing functions, as well as destroying any object created by the API (e.g. destroying a parsed module). It is mainly intended to be used directly only for development and debugging, as the production path uses the second API.
     - It is written in C, in order to ensure binary compatibility for the users of this API.
-2. The VM Runtime API, found in [npu_vm_runtime.hpp](../../../../src/npu_interpreter_runtime/include/npu_interpreter_runtime/npu_vm_runtime.hpp).
+2. The VM Runtime API, found in [npu_vm_runtime.hpp](../../../../src/vm_runtime/include/vm_runtime/npu_vm_runtime.hpp).
     - This is the API used in production by the NPU plugin. It represents a wrapper over the VM API, which combines it with Level Zero structures in order to be able to run inferences. Compared to direct execution of functions with the VM API, Level Zero structures are necessary for kernel submission and memory allocation for the NPU. The NPU plugin prepares such structures when calling the VM Runtime API, which is what enables inferences to be executed.
     - The API is in large part modeled after the OpenVINO API, as follows:
         1. An `ov::CompiledModel` is created, either by calling `ov::Core::compile_model` or `ov::Core::import_model`. Internally, `npuVMRuntimeCreate` is called which parses the bytecode blob into a module object.
@@ -183,8 +183,8 @@ The virtual machine offers two APIs, each intended for different purposes:
 
 The runtime component consists of two libraries:
 
-- `npu_interpreter_runtime`: A shared library that contains the implementation for the virtual machine and the API(s) described in the previous section. This library has a dependency on Level Zero and it is used by the NPU plugin. It can be found in [src/npu_interpreter_runtime](../../../../src/npu_interpreter_runtime/). The library is only built when `ENABLE_NPU_EXECUTION_ENGINE=ON`.
-- `npu_bytecode_utils`: A static library that contains the logic for the serialization and deserialization of a bytecode blob, as well as some helper utilities. This library has a minimal number of dependencies and it is statically linked by the compiler and `npu_interpreter_runtime` library. It can be found in [src/npu_bytecode_utils](../../../../src/npu_bytecode_utils/).
+- `openvino_intel_npu_vm_runtime`: A shared library that contains the implementation for the virtual machine and the API(s) described in the previous section. This library has a dependency on Level Zero and it is used by the NPU plugin. It can be found in [src/vm_runtime](../../../../src/vm_runtime/). The library is only built when `ENABLE_NPU_EXECUTION_ENGINE=ON`.
+- `npu_bytecode_utils`: A static library that contains the logic for the serialization and deserialization of a bytecode blob, as well as some helper utilities. This library has a minimal number of dependencies and it is statically linked by the compiler and `openvino_intel_npu_vm_runtime` library. It can be found in [src/npu_bytecode_utils](../../../../src/npu_bytecode_utils/).
 
 ## Testing Infrastructure
 

@@ -552,3 +552,66 @@ func.func @MergeConvPostSwAddWith2dTiling(%arg0: tensor<1x16x256x256xf16, {order
     // CHECK:      VPU.Yield [[ADD]]
     // CHECK:      return [[VF]]
 }
+
+// -----
+
+#GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+
+// CHECK-LABEL: @MergeMatMulAndGroupQuantCorrection
+func.func @MergeMatMulAndGroupQuantCorrection(
+    %act: tensor<80x1x64x1x1xf16, {order = #GNHWC}>,
+    %weights: tensor<80x5120x64x1x1xf16, {order = #GNHWC}>,
+    %weightsTable: tensor<1x5120x1x1x4xsi32>,
+    %actIn: tensor<80x1x1x64xf16>,
+    %scales: tensor<80x5120x1x1xf16>,
+    %zp: tensor<80x5120x1x1xui2>) -> tensor<80x5120x1x1xf16> {
+    %0 = VPU.VerticalFusion (
+        %act as %arg0: tensor<80x1x64x1x1xf16, {order = #GNHWC}>,
+        %weights as %arg1: tensor<80x5120x64x1x1xf16, {order = #GNHWC}>,
+        %weightsTable as %arg2: tensor<1x5120x1x1x4xsi32>
+      ) attributes {tilingStrategy = [4, 1, 1, 1, 1]} -> tensor<80x1x5120x1x1xf16, {order = #GNHWC}> {
+      %inner = VPU.NCE.MatMul(%arg0, %arg1, %arg2) rawFilterShape [80, 5120, 64, 1, 1] {
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverGroup>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEStub<>,
+        resultSegmentSizes = array<i32: 1, 0, 0, 0>,
+        strides = [1, 1]
+      } -> tensor<80x1x5120x1x1xf16, {order = #GNHWC}>
+      VPU.Yield %inner
+    }
+    %1 = VPU.VerticalFusion (
+        %0 as %arg0: tensor<80x1x5120x1x1xf16, {order = #GNHWC}>, %actIn as %arg1: tensor<80x1x1x64xf16>,
+        %scales as %arg2: tensor<80x5120x1x1xf16>, %zp as %arg3: tensor<80x5120x1x1xui2>
+      ) attributes {tilingStrategy = [1, 1, 1, 1]} -> tensor<80x5120x1x1xf16> {
+      %2 = VPU.PermuteCast(%arg0) {
+        dst_order = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)>,
+        mem_perm = affine_map<(d0, d1, d2, d3, d4) -> (d0, d2, d4, d1, d3)>
+      } : tensor<80x1x5120x1x1xf16, {order = #GNHWC}> -> tensor<80x1x5120x1x1xf16>
+      %3 = VPU.AffineReshape(%2) {
+        dim_mapping = [[0, 1], [2], [3], [3], [3]],
+        shape_value = [1, 80, 1, 5120]
+      } : tensor<80x1x5120x1x1xf16> -> tensor<1x80x1x5120xf16>
+      %4 = VPU.AffineReshape(%3) {
+        dim_mapping = [[0], [0], [0], [1, 2, 3]],
+        shape_value = [80, 5120, 1, 1]
+      } : tensor<1x80x1x5120xf16> -> tensor<80x5120x1x1xf16>
+      %inner = VPU.GroupQuantCorrection(%4, %arg1, %arg2, %arg3) {
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverBatch>
+      } : tensor<80x5120x1x1xf16>, tensor<80x1x1x64xf16>, tensor<80x5120x1x1xf16>, tensor<80x5120x1x1xui2>
+        -> tensor<80x5120x1x1xf16>
+      VPU.Yield %inner
+    }
+    return %1 : tensor<80x5120x1x1xf16>
+
+    // CHECK:      [[VF:%.+]] = VPU.VerticalFusion
+    // CHECK:      [[MATMUL:%.+]] = VPU.NCE.MatMul
+    // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverGroup>
+    // CHECK:      [[PERMUTE:%.+]] = VPU.PermuteCast([[MATMUL]])
+    // CHECK:      [[RESHAPE_0:%.+]] = VPU.AffineReshape([[PERMUTE]])
+    // CHECK:      [[RESHAPE:%.+]] = VPU.AffineReshape([[RESHAPE_0]])
+    // CHECK-NOT:  VPU.VerticalFusion
+    // CHECK:      [[GQC:%.+]] = VPU.GroupQuantCorrection([[RESHAPE]], {{%.+}}, {{%.+}}, {{%.+}})
+    // CHECK-SAME: multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverBatch>
+    // CHECK:      VPU.Yield [[GQC]]
+    // CHECK:      return [[VF]] : tensor<80x5120x1x1xf16>
+}

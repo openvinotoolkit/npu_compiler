@@ -49,25 +49,24 @@ mlir::LogicalResult LSTMCellRewriter::matchAndRewrite(IE::LSTMCellOp lstmCell, m
 
     mlir::Value newInput = lstmCell.getInputData();
     if (lstmCell.getWeights()) {
-        newInput = rewriter.create<IE::MatMulOp>(takeOpLoc(lstmCell, "in_mul"), lstmCell.getInputData(),
-                                                 lstmCell.getWeights(), false, true);
+        newInput = IE::MatMulOp::create(rewriter, takeOpLoc(lstmCell, "in_mul"), lstmCell.getInputData(),
+                                        lstmCell.getWeights(), false, true);
     }
 
     if (lstmCell.getBiases()) {
-        newInput =
-                rewriter.create<IE::AddOp>(takeOpLoc(lstmCell, "bias"), newInput, lstmCell.getBiases(),
-                                           IE::AutoBroadcastTypeAttr::get(getContext(), IE::AutoBroadcastType::NUMPY),
-                                           nullptr, nullptr, nullptr, nullptr);
+        newInput = IE::AddOp::create(rewriter, takeOpLoc(lstmCell, "bias"), newInput, lstmCell.getBiases(),
+                                     IE::AutoBroadcastTypeAttr::get(getContext(), IE::AutoBroadcastType::NUMPY),
+                                     nullptr, nullptr, nullptr, nullptr);
     }
 
     const mlir::Value matMulHiddenState =
-            rewriter.create<IE::MatMulOp>(takeOpLoc(lstmCell, "mul_hid"), lstmCell.getInitialHiddenState(),
-                                          lstmCell.getRecurrenceWeights(), false, true);
+            IE::MatMulOp::create(rewriter, takeOpLoc(lstmCell, "mul_hid"), lstmCell.getInitialHiddenState(),
+                                 lstmCell.getRecurrenceWeights(), false, true);
 
-    const mlir::Value lstmGatesInput = rewriter.create<IE::AddOp>(
-            takeOpLoc(lstmCell, "gates"), newInput, matMulHiddenState,
-            IE::AutoBroadcastTypeAttr::get(getContext(), IE::AutoBroadcastType::NONE_OR_EXPLICIT), nullptr, nullptr,
-            nullptr, nullptr);
+    const mlir::Value lstmGatesInput =
+            IE::AddOp::create(rewriter, takeOpLoc(lstmCell, "gates"), newInput, matMulHiddenState,
+                              IE::AutoBroadcastTypeAttr::get(getContext(), IE::AutoBroadcastType::NONE_OR_EXPLICIT),
+                              nullptr, nullptr, nullptr, nullptr);
 
     rewriter.replaceOpWithNewOp<IE::LSTMGatesOp>(lstmCell, lstmGatesInput, lstmCell.getInitialCellState());
 

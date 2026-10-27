@@ -17,7 +17,7 @@ namespace vpux::VPUIPDPU::arch50xx::IDU {
 
 mlir::LogicalResult buildIDUSEOnly(mlir::OpBuilder& builder, const mlir::Location& loc, const Logger&, bool seOnly) {
     if (seOnly) {
-        builder.create<IDUSEOnlyOp>(loc);
+        IDUSEOnlyOp::create(builder, loc);
     }
 
     return mlir::success();
@@ -33,7 +33,7 @@ mlir::LogicalResult buildIDUPerOutputChannelScaling(mlir::OpBuilder& builder, co
     if (weightTableProvided && (taskType == VPUIP::NCETaskType::MAXPOOL || taskType == VPUIP::NCETaskType::AVEPOOL ||
                                 taskType == VPUIP::NCETaskType::ELTWISE)) {
         const auto tensor2ActSparse = (taskType == VPUIP::NCETaskType::ELTWISE && weightsSparse);
-        builder.create<IDUPerOutputChannelScalingOp>(loc, tensor2ActSparse);
+        IDUPerOutputChannelScalingOp::create(builder, loc, tensor2ActSparse);
     }
 
     return mlir::success();
@@ -72,7 +72,7 @@ mlir::LogicalResult buildIDUWeightSet(mlir::OpBuilder& builder, const mlir::Loca
             weightSize *= inputZ;
         }
 
-        builder.create<IDUWeightSetOp>(loc, weightStart, weightNum, weightSize);
+        IDUWeightSetOp::create(builder, loc, weightStart, weightNum, weightSize);
 
         return mlir::success();
     }

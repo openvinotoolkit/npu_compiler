@@ -73,10 +73,10 @@ mlir::LogicalResult SDPARewrite::matchAndRewrite(IE::SDPAOp origOp, mlir::Patter
         scale = scaleConstant;
     }
 
-    auto scaledQuery = rewriter.create<IE::MultiplyOp>(appendLoc(origOp.getInputQ().getLoc(), "query_scaled"),
-                                                       origOp.getInputQ(), scale, IE::AutoBroadcastType::NUMPY,
-                                                       /*postOp=*/nullptr, /*clamp=*/nullptr,
-                                                       /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
+    auto scaledQuery = IE::MultiplyOp::create(rewriter, appendLoc(origOp.getInputQ().getLoc(), "query_scaled"),
+                                              origOp.getInputQ(), scale, IE::AutoBroadcastType::NUMPY,
+                                              /*postOp=*/nullptr, /*clamp=*/nullptr,
+                                              /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
 
     auto queryBatches = Shape(queryShape.begin(), queryShape.end() - 2);
 
@@ -89,27 +89,30 @@ mlir::LogicalResult SDPARewrite::matchAndRewrite(IE::SDPAOp origOp, mlir::Patter
 
     auto runningMaxAndSumShape = std::move(queryBatches);
     runningMaxAndSumShape.push_back(targetSeqLen);
+    // fp16 lowest, not -Inf: the kernel subtracts this seed, and -Inf survives the max reduction of
+    // a query row masked out everywhere. See the NOTE at reduceMaxMacro in flash_sdpa.cpp.
     auto runningMaxType = mlir::RankedTensorType::get(runningMaxAndSumShape.raw(), mlir::Float16Type::get(ctx));
-    auto initRunningMax = vpux::Const::createDenseConst(rewriter, appendLoc(origOp->getLoc(), "running_max"),
-                                                        runningMaxType, -std::numeric_limits<float>::infinity());
+    auto initRunningMax =
+            vpux::Const::createDenseConst(rewriter, appendLoc(origOp->getLoc(), "running_max"), runningMaxType,
+                                          static_cast<float>(std::numeric_limits<type::float16>::lowest()));
 
     auto runningSumType = mlir::RankedTensorType::get(runningMaxAndSumShape.raw(), mlir::Float32Type::get(ctx));
     auto initRunningSum =
             vpux::Const::createDenseConst(rewriter, appendLoc(origOp->getLoc(), "running_sum"), runningSumType, 0.0f);
 
     auto trueAttr = mlir::BoolAttr::get(ctx, true);
-    auto flashSdpa = rewriter.create<IE::FlashSDPAOp>(appendLoc(origOp->getLoc(), "FlashAttention"), scaledQuery,
-                                                      origOp.getInputK(), origOp.getInputV(), initRunningOutput,
-                                                      initRunningMax, initRunningSum, origOp.getInputMask(),
-                                                      /*isHead*/ trueAttr, /*isTail*/ trueAttr,
-                                                      /*sourceSeqLenPadSize*/ getIntAttr(ctx, 0));
+    auto flashSdpa = IE::FlashSDPAOp::create(rewriter, appendLoc(origOp->getLoc(), "FlashAttention"), scaledQuery,
+                                             origOp.getInputK(), origOp.getInputV(), initRunningOutput, initRunningMax,
+                                             initRunningSum, origOp.getInputMask(),
+                                             /*isHead*/ trueAttr, /*isTail*/ trueAttr,
+                                             /*sourceSeqLenPadSize*/ getIntAttr(ctx, 0));
 
     // Output type depends on the initial running output tensor which is initialized with a fp16 constant
     // Original IE::SDPA operation might have fp32 output type so we need to add a Convert operation
     auto newResult = flashSdpa.getResultRunningOutput();
     if (newResult.getType().getElementType() != origOp.getType().getElementType()) {
-        auto convertToTarget = rewriter.create<IE::ConvertOp>(appendLoc(newResult.getLoc(), "convert"), newResult,
-                                                              origOp.getType().getElementType());
+        auto convertToTarget = IE::ConvertOp::create(rewriter, appendLoc(newResult.getLoc(), "convert"), newResult,
+                                                     origOp.getType().getElementType());
 
         newResult = convertToTarget;
     }

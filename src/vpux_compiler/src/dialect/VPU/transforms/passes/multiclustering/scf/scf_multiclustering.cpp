@@ -100,9 +100,9 @@ void movePadAfterExtractSlice(mlir::tensor::PadOp padOp, ArrayRef<mlir::tensor::
 
         if (!sliceDependsOnForallIv) {
             builder.setInsertionPointAfter(extractSlice);
-            auto innerPad = builder.create<mlir::tensor::PadOp>(padOp.getLoc(), extractSlice->getResult(0).getType(),
-                                                                padOp.getSource(), padLow, padHigh,
-                                                                padOp.getConstantPaddingValue());
+            auto innerPad =
+                    mlir::tensor::PadOp::create(builder, padOp.getLoc(), extractSlice->getResult(0).getType(),
+                                                padOp.getSource(), padLow, padHigh, padOp.getConstantPaddingValue());
             extractSlice.replaceAllUsesWith(innerPad.getResult());
             extractSlice.erase();
             continue;
@@ -147,8 +147,8 @@ void movePadAfterExtractSlice(mlir::tensor::PadOp padOp, ArrayRef<mlir::tensor::
                     {padLow[dim], extractSliceOffsets[dim], zero});
             adjustedPadLow.push_back(adjustedPadLowExpr);
 
-            auto tileSize = builder.create<mlir::tensor::DimOp>(appendLoc(extractSlice.getLoc(), "padding_dim"),
-                                                                padOp.getSource(), static_cast<int64_t>(dim));
+            auto tileSize = mlir::tensor::DimOp::create(builder, appendLoc(extractSlice.getLoc(), "padding_dim"),
+                                                        padOp.getSource(), static_cast<int64_t>(dim));
 
             auto adjustedPadHighExpr = mlir::affine::makeComposedFoldedAffineMax(
                     builder, appendLoc(extractSlice.getLoc(), "adjusted_pad_high"), padHighMap,
@@ -162,12 +162,12 @@ void movePadAfterExtractSlice(mlir::tensor::PadOp padOp, ArrayRef<mlir::tensor::
                                              appendLoc(extractSlice.getLoc(), "unpadded_sz"));
         }
 
-        auto unpaddedSlice = builder.create<mlir::tensor::ExtractSliceOp>(extractSlice.getLoc(), padOp.getSource(),
-                                                                          extractSliceOffsets, extractSliceSizes,
-                                                                          extractSlice.getMixedStrides());
+        auto unpaddedSlice = mlir::tensor::ExtractSliceOp::create(builder, extractSlice.getLoc(), padOp.getSource(),
+                                                                  extractSliceOffsets, extractSliceSizes,
+                                                                  extractSlice.getMixedStrides());
 
-        auto innerPad = builder.create<mlir::tensor::PadOp>(padOp.getLoc(), extractSlice->getResult(0).getType(),
-                                                            unpaddedSlice, adjustedPadLow, adjustedPadHigh);
+        auto innerPad = mlir::tensor::PadOp::create(builder, padOp.getLoc(), extractSlice->getResult(0).getType(),
+                                                    unpaddedSlice, adjustedPadLow, adjustedPadHigh);
 
         mlir::IRMapping mapper;
         padOp.getRegion().cloneInto(&innerPad.getRegion(), mapper);
@@ -203,9 +203,9 @@ void replaceUnnecessaryDimOps(mlir::tensor::PadOp padOp, ArrayRef<mlir::tensor::
                 mlir::affine::makeComposedFoldedAffineApply(builder, appendLoc(padOp.getLoc(), "pad_sz"), padSizeMap,
                                                             {padLow[index.value()], padHigh[index.value()]});
 
-        auto addPad = builder.create<mlir::arith::AddIOp>(
-                appendLoc(dimOp.getLoc(), "pad_dim"), dimOp->getResult(0),
-                mlir::getValueOrCreateConstantIndexOp(builder, dimOp.getLoc(), padSzExpr));
+        auto addPad =
+                mlir::arith::AddIOp::create(builder, appendLoc(dimOp.getLoc(), "pad_dim"), dimOp->getResult(0),
+                                            mlir::getValueOrCreateConstantIndexOp(builder, dimOp.getLoc(), padSzExpr));
 
         dimOp->getResult(0).replaceAllUsesExcept(addPad.getResult(), addPad);
     }
@@ -235,7 +235,8 @@ struct MergeMCTilingConfiguration : MergeConfiguration {
             }
             auto* lastOp = outputs.back();
             auto outputType = mlir::cast<vpux::NDTypeInterface>(lastOp->getResult(0).getType());
-            return VPU::VF::v2::computeVFSCFCase(outputType, vfSplit, config, lastOp, log);
+            return VPU::VF::v2::computeVFSCFCase(outputType, vfSplit, config, lastOp, VFMergeCostMode::PERFORMANCE,
+                                                 log);
         };
         mergeDecision = [](VPU::VF::v2::VFCase& vfCase) -> bool {
             return vfCase.isInitialized();

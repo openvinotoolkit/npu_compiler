@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "npu_interpreter_runtime/virtual_machine.h"
+#include "vm_runtime/virtual_machine.h"
 
 #include <cstdint>
 #include <cstring>

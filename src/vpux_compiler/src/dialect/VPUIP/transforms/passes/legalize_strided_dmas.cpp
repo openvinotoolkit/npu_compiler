@@ -18,6 +18,7 @@
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/utils/network_info_utils.hpp"
 #include "vpux/compiler/utils/dma.hpp"
+#include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <algorithm>
@@ -56,6 +57,13 @@ bool LegalizeStridedDmasPass::isCompatibleViewOp(mlir::ViewLikeOpInterface view)
             return false;
         }
     }
+    if (auto permuteOp = mlir::dyn_cast<VPUIP::PermuteCastOp>(view.getOperation())) {
+        // PermuteCast is only supported if it's a trivial reorder or a pure reshape in memory
+        const auto dstOrder = DimsOrder::fromAffineMap(permuteOp.getDstOrder());
+        return vpux::isPermuteCastCompatible(mlir::cast<NDTypeInterface>(permuteOp.getSource().getType()),
+                                             mlir::cast<NDTypeInterface>(permuteOp.getResult().getType()), dstOrder);
+    }
+
     auto inType = mlir::cast<vpux::NDTypeInterface>(view.getViewSource().getType());
     auto outType = mlir::cast<vpux::NDTypeInterface>(view->getResult(0).getType());
     return areStridesCompatible(inType, outType);
@@ -79,10 +87,10 @@ void LegalizeStridedDmasPass::insertLegalizationDma(mlir::Value incompatibleVal,
         opBuilder.setInsertionPointToStart(blockArg.getOwner());
     }
     auto newLocation = mlir::NameLoc::get(mlir::StringAttr::get(&getContext(), "stridedDMALegalization"));
-    auto newMemref = opBuilder.create<mlir::memref::AllocOp>(newLocation,
-                                                             mlir::cast<mlir::MemRefType>(incompatibleVal.getType()));
+    auto newMemref = mlir::memref::AllocOp::create(opBuilder, newLocation,
+                                                   mlir::cast<mlir::MemRefType>(incompatibleVal.getType()));
     auto originalViewSource = incompatibleVal;
-    auto stridedLoadDma = opBuilder.create<VPUIP::NNDMAOp>(newLocation, originalViewSource, newMemref.getMemref());
+    auto stridedLoadDma = VPUIP::NNDMAOp::create(opBuilder, newLocation, originalViewSource, newMemref.getMemref());
     stridedLoadDma->setAttr(vpux::stridedInputAttrName, mlir::UnitAttr::get(&getContext()));
     originalViewSource.replaceUsesWithIf(stridedLoadDma->getResult(0), [&](mlir::OpOperand& operand) {
         return operand.getOwner() != stridedLoadDma &&
@@ -105,9 +113,9 @@ void LegalizeStridedDmasPass::insertLegalizationDma(mlir::Value incompatibleVal,
         if (lastExitOp && !lastExitOp->isBeforeInBlock(stridedLoadDma)) {
             opBuilder.setInsertionPointAfter(lastExitOp);
         }
-        auto writerConcat = opBuilder.create<VPUIP::ConcatViewOp>(newLocation, concatInput, newMemref.getMemref());
+        auto writerConcat = VPUIP::ConcatViewOp::create(opBuilder, newLocation, concatInput, newMemref.getMemref());
         auto stridedStoreDma =
-                opBuilder.create<VPUIP::NNDMAOp>(newLocation, writerConcat->getResult(0), originalViewSource);
+                VPUIP::NNDMAOp::create(opBuilder, newLocation, writerConcat->getResult(0), originalViewSource);
         stridedStoreDma->setAttr(vpux::stridedOutputAttrName, mlir::UnitAttr::get(&getContext()));
         originalViewSource.replaceUsesWithIf(stridedStoreDma->getResult(0), [&](mlir::OpOperand& operand) {
             return operand.getOwner() != writerConcat &&

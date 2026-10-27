@@ -321,7 +321,7 @@ void FeasibleAllocationPass::updateAsyncExecuteOpPosition(
             continue;
         }
         mlir::Operation* asyncOp = depsInfo.getExecuteOpAtIndex(schedOp.op_);
-        VPUX_THROW_UNLESS(asyncOp != nullptr, "AsyncOp not located based on index");
+        VPUX_THROW_WHEN(asyncOp == nullptr, "AsyncOp not located based on index");
         if (prevAsyncOp != nullptr) {
             asyncOp->moveAfter(prevAsyncOp);
         } else {
@@ -385,7 +385,7 @@ void FeasibleAllocationPass::updateAsyncExecuteOpPositionOfSpillOps(
         }
 
         // store operation dependencies
-        const auto opDeps = depsInfo.getOpDeps(schedOp->op_);
+        const auto& opDeps = depsInfo.getOpDepsUnordered(schedOp->op_);
         spillDepMap[schedOp->op_].insert(opDeps.begin(), opDeps.end());
 
         // store previous queue dependency
@@ -500,7 +500,7 @@ void FeasibleAllocationPass::updateCycleAfterAllScheduleOptimizations(
     // check if all dependencies were scheduled
     auto isOperationReady = [&](size_t opIndex, int64_t& depCycleEnd) {
         mlir::async::ExecuteOp execOp = depsInfo.getExecuteOpAtIndex(opIndex);
-        VPUX_THROW_UNLESS(execOp != nullptr, "Async ExecuteOp not located based on index");
+        VPUX_THROW_WHEN(execOp == nullptr, "Async ExecuteOp not located based on index");
         for (const auto& dep : execOp.getDependencies()) {
             const auto execDep = dep.getDefiningOp<mlir::async::ExecuteOp>();
             const auto indexDep = depsInfo.getIndex(execDep);
@@ -645,11 +645,11 @@ void FeasibleAllocationPass::safeRunOnFunc() {
 
     // cluster information
     auto tileOp = config::getTileExecutor(module);
-    VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE_Cluster information");
+    VPUX_THROW_WHEN(tileOp == nullptr, "Failed to get NCE_Cluster information");
     auto tileCount = tileOp.getCount();
 
     auto dmaPorts = config::getAvailableExecutor(module, config::ExecutorKind::DMA_NN);
-    VPUX_THROW_UNLESS(dmaPorts != nullptr, "Failed to get DMA information");
+    VPUX_THROW_WHEN(dmaPorts == nullptr, "Failed to get DMA information");
     auto dmaCount = dmaPorts.getCount();
 
     // linear scan

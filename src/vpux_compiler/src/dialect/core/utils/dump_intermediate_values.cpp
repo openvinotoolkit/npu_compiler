@@ -228,7 +228,7 @@ private:
                 ddrType = mlir::cast<NDTypeInterface>(distType.getCompactType());
             }
             ddrType = ddrType.changeMemSpace(ddrMemSpace);
-            return builder.create<VPU::CopyOp>(value.getLoc(), ddrType, value, ddrMemSpace)->getResult(0);
+            return VPU::CopyOp::create(builder, value.getLoc(), ddrType, value, ddrMemSpace)->getResult(0);
         };
 
         for (auto& dumpedResult : dumpedResults) {
@@ -268,8 +268,8 @@ private:
                 resultTypes.append(newReturnedTypes);
 
                 mlir::OpBuilder builder(callOp);
-                const auto newCallOp = builder.create<mlir::func::CallOp>(callOp.getLoc(), callOp.getCalleeAttr(),
-                                                                          resultTypes, callOp->getOperands());
+                const auto newCallOp = mlir::func::CallOp::create(builder, callOp.getLoc(), callOp.getCalleeAttr(),
+                                                                  resultTypes, callOp->getOperands());
                 for (const auto& [origResult, newResult] : zip(origResults, newCallOp->getResults())) {
                     origResult.replaceAllUsesWith(newResult);
                 }
@@ -352,7 +352,7 @@ private:
             typeComponents.setStrides(StridesRef(type.getMemStrides().raw()));
             typeComponents.setDimsOrder(DimsOrder::fromNumDims(type.getRank()));
             type = type.changeTypeComponents(typeComponents);
-            outputsInfoBuilder.create<net::DataInfoOp>(loc, name, type);
+            net::DataInfoOp::create(outputsInfoBuilder, loc, name, type);
             _log.nest().debug("Added output info: name='{0}', type='{1}'", name, type);
         }
         return mlir::success();

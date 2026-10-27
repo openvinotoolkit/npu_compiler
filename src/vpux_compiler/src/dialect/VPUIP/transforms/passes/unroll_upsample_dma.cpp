@@ -86,7 +86,7 @@ void shapeReorder(VPUIP::UpsamplingDMAOp upsamplingDMAOp, mlir::PatternRewriter&
     const auto origConstType = mlir::cast<vpux::NDTypeInterface>(cst.getType());
     const auto newConstType = origConstType.changeShape(finalShape);
     auto newConstAttr = cst.transformContentAttr().reshape(finalShape).get();
-    auto newCst = rewriter.create<Const::DeclareOp>(upsamplingDMAOp.getLoc(), newConstType, std::move(newConstAttr));
+    auto newCst = Const::DeclareOp::create(rewriter, upsamplingDMAOp.getLoc(), newConstType, std::move(newConstAttr));
     rewriter.replaceOp(upsamplingDMAOp.getInput().getDefiningOp(), newCst.getOutput());
 }
 
@@ -96,7 +96,7 @@ mlir::Value getNewSrcBuffer(VPUIP::UpsamplingDMAOp upsamplingDMAOp, mlir::Patter
     SmallVector<int64_t> offsetVec(inputShape.size(), 0);
     offsetVec[Dims4D::Act::H.ind()] = currentOffset;
     currentOffset += inputShape[Dims4D::Act::H];
-    return rewriter.create<VPUIP::SubViewOp>(upsamplingDMAOp->getLoc(), cst, offsetVec, inputShape.raw());
+    return VPUIP::SubViewOp::create(rewriter, upsamplingDMAOp->getLoc(), cst, offsetVec, inputShape.raw());
 }
 
 mlir::LogicalResult UpsamplingDMARewriter::matchAndRewrite(VPUIP::UpsamplingDMAOp upsamplingDMAOp,
@@ -107,7 +107,7 @@ mlir::LogicalResult UpsamplingDMARewriter::matchAndRewrite(VPUIP::UpsamplingDMAO
     }
     auto parentOp = upsamplingDMAOp.getInput().getDefiningOp();
     auto vpurtTask = upsamplingDMAOp->getParentOfType<VPURT::TaskOp>();
-    VPUX_THROW_UNLESS(vpurtTask != nullptr, "Can't get VPURT task operation");
+    VPUX_THROW_WHEN(vpurtTask == nullptr, "Can't get VPURT task operation");
     rewriter.setInsertionPointAfter(vpurtTask);
 
     auto inType = mlir::cast<vpux::NDTypeInterface>(upsamplingDMAOp.getInput().getType());
@@ -118,7 +118,7 @@ mlir::LogicalResult UpsamplingDMARewriter::matchAndRewrite(VPUIP::UpsamplingDMAO
     VPUX_THROW_UNLESS((mlir::isa<VPURT::DeclareBufferOp, Const::DeclareOp>(parentOp)),
                       "Can't get buffer for operand: {0}", upsamplingDMAOp.getInput());
     auto dstDeclBuff = upsamplingDMAOp.getOutputBuff().getDefiningOp<VPURT::DeclareBufferOp>();
-    VPUX_THROW_UNLESS(dstDeclBuff != nullptr, "Can't get buffer for operand: {0}", upsamplingDMAOp.getOutputBuff());
+    VPUX_THROW_WHEN(dstDeclBuff == nullptr, "Can't get buffer for operand: {0}", upsamplingDMAOp.getOutputBuff());
 
     inputIsCst = mlir::isa<Const::DeclareOp>(parentOp);
     auto srcType = mlir::cast<vpux::NDTypeInterface>(upsamplingDMAOp.getInput().getType());

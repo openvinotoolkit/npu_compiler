@@ -5,12 +5,13 @@
 
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/loop.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/mem_size.hpp"
 
@@ -205,8 +206,8 @@ bool isOnWeightsPath(mlir::Operation* op, mlir::Type lowPrecisionType, const Log
     return isOnWeightsAsInputPath(op, lowPrecisionType, log);
 }
 
-mlir::LogicalResult WeightsDequantizeStructureInfo::checkAndSet(mlir::Value& out, mlir::Value value,
-                                                                bool allowConstant) const {
+mlir::LogicalResult WeightsDequantizeStructureInfo::checkAndSet(mlir::Value& out, mlir::Value value, bool allowConstant,
+                                                                bool isScalePath) const {
     // Checks if the given Subtract/Multiply input `value` is a valid shift/scale. On success `out` is set to the
     // `mlir::Value` of the shift/scale.
     auto prevOp = opChain.back();
@@ -235,6 +236,15 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::checkAndSet(mlir::Value& out
             out = convertInput;
             return mlir::success();
         }
+
+        if (isScalePath) {
+            if (auto affineReshape = convertInput.getDefiningOp<IE::AffineReshapeOp>()) {
+                if (mlir::isa<mlir::BlockArgument>(affineReshape.getInput())) {
+                    out = convert.getResult();
+                    return mlir::success();
+                }
+            }
+        }
     }
 
     if (auto stridedSlice = mlir::dyn_cast<IE::StridedSliceOp>(definingOp)) {
@@ -248,6 +258,12 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::checkAndSet(mlir::Value& out
     if (auto gather = mlir::dyn_cast<IE::GatherOp>(definingOp)) {
         const auto gatherInput = gather.getInput();
         if (mlir::isa<mlir::BlockArgument>(gatherInput)) {
+            out = gather.getResult();
+            return mlir::success();
+        }
+
+        if (isScalePath && gatherInput.getDefiningOp<Const::DeclareOp>() != nullptr &&
+            gather.getIndices().getDefiningOp<Const::DeclareOp>() == nullptr) {
             out = gather.getResult();
             return mlir::success();
         }
@@ -266,8 +282,8 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::checkAndSet(mlir::Value& out
 
 mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::MultiplyOp& multiplyOp) {
     // Retrieve scale
-    if (mlir::failed(checkAndSet(scale, multiplyOp.getInput2(), /*allowConstant=*/true)) &&
-        mlir::failed(checkAndSet(scale, multiplyOp.getInput1(), /*allowConstant=*/false))) {
+    if (mlir::failed(checkAndSet(scale, multiplyOp.getInput2(), /*allowConstant=*/true, /*isScalePath=*/true)) &&
+        mlir::failed(checkAndSet(scale, multiplyOp.getInput1(), /*allowConstant=*/false, /*isScalePath=*/true))) {
         log.trace("Match failed: Failed to retrieve scale from {0}", multiplyOp->getName());
         return mlir::failure();
     }
@@ -283,7 +299,7 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::Mult
 
 mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::SubtractOp& subtractOp) {
     // Retrieve shift. Default shift to the second operand of Subtract to avoid confusion with weights
-    if (mlir::failed(checkAndSet(shift, subtractOp.getInput2(), /*allowConstant=*/true))) {
+    if (mlir::failed(checkAndSet(shift, subtractOp.getInput2(), /*allowConstant=*/true, /*isScalePath=*/false))) {
         log.trace("Match failed: Failed to retrieve shift from {0}", subtractOp->getName());
         return mlir::failure();
     }
@@ -461,7 +477,7 @@ mlir::Value getTrueInputValue(mlir::Operation* op, mlir::PatternRewriter& rewrit
         transformations.push_back(Const::CastElemTypeAttr::get(elemType));
         auto newType = mlir::cast<vpux::NDTypeInterface>(declareOp.getOutput().getType()).changeElemType(elemType);
         auto baseContentAttr = Const::ContentAttr::get(contentAttr.getBaseContent(), transformations);
-        return rewriter.create<Const::DeclareOp>(appendLoc(op->getLoc(), "base_shift"), newType, baseContentAttr)
+        return Const::DeclareOp::create(rewriter, appendLoc(op->getLoc(), "base_shift"), newType, baseContentAttr)
                 .getOutput();
     } else if (auto convertOp = mlir::dyn_cast_or_null<IE::ConvertOp>(op)) {
         // Historically, assume that convert op's input is weights. This assumption holds when
@@ -491,15 +507,18 @@ int64_t getQuantizationLevels(mlir::Type inputElemType) {
     // weights, we do not need to know real values, because it does not affect
     // accuracy (or, should not, at least).
     if (inputElemType.isInteger(2)) {
-        return 4;
+        return QuantizationLevels::QUANT_LEVELS_2BIT;
     }
     if (inputElemType.isInteger(4)) {
-        return 16;
+        return QuantizationLevels::QUANT_LEVELS_4BIT;
     }
     if (inputElemType.isInteger(8)) {
-        return 256;
+        return QuantizationLevels::QUANT_LEVELS_8BIT;
     }
-    if (const auto qfType = mlir::dyn_cast<vpux::type::QuantileType>(inputElemType)) {
+    if (inputElemType.isInteger(16)) {
+        return QuantizationLevels::QUANT_LEVELS_16BIT;
+    }
+    if (const auto qfType = mlir::dyn_cast<mlir::quant::QuantileType>(inputElemType)) {
         return (1LL << qfType.getStorageWidth());
     }
 
@@ -696,7 +715,7 @@ std::set<int64_t> findAxes(IE::DynamicDequantizeOp origOp) {
 }
 
 template <>
-type::QuantileType tryParsingNF4(Const::DeclareOp constOp) {
+mlir::quant::QuantileType tryParsingNF4(Const::DeclareOp constOp) {
     // Note: NF4 is special: the raw data is 4-bit int, but - due to quantiles -
     // its range is not standard quantization range - it is instead deduced from
     // quantiles.
@@ -710,8 +729,8 @@ type::QuantileType tryParsingNF4(Const::DeclareOp constOp) {
     for (const auto& transform : contentAttr.getTransformations()) {
         // if there is a cast to NF4, it means the constant is NF4.
         if (auto cast = mlir::dyn_cast<Const::CastElemTypeAttr>(transform);
-            cast && mlir::isa<type::QuantileType>(cast.getElemType())) {
-            return mlir::cast<type::QuantileType>(cast.getElemType());
+            cast && mlir::isa<mlir::quant::QuantileType>(cast.getElemType())) {
+            return mlir::cast<mlir::quant::QuantileType>(cast.getElemType());
         }
     }
     return nullptr;

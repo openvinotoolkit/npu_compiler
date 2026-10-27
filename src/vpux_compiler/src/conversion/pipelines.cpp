@@ -44,9 +44,8 @@ void vpux::buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, bool enableInPla
         pm.addPass(createInPlaceBufferizationAnalyzePass());
     }
     pm.addPass(createOneShotBufferizeVPU2VPUIPPass());
-    pm.addPass(VPUIP::createConvertDynamicMemrefsToBoundedBuffersPass(log));
     pm.addPass(VPUIP::createUngroupBoundedBuffersAsFuncArgsPass(log));
-    pm.addPass(VPUIP::createUngroupHostBuffersAsFuncArgsPass(log));
+    pm.addPass(VPUIP::createConvertDynamicMemrefsToBoundedBuffersPass(log));
     pm.addPass(createAddBuffersForNetResults(useMemrefForHostFunctionBufferization, log));
     // Note: during this VPU -> VPUIP lowering, one can only canonicalize IR
     // *after* add-buffers-for-net-results pass since memory-effects interface,
@@ -78,6 +77,8 @@ void vpux::ShaveCodeGen::buildShaveCodeGenPipelineIE(mlir::OpPassManager& pm, Lo
 
     ShaveCodeGen::buildLowerSwLayers2LinalgPipeline(pm, log);
     pm.addPass(mlir::createLinalgElementwiseOpFusionPass());
+    pm.addPass(ShaveCodeGen::createDecomposeAggregateOpsPass());
+    pm.addPass(ShaveCodeGen::createShaveKernelSimplifyPass());
     pm.addPass(mlir::createCanonicalizerPass());
     if (enableShaveCodeGenTiling) {
         // Don't fold unit dims as that changes tensor ranks making ops
@@ -94,7 +95,6 @@ void vpux::ShaveCodeGen::buildShaveCodeGenPipelineIE(mlir::OpPassManager& pm, Lo
 }
 
 void vpux::ShaveCodeGen::buildShaveCodeGenPipelineVPU(mlir::OpPassManager& pm, Logger, bool enableShaveCodeGenTiling) {
-    pm.addPass(ShaveCodeGen::createShaveKernelSimplifyPass());
     const auto grc = getDefaultGreedyRewriteConfig();
     // Move kernel results to arguments before doing any other
     // optimizations. This allows us to see a simpler form of the IR
@@ -106,7 +106,6 @@ void vpux::ShaveCodeGen::buildShaveCodeGenPipelineVPU(mlir::OpPassManager& pm, L
     // optimization passes (specifically FlattenEltwiseKernel).
     pm.addPass(ShaveCodeGen::createMoveKernelResultsToArgumentsPass());
 
-    pm.addPass(ShaveCodeGen::createDecomposeAggregateOpsPass());
     if (!enableShaveCodeGenTiling) {
         // Temporarily remove this pass when tiling is enabled since this triggers
         // some issues around memref reshapes on dynamic shapes. These have already been

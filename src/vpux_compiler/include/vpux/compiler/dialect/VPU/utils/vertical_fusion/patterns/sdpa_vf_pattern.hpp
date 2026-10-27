@@ -16,7 +16,7 @@ public:
     // Try to match and merge an SDPA-related VF chain rooted at rootOp.
     mlir::FailureOr<VPU::VerticalFusionOp> tryMerge(VPU::VerticalFusionOp rootOp, mlir::RewriterBase& rewriter,
                                                     const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                                    Logger log) const override;
+                                                    VFMergeCostMode costMode, Logger log) const override;
 
     // Return the stable pattern name used by VF pattern matcher diagnostics.
     StringRef getPatternName() const override {
@@ -45,7 +45,7 @@ private:
     // Build and return the best VF scheduling case for mergedOp using the provided cost function.
     std::optional<VPU::VF::v2::VFCase> buildVFCase(VPU::VerticalFusionOp mergedOp,
                                                    const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
-                                                   Logger log) const;
+                                                   VFMergeCostMode costMode, Logger log) const;
 };
 
 }  // namespace VPU

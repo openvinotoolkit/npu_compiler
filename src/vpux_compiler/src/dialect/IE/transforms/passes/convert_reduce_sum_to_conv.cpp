@@ -47,10 +47,10 @@ IE::ConvolutionOp createConvolution(mlir::Value activation, mlir::Value weights,
     const auto kernelPadsEnd = getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0});
     const auto dilations = getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
 
-    return (outType == nullptr) ? rewriter.create<IE::ConvolutionOp>(newLoc, activation, weights, strides,
-                                                                     kernelPadsBegin, kernelPadsEnd, dilations)
-                                : rewriter.create<IE::ConvolutionOp>(newLoc, outType, activation, weights, strides,
-                                                                     kernelPadsBegin, kernelPadsEnd, dilations);
+    return (outType == nullptr) ? IE::ConvolutionOp::create(rewriter, newLoc, activation, weights, strides,
+                                                            kernelPadsBegin, kernelPadsEnd, dilations)
+                                : IE::ConvolutionOp::create(rewriter, newLoc, outType, activation, weights, strides,
+                                                            kernelPadsBegin, kernelPadsEnd, dilations);
 }
 
 //
@@ -346,8 +346,8 @@ mlir::LogicalResult OuterDimReduceSumToConvRewriter::matchAndRewrite(IE::ReduceS
 
     // Reshape to 4D: [1, A, D1*D2*..., 1] mapping the reduce dimension to IC.
     const auto newInputShape = Shape({1, reduceSize, mergedRest, 1});
-    auto inReshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(origLoc, "reshape_to_4d"), origOp.getInput(),
-                                                      getIntArrayAttr(ctx, newInputShape));
+    auto inReshapeOp = IE::ReshapeOp::create(rewriter, appendLoc(origLoc, "reshape_to_4d"), origOp.getInput(),
+                                             getIntArrayAttr(ctx, newInputShape));
 
     // Create Conv filter [1, A, 1, 1] with all-ones weights
     auto weights = createConvFilter(inReshapeOp.getOutput(), rewriter);
@@ -358,8 +358,8 @@ mlir::LogicalResult OuterDimReduceSumToConvRewriter::matchAndRewrite(IE::ReduceS
 
     // Reshape Conv output to the original ReduceSum output shape
     const auto outShape = getShape(origOp.getOutput());
-    auto outReshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(origLoc, "reshape_output"), conv.getOutput(),
-                                                       getIntArrayAttr(ctx, outShape));
+    auto outReshapeOp = IE::ReshapeOp::create(rewriter, appendLoc(origLoc, "reshape_output"), conv.getOutput(),
+                                              getIntArrayAttr(ctx, outShape));
 
     rewriter.replaceOp(origOp, outReshapeOp);
 
@@ -453,13 +453,13 @@ mlir::LogicalResult InnerDimReduceSumToConvRewriter::matchAndRewrite(IE::ReduceS
     auto newInputShape = Shape({1, newH, newW, newC});
     const auto newInShapeAttr = getIntArrayAttr(getContext(), newInputShape);
     auto inReshapeOp =
-            rewriter.create<IE::ReshapeOp>(appendLoc(origLoc, "input_reshape"), origOp->getOperand(0), newInShapeAttr);
+            IE::ReshapeOp::create(rewriter, appendLoc(origLoc, "input_reshape"), origOp->getOperand(0), newInShapeAttr);
 
     // Cast input to NHWC as Conv activation
     auto identityMap = mlir::AffineMap::getMultiDimIdentityMap(checked_cast<uint32_t>(newInputShape.size()), ctx);
     auto inPermuteCastOp =
-            rewriter.create<IE::PermuteCastOp>(appendLoc(origLoc, "input_permute_cast"), inReshapeOp.getOutput(),
-                                               DimsOrder::NHWC.toAffineMap(ctx), identityMap);
+            IE::PermuteCastOp::create(rewriter, appendLoc(origLoc, "input_permute_cast"), inReshapeOp.getOutput(),
+                                      DimsOrder::NHWC.toAffineMap(ctx), identityMap);
 
     // Create filter and Conv
     auto weights = createConvFilter(inPermuteCastOp.getOutput(), rewriter);
@@ -470,10 +470,11 @@ mlir::LogicalResult InnerDimReduceSumToConvRewriter::matchAndRewrite(IE::ReduceS
     auto conv = createConvolution(inPermuteCastOp.getOutput(), weights, convLoc, rewriter, convOutputType);
 
     // Cast Conv output to the original order and shape
-    auto outPermuteCast = rewriter.create<IE::PermuteCastOp>(
-            appendLoc(origLoc, "output_permute_cast"), conv.getOutput(), DimsOrder::NCHW.toAffineMap(ctx), identityMap);
-    auto outReshapeOp = rewriter.create<IE::ReshapeOp>(appendLoc(origLoc, "output_reshape"), outPermuteCast.getOutput(),
-                                                       getIntArrayAttr(ctx, getShape(origOp.getOutput())));
+    auto outPermuteCast = IE::PermuteCastOp::create(rewriter, appendLoc(origLoc, "output_permute_cast"),
+                                                    conv.getOutput(), DimsOrder::NCHW.toAffineMap(ctx), identityMap);
+    auto outReshapeOp =
+            IE::ReshapeOp::create(rewriter, appendLoc(origLoc, "output_reshape"), outPermuteCast.getOutput(),
+                                  getIntArrayAttr(ctx, getShape(origOp.getOutput())));
 
     rewriter.replaceOp(origOp, outReshapeOp);
 

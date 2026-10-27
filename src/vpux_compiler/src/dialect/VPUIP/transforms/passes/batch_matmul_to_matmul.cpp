@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
@@ -48,7 +48,7 @@ mlir::Type typeTo4D(const mlir::Type type) {
         const auto origQuantAxis = perAxisType.getQuantizedDimension();
         VPUX_THROW_WHEN(origQuantAxis <= 0, "Quantization over batch is not supported.");
         const auto newQuantAxis = origQuantAxis - 1;
-        if (const auto quantileStorage = mlir::dyn_cast<vpux::type::QuantileType>(perAxisType.getStorageType())) {
+        if (const auto quantileStorage = mlir::dyn_cast<mlir::quant::QuantileType>(perAxisType.getStorageType())) {
             elemType = mlir::quant::UniformQuantizedPerAxisType::get(
                     perAxisType.getFlags(), quantileStorage, perAxisType.getExpressedType(), perAxisType.getScales(),
                     perAxisType.getZeroPoints(), newQuantAxis, perAxisType.getStorageTypeMin(),
@@ -138,6 +138,13 @@ mlir::LogicalResult MatMulRewriter::matchAndRewrite(VPURT::TaskOp vpurtTask, mli
     auto sharedZeroPointTable4d =
             zeroPointTable != nullptr ? createNewValue(zeroPointTable, /*step=*/0, rewriter) : nullptr;
 
+    // When reuse is enabled, the legacy weight table has G=1 and is shared across all groups.
+    const auto weightTable = nceOp.getWeightTable();
+    const bool isSharedWeightTable =
+            weightTable != nullptr &&
+            mlir::cast<vpux::NDTypeInterface>(weightTable.getType()).getShape()[DimsGroups5D::Filter::G] == 1;
+    auto sharedWeightTable4d = isSharedWeightTable ? createNewValue(weightTable, /*step=*/0, rewriter) : nullptr;
+
     const auto parentInputStep = getStep(nceOp.getParentInput().getType());
     const auto parentOutputStep = getStep(nceOp.getParentOutput().getType());
     const auto outputProducerStep = getStep(nceOp.getOutputBuff().getType());
@@ -160,8 +167,13 @@ mlir::LogicalResult MatMulRewriter::matchAndRewrite(VPURT::TaskOp vpurtTask, mli
         mapper.map(innerTask.getInput(), inputProducer4d);
         mapper.map(innerTask.getWeights(), weightProducer4d);
         if (innerTask.getWeightTable() != nullptr) {
-            auto weightTableProducer4d = createNewValue(innerTask.getWeightTable(), weightTableStep * pos, rewriter);
-            mapper.map(innerTask.getWeightTable(), weightTableProducer4d);
+            if (isSharedWeightTable) {
+                mapper.map(innerTask.getWeightTable(), sharedWeightTable4d);
+            } else {
+                auto weightTableProducer4d =
+                        createNewValue(innerTask.getWeightTable(), weightTableStep * pos, rewriter);
+                mapper.map(innerTask.getWeightTable(), weightTableProducer4d);
+            }
         }
         if (innerTask.getWeightTableScale() != nullptr) {
             mapper.map(innerTask.getWeightTableScale(), sharedScaleTable4d);

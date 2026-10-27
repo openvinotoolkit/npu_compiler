@@ -32,7 +32,7 @@ func.func @SplitNCEPermute(%arg0: tensor<1x31x224x224xf16>) -> tensor<1x32x224x2
     // CHECK-SAME:          dstElemType = !qElemType,
     // CHECK-SAME:          dstOrder = #NHWC,
     // CHECK-SAME:          expandedChannels = 16 : i64
-    // CHECK-SAME:          ppe = #VPU.PPEStub<>,
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 0>}, ppe = #VPU.PPEStub<>,
     // CHECK-SAME:          tiling_loop_index = 0 : i64}
     // CHECK-SAME:      -> tensor<1x16x224x224x!qElemType, {order = #NHWC}>
 
@@ -45,7 +45,7 @@ func.func @SplitNCEPermute(%arg0: tensor<1x31x224x224xf16>) -> tensor<1x32x224x2
     // CHECK-SAME:          dstElemType = !qElemType,
     // CHECK-SAME:          dstOrder = #NHWC,
     // CHECK-SAME:          expandedChannels = 16 : i64,
-    // CHECK-SAME:          ppe = #VPU.PPEStub<>,
+    // CHECK-SAME:          loop_tile_coord = {axes = array<i64: 1>, indices = array<i64: 1>}, ppe = #VPU.PPEStub<>,
     // CHECK-SAME:          tiling_loop_index = 0 : i64}
     // CHECK-SAME:      -> tensor<1x16x224x224x!qElemType, {order = #NHWC}>
 

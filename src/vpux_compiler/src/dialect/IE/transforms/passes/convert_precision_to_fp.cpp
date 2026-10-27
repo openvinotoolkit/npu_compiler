@@ -52,33 +52,33 @@ namespace {
 // seems to be "all". However, clamping non-splats produced inaccurate results
 // according to tests. This needs to be debugged properly to understand why. The
 // logic here is a *workaround* to have sustainable development in the meantime.
-Const::ContentAttr clampF16Splat(const Const::ContentAttr& input) {
-    if (!input.isSplat()) {
-        // Note: clamping values in the pass here is OK, because this logic only
-        // works for *splats* (aka single-value constants) and calculating
-        // splats is *fast*. If there is ever a need for a proper solution, this
-        // has to be migrated to a constant transformation (likely, to
-        // #const.ConvertElemType<f16>).
-        return nullptr;
+Const::ContentAttr clampF16(const Const::ContentAttr& input) {
+    // For splat constants only apply the clamp when the value overflows to ±inf in f16,
+    // to avoid adding a no-op #const.Clamp to in-range splat constants.
+    if (input.isSplat()) {
+        const auto splatValue = input.fold().getSplatValue<float>();
+        if (!std::isinf(vpux::type::float16(splatValue))) {
+            return nullptr;
+        }
     }
+    const auto f16Lowest = static_cast<double>(std::numeric_limits<vpux::type::float16>::lowest());
+    const auto f16Max = static_cast<double>(std::numeric_limits<vpux::type::float16>::max());
+    return input.transform().clamp(f16Lowest, f16Max).get();
+}
 
-    // Note: fp16 internal ctor would convert any type to float thus get float
-    // value from the input directly.
-    const auto splatValue = input.fold().getSplatValue<float>();
-    const auto splatValueFp16 = vpux::type::float16(splatValue);
-    if (!std::isinf(splatValueFp16)) {
-        // no need to clamp - can use the existing content attr
-        return nullptr;
+// Returns true when the constant feeds a SelectOp as a data input (input2 or input3).
+bool isSelectDataInput(Const::DeclareOp constOp) {
+    for (auto& use : constOp.getResult().getUses()) {
+        auto selectOp = mlir::dyn_cast<IE::SelectOp>(use.getOwner());
+        if (selectOp == nullptr) {
+            continue;
+        }
+        if (use.getOperandNumber() == 0) {
+            continue;  // condition input, not a data input
+        }
+        return true;
     }
-    const auto clampedFp16 = std::numeric_limits<vpux::type::float16>::clamp(splatValueFp16);
-
-    const auto dataType = input.getType().changeElemType(mlir::Float16Type::get(input.getContext()));
-    const auto content = Const::createConstContent(mlir::cast<mlir::ShapedType>(dataType), ArrayRef{clampedFp16});
-
-    // Note: Cast to current input type to ensure compatibility with existing
-    // constant operation. This cast costs nothing and is likely to be fused
-    // with other casts.
-    return Const::ContentAttr::get(content, {Const::CastElemTypeAttr::get(input.getType().getElementType())});
+    return false;
 }
 
 void insertEpsilonClamp(mlir::OpBuilder& builder, mlir::Operation* divLikeOp, mlir::Operation* op) {
@@ -117,6 +117,29 @@ void insertEpsilonClamp(mlir::OpBuilder& builder, mlir::Operation* divLikeOp, ml
         }
     }
 
+    // When the type-conversion phase inserts a ConvertOp after
+    // a constant-derived op (e.g. DynamicDequantize of compile-time weights), the Divide's
+    // denominator becomes ConvertOp -> DynDeq(const) instead of FQ(const). Only skip ops
+    // known to wrap a compile-time-constant input this way; a generic "first operand is
+    // const" check would also match non-constant producers (e.g. Add(const, var)).
+    if (auto cvtOp = mlir::dyn_cast<IE::ConvertOp>(op)) {
+        if (auto* srcOp = cvtOp.getInput().getDefiningOp()) {
+            if (mlir::isa<Const::DeclareOp>(srcOp)) {
+                return;
+            }
+            if (auto dynDQ = mlir::dyn_cast<IE::DynamicDequantizeOp>(srcOp)) {
+                if (dynDQ.getInput().getDefiningOp<Const::DeclareOp>() != nullptr) {
+                    return;
+                }
+            }
+            if (auto fq = mlir::dyn_cast<IE::FakeQuantizeOp>(srcOp)) {
+                if (fq.getInput().getDefiningOp<Const::DeclareOp>() != nullptr) {
+                    return;
+                }
+            }
+        }
+    }
+
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
     if (!outputType.getElementType().isF16()) {
         return;
@@ -129,7 +152,7 @@ void insertEpsilonClamp(mlir::OpBuilder& builder, mlir::Operation* divLikeOp, ml
     auto ctx = op->getContext();
     auto clampMin = getFPAttr(ctx, std::numeric_limits<type::float16>::nearest_non_zero_positive_value);
     auto clampMax = getFPAttr(ctx, static_cast<double>(std::numeric_limits<type::float16>::max()));
-    auto newClampOp = builder.create<IE::ClampOp>(takeOpLoc(op, "epsilon"), op->getResult(0), clampMin, clampMax);
+    auto newClampOp = IE::ClampOp::create(builder, takeOpLoc(op, "epsilon"), op->getResult(0), clampMin, clampMax);
 
     useResult.assign(newClampOp.getResult());
 }
@@ -366,48 +389,6 @@ private:
     OperandIndexMap _preservedScalesOperandIdx;
 };
 
-bool isReduceSquareCoreOp(mlir::Operation* op) {
-    return mlir::isa<IE::PowerOp, IE::ReduceSumOp, IE::SqrtOp>(op);
-}
-
-bool hasReduceSquareCoreProducer(mlir::Operation* producer) {
-    if (producer != nullptr && isReduceSquareCoreOp(producer)) {
-        return true;
-    }
-
-    auto prevConvert = mlir::dyn_cast_or_null<IE::ConvertOp>(producer);
-    if (prevConvert == nullptr) {
-        return false;
-    }
-
-    return isReduceSquareCoreOp(prevConvert.getInput().getDefiningOp());
-}
-
-bool hasReduceSquareCoreUser(mlir::Value output) {
-    for (auto* user : output.getUsers()) {
-        if (isReduceSquareCoreOp(user)) {
-            return true;
-        }
-
-        auto nextConvert = mlir::dyn_cast<IE::ConvertOp>(user);
-        if (nextConvert == nullptr) {
-            continue;
-        }
-
-        if (llvm::any_of(nextConvert.getOutput().getUsers(), [](mlir::Operation* nextUser) {
-                return isReduceSquareCoreOp(nextUser);
-            })) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool isConvertConnectedToReduceSquare(IE::ConvertOp op) {
-    return hasReduceSquareCoreProducer(op.getInput().getDefiningOp()) || hasReduceSquareCoreUser(op.getOutput());
-}
-
 //
 // ConvertPrecisionToFPPass
 //
@@ -506,6 +487,7 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
     target.addLegalOp<IE::LessOp>();
     target.addLegalOp<IE::LessEqualOp>();
     target.addLegalOp<IE::GreaterOp>();
+    target.addLegalOp<IE::GreaterEqualOp>();
     target.addLegalOp<IE::NotEqualOp>();
     target.addLegalOp<IE::IsInfOp>();
     target.addLegalOp<IE::IsFiniteOp>();
@@ -519,7 +501,6 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
     target.addLegalOp<IE::BitwiseRightShiftOp>();
     target.addLegalOp<IE::BitwiseLeftShiftOp>();
     target.addLegalOp<IE::RangeOp>();
-    target.addLegalOp<IE::ReduceL2Op>();
     target.addLegalOp<IE::InverseOp>();
     target.addLegalOp<IE::SelectOp>();
     target.addDynamicallyLegalOp<mlir::func::FuncOp>([&](mlir::func::FuncOp funcOp) {
@@ -529,37 +510,28 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
     SmallVector<mlir::OperationName> highPrecisionOps;
     const auto internalHintPrefix = "internal_";
     auto internalMvnHighNorm = false;
-    auto hasReduceSquareHigherPrecision = false;
 
-    // Supported values for compute-layers-with-higher-precision:
+    // Supported Add-related values for compute-layers-with-higher-precision:
     //   "Add"               — keep ALL Add ops in f32
     //   "Add_RMSNorm"       — keep only the epsilon Add inside RMS decomposition
     //                         (ReduceMean -> Add -> Sqrt)
     //   "Add_BeforeRMSNorm" — keep only the residual Add whose output feeds into
     //                         IE.RMSOp. Should be used together with "RMS" to
     //                         ensure the full Add -> RMS path stays in f32.
-    //   "ReduceSquare"      — keep Power, ReduceSum and Sqrt in the
-    //                         Power(x,2) -> ReduceSum -> Sqrt pattern in f32
 
     if (!_computeLayersWithHigherPrecision.empty()) {
         std::istringstream optionsStream(_computeLayersWithHigherPrecision);
         std::string dialectNamespace = IE::IEDialect::getDialectNamespace().str() + ".";
         const std::string addRMSNormOption = "Add_RMSNorm";
         const std::string addBeforeRMSNormOption = "Add_BeforeRMSNorm";
-        const std::string reduceSquareOption = "ReduceSquare";
         std::string option;
         while (std::getline(optionsStream, option, ',')) {
             bool isAddRMSNorm = option == addRMSNormOption;
             bool isAddBeforeRMSNormOption = option == addBeforeRMSNormOption;
-            bool isReduceSquare = option == reduceSquareOption;
             // Both Add_RMSNorm and Add_BeforeRMSNorm are sub-options of "Add" op,
             // so map them to "Add" for opname validation
             if (isAddRMSNorm || isAddBeforeRMSNormOption) {
                 option = std::string("Add");
-            }
-            // ReduceSquare is a virtual op name — the actual pattern is Power+ReduceSum+Sqrt
-            if (isReduceSquare) {
-                option = std::string("Power");
             }
 
             if (option.find(internalHintPrefix, 0) != std::string::npos) {
@@ -597,59 +569,6 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
                     }
                     return isLegalOp(op);
                 });
-            } else if (isReduceSquare) {
-                hasReduceSquareHigherPrecision = true;
-                // ReduceSquare pattern: Power(x,2) -> ReduceSum -> Sqrt
-                // Keep all three ops at higher precision
-                target.addDynamicallyLegalOp<IE::PowerOp>([&](IE::PowerOp op) {
-                    auto constOp = op.getInput2().getDefiningOp<Const::DeclareOp>();
-                    if (constOp == nullptr || !constOp.getContentAttr().isSplat()) {
-                        return isLegalOp(op);
-                    }
-                    if (constOp.getContent().getSplatValue<double>() != 2.0) {
-                        return isLegalOp(op);
-                    }
-                    if (!op->hasOneUse() || !mlir::isa<IE::ReduceSumOp>(*op->getUsers().begin())) {
-                        return isLegalOp(op);
-                    }
-                    return true;
-                });
-                target.addDynamicallyLegalOp<IE::ReduceSumOp>([&](IE::ReduceSumOp op) {
-                    auto inputOp = op.getInput().getDefiningOp<IE::PowerOp>();
-                    if (inputOp == nullptr || !inputOp->hasOneUse()) {
-                        return isLegalOp(op);
-                    }
-                    auto constOp = inputOp.getInput2().getDefiningOp<Const::DeclareOp>();
-                    if (constOp == nullptr || !constOp.getContentAttr().isSplat() ||
-                        constOp.getContent().getSplatValue<double>() != 2.0) {
-                        return isLegalOp(op);
-                    }
-                    if (!op->hasOneUse() || !mlir::isa<IE::SqrtOp>(*op->getUsers().begin())) {
-                        return isLegalOp(op);
-                    }
-                    return true;
-                });
-                target.addDynamicallyLegalOp<IE::SqrtOp>([&](IE::SqrtOp op) {
-                    auto reduceSumOp = op.getInput().getDefiningOp<IE::ReduceSumOp>();
-                    if (reduceSumOp == nullptr || !reduceSumOp->hasOneUse()) {
-                        return isLegalOp(op);
-                    }
-                    auto inputOp = reduceSumOp.getInput().getDefiningOp<IE::PowerOp>();
-                    if (inputOp == nullptr || !inputOp->hasOneUse()) {
-                        return isLegalOp(op);
-                    }
-                    auto constOp = inputOp.getInput2().getDefiningOp<Const::DeclareOp>();
-                    if (constOp == nullptr || !constOp.getContentAttr().isSplat() ||
-                        constOp.getContent().getSplatValue<double>() != 2.0) {
-                        return isLegalOp(op);
-                    }
-                    return true;
-                });
-
-                // if any of these remain in FP64, convert them to FP32.
-                highPrecisionOps.push_back(mlir::OperationName(IE::PowerOp::getOperationName(), &ctx));
-                highPrecisionOps.push_back(mlir::OperationName(IE::ReduceSumOp::getOperationName(), &ctx));
-                highPrecisionOps.push_back(mlir::OperationName(IE::SqrtOp::getOperationName(), &ctx));
             } else {
                 target.addLegalOp(opname);
                 highPrecisionOps.push_back(opname);
@@ -659,11 +578,18 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
 
     // E#160869: Splat floating-point constants must be clamped, not converted,
     // to ensure accurate results (e.g. when comparing to CPU inference).
+    // - Splat constants: always clamped when the value overflows to ±inf in f16.
+    // - Non-splat constants: clamped when fed as a data input to SelectOp.
     module.walk([&](Const::DeclareOp op) {
         const auto inElemType = op.getContentAttr().getType().getElementType();
         const auto precisionLoweringToF16 =
                 mlir::isa<mlir::FloatType>(inElemType) && (inElemType.getIntOrFloatBitWidth() >= (sizeof(float) * 8));
-        const auto newContentAttr = precisionLoweringToF16 ? clampF16Splat(op.getContentAttr()) : nullptr;
+        if (!precisionLoweringToF16) {
+            return;
+        }
+        const auto& contentAttr = op.getContentAttr();
+        const Const::ContentAttr newContentAttr =
+                (contentAttr.isSplat() || isSelectDataInput(op)) ? clampF16(contentAttr) : nullptr;
         if (newContentAttr != nullptr) {
             VPUX_THROW_WHEN(op.getType() != newContentAttr.getType(),
                             "Const op type {0} must match new content attribute type {1}", op.getType(),
@@ -729,36 +655,7 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
                 return fp32TypeConverter.isLegal(op);
             });
         }
-
-        if (hasReduceSquareHigherPrecision) {
-            // IE.Convert infers its output type from dstElemType. When FP64->FP32 conversion
-            // rewrites result types in ReduceSquare path, keep dstElemType in sync.
-            module.walk([&](IE::ConvertOp op) {
-                if (!isConvertConnectedToReduceSquare(op)) {
-                    return;
-                }
-                if (op.getDstElemType().isF64()) {
-                    op.setDstElemType(mlir::Float32Type::get(op.getContext()));
-                }
-            });
-
-            fp32Target.addDynamicallyLegalOp<IE::ConvertOp>([&](IE::ConvertOp op) {
-                if (!isConvertConnectedToReduceSquare(op)) {
-                    return true;
-                }
-
-                return fp32TypeConverter.isLegal(op.getOperation());
-            });
-        }
-
-        // When ReduceSquare higher precision is active we have set a custom dynamic legality
-        // predicate for IE::ConvertOp on fp32Target. runConvertPrecision() would unconditionally
-        // call target.addLegalOp<IE::ConvertOp>(), overriding that predicate, so call
-        // runConvertOpTypes() directly to preserve it.
-        const auto fp32ConversionResult = hasReduceSquareHigherPrecision
-                                                  ? runConvertOpTypes(module, fp32TypeConverter, fp32Target, _log)
-                                                  : runConvertPrecision(module, fp32TypeConverter, fp32Target, _log);
-        if (mlir::failed(fp32ConversionResult)) {
+        if (mlir::failed(runConvertPrecision(module, fp32TypeConverter, fp32Target, _log))) {
             signalPassFailure();
         }
     }
@@ -832,6 +729,7 @@ void ConvertPrecisionToFPPass::safeRunOnModule() {
     additionalTarget.addDynamicallyLegalOp<IE::LessOp>(isLegalAdditionalOp);
     additionalTarget.addDynamicallyLegalOp<IE::LessEqualOp>(isLegalAdditionalOp);
     additionalTarget.addDynamicallyLegalOp<IE::GreaterOp>(isLegalAdditionalOp);
+    additionalTarget.addDynamicallyLegalOp<IE::GreaterEqualOp>(isLegalAdditionalOp);
     additionalTarget.addDynamicallyLegalOp<IE::ClampOp>(isLegalAdditionalOp);
     additionalTarget.addLegalOp<mlir::ModuleOp>();
     if (mlir::failed(runConvertPrecision(module, additionalTypeConverter, additionalTarget, _log))) {

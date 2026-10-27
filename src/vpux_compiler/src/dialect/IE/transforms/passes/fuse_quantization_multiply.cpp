@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/walk_utils.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
@@ -169,10 +170,10 @@ mlir::LogicalResult FuseFQAndMul::matchAndRewrite(IE::MultiplyOp multiplyOp, mli
                 Const::createFloatContentAttr(rewriter, fakeQuantOp.getLoc(), newOutRankedTensorType, newOutHighVals);
     }
 
-    auto newOutLowConst = rewriter.create<Const::DeclareOp>(outLowConst.getLoc(), newOutRankedTensorType,
-                                                            std::move(newOutLowContentAttr));
-    auto newOutHighConst = rewriter.create<Const::DeclareOp>(outHighConst.getLoc(), newOutRankedTensorType,
-                                                             std::move(newOutHighContentAttr));
+    auto newOutLowConst = Const::DeclareOp::create(rewriter, outLowConst.getLoc(), newOutRankedTensorType,
+                                                   std::move(newOutLowContentAttr));
+    auto newOutHighConst = Const::DeclareOp::create(rewriter, outHighConst.getLoc(), newOutRankedTensorType,
+                                                    std::move(newOutHighContentAttr));
 
     rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(multiplyOp, fakeQuantOp.getInput(), fakeQuantOp.getInputLow(),
                                                     fakeQuantOp.getInputHigh(), newOutLowConst, newOutHighConst,
@@ -486,16 +487,150 @@ mlir::LogicalResult FuseDynDeqAndMul::matchAndRewrite(IE::MultiplyOp multiplyOp,
     }
 
     auto newScaleConst =
-            rewriter.create<Const::DeclareOp>(scaleConst.getLoc(), newScaleType, std::move(newScaleContentAttr));
+            Const::DeclareOp::create(rewriter, scaleConst.getLoc(), newScaleType, std::move(newScaleContentAttr));
 
-    auto newDynDeqOp = rewriter.create<IE::DynamicDequantizeOp>(dynDeqOp.getLoc(), dynDeqOp.getInput(), newScaleConst,
-                                                                dynDeqOp.getZp(), dynDeqOp.getDstElemType());
+    auto newDynDeqOp = IE::DynamicDequantizeOp::create(rewriter, dynDeqOp.getLoc(), dynDeqOp.getInput(), newScaleConst,
+                                                       dynDeqOp.getZp(), dynDeqOp.getDstElemType());
     // Preserve the weights-import marker so the temporary DynDeq -> FakeQuantize bridge still fires.
     if (dynDeqOp->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
         newDynDeqOp->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR, mlir::UnitAttr::get(rewriter.getContext()));
     }
 
     rewriter.replaceOp(multiplyOp, newDynDeqOp.getResult());
+    return mlir::success();
+}
+
+//
+// FuseDynDeqAndDivide
+//
+
+// Divide is not commutative, so the DynamicDequantize must be the numerator (input1); a constant
+// numerator (C / DynDeq) is not a linear rescale of DynDeq and cannot be folded.
+class FuseDynDeqAndDivide final : public mlir::OpRewritePattern<IE::DivideOp> {
+public:
+    FuseDynDeqAndDivide(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::DivideOp>(ctx), _log(log) {
+        setDebugName("FuseDynDeqAndDivide");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::DivideOp divideOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    bool isLegalToFuse(IE::DivideOp divideOp) const;
+
+private:
+    Logger _log;
+};
+
+bool FuseDynDeqAndDivide::isLegalToFuse(IE::DivideOp divideOp) const {
+    if (!vpux::VPU::isEltwiseLhsActivation<IE::DivideOp>(divideOp)) {
+        return false;
+    }
+
+    auto dynDeqOp = divideOp.getInput1().getDefiningOp<IE::DynamicDequantizeOp>();
+    if (dynDeqOp == nullptr || !dynDeqOp->hasOneUse()) {
+        return false;
+    }
+
+    // The scale operand must be a materialized constant so it can be rescaled in place.
+    auto scaleConst = dynDeqOp.getScale().getDefiningOp<Const::DeclareOp>();
+    if (scaleConst == nullptr) {
+        return false;
+    }
+
+    auto divConstOp = divideOp.getInput2().getDefiningOp<Const::DeclareOp>();
+    if (divConstOp == nullptr) {
+        return false;
+    }
+
+    const auto divConstIsSplat = divConstOp.getContent().isSplat();
+    const auto divConstVals = getConstContentVals(divConstOp.getContent());
+    if (llvm::any_of(divConstVals, [](float val) {
+            return isFloatEqual(val, 0.0f);
+        })) {
+        return false;
+    }
+
+    if (divConstIsSplat) {
+        return true;
+    }
+
+    // Per-channel divide: fold only when it aligns with the (per-channel or splat) scale so that
+    // the resulting scale shape stays valid for the IE.DynamicDequantize verifier.
+    auto divConstShape = getShape(divConstOp.getOutput());
+    const auto divNonOneAxisCount = std::count_if(divConstShape.begin(), divConstShape.end(), [](auto size) {
+        return size > 1;
+    });
+    if (divNonOneAxisCount != 1) {
+        return false;
+    }
+
+    auto scaleShape = getShape(scaleConst.getOutput());
+    return scaleShape.totalSize() == 1 || divConstShape == scaleShape;
+}
+
+/*
+      input   scale   zp                       input   scale / C   zp
+        |       |     |                          |        |        |
+        v       v     v                          v        v        v
+      +-------------------+                    +-----------------------+
+      | DynamicDequantize |         =====>     |   DynamicDequantize   |
+      +-------------------+                    +-----------------------+
+                |                                          |
+                v                                          v
+           +----------+
+           | Divide  | <--- C
+           +----------+
+                |
+                v
+*/
+
+mlir::LogicalResult FuseDynDeqAndDivide::matchAndRewrite(IE::DivideOp divideOp, mlir::PatternRewriter& rewriter) const {
+    if (!isLegalToFuse(divideOp)) {
+        return mlir::failure();
+    }
+
+    auto dynDeqOp = divideOp.getInput1().getDefiningOp<IE::DynamicDequantizeOp>();
+    auto divConstOp = divideOp.getInput2().getDefiningOp<Const::DeclareOp>();
+    auto scaleConst = dynDeqOp.getScale().getDefiningOp<Const::DeclareOp>();
+
+    _log.trace("Fuse Divide '{0}' into DynamicDequantize '{1}'", divideOp->getLoc(), dynDeqOp->getLoc());
+
+    // DynamicDequantize computes (input - zp) * scale, so folding a trailing Divide(C) is scale' = scale / C.
+    auto scaleType = mlir::cast<NDTypeInterface>(scaleConst.getType());
+    const auto divConstVals = getConstContentVals(divConstOp.getContent());
+
+    Const::ContentAttr newScaleContentAttr = nullptr;
+    mlir::RankedTensorType newScaleType;
+    if (divConstVals.size() == 1) {
+        const double scaleVal = 1.0 / divConstVals.front();
+        newScaleContentAttr = scaleConst.transformContentAttr().rescale(scaleVal).get();
+        newScaleType = mlir::cast<mlir::RankedTensorType>(scaleType);
+    } else {
+        const auto divConstShape = Shape(getShape(divConstOp.getOutput()));
+        newScaleType = mlir::cast<mlir::RankedTensorType>(scaleType.changeShape(divConstShape));
+
+        auto scaleVals = getConstContentVals(scaleConst.getContent());
+        const auto newScaleCount = std::max(divConstVals.size(), scaleVals.size());
+        SmallVector<float> newScaleVals(newScaleCount);
+        for (size_t idx = 0; idx < newScaleCount; ++idx) {
+            const auto scaleVal = scaleVals.size() == 1 ? scaleVals.front() : scaleVals[idx];
+            newScaleVals[idx] = scaleVal / divConstVals[idx];
+        }
+        newScaleContentAttr = Const::createFloatContentAttr(rewriter, scaleConst.getLoc(), newScaleType, newScaleVals);
+    }
+
+    auto newScaleConst =
+            Const::DeclareOp::create(rewriter, scaleConst.getLoc(), newScaleType, std::move(newScaleContentAttr));
+
+    auto newDynDeqOp = IE::DynamicDequantizeOp::create(rewriter, dynDeqOp.getLoc(), dynDeqOp.getInput(), newScaleConst,
+                                                       dynDeqOp.getZp(), dynDeqOp.getDstElemType());
+    // Preserve the weights-import marker so the temporary DynDeq -> FakeQuantize bridge still fires.
+    if (dynDeqOp->hasAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR)) {
+        newDynDeqOp->setAttr(IE::WEIGHTS_IMPORT_DYN_DEQUANT_ATTR, mlir::UnitAttr::get(rewriter.getContext()));
+    }
+
+    rewriter.replaceOp(divideOp, newDynDeqOp.getResult());
     return mlir::success();
 }
 
@@ -537,6 +672,7 @@ void FuseQuantizationMultiplyPass::safeRunOnFunc() {
     patterns.add<FuseFQAndMul>(&ctx, _log, _fuseFQAndMulWithNonConstInput);
     patterns.add<FuseDQAndMul>(&ctx, _log);
     patterns.add<FuseDynDeqAndMul>(&ctx, _log);
+    patterns.add<FuseDynDeqAndDivide>(&ctx, _log);
     auto func = getOperation();
     collectOpsAndApplyPatterns(func, std::move(patterns));
 }

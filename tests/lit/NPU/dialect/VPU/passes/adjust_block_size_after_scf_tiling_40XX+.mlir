@@ -61,8 +61,8 @@ module @StaticEltwiseNHWC {
   // CHECK-SAME:     tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x720x100xf16, {order = #NHWC}>
   // CHECK:        [[CAST1:%.+]] = tensor.cast [[SLICE1]] : tensor<1x16x720x100xf16, {order = #NHWC}> to tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:        [[CALL:%.+]] = func.call @main_func0([[CAST0]], [[CAST1]]) : (tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>
-  // CHECK:        [[CAST2:%.+]] = tensor.cast [[CALL]] : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x720x100xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
-  // CHECK:        [[INSERTED:%.+]] = tensor.insert_slice [[CAST2]] into [[ARG3]][0, 0, 0, [[OFFSET]]] [1, 16, 720, 100] [1, 1, 1, 1] : tensor<1x16x720x100xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:        [[CAST2:%.+]] = tensor.cast [[CALL]] : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x720x100xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:        [[INSERTED:%.+]] = tensor.insert_slice [[CAST2]] into [[ARG3]][0, 0, 0, [[OFFSET]]] [1, 16, 720, 100] [1, 1, 1, 1] : tensor<1x16x720x100xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 100]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:        scf.yield [[INSERTED]] : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:      }
   // CHECK:      return [[FOR_RESULT]] : tensor<1x16x720x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
@@ -294,8 +294,8 @@ module {
   // CHECK:            [[CALL_DEF:%.+]] = func.call @ApplyTilingNCEConvDyn_func0_dims_H_cases_0([[CAST_DEF]]) : (tensor<1x32x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 258, 64]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 64]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:            scf.yield [[CALL_DEF]] : tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 64]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:          }
-  // CHECK:        [[CAST_2:%.+]] = tensor.cast [[SWITCH_RESULT]] : tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 64]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x256x256x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>
-  // CHECK:        [[INSERTED:%.+]] = tensor.insert_slice [[CAST_2]] into [[ARG2:%.+]][0, 0, [[OFF:%.+]], 0] [1, 256, 256, 64] [1, 1, 1, 1] : tensor<1x256x256x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 64]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:        [[CAST_2:%.+]] = tensor.cast [[SWITCH_RESULT]] : tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 64]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x256x256x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 64]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:        [[INSERTED:%.+]] = tensor.insert_slice [[CAST_2]] into [[ARG2:%.+]][0, 0, [[OFF:%.+]], 0] [1, 256, 256, 64] [1, 1, 1, 1] : tensor<1x256x256x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 64]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:        scf.yield [[INSERTED]] : tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:        }
   // CHECK:      return [[FOR_RESULT]] : tensor<1x256x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 64]> : tensor<4xsi64>, order = #NHWC}>
@@ -563,8 +563,8 @@ module {
   // CHECK:          default {
   // CHECK:            cf.assert [[FALSE]], "Unsupported case"
   // CHECK:          }
-  // CHECK:        [[CAST_3:%.+]] = tensor.cast [[SWITCH_RESULT_1]] : tensor<1x256x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 160]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x256x256x160xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 640]> : tensor<4xsi64>, order = #NHWC}>
-  // CHECK:        [[INSERTED_1:%.+]] = tensor.insert_slice [[CAST_3]] into [[ARG4]][0, 0, [[H_OFFSET]], [[W_OFFSET]]] [1, 256, 256, 160] [1, 1, 1, 1] : tensor<1x256x256x160xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 640]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x256x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 640]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:        [[CAST_3:%.+]] = tensor.cast [[SWITCH_RESULT_1]] : tensor<1x256x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 160]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x256x256x160xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 160]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:        [[INSERTED_1:%.+]] = tensor.insert_slice [[CAST_3]] into [[ARG4]][0, 0, [[H_OFFSET]], [[W_OFFSET]]] [1, 256, 256, 160] [1, 1, 1, 1] : tensor<1x256x256x160xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 160]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x256x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 640]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:        scf.yield [[INSERTED_1]] : tensor<1x256x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 640]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:      }
   // CHECK:      scf.yield [[FOR_RESULT_1]] : tensor<1x256x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 1024, 640]> : tensor<4xsi64>, order = #NHWC}>
@@ -683,8 +683,8 @@ module {
   // CHECK:          default {
   // CHECK:            cf.assert [[FALSE]], "Unsupported case"
   // CHECK:          }
-  // CHECK:        [[CAST_FINAL:%.+]] = tensor.cast [[SWITCH_RESULT]] : tensor<1x256x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 32]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x256x256x32xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 512, 32]> : tensor<4xsi64>, order = #NHWC}>
-  // CHECK:        [[INSERTED:%.+]] = tensor.insert_slice [[CAST_FINAL]] into [[ARG2]][0, 0, [[OFFSET]], 0] [1, 256, 256, 32] [1, 1, 1, 1] : tensor<1x256x256x32xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 512, 32]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x256x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 512, 32]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:        [[CAST_FINAL:%.+]] = tensor.cast [[SWITCH_RESULT]] : tensor<1x256x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 32]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x256x256x32xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 32]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:        [[INSERTED:%.+]] = tensor.insert_slice [[CAST_FINAL]] into [[ARG2]][0, 0, [[OFFSET]], 0] [1, 256, 256, 32] [1, 1, 1, 1] : tensor<1x256x256x32xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 256, 32]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x256x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 512, 32]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:        scf.yield [[INSERTED]] : tensor<1x256x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 512, 32]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:      }
   // CHECK:      return [[FOR_RESULT]] : tensor<1x256x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 256, 512, 32]> : tensor<4xsi64>, order = #NHWC}>
@@ -1374,8 +1374,8 @@ module @ConvMaxPadding {
   // CHECK:            default {
   // CHECK:              cf.assert [[FALSE]], "Unsupported case"
   // CHECK:            }
-  // CHECK:          [[CAST_OUT:%.+]] = tensor.cast [[SWITCH]] : tensor<1x16x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 100, 64]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x100x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1000, 64]> : tensor<4xsi64>, order = #NHWC}>
-  // CHECK:          [[INSERTED:%.+]] = tensor.insert_slice [[CAST_OUT]] into [[ACC]][0, 0, [[BACKTRACK]], 0] [1, 16, 100, 64] [1, 1, 1, 1] : tensor<1x16x100x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1000, 64]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x16x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1000, 64]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:          [[CAST_OUT:%.+]] = tensor.cast [[SWITCH]] : tensor<1x16x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 100, 64]> : tensor<4xsi64>, order = #NHWC}> to tensor<1x16x100x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 100, 64]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK:          [[INSERTED:%.+]] = tensor.insert_slice [[CAST_OUT]] into [[ACC]][0, 0, [[BACKTRACK]], 0] [1, 16, 100, 64] [1, 1, 1, 1] : tensor<1x16x100x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 100, 64]> : tensor<4xsi64>, order = #NHWC}> into tensor<1x16x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1000, 64]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:          scf.yield [[INSERTED]] : tensor<1x16x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1000, 64]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:        }
   // CHECK:        return [[FOR_RESULT]] : tensor<1x16x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1000, 64]> : tensor<4xsi64>, order = #NHWC}>
@@ -1519,9 +1519,9 @@ module @InterpolateScalesBoundThroughFuncCall {
   // CHECK-SAME:          (tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 40, 64]> : tensor<4xsi64>, order = #NHWC}>)
   // CHECK-SAME:          -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 40, 64]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:            [[CAST_OUT:%.+]] = tensor.cast [[CALL]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 40, 64]> : tensor<4xsi64>, order = #NHWC}>
-  // CHECK-SAME:          to tensor<1x16x40x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 80, 128]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK-SAME:          to tensor<1x16x40x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 40, 64]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:            [[INSERTED:%.+]] = tensor.insert_slice [[CAST_OUT]] into [[ACCW]][0, 0, [[OFFH]], [[OFFW]]] [1, 16, 40, 64] [1, 1, 1, 1] :
-  // CHECK-SAME:          tensor<1x16x40x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 80, 128]> : tensor<4xsi64>, order = #NHWC}>
+  // CHECK-SAME:          tensor<1x16x40x64xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 40, 64]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK-SAME:          into tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 80, 128]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:            scf.yield [[INSERTED]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 80, 128]> : tensor<4xsi64>, order = #NHWC}>
   // CHECK:          }

@@ -96,8 +96,8 @@ mlir::LogicalResult SwapMVNWithTranspose::OpSwapConverter::matchAndRewrite(IE::M
     const auto mvnIn = origOp.getInput();
     auto origTransposeOp = mvnIn.getDefiningOp<IE::TransposeOp>();
     auto mvnOp =
-            rewriter.create<IE::MVNOp>(origOp->getLoc(), origTransposeOp.getInput(), origOp.getAcrossChannelsAttr(),
-                                       origOp.getNormalizeVarianceAttr(), origOp.getEpsAttr());
+            IE::MVNOp::create(rewriter, origOp->getLoc(), origTransposeOp.getInput(), origOp.getAcrossChannelsAttr(),
+                              origOp.getNormalizeVarianceAttr(), origOp.getEpsAttr());
 
     rewriter.replaceOpWithNewOp<IE::TransposeOp>(origOp, mvnOp.getOutput(), nullptr,
                                                  origTransposeOp.getOrderValueAttr());

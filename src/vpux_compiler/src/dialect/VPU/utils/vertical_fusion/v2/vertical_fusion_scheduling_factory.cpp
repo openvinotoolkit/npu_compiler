@@ -11,26 +11,27 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/weights_prefetch_vf_scheduling.hpp"
 
 namespace vpux::VPU::VF::v2 {
-VFSchedulingFactory::VFSchedulingFactory(bool prefetching): _prefetching(prefetching) {
+VFSchedulingFactory::VFSchedulingFactory(bool prefetching, std::shared_ptr<const VFCostStrategy> costStrategy)
+        : _prefetching(prefetching), _costStrategy(std::move(costStrategy)) {
 }
 
 std::shared_ptr<IVFScheduling<VFConfig>> VFSchedulingFactory::createVFScenario(VFScenario scenarioCode,
                                                                                Logger log) const {
     switch (scenarioCode) {
     case VFScenario::MINIMAL: {
-        return std::make_shared<VPU::VF::v2::MinimalRequirementsVFScheduling>(log, _prefetching);
+        return std::make_shared<VPU::VF::v2::MinimalRequirementsVFScheduling>(log, _prefetching, _costStrategy);
     }
     case VFScenario::LASTOP_PREFETCHING: {
-        return std::make_shared<VPU::VF::v2::PrefetchingLastOpVFScheduling>(log, _prefetching);
+        return std::make_shared<VPU::VF::v2::PrefetchingLastOpVFScheduling>(log, _prefetching, _costStrategy);
     }
     case VFScenario::WEIGHTS_PREFETCHING: {
-        return std::make_shared<VPU::VF::v2::WeightsPrefetchingVFScheduling>(log, _prefetching);
+        return std::make_shared<VPU::VF::v2::WeightsPrefetchingVFScheduling>(log, _prefetching, _costStrategy);
     }
     case VFScenario::FULL_PREFETCHING: {
-        return std::make_shared<VPU::VF::v2::FullPrefetchingVFScheduling>(log, _prefetching);
+        return std::make_shared<VPU::VF::v2::FullPrefetchingVFScheduling>(log, _prefetching, _costStrategy);
     }
     case VFScenario::VF_PIPELINING: {
-        return std::make_shared<VPU::VF::v2::PipeliningVFScheduling>(log, _prefetching);
+        return std::make_shared<VPU::VF::v2::PipeliningVFScheduling>(log, _prefetching, _costStrategy);
     }
     default: {
         VPUX_THROW("No scheduling implemented for {0}", scenarioCode);

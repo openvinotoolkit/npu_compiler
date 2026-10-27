@@ -278,8 +278,8 @@ mlir::LogicalResult LoopRewriter::matchAndRewrite(IE::LoopOp origOp, mlir::Patte
             if (elemType.isF32()) {
                 mapper.map(bodyInputs[currentIterIndex], constIter);
             } else {
-                auto constIterConvert = rewriter.create<IE::ConvertOp>(takeOpLoc(origOp, "convert_{0}", currentIter),
-                                                                       constIter, elemType);
+                auto constIterConvert = IE::ConvertOp::create(rewriter, takeOpLoc(origOp, "convert_{0}", currentIter),
+                                                              constIter, elemType);
                 mapper.map(bodyInputs[currentIterIndex], constIterConvert);
             }
         }
@@ -369,9 +369,9 @@ void sliceInputsForIterations(SmallVector<IE::SliceInputPortMapAttr>& sliceInput
         SmallVector<mlir::Value> splitResults;
         for (auto idx : irange(numIterations)) {
             staticOffsets[axis] = stride > 0 ? start + idx * partSize : start - idx * partSize;
-            auto slicedOp = rewriter.create<IE::SliceOp>(appendLoc(loc, "slice_before_{0}_{1}", exId, idx),
-                                                         toSplitInput, getIntArrayAttr(ctx, staticOffsets),
-                                                         getIntArrayAttr(ctx, staticSizes));
+            auto slicedOp =
+                    IE::SliceOp::create(rewriter, appendLoc(loc, "slice_before_{0}_{1}", exId, idx), toSplitInput,
+                                        getIntArrayAttr(ctx, staticOffsets), getIntArrayAttr(ctx, staticSizes));
             splitResults.push_back(slicedOp.getResult());
         }
         slicedInputValueMap.insert({inId, splitResults});
@@ -555,12 +555,12 @@ void createLoopSelectOpForInvariantOutput(SmallVector<IE::InvariantOutputPortMap
     for (auto iopm : invariantOutputDescAttrVector) {
         const auto exId = iopm.getExternalPortId().getValue().getSExtValue();
         const auto zeroAxis = getIntAttr(ctx, 0);
-        auto concatExecConds = rewriter.create<IE::ConcatOp>(appendLoc(loc, "io_concat_conds_{0}", exId), execCondList,
-                                                             zeroAxis, nullptr, nullptr);
-        auto concatInput = rewriter.create<IE::ConcatOp>(appendLoc(loc, "io_concat_inputs_{0}", exId),
-                                                         invariantOutputListMap[exId], zeroAxis, nullptr, nullptr);
-        auto loopSelect = rewriter.create<IE::LoopSelectOp>(appendLoc(loc, "io_loop_select_{0}", exId), initCond,
-                                                            concatExecConds, concatInput, false, 0, 1);
+        auto concatExecConds = IE::ConcatOp::create(rewriter, appendLoc(loc, "io_concat_conds_{0}", exId), execCondList,
+                                                    zeroAxis, nullptr, nullptr);
+        auto concatInput = IE::ConcatOp::create(rewriter, appendLoc(loc, "io_concat_inputs_{0}", exId),
+                                                invariantOutputListMap[exId], zeroAxis, nullptr, nullptr);
+        auto loopSelect = IE::LoopSelectOp::create(rewriter, appendLoc(loc, "io_loop_select_{0}", exId), initCond,
+                                                   concatExecConds, concatInput, false, 0, 1);
         invariantOutputValueMap.insert({exId, loopSelect.getOutput()});
     }
 }

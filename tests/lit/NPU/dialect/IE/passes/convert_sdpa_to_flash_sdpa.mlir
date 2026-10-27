@@ -20,7 +20,8 @@ func.func @SdpaNoMaskNoScale(%arg0: tensor<8x64x64xf16>, %arg1: tensor<8x32x64xf
     // CHECK-DAG:   [[SCALED_QUERY:%.+]] = IE.Multiply([[QUERY]], [[SCALE_CONST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x64x64xf16>, tensor<1xf16> -> tensor<8x64x64xf16>
 
     // CHECK-DAG:   [[RUNNING_OUTPUT:%.+]] = const.Declare tensor<8x64x128xf16> = dense<0.000000e+00> : tensor<8x64x128xf16>
-    // CHECK-DAG:   [[RUNNING_MAX:%.+]] = const.Declare tensor<8x64xf16> = dense<0xFC00> : tensor<8x64xf16>
+    // The running max seed is fp16 lowest, not -Inf (see convert_sdpa_to_flash_sdpa.cpp).
+    // CHECK-DAG:   [[RUNNING_MAX:%.+]] = const.Declare tensor<8x64xf16> = dense<-6.550400e+04> : tensor<8x64xf16>
     // CHECK-DAG:   [[RUNNING_SUM:%.+]] = const.Declare tensor<8x64xf32> = dense<0.000000e+00> : tensor<8x64xf32>
 
     // CHECK:       [[OUTPUT:%.+]], [[MAX:%.+]], [[SUM:%.+]] = IE.FlashSDPA([[SCALED_QUERY]], [[KEY]], [[VALUE]], [[RUNNING_OUTPUT]], [[RUNNING_MAX]], [[RUNNING_SUM]])
@@ -46,7 +47,7 @@ func.func @SdpaNoMaskYesScale(%arg0: tensor<8x64x64xf16>, %arg1: tensor<8x32x64x
     // CHECK-DAG:   [[SCALED_QUERY:%.+]] = IE.Multiply([[QUERY]], [[SCALE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x64x64xf16>, tensor<1xf16> -> tensor<8x64x64xf16>
 
     // CHECK-DAG:   [[RUNNING_OUTPUT:%.+]] = const.Declare tensor<8x64x128xf16> = dense<0.000000e+00> : tensor<8x64x128xf16>
-    // CHECK-DAG:   [[RUNNING_MAX:%.+]] = const.Declare tensor<8x64xf16> = dense<0xFC00> : tensor<8x64xf16>
+    // CHECK-DAG:   [[RUNNING_MAX:%.+]] = const.Declare tensor<8x64xf16> = dense<-6.550400e+04> : tensor<8x64xf16>
     // CHECK-DAG:   [[RUNNING_SUM:%.+]] = const.Declare tensor<8x64xf32> = dense<0.000000e+00> : tensor<8x64xf32>
 
     // CHECK:       [[OUTPUT:%.+]], [[MAX:%.+]], [[SUM:%.+]] = IE.FlashSDPA([[SCALED_QUERY]], [[KEY]], [[VALUE]], [[RUNNING_OUTPUT]], [[RUNNING_MAX]], [[RUNNING_SUM]])
@@ -72,7 +73,7 @@ func.func @SdpaYesMaskNoScale(%arg0: tensor<8x64x64xf16>, %arg1: tensor<8x32x64x
     // CHECK-DAG:   [[SCALED_QUERY:%.+]] = IE.Multiply([[QUERY]], [[SCALE_CONST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x64x64xf16>, tensor<1xf16> -> tensor<8x64x64xf16>
 
     // CHECK-DAG:   [[RUNNING_OUTPUT:%.+]] = const.Declare tensor<8x64x128xf16> = dense<0.000000e+00> : tensor<8x64x128xf16>
-    // CHECK-DAG:   [[RUNNING_MAX:%.+]] = const.Declare tensor<8x64xf16> = dense<0xFC00> : tensor<8x64xf16>
+    // CHECK-DAG:   [[RUNNING_MAX:%.+]] = const.Declare tensor<8x64xf16> = dense<-6.550400e+04> : tensor<8x64xf16>
     // CHECK-DAG:   [[RUNNING_SUM:%.+]] = const.Declare tensor<8x64xf32> = dense<0.000000e+00> : tensor<8x64xf32>
 
     // CHECK:       [[OUTPUT:%.+]], [[MAX:%.+]], [[SUM:%.+]] = IE.FlashSDPA([[SCALED_QUERY]], [[KEY]], [[VALUE]], [[RUNNING_OUTPUT]], [[RUNNING_MAX]], [[RUNNING_SUM]], [[ATTENTION_MASK]])
@@ -98,7 +99,7 @@ func.func @SdpaYesMaskYesScale(%arg0: tensor<8x64x64xf16>, %arg1: tensor<8x32x64
     // CHECK-DAG:   [[SCALED_QUERY:%.+]] = IE.Multiply([[QUERY]], [[SCALE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x64x64xf16>, tensor<1xf16> -> tensor<8x64x64xf16>
 
     // CHECK-DAG:   [[RUNNING_OUTPUT:%.+]] = const.Declare tensor<8x64x128xf16> = dense<0.000000e+00> : tensor<8x64x128xf16>
-    // CHECK-DAG:   [[RUNNING_MAX:%.+]] = const.Declare tensor<8x64xf16> = dense<0xFC00> : tensor<8x64xf16>
+    // CHECK-DAG:   [[RUNNING_MAX:%.+]] = const.Declare tensor<8x64xf16> = dense<-6.550400e+04> : tensor<8x64xf16>
     // CHECK-DAG:   [[RUNNING_SUM:%.+]] = const.Declare tensor<8x64xf32> = dense<0.000000e+00> : tensor<8x64xf32>
 
     // CHECK:       [[OUTPUT:%.+]], [[MAX:%.+]], [[SUM:%.+]] = IE.FlashSDPA([[SCALED_QUERY]], [[KEY]], [[VALUE]], [[RUNNING_OUTPUT]], [[RUNNING_MAX]], [[RUNNING_SUM]], [[ATTENTION_MASK]])
@@ -127,7 +128,7 @@ func.func @SdpaNoMaskNoScaleCausal(%arg0: tensor<8x64x64xf16>, %arg1: tensor<8x3
     // CHECK-DAG:   [[SCALED_QUERY:%.+]] = IE.Multiply([[QUERY]], [[SCALE_CONST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x64x64xf16>, tensor<1xf16> -> tensor<8x64x64xf16>
 
     // CHECK-DAG:   [[RUNNING_OUTPUT:%.+]] = const.Declare tensor<8x64x128xf16> = dense<0.000000e+00> : tensor<8x64x128xf16>
-    // CHECK-DAG:   [[RUNNING_MAX:%.+]] = const.Declare tensor<8x64xf16> = dense<0xFC00> : tensor<8x64xf16>
+    // CHECK-DAG:   [[RUNNING_MAX:%.+]] = const.Declare tensor<8x64xf16> = dense<-6.550400e+04> : tensor<8x64xf16>
     // CHECK-DAG:   [[RUNNING_SUM:%.+]] = const.Declare tensor<8x64xf32> = dense<0.000000e+00> : tensor<8x64xf32>
 
     // CHECK:       [[OUTPUT:%.+]], [[MAX:%.+]], [[SUM:%.+]] = IE.FlashSDPA([[SCALED_QUERY]], [[KEY]], [[VALUE]], [[RUNNING_OUTPUT]], [[RUNNING_MAX]], [[RUNNING_SUM]], [[CAUSAL_MASK]])

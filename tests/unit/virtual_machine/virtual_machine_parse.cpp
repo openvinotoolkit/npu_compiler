@@ -7,7 +7,7 @@
 #include "npu_bytecode_utils/section_header_table.hpp"
 #include "npu_bytecode_utils/type_section.hpp"
 #include "npu_bytecode_utils/version.hpp"
-#include "npu_interpreter_runtime/virtual_machine.h"
+#include "vm_runtime/virtual_machine.h"
 
 #include <gtest/gtest.h>
 

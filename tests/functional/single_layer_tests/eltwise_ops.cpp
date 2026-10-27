@@ -84,6 +84,7 @@ TEST_F(EltwiseMultiplyLayerTest, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_F(EltwiseMultiplyLayerTest, NPU5020_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5020);
@@ -106,7 +107,8 @@ TEST_F(EltwiseAddLayerTest, NPU4000_HW) {
 }
 
 TEST_P(EltwiseAddLayerTest_HostCompile, NPU4000_HC) {
-    setHostCompileMode();
+    // E#233490 PredictShape fails with HostCompile_Interpreter
+    setHostCompileMode("HostCompile_JIT");
     setPluginCompilerType();
     run(Platform::NPU4000);
 }
@@ -124,7 +126,8 @@ TEST_F(EltwiseSubtractLayerTest, NPU5010_HW) {
 }
 
 TEST_P(EltwiseAddLayerTest_HostCompile, NPU5010_HC) {
-    setHostCompileMode();
+    // E#233490 PredictShape fails with HostCompile_Interpreter
+    setHostCompileMode("HostCompile_JIT");
     setPluginCompilerType();
     run(Platform::NPU5010);
 }

@@ -23,6 +23,10 @@ using namespace vpux;
 
 namespace {
 
+//
+// LayerWithPostOpModel37XX
+//
+
 template <class MainOpType>
 class LayerWithPostOpModel : public VPU::LayerWithPostOpModelBase<LayerWithPostOpModel<MainOpType>, MainOpType> {
 public:
@@ -39,21 +43,22 @@ public:
         return isSupportedHWClampOp(mainOp, minValue, maxValue, clampOp->getLoc(), isQuantized, logCb);
     }
 
-    static bool isSupportedHWPostOp(mlir::Operation* mainOp, mlir::Operation* postOp, const LogCb& logCb) {
-        return llvm::TypeSwitch<mlir::Operation*, bool>(postOp)
-                .Case<IE::ReLUOp>([&](auto) {
+    static bool isSupportedHWPostOp(mlir::Operation* mainOp, IE::PostOpAttr postOpAttr, mlir::Value /*fusedOutput*/,
+                                    const LogCb& logCb) {
+        return llvm::TypeSwitch<mlir::Attribute, bool>(postOpAttr)
+                .Case<IE::ReluAttr>([&](auto) {
                     if (mlir::isa<IE::MaxPoolOp>(mainOp)) {
                         logCb(llvm::formatv("{0} does not support fusing with {1} for this HW platform at `{2}`",
-                                            mainOp->getName(), postOp->getName(), postOp->getLoc()));
+                                            mainOp->getName(), postOpAttr, mainOp->getLoc()));
                         return false;
                     }
 
                     return true;
                 })
-                .template Case<IE::LeakyReluOp>([&](auto) {
+                .template Case<IE::LeakyReluAttr>([&](auto) {
                     if (mlir::isa<IE::MaxPoolOp>(mainOp)) {
                         logCb(llvm::formatv("{0} does not support fusing with {1} for this HW platform at `{2}`",
-                                            mainOp->getName(), postOp->getName(), postOp->getLoc()));
+                                            mainOp->getName(), postOpAttr, mainOp->getLoc()));
                         return false;
                     }
 
@@ -65,15 +70,15 @@ public:
                     if (mlir::isa<mlir::quant::QuantizedType>(inElemType) &&
                         !mlir::isa<mlir::quant::QuantizedType>(outElemType)) {
                         logCb(llvm::formatv("{0} does not support fusing with {1} for this HW platform at `{2}`",
-                                            mainOp->getName(), postOp->getName(), postOp->getLoc()));
+                                            mainOp->getName(), postOpAttr, mainOp->getLoc()));
                         return false;
                     }
 
                     return true;
                 })
-                .Default([&](mlir::Operation*) {
-                    logCb(llvm::formatv("{0} at `{1}` is not supported on this HW platform", postOp->getName(),
-                                        postOp->getLoc()));
+                .Default([&](mlir::Attribute) {
+                    logCb(llvm::formatv("{0} at `{1}` is not supported on this HW platform", postOpAttr,
+                                        mainOp->getLoc()));
                     return false;
                 });
     }

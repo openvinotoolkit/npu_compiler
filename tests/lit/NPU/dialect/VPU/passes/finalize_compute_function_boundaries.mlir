@@ -299,19 +299,3 @@ module @StaticQuantizedNHWC {
 // CHECK:         tensor.extract_slice{{.*}}[0, {{%[^,]+}}, 0, 0] [1, 90, 1000, 16] [1, 1, 1, 1]
 // CHECK:         func.call @main_func0
 // CHECK:       return{{.*}} : tensor<1x720x1000x16xi8>
-
-// -----
-
-module @InsertReinterpretCastForTypeWithEmptyTensorAttr {
-    func.func @main_static(%arg0: tensor<1x16x90x1000xf16>) -> tensor<1x16x90x1000xf16> {
-        %result = VPU.ReLU(%arg0) : tensor<1x16x90x1000xf16> -> tensor<1x16x90x1000xf16>
-        return %result: tensor<1x16x90x1000xf16>
-    }
-}
-
-// CHECK-LABEL @InsertReinterpretCastForTypeWithEmptyTensorAttr
-// CHECK: func.func @main_static([[ARG0:%.+]]: tensor<1x16x90x1000xf16>) -> tensor<1x16x90x1000xf16>
-// CHECK:   [[ARG_CAST:%.+]] = Core.ReinterpretCast([[ARG0]]) : tensor<1x16x90x1000xf16> -> tensor<1x16x90x1000xf16>
-// CHECK:   [[RELU:%.+]] = VPU.ReLU([[ARG_CAST]])
-// CHECK:   [[RETURN_CAST:%.+]] = Core.ReinterpretCast([[RELU]]) : tensor<1x16x90x1000xf16> -> tensor<1x16x90x1000xf16>
-// CHECK:   return [[RETURN_CAST]] : tensor<1x16x90x1000xf16>

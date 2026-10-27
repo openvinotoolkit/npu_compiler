@@ -35,7 +35,7 @@ int64_t getQueueId(VPURT::TaskOp taskOp) {
         return getDMAQueueIdEncoding(portValue, dmaTask.getChannelType());
     } else if (auto nceOp = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(op)) {
         const auto& dpuTasks = nceOp.getVariants().getOps<VPUIP::DPUTaskOp>();
-        VPUX_THROW_UNLESS(!dpuTasks.empty(), "Encountered op '{0}' with empty dpu list", op->getLoc());
+        VPUX_THROW_WHEN(dpuTasks.empty(), "Encountered op '{0}' with empty dpu list", op->getLoc());
         auto dpuTask = *(dpuTasks.begin());
         return dpuTask.getClusterId().value_or(0);
     } else if (auto swKernelOp = mlir::dyn_cast<VPUIP::SwKernelOp>(op)) {

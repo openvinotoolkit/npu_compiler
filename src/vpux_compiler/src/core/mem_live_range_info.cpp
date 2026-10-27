@@ -120,9 +120,9 @@ void vpux::MemLiveRangeInfo::addNewBuffer(mlir::Value val) {
                 _log.trace("Got alias user '{0}' at '{1}'", user->getName(), user->getLoc());
 
                 auto* userAncestor = valRegion->findAncestorOpInRegion(*user);
-                VPUX_THROW_UNLESS(userAncestor != nullptr,
-                                  "Alias user '{0}' doesn't belong to the same block or its sub-region as '{1}'",
-                                  user->getLoc(), val);
+                VPUX_THROW_WHEN(userAncestor == nullptr,
+                                "Alias user '{0}' doesn't belong to the same block or its sub-region as '{1}'",
+                                user->getLoc(), val);
 
                 _log.trace("It has an ancestor '{0}' at '{1}' in root value parent region", userAncestor->getName(),
                            userAncestor->getLoc());
@@ -136,13 +136,13 @@ void vpux::MemLiveRangeInfo::addNewBuffer(mlir::Value val) {
             _log.trace("The alias belongs to the sub-region of root block");
 
             auto* aliasParentOp = alias.getParentRegion()->getParentOp();
-            VPUX_THROW_UNLESS(aliasParentOp != nullptr, "Alias '{0}' has no parent Operation", alias);
+            VPUX_THROW_WHEN(aliasParentOp == nullptr, "Alias '{0}' has no parent Operation", alias);
 
             _log.trace("It belongs to the operation '{0}' at '{1}'", aliasParentOp->getName(), aliasParentOp->getLoc());
 
             auto* parentAncestor = val.getParentRegion()->findAncestorOpInRegion(*aliasParentOp);
-            VPUX_THROW_UNLESS(parentAncestor != nullptr,
-                              "Alias '{0}' doesn't belong to the same block or its sub-region as '{1}'", alias, val);
+            VPUX_THROW_WHEN(parentAncestor == nullptr,
+                            "Alias '{0}' doesn't belong to the same block or its sub-region as '{1}'", alias, val);
 
             _log.trace("It has an ancestor '{0}' at '{1}' in root value parent region", parentAncestor->getName(),
                        parentAncestor->getLoc());
@@ -194,7 +194,7 @@ ValueOrderedSet vpux::MemLiveRangeInfo::getAllBuffers() const {
 
 bool vpux::MemLiveRangeInfo::isBufferUsedByOp(mlir::Value val, mlir::Operation* op) const {
     const auto valIt = _allUsersInBlock.find(val);
-    VPUX_THROW_UNLESS(valIt != _allUsersInBlock.end(), "Value '{0}' is not a buffer", val);
+    VPUX_THROW_WHEN(valIt == _allUsersInBlock.end(), "Value '{0}' is not a buffer", val);
     auto& allUsers = valIt->second;
 
     return allUsers.find(op) != allUsers.end();
@@ -202,7 +202,7 @@ bool vpux::MemLiveRangeInfo::isBufferUsedByOp(mlir::Value val, mlir::Operation* 
 
 bool vpux::MemLiveRangeInfo::hasRemainingUsers(mlir::Value val) const {
     const auto valIt = _allUsersInBlock.find(val);
-    VPUX_THROW_UNLESS(valIt != _allUsersInBlock.end(), "Value '{0}' is not a buffer", val);
+    VPUX_THROW_WHEN(valIt == _allUsersInBlock.end(), "Value '{0}' is not a buffer", val);
     auto& allUsers = valIt->second;
 
     return !allUsers.empty();
@@ -210,12 +210,12 @@ bool vpux::MemLiveRangeInfo::hasRemainingUsers(mlir::Value val) const {
 
 size_t vpux::MemLiveRangeInfo::eraseUser(mlir::Value val, mlir::Operation* op) {
     const auto valIt = _allUsersInBlock.find(val);
-    VPUX_THROW_UNLESS(valIt != _allUsersInBlock.end(), "Value '{0}' is not a buffer", val);
+    VPUX_THROW_WHEN(valIt == _allUsersInBlock.end(), "Value '{0}' is not a buffer", val);
     auto& allUsers = valIt->second;
 
     const auto opIt = _opBuffersMap.find(op);
-    VPUX_THROW_UNLESS(opIt != _opBuffersMap.end(), "Operation '{0}' at '{1}' is not a buffer user", op->getName(),
-                      op->getLoc());
+    VPUX_THROW_WHEN(opIt == _opBuffersMap.end(), "Operation '{0}' at '{1}' is not a buffer user", op->getName(),
+                    op->getLoc());
     auto& allBufs = opIt->second;
 
     VPUX_THROW_UNLESS(allUsers.erase(op), "Operation '{0}' at '{1}' is not a buffer '{2}' user", op->getName(),

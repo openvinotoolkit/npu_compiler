@@ -106,7 +106,7 @@ class SCFGenericViewLikeTilingModelOp :
         public SCFViewLikeTilingModelOp<SCFGenericViewLikeTilingModelOp<ConcreteOp>, ConcreteOp> {
 public:
     SCFTilingInfo backInferSCFTileInfo(mlir::Operation*, mlir::OpBuilder&, const SCFTileInfo& outputTile) const {
-        return SCFTilingInfo{SmallVector<SCFTileInfo, 1>{outputTile}};
+        return SCFTilingInfo(outputTile);
     }
 };
 
@@ -140,7 +140,7 @@ public:
             inputTile.bounds = Bounds(mlir::applyPermutation(inputTile.bounds.raw(), permutation));
         }
 
-        return SCFTilingInfo{{std::move(inputTile)}};
+        return SCFTilingInfo(std::move(inputTile));
     }
 };
 
@@ -183,7 +183,7 @@ public:
         if (!bounds.empty()) {
             inputTile.bounds = Bounds(bounds);
         }
-        return SCFTilingInfo{{std::move(inputTile)}};
+        return SCFTilingInfo(std::move(inputTile));
     }
 };
 

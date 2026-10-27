@@ -8,7 +8,7 @@
 
 bytecode.func_section @imm_register_section {
     bytecode.ext.func @imm_register_test () -> () {
-        %dst = bytecode.virtual_general_register
+        %dst = bytecode.virtual_value_register
         %c42 = bytecode.imm_register 42
         bytecode.set %dst, %c42
         bytecode.ret
@@ -16,7 +16,7 @@ bytecode.func_section @imm_register_section {
 }
 
 // CHECK-LABEL: bytecode.ext.func @imm_register_test
-// CHECK:         [[DST:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[DST:%.+]] = bytecode.virtual_value_register
 // CHECK:         [[C42:%.+]] = bytecode.imm_register 42
 // CHECK:         bytecode.set [[DST]], [[C42]]
 // CHECK:         bytecode.ret

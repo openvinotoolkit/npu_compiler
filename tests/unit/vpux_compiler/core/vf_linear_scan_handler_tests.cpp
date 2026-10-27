@@ -11,6 +11,7 @@
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/MLIRContext.h>
+#include <mlir/IR/OwningOpRef.h>
 
 #include <gtest/gtest.h>
 #include <llvm/ADT/SmallVector.h>
@@ -34,16 +35,16 @@ public:
         const auto loc = builder.getUnknownLoc();
         const auto f32 = builder.getF32Type();
         _module = mlir::ModuleOp::create(loc);
-        builder.setInsertionPointToEnd(_module.getBody());
+        builder.setInsertionPointToEnd(_module->getBody());
         llvm::SmallVector<mlir::Type> argTypes(n, f32);
         auto fnType = builder.getFunctionType(argTypes, {});
-        auto fn = builder.create<mlir::func::FuncOp>(loc, "main", fnType);
+        auto fn = mlir::func::FuncOp::create(builder, loc, "main", fnType);
         auto& entry = *fn.addEntryBlock();
         for (size_t i = 0; i < n; ++i) {
             _values.push_back(entry.getArgument(i));
         }
         builder.setInsertionPointToEnd(&entry);
-        builder.create<mlir::func::ReturnOp>(loc);
+        mlir::func::ReturnOp::create(builder, loc);
     }
 
     mlir::Value operator[](size_t i) const {
@@ -52,7 +53,7 @@ public:
 
 private:
     mlir::MLIRContext _ctx;
-    mlir::ModuleOp _module;
+    mlir::OwningOpRef<mlir::ModuleOp> _module;
     llvm::SmallVector<mlir::Value> _values;
 };
 

@@ -18,11 +18,12 @@ func.func @BroadcastInputForMultiplyNCHW(%arg0: tensor<1x50x1x32xf16>, %arg1: te
     return %0 : tensor<1x50x1x32xf16>
 
     // CHECK:       [[LHS:%.+]] = IE.PermuteCast([[INPUT_0]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x50x1x32xf16> -> tensor<1x32x50x1xf16, {order = #NHWC}>
-    // CHECK:       [[BROADCAST:%.+]] = IE.Tile([[INPUT_1]]) {repeats_values = [1, 50, 1, 1]} : tensor<1x1x1x32xf16> -> tensor<1x50x1x32xf16>
-
-    // CHECK:       [[RHS:%.+]] = IE.PermuteCast([[BROADCAST]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x50x1x32xf16> -> tensor<1x32x50x1xf16, {order = #NHWC}>
-    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[LHS]], [[RHS]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x50x1xf16, {order = #NHWC}>, tensor<1x32x50x1xf16, {order = #NHWC}> -> tensor<1x32x50x1xf16, {order = #NHWC}>
-    // CHECK:       [[OUTPUT_CAST:%.+]] = IE.PermuteCast([[MULTIPLY]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x32x50x1xf16, {order = #NHWC}> -> tensor<1x50x1x32xf16>
+    // CHECK:       [[RHS:%.+]] = IE.PermuteCast([[INPUT_1]]) {dst_order = #NHWC, mem_perm = #map} : tensor<1x1x1x32xf16> -> tensor<32x1x1x1xf16, {order = #NHWC}>
+    // CHECK:       [[AR_IN:%.+]] = IE.AffineReshape([[LHS]])
+    // CHECK:       [[GROUP_CONV:%.+]] = IE.GroupConvolution([[AR_IN]], [[RHS]])
+    // CHECK-SAME:          tensor<1x32x25x2xf16, {order = #NHWC}>, tensor<32x1x1x1xf16, {order = #NHWC}> -> tensor<1x32x25x2xf16, {order = #NHWC}>
+    // CHECK:       [[AR_OUT:%.+]] = IE.AffineReshape([[GROUP_CONV]])
+    // CHECK:       [[OUTPUT_CAST:%.+]] = IE.PermuteCast([[AR_OUT]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x32x50x1xf16, {order = #NHWC}> -> tensor<1x50x1x32xf16>
 
     // CHECK:       return [[OUTPUT_CAST]]
 }
@@ -205,19 +206,18 @@ func.func @FuseMultiplyBroadcastLeftInput(%arg0: tensor<1x64x64x1xf16>, %arg1: t
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @BroadcastWhenOutputCJustBelowRegressionThreshold
-// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x1023x1x32xf16>,
-// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x1x1x32xf16>
-func.func @BroadcastWhenOutputCJustBelowRegressionThreshold(%arg0: tensor<1x1023x1x32xf16>, %arg1: tensor<1x1x1x32xf16>) -> tensor<1x1023x1x32xf16> {
-    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1023x1x32xf16>, tensor<1x1x1x32xf16> -> tensor<1x1023x1x32xf16>
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x1023x2x32xf16>,
+// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x1x2x32xf16>
+func.func @BroadcastWhenOutputCJustBelowRegressionThreshold(%arg0: tensor<1x1023x2x32xf16>, %arg1: tensor<1x1x2x32xf16>) -> tensor<1x1023x2x32xf16> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1023x2x32xf16>, tensor<1x1x2x32xf16> -> tensor<1x1023x2x32xf16>
 
-    return %0 : tensor<1x1023x1x32xf16>
+    return %0 : tensor<1x1023x2x32xf16>
 
-    // CHECK:       [[LHS:%.+]] = IE.PermuteCast([[INPUT_0]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x1023x1x32xf16> -> tensor<1x32x1023x1xf16, {order = #NHWC}>
-    // CHECK:       [[BROADCAST:%.+]] = IE.Tile([[INPUT_1]]) {repeats_values = [1, 1023, 1, 1]} : tensor<1x1x1x32xf16> -> tensor<1x1023x1x32xf16>
-
-    // CHECK:       [[RHS:%.+]] = IE.PermuteCast([[BROADCAST]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x1023x1x32xf16> -> tensor<1x32x1023x1xf16, {order = #NHWC}>
-    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[LHS]], [[RHS]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x1023x1xf16, {order = #NHWC}>, tensor<1x32x1023x1xf16, {order = #NHWC}> -> tensor<1x32x1023x1xf16, {order = #NHWC}>
-    // CHECK:       [[OUTPUT_CAST:%.+]] = IE.PermuteCast([[MULTIPLY]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x32x1023x1xf16, {order = #NHWC}> -> tensor<1x1023x1x32xf16>
+    // CHECK:       [[LHS:%.+]] = IE.PermuteCast([[INPUT_0]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x1023x2x32xf16> -> tensor<1x32x1023x2xf16, {order = #NHWC}>
+    // CHECK:       [[BROADCAST:%.+]] = IE.Tile([[INPUT_1]]) {repeats_values = [1, 1023, 1, 1]} : tensor<1x1x2x32xf16> -> tensor<1x1023x2x32xf16>
+    // CHECK:       [[RHS:%.+]] = IE.PermuteCast([[BROADCAST]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x1023x2x32xf16> -> tensor<1x32x1023x2xf16, {order = #NHWC}>
+    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[LHS]], [[RHS]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x1023x2xf16, {order = #NHWC}>, tensor<1x32x1023x2xf16, {order = #NHWC}> -> tensor<1x32x1023x2xf16, {order = #NHWC}>
+    // CHECK:       [[OUTPUT_CAST:%.+]] = IE.PermuteCast([[MULTIPLY]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x32x1023x2xf16, {order = #NHWC}> -> tensor<1x1023x2x32xf16>
 
     // CHECK:       return [[OUTPUT_CAST]]
 }
@@ -228,14 +228,14 @@ func.func @BroadcastWhenOutputCJustBelowRegressionThreshold(%arg0: tensor<1x1023
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @NotBroadcastWhenOutputCAtRegressionThreshold
-// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x1024x1x32xf16>,
-// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x1x1x32xf16>
-func.func @NotBroadcastWhenOutputCAtRegressionThreshold(%arg0: tensor<1x1024x1x32xf16>, %arg1: tensor<1x1x1x32xf16>) -> tensor<1x1024x1x32xf16> {
-    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024x1x32xf16>, tensor<1x1x1x32xf16> -> tensor<1x1024x1x32xf16>
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x1024x2x32xf16>,
+// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x1x2x32xf16>
+func.func @NotBroadcastWhenOutputCAtRegressionThreshold(%arg0: tensor<1x1024x2x32xf16>, %arg1: tensor<1x1x2x32xf16>) -> tensor<1x1024x2x32xf16> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024x2x32xf16>, tensor<1x1x2x32xf16> -> tensor<1x1024x2x32xf16>
 
-    return %0 : tensor<1x1024x1x32xf16>
+    return %0 : tensor<1x1024x2x32xf16>
 
-    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[INPUT_0]], [[INPUT_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024x1x32xf16>, tensor<1x1x1x32xf16> -> tensor<1x1024x1x32xf16>
+    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[INPUT_0]], [[INPUT_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1024x2x32xf16>, tensor<1x1x2x32xf16> -> tensor<1x1024x2x32xf16>
     // CHECK:       return [[MULTIPLY]]
 }
 
@@ -245,18 +245,18 @@ func.func @NotBroadcastWhenOutputCAtRegressionThreshold(%arg0: tensor<1x1024x1x3
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @BroadcastChannelWhenSpatialSizeAtThreshold
-// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x512x64x32xf16>,
-// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x1x64x32xf16>
-func.func @BroadcastChannelWhenSpatialSizeAtThreshold(%arg0: tensor<1x512x64x32xf16>, %arg1: tensor<1x1x64x32xf16>) -> tensor<1x512x64x32xf16> {
-    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x512x64x32xf16>, tensor<1x1x64x32xf16> -> tensor<1x512x64x32xf16>
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x512x131x32xf16>,
+// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x1x131x32xf16>
+func.func @BroadcastChannelWhenSpatialSizeAtThreshold(%arg0: tensor<1x512x131x32xf16>, %arg1: tensor<1x1x131x32xf16>) -> tensor<1x512x131x32xf16> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x512x131x32xf16>, tensor<1x1x131x32xf16> -> tensor<1x512x131x32xf16>
 
-    return %0 : tensor<1x512x64x32xf16>
+    return %0 : tensor<1x512x131x32xf16>
 
-    // CHECK:       [[LHS:%.+]] = IE.PermuteCast([[INPUT_0]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x512x64x32xf16> -> tensor<1x32x512x64xf16, {order = #NHWC}>
-    // CHECK:       [[BROADCAST:%.+]] = IE.Tile([[INPUT_1]]) {repeats_values = [1, 512, 1, 1]} : tensor<1x1x64x32xf16> -> tensor<1x512x64x32xf16>
-    // CHECK:       [[RHS:%.+]] = IE.PermuteCast([[BROADCAST]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x512x64x32xf16> -> tensor<1x32x512x64xf16, {order = #NHWC}>
-    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[LHS]], [[RHS]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x512x64xf16, {order = #NHWC}>, tensor<1x32x512x64xf16, {order = #NHWC}> -> tensor<1x32x512x64xf16, {order = #NHWC}>
-    // CHECK:       [[OUTPUT_CAST:%.+]] = IE.PermuteCast([[MULTIPLY]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x32x512x64xf16, {order = #NHWC}> -> tensor<1x512x64x32xf16>
+    // CHECK:       [[LHS:%.+]] = IE.PermuteCast([[INPUT_0]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x512x131x32xf16> -> tensor<1x32x512x131xf16, {order = #NHWC}>
+    // CHECK:       [[BROADCAST:%.+]] = IE.Tile([[INPUT_1]]) {repeats_values = [1, 512, 1, 1]} : tensor<1x1x131x32xf16> -> tensor<1x512x131x32xf16>
+    // CHECK:       [[RHS:%.+]] = IE.PermuteCast([[BROADCAST]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x512x131x32xf16> -> tensor<1x32x512x131xf16, {order = #NHWC}>
+    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[LHS]], [[RHS]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x512x131xf16, {order = #NHWC}>, tensor<1x32x512x131xf16, {order = #NHWC}> -> tensor<1x32x512x131xf16, {order = #NHWC}>
+    // CHECK:       [[OUTPUT_CAST:%.+]] = IE.PermuteCast([[MULTIPLY]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x32x512x131xf16, {order = #NHWC}> -> tensor<1x512x131x32xf16>
 
     // CHECK:       return [[OUTPUT_CAST]]
 }
@@ -267,14 +267,14 @@ func.func @BroadcastChannelWhenSpatialSizeAtThreshold(%arg0: tensor<1x512x64x32x
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @NotBroadcastChannelWhenSpatialSizeAboveThreshold
-// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x512x64x64xf16>,
-// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x1x64x64xf16>
-func.func @NotBroadcastChannelWhenSpatialSizeAboveThreshold(%arg0: tensor<1x512x64x64xf16>, %arg1: tensor<1x1x64x64xf16>) -> tensor<1x512x64x64xf16> {
-    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x512x64x64xf16>, tensor<1x1x64x64xf16> -> tensor<1x512x64x64xf16>
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x512x132x32xf16>,
+// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x1x132x32xf16>
+func.func @NotBroadcastChannelWhenSpatialSizeAboveThreshold(%arg0: tensor<1x512x132x32xf16>, %arg1: tensor<1x1x132x32xf16>) -> tensor<1x512x132x32xf16> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x512x132x32xf16>, tensor<1x1x132x32xf16> -> tensor<1x512x132x32xf16>
 
-    return %0 : tensor<1x512x64x64xf16>
+    return %0 : tensor<1x512x132x32xf16>
 
-    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[INPUT_0]], [[INPUT_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x512x64x64xf16>, tensor<1x1x64x64xf16> -> tensor<1x512x64x64xf16>
+    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[INPUT_0]], [[INPUT_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x512x132x32xf16>, tensor<1x1x132x32xf16> -> tensor<1x512x132x32xf16>
     // CHECK:       return [[MULTIPLY]]
 }
 
@@ -309,5 +309,41 @@ func.func @NotBroadcastDynamicMultiply(%arg0: tensor<1x1x1x?xf32, {bounds = #con
 
     // CHECK:       [[CONST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
     // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[INPUT]], [[CONST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 10]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x1x1x1xf32> -> tensor<1x1x1x?xf32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 10]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:       return [[MULTIPLY]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NotBroadcastWhenActivationIsNotNCHW
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x50x1x32xf16, {order = #NHWC}>,
+// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x1x1x32xf16, {order = #NHWC}>
+func.func @NotBroadcastWhenActivationIsNotNCHW(%arg0: tensor<1x50x1x32xf16, {order = #NHWC}>, %arg1: tensor<1x1x1x32xf16, {order = #NHWC}>) -> tensor<1x50x1x32xf16, {order = #NHWC}> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x50x1x32xf16, {order = #NHWC}>, tensor<1x1x1x32xf16, {order = #NHWC}> -> tensor<1x50x1x32xf16, {order = #NHWC}>
+
+    return %0 : tensor<1x50x1x32xf16, {order = #NHWC}>
+
+    // The W-expanded scale case relies on a PermuteCast that reinterprets NCHW memory.
+    // The operands are NHWC here, so the Multiply must be left untouched.
+    // CHECK-NOT:   IE.GroupConvolution
+    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[INPUT_0]], [[INPUT_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x50x1x32xf16, {order = #NHWC}>, tensor<1x1x1x32xf16, {order = #NHWC}> -> tensor<1x50x1x32xf16, {order = #NHWC}>
+    // CHECK:       return [[MULTIPLY]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @NotConvertPerChannelMultiplyWhenLayoutIsNotNHWC
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x18944x1x3584xf16>,
+// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x18944x1x1xf16>
+func.func @NotConvertPerChannelMultiplyWhenLayoutIsNotNHWC(%arg0: tensor<1x18944x1x3584xf16>, %arg1: tensor<1x18944x1x1xf16>) -> tensor<1x18944x1x3584xf16> {
+    %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x18944x1x3584xf16>, tensor<1x18944x1x1xf16> -> tensor<1x18944x1x3584xf16>
+
+    return %0 : tensor<1x18944x1x3584xf16>
+
+    // CHECK-NOT:   IE.GroupConvolution
+    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[INPUT_0]], [[INPUT_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x18944x1x3584xf16>, tensor<1x18944x1x1xf16> -> tensor<1x18944x1x3584xf16>
     // CHECK:       return [[MULTIPLY]]
 }

@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/utils/cast_utils.hpp"
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 
 namespace vpux {

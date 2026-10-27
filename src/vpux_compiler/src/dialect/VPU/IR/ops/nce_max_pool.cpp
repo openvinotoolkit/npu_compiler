@@ -347,23 +347,6 @@ bool vpux::VPU::NCEMaxPoolOp::checkStrategyCompatibility(VPU::MultiClusterStrate
         return false;
     }
 
-    // HKSwitch produces a SEGMENTED | MULTICASTED output: every cluster computes a slice over height
-    // and broadcasts that slice to all the other clusters through ODU halo regions. The halo
-    // descriptors are built by ComputeHaloRegionForDPUTaskOp, which maps the input dims onto the
-    // output dims by memory position so that an ODU permutation is taken into account. That mapping
-    // stays valid only while the channel dimension keeps the innermost memory position, as in NHWC or
-    // NWHC, where the permutation is a plain height/width swap. Once the ODU moves the channels out of
-    // the innermost position, as for an NCHW output, the height offset of the broadcast is read from
-    // the channel slot of the halo offsets, which is always zero. Every cluster then broadcasts its
-    // slice over the beginning of the destination buffer and the consumer reads data corrupted by a
-    // per-channel shift.
-    if (strategy == VPU::MultiClusterStrategy::HKSwitch && getNumOperands() > 1) {
-        const auto outOrder = outputType.getDimsOrder();
-        if (outOrder.numDims() != 4 || outOrder.dimAt(outOrder.numDims() - 1) != Dims4D::Act::C) {
-            return false;
-        }
-    }
-
     // BLOCK_FIRST S2DD2S does not support C-dim splits.
     if (const auto s2dd2sCfg = getS2dd2sConfigAttr()) {
         if (!VPU::isS2DD2SDimSplitSupported(s2dd2sCfg, Dims4D::Act::C)) {
@@ -586,11 +569,11 @@ mlir::LogicalResult vpux::VPU::NCEMaxPoolOp::reifyResultShapes(mlir::OpBuilder& 
             }
             auto dimVal = mlir::getValueOrCreateConstantIndexOp(builder, loc, dims[i]);
             if (scale.multiplier > 1) {
-                auto factor = builder.create<mlir::arith::ConstantIndexOp>(loc, scale.multiplier);
-                dims[i] = builder.create<mlir::arith::MulIOp>(loc, dimVal, factor).getResult();
+                auto factor = mlir::arith::ConstantIndexOp::create(builder, loc, scale.multiplier);
+                dims[i] = mlir::arith::MulIOp::create(builder, loc, dimVal, factor).getResult();
             } else {
-                auto factor = builder.create<mlir::arith::ConstantIndexOp>(loc, scale.divisor);
-                dims[i] = builder.create<mlir::arith::DivSIOp>(loc, dimVal, factor).getResult();
+                auto factor = mlir::arith::ConstantIndexOp::create(builder, loc, scale.divisor);
+                dims[i] = mlir::arith::DivSIOp::create(builder, loc, dimVal, factor).getResult();
             }
         }
     }

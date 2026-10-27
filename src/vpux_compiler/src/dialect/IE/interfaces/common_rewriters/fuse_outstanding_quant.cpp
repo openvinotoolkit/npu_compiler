@@ -29,39 +29,40 @@ template <typename ConcreteOp>
 mlir::LogicalResult IE::findQuantizeOrQuantizedNCE(ConcreteOp origOp, mlir::PatternRewriter& rewriter,
                                                    mlir::Value eltwiseInput,
                                                    SmallVector<mlir::Operation*>& eltwiseToQuantizeOps, Logger log) {
-    auto verifyInput = [origOp, &rewriter](mlir::Operation* operation) {
+    auto verifyInput = [origOp, &rewriter, log](mlir::Operation* operation) {
         if (operation == nullptr) {
-            return matchFailed(rewriter, origOp, "Producer is a block argument for {0} at {1}", origOp->getName(),
+            return matchFailed(log, rewriter, origOp, "Producer is a block argument for {0} at {1}", origOp->getName(),
                                origOp->getLoc());
         }
         if (!mlir::isa<IE::ElemTypeInfoOpInterface, IE::LayerWithPostOpInterface, IE::QuantizeOp>(operation)) {
-            return matchFailed(rewriter, origOp,
+            return matchFailed(log, rewriter, origOp,
                                "Ancestor {0} at {1} is neither FakeQuantize-agnostic, NCE, nor Quantize operation",
                                operation->getName(), operation->getLoc());
         }
-        VPUX_THROW_UNLESS(!operation->use_empty(),
-                          "Expact operation always to have uses because the loop just came from one of it's uses; "
-                          "the loop is walking up the calling chain");
+        VPUX_THROW_WHEN(operation->use_empty(),
+                        "Expect operation always to have uses because the loop just came from one of its uses; "
+                        "the loop is walking up the calling chain");
         if (!operation->hasOneUse()) {
             // TODO: Should use hasOneUser when it's available in MLIR:
             // https://llvm.org/doxygen/classllvm_1_1Value.html#a2e987c6af902aad6baa39bd5b7ef322c
             const auto hasOneUser =
                     std::equal(++operation->user_begin(), operation->user_end(), operation->user_begin());
             if (!hasOneUser) {
-                return matchFailed(rewriter, origOp, "Ancestor has more than one consumer for {0} at {1} ",
+                return matchFailed(log, rewriter, origOp, "Ancestor has more than one consumer for {0} at {1} ",
                                    operation->getName(), operation->getLoc());
             }
         }
         if (mlir::isa<IE::ElemTypeInfoOpInterface>(operation) && operation->getNumOperands() > 1) {
-            return matchFailed(rewriter, origOp,
+            return matchFailed(log, rewriter, origOp,
                                "ElemTypeInfoOpInterface Ancestor has more than one input for {0} at {1}",
                                operation->getName(), operation->getLoc());
         }
 
         // Block fusion if operation has PPE
         if (::hasPPE(operation)) {
-            return matchFailed(rewriter, origOp, "Ancestor {0} at {1} has PPE, cannot fuse quantization through it",
-                               operation->getName(), operation->getLoc());
+            return matchFailed(log, rewriter, origOp,
+                               "Ancestor {0} at {1} has PPE, cannot fuse quantization through it", operation->getName(),
+                               operation->getLoc());
         }
 
         return mlir::success();
@@ -106,7 +107,7 @@ mlir::LogicalResult IE::removeQuantOrFusedQuant(ConcreteOp origOp, mlir::Pattern
         const auto isPerChannel = IE::isPerAxisQuant(quantOrQuantizedNCE->getResult(0));
         auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(quantOrQuantizedNCE);
         if (!quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(!isPerChannel)) {
-            return matchFailed(rewriter, origOp, "Producer {0} is not supported", quantOrQuantizedNCE->getName());
+            return matchFailed(log, rewriter, origOp, "Producer {0} is not supported", quantOrQuantizedNCE->getName());
         }
 
         auto* newNCETask = rewriter.clone(*quantOrQuantizedNCE);
@@ -150,11 +151,11 @@ mlir::LogicalResult QuantizeWithTwoInputsNCEEltwiseOpGeneric<ConcreteOp>::matchA
     };
     const auto noQuantizedInput = !isQuantizedInput(origOp.getInput1()) && !isQuantizedInput(origOp.getInput2());
     if (noQuantizedInput) {
-        return matchFailed(rewriter, origOp, "OrigOp doesn't have quantized input");
+        return matchFailed(_log, rewriter, origOp, "OrigOp doesn't have quantized input");
     }
     auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(origOp.getOperation());
     if (!quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(false)) {
-        return matchFailed(rewriter, origOp, "OrigOp doesn't support mixed precision");
+        return matchFailed(_log, rewriter, origOp, "OrigOp doesn't support mixed precision");
     }
 
     SmallVector<mlir::Operation*> lhsEltwiseToQuantizeOps, rhsEltwiseToQuantizeOps;
@@ -177,7 +178,8 @@ mlir::LogicalResult QuantizeWithTwoInputsNCEEltwiseOpGeneric<ConcreteOp>::matchA
     mlir::Operation* rhsQuant = rhsEltwiseToQuantizeOps.pop_back_val();
 
     if (mlir::isa<IE::LayerWithPostOpInterface>(lhsQuant) && mlir::isa<IE::LayerWithPostOpInterface>(rhsQuant)) {
-        return matchFailed(rewriter, origOp, "Quantizes for both ancestors have been fused at {0} ({1}) and {2} ({3})",
+        return matchFailed(_log, rewriter, origOp,
+                           "Quantizes for both ancestors have been fused at {0} ({1}) and {2} ({3})",
                            lhsQuant->getName(), lhsQuant->getLoc(), rhsQuant->getName(), rhsQuant->getLoc());
     }
     // At this point at least one of lhsQuant and rhsQunt is QuantizeOp
@@ -214,16 +216,16 @@ mlir::LogicalResult QuantizeWithAvgPool::matchAndRewrite(IE::AvgPoolOp avgPoolOp
         return mlir::isa<mlir::quant::QuantizedType>(avgPoolOp.getInput().getType().getElementType());
     }();
     if (!isInputQuantized) {
-        return matchFailed(rewriter, avgPoolOp, "OrigOp doesn't have quantized input");
+        return matchFailed(_log, rewriter, avgPoolOp, "OrigOp doesn't have quantized input");
     }
     auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(avgPoolOp.getOperation());
     if (!quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(false)) {
-        return matchFailed(rewriter, avgPoolOp, "OrigOp doesn't support mixed precision");
+        return matchFailed(_log, rewriter, avgPoolOp, "OrigOp doesn't support mixed precision");
     }
 
     // Block transformation if AvgPool has a PPE
     if (::hasPPE(avgPoolOp.getOperation())) {
-        return matchFailed(rewriter, avgPoolOp,
+        return matchFailed(_log, rewriter, avgPoolOp,
                            "AvgPool at {0} has fused PPE, skipping quantization fusion to preserve consistency",
                            avgPoolOp->getLoc());
     }
@@ -240,7 +242,7 @@ mlir::LogicalResult QuantizeWithAvgPool::matchAndRewrite(IE::AvgPoolOp avgPoolOp
     mlir::Operation* quant = avgPoolToQuantizeOps.pop_back_val();
 
     if (!mlir::isa<IE::QuantizeOp>(quant)) {
-        return matchFailed(rewriter, avgPoolOp, "Quantizes for ancestors have been fused at {0} ({1})",
+        return matchFailed(_log, rewriter, avgPoolOp, "Quantizes for ancestors have been fused at {0} ({1})",
                            quant->getName(), quant->getLoc());
     }
 
@@ -288,14 +290,14 @@ mlir::LogicalResult QuantizeWithNCEOp<ConcreteOp>::matchAndRewrite(ConcreteOp or
     }();
 
     if (!isInput16BitsQuantized) {
-        return matchFailed(rewriter, origOp, "OrigOp doesn't have 16 bit integer quantized input");
+        return matchFailed(_log, rewriter, origOp, "OrigOp doesn't have 16 bit integer quantized input");
     }
     if (!mlir::isa<Const::DeclareOp>(getWeightsVal().getDefiningOp())) {
-        return matchFailed(rewriter, origOp, "Weights operand must be DeclareOp");
+        return matchFailed(_log, rewriter, origOp, "Weights operand must be DeclareOp");
     }
     auto quantizedLayerOp = mlir::dyn_cast<IE::QuantizedLayerOpInterface>(origOp.getOperation());
     if (!quantizedLayerOp || !quantizedLayerOp.isMixPrecisionSupported(false)) {
-        return matchFailed(rewriter, origOp, "OrigOp doesn't support mixed precision");
+        return matchFailed(_log, rewriter, origOp, "OrigOp doesn't support mixed precision");
     }
 
     SmallVector<mlir::Operation*> convToQuantizeOps;
@@ -309,8 +311,8 @@ mlir::LogicalResult QuantizeWithNCEOp<ConcreteOp>::matchAndRewrite(ConcreteOp or
     mlir::Operation* quant = convToQuantizeOps.pop_back_val();
 
     if (!mlir::isa<IE::QuantizeOp>(quant)) {
-        return matchFailed(rewriter, origOp, "Quantize for ancestors have been fused at {0} ({1})", quant->getName(),
-                           quant->getLoc());
+        return matchFailed(_log, rewriter, origOp, "Quantize for ancestors have been fused at {0} ({1})",
+                           quant->getName(), quant->getLoc());
     }
 
     auto quantizeOp = mlir::cast<IE::QuantizeOp>(quant);

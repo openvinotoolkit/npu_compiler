@@ -401,6 +401,19 @@ void printFunctionBody(intel_npu::vm::Span<uint8_t> body, size_t indentLevel = 0
             printInstruction("buffer.create", operands);
             break;
         }
+        case OpCode::BUFFER_FROM_CONST: {
+            std::vector<int64_t> operands;
+            operands.push_back(getOperand(body.begin(), 0));  // dst
+            operands.push_back(getOperand(body.begin(), 1));  // constant index
+            operands.push_back(getOperand(body.begin(), 2));  // elem type
+            const auto rank = getOperand(body.begin(), 3);
+            operands.push_back(rank);
+            for (int64_t i = 0; i < 2 * rank; ++i) {
+                operands.push_back(getOperand(body.begin(), 4 + i));
+            }
+            printInstruction("buffer.from_const", operands);
+            break;
+        }
         case OpCode::BUFFER_GET_DIM: {
             const auto dstRegNum = getOperand(body.begin(), 0);
             const auto bufRegNum = getOperand(body.begin(), 1);
@@ -458,6 +471,12 @@ void printFunctionBody(intel_npu::vm::Span<uint8_t> body, size_t indentLevel = 0
                 operands.push_back(getOperand(body.begin(), 3 + i));
             }
             printInstruction("buffer.store", operands);
+            break;
+        }
+        case OpCode::BUFFER_COPY: {
+            const auto dstRegNum = getOperand(body.begin(), 0);
+            const auto srcRegNum = getOperand(body.begin(), 1);
+            printInstruction("buffer.copy", {dstRegNum, srcRegNum});
             break;
         }
         case OpCode::ADD_F64: {
@@ -842,7 +861,7 @@ intel_npu::vm::Version intel_npu::vm::BytecodeReader::getMinSupportedVersion() {
 }
 
 intel_npu::vm::Version intel_npu::vm::BytecodeReader::getMaxSupportedVersion() {
-    return Version{1, 1, 0};
+    return Version{1, 2, 0};
 }
 
 intel_npu::vm::SectionHeaderTable& intel_npu::vm::BytecodeReader::getSectionHeaderTable() {

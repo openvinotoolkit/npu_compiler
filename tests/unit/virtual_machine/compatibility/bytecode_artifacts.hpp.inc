@@ -55,6 +55,7 @@ const std::array<uint8_t, @ARTIFACT_BYTECODE_V1_0_0_INVALID_REGISTER_COUNT_SIZE@
 const std::array<uint8_t, @ARTIFACT_BYTECODE_V1_0_0_STACK_ACCURATE_DEEP_RECURSION_SIZE@> BYTECODE_V1_0_0_STACK_ACCURATE_DEEP_RECURSION_BYTES = { @ARTIFACT_BYTECODE_V1_0_0_STACK_ACCURATE_DEEP_RECURSION_BYTES@ };
 const std::array<uint8_t, @ARTIFACT_BYTECODE_V1_0_0_STACK_OVERFLOW_MAX_DEPTH_SIZE@> BYTECODE_V1_0_0_STACK_OVERFLOW_MAX_DEPTH_BYTES = { @ARTIFACT_BYTECODE_V1_0_0_STACK_OVERFLOW_MAX_DEPTH_BYTES@ };
 const std::array<uint8_t, @ARTIFACT_BYTECODE_V1_1_0_BUFFER_LOAD_SIZE@> BYTECODE_V1_1_0_BUFFER_LOAD_BYTES = { @ARTIFACT_BYTECODE_V1_1_0_BUFFER_LOAD_BYTES@ };
+const std::array<uint8_t, @ARTIFACT_BYTECODE_V1_2_0_CONSTANT_BUFFER_SIZE@> BYTECODE_V1_2_0_CONSTANT_BUFFER_BYTES = { @ARTIFACT_BYTECODE_V1_2_0_CONSTANT_BUFFER_BYTES@ };
 // clang-format on
 
 enum class TestType : uint8_t { Accurate, ParseSuccess, ParseFailure, RuntimeFailure };
@@ -323,4 +324,13 @@ const std::unordered_map<std::string, ArtifactMetadata> BYTECODE_ARTIFACTS{
                                       BYTECODE_V1_1_0_BUFFER_LOAD_BYTES.end()),
                  {},
                  {},
+         }},
+        {"bytecode_v1_2_0_constant_buffer",
+         ArtifactMetadata{
+                 TestType::Accurate,
+                 "constant_buffer",
+                 std::vector<uint8_t>(BYTECODE_V1_2_0_CONSTANT_BUFFER_BYTES.begin(),
+                                      BYTECODE_V1_2_0_CONSTANT_BUFFER_BYTES.end()),
+                 {},
+                 makeScalarValues<int64_t>({42}),
          }}};

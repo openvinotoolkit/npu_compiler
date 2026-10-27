@@ -28,13 +28,13 @@ struct VfSchedStrategyDescriptor {
         ALL_WEIGHTS,
         ALL_INPUTS,
     };
-    enum class OutputResidency : uint8_t {
-        DROP,
-        KEEP,
+    enum class LastComputeOverlapWithNextIterInputs : uint8_t {
+        DISABLED,
+        ENABLED,
     };
 
     FetchScope fetchScp = FetchScope::NONE;
-    OutputResidency outputRes = OutputResidency::DROP;
+    LastComputeOverlapWithNextIterInputs lastCompOverlapNextIterIn = LastComputeOverlapWithNextIterInputs::DISABLED;
 };
 
 //
@@ -45,7 +45,8 @@ struct VfAllocateResult {
     // Single iteration template — replicated `numIterations` times by the
     // outer scheduler, matching `UndefinedTiling` behavior.
     IterationSchedule iterationSchedule;
-    // TEMPORARY values that had to be spilled
+    // TEMPORARY values that had to be spilled, plus any PERSISTENT_CANDIDATE
+    // buffers evicted from the persistent zone during scheduling
     SmallVector<mlir::Value> spilledBuffers;
     AddressType peakUsedBytes = 0;
     AddressType persistentReservedBytes = 0;
@@ -86,8 +87,13 @@ private:
     static size_t getSpillCost(size_t bufferSize);
 
     void freeDeadAtOp(size_t opPos, ComputeExplicitSchedule& entry, ValueOrderedSet& liveTemporary);
-    AddressType tryAllocTemporary(mlir::Value out, AddressType persistentFloor);
+    AddressType tryAllocTemporary(mlir::Value out, AddressType persistentFloor,
+                                  ArrayRef<std::pair<AddressType, AddressType>> extraExcluded = {});
 
+    bool findAndSpillPersistentBuffer(VfAllocateResult& result, ComputeExplicitSchedule& entry, size_t currentOpPos,
+                                      ArrayRef<mlir::Value> inOpBuffers, ArrayRef<mlir::Value> outOpBuffers,
+                                      SmallVector<BufferRecord>& admittedPersistentCand, AddressType& reservedSize,
+                                      AddressType& persistentFloor, AddressType& temporaryHighWater);
     bool findAndSpillTemporaryBuffer(ComputeExplicitSchedule& entry, size_t currentOpPos,
                                      ArrayRef<mlir::Value> inOpBuffers, ArrayRef<mlir::Value> outOpBuffers,
                                      ValueOrderedSet& liveTemporary, VfAllocateResult& result);

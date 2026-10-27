@@ -9,7 +9,10 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
+
+#include <set>
 
 using namespace vpux;
 
@@ -57,6 +60,85 @@ bool isBroadcastCompatibleWith(mlir::Type tensorType, vpux::ShapeRef inputShape)
     return true;
 }
 
+std::optional<int64_t> getSplitAxis(vpux::VPU::MultiClusterStrategy strategy) {
+    switch (strategy) {
+    case vpux::VPU::MultiClusterStrategy::SplitOverKernel:
+        return 1;
+    case vpux::VPU::MultiClusterStrategy::SplitOverHeight:
+        return 2;
+    case vpux::VPU::MultiClusterStrategy::SplitOverWidth:
+        return 3;
+    default:
+        return std::nullopt;
+    }
+}
+
+bool isReductionAxis(vpux::VPU::DynamicQuantizeOp op, int64_t axis) {
+    if (!op.getAxesValue().has_value()) {
+        return true;
+    }
+
+    const auto axes = parseIntArrayAttr<int64_t>(op.getAxesValueAttr());
+    const auto rank =
+            checked_cast<int64_t>(mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getShape().size());
+    return llvm::any_of(axes, [axis, rank](int64_t value) {
+        const auto normalized = value < 0 ? value + rank : value;
+        return normalized == axis;
+    });
+}
+
+mlir::LogicalResult verifyAxes(mlir::Operation* op, vpux::ShapeRef inputShape, mlir::ArrayRef<int64_t> axes) {
+    const auto rank = checked_cast<int64_t>(inputShape.size());
+    std::set<int64_t> normalizedAxes;
+
+    for (const auto axisVal : axes) {
+        if (axisVal < -rank || axisVal >= rank) {
+            return errorAt(op, "Axis value {0} is out of range for rank {1} tensor.", axisVal, rank);
+        }
+
+        const auto normalizedAxis = axisVal < 0 ? axisVal + rank : axisVal;
+        if (!normalizedAxes.insert(normalizedAxis).second) {
+            return errorAt(op, "Axis value {0} is duplicated in axes_value.", axisVal);
+        }
+    }
+
+    return mlir::success();
+}
+
+SmallVector<int64_t> inferScaleShapeFromAxes(vpux::ShapeRef inputShape, mlir::ArrayRef<int64_t> axes) {
+    auto scaleShape = to_small_vector(inputShape.raw());
+    const auto rank = checked_cast<int64_t>(scaleShape.size());
+    for (const auto axisVal : axes) {
+        const auto normalizedAxis = axisVal < 0 ? axisVal + rank : axisVal;
+        scaleShape[checked_cast<size_t>(normalizedAxis)] = 1;
+    }
+    return scaleShape;
+}
+
+// Derives the scale/zero-point type from the input by collapsing the reduced axes.
+// For multi-cluster IR the input can be a DistributedTensorType with explicit per-cluster shapes, for which
+// NDTypeInterface::changeShape is illegal. The scale/zero-point of DynamicQuantize hold the full reduction result,
+// so they are replicated across clusters (DUPLICATED) regardless of the input distribution mode.
+vpux::NDTypeInterface reduceToScaleType(vpux::NDTypeInterface inType, vpux::ShapeRef scaleShape) {
+    auto distType = mlir::dyn_cast<VPU::DistributedTensorType>(inType);
+    if (distType == nullptr) {
+        return inType.changeShape(scaleShape);
+    }
+
+    const auto distribution = distType.getDistribution();
+    if (!VPU::isDistributedAttrWithExplicitShapesAndOffsets(distribution)) {
+        return distType.changeShape(scaleShape);
+    }
+
+    auto* ctx = distType.getContext();
+    const auto dupModeAttr = VPU::DistributionModeAttr::get(ctx, VPU::DistributionMode::DUPLICATED);
+    const auto newDistribution = VPU::getNonOverlappedDistributedAttr(
+            scaleShape, dupModeAttr, /*numTiles=*/nullptr, distribution.getNumClusters(),
+            /*alignment=*/nullptr, distribution.getUniformDistributedSegments(), ctx);
+    return VPU::DistributedTensorType::get(ctx, scaleShape.raw(), distType.getElementType(), distType.getOrder(),
+                                           distType.getMemSpace(), newDistribution);
+}
+
 }  // namespace
 
 mlir::LogicalResult vpux::VPU::DynamicQuantizeOp::inferReturnTypes(
@@ -71,17 +153,28 @@ mlir::LogicalResult vpux::VPU::DynamicQuantizeOp::inferReturnTypes(
     }
 
     const auto inType = mlir::cast<vpux::NDTypeInterface>(quantize.getInput().getType());
-    const auto minType = mlir::cast<vpux::NDTypeInterface>(quantize.getMin().getType());
     const auto quantizedElemType = quantize.getDstElemType();
+
+    // When explicit min/max are provided their shape is authoritative for scale/zero-point.
+    // Otherwise (internal-reduction mode) the reduced shape is derived from axes_value.
+    auto scaleType = inType;
+    if (quantize.getMin() != nullptr) {
+        scaleType = mlir::cast<vpux::NDTypeInterface>(quantize.getMin().getType());
+    } else if (quantize.getAxesValue().has_value()) {
+        const auto axes = parseIntArrayAttr<int64_t>(quantize.getAxesValueAttr());
+        const auto scaleShape = inferScaleShapeFromAxes(inType.getShape(), axes);
+        scaleType = reduceToScaleType(inType, ShapeRef(scaleShape));
+    }
+
     inferredReturnTypes.emplace_back(inType.changeElemType(quantizedElemType));
-    inferredReturnTypes.emplace_back(minType.changeElemType(inType.getElementType()));
-    inferredReturnTypes.emplace_back(minType.changeElemType(quantizedElemType));
+    inferredReturnTypes.emplace_back(scaleType.changeElemType(inType.getElementType()));
+    inferredReturnTypes.emplace_back(scaleType.changeElemType(quantizedElemType));
     return mlir::success();
 }
 
 void vpux::VPU::DynamicQuantizeOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
                                          mlir::Value min, mlir::Value max, mlir::TypeAttr dstElemType) {
-    build(builder, state, input, min, max, dstElemType, nullptr);
+    build(builder, state, input, min, max, dstElemType, nullptr, nullptr);
 }
 
 //
@@ -100,6 +193,23 @@ mlir::FailureOr<OutputTiling> vpux::VPU::DynamicQuantizeOp::getTilingStrategy(Ti
     return vpux::getSWLayerTilingStrategy(this->getOperation(), tilingMode, log);
 }
 
+SmallVector<int64_t> vpux::VPU::DynamicQuantizeOp::getMaxNumTiles() {
+    if (getMin() == nullptr && getMax() == nullptr && getAxesValue().has_value()) {
+        const auto axes = parseIntArrayAttr<int64_t>(getAxesValueAttr());
+        const auto inputRank =
+                checked_cast<int64_t>(mlir::cast<vpux::NDTypeInterface>(getInput().getType()).getShape().size());
+        SmallVector<int64_t> normalizedAxes;
+        normalizedAxes.reserve(axes.size());
+        for (const auto axis : axes) {
+            normalizedAxes.push_back(axis < 0 ? axis + inputRank : axis);
+        }
+        return vpux::getMaxNumTiles(this->getOperation(), false, false,
+                                    getMaxNumTilesWithAxesExclusion(this->getOperation(), normalizedAxes));
+    }
+
+    return vpux::getMaxNumTiles(this->getOperation(), false, false);
+}
+
 OutputTiling vpux::VPU::DynamicQuantizeOp::getOutputTiling(const vpux::TileInfo& firstOutputTile,
                                                            vpux::Logger /*log*/) {
     const auto scaleType = mlir::cast<vpux::NDTypeInterface>(getScale().getType());
@@ -116,16 +226,40 @@ vpux::TileInfo vpux::VPU::DynamicQuantizeOp::getMainOutputTile(mlir::OpResult /*
 
 mlir::LogicalResult vpux::VPU::DynamicQuantizeOp::verify() {
     const auto inputShape = mlir::cast<vpux::NDTypeInterface>(getInput().getType()).getShape();
+    const bool hasMin = getMin() != nullptr;
+    const bool hasMax = getMax() != nullptr;
 
-    if (!isBroadcastCompatibleWith(getMin().getType(), inputShape)) {
+    if (hasMin != hasMax) {
+        return errorAt(*this, "Min and max tensors must either both be present or both be absent.");
+    }
+
+    if (getAxesValue().has_value()) {
+        const auto axes = parseIntArrayAttr<int64_t>(getAxesValueAttr());
+        if (mlir::failed(verifyAxes(*this, inputShape, axes))) {
+            return mlir::failure();
+        }
+
+        if (!hasMin) {
+            const auto expectedScaleShape = inferScaleShapeFromAxes(inputShape, axes);
+            const auto scaleShape = mlir::cast<vpux::NDTypeInterface>(getScale().getType()).getShape();
+            const auto zeroPointShape = mlir::cast<vpux::NDTypeInterface>(getZeroPoint().getType()).getShape();
+            if (scaleShape != ShapeRef(expectedScaleShape) || zeroPointShape != ShapeRef(expectedScaleShape)) {
+                return errorAt(*this, "Scale and zero-point shapes must match the axes_value-derived reduction shape.");
+            }
+        }
+    }
+
+    // Internal-reduction mode carries only the input; min/max are computed inside the kernel.
+    // Explicit mode carries min/max whose shapes must be broadcast-compatible with the input.
+    if (getMin() != nullptr && !isBroadcastCompatibleWith(getMin().getType(), inputShape)) {
         return errorAt(*this, "Min tensor is not broadcast-compatible with input tensor.");
     }
 
-    if (!isBroadcastCompatibleWith(getMax().getType(), inputShape)) {
+    if (getMax() != nullptr && !isBroadcastCompatibleWith(getMax().getType(), inputShape)) {
         return errorAt(*this, "Max tensor is not broadcast-compatible with input tensor.");
     }
 
-    if (!hasSameShape(getMin().getType(), getMax().getType())) {
+    if (getMin() != nullptr && getMax() != nullptr && !hasSameShape(getMin().getType(), getMax().getType())) {
         return errorAt(*this, "Min and max tensors must have the same shape.");
     }
 
@@ -133,7 +267,7 @@ mlir::LogicalResult vpux::VPU::DynamicQuantizeOp::verify() {
         return errorAt(*this, "Scale and zero-point tensors must have the same shape.");
     }
 
-    if (!hasSameShape(getMin().getType(), getScale().getType())) {
+    if (getMin() != nullptr && !hasSameShape(getMin().getType(), getScale().getType())) {
         return errorAt(*this, "Scale tensor must have the same shape as min/max tensors.");
     }
 
@@ -160,6 +294,12 @@ mlir::LogicalResult vpux::VPU::DynamicQuantizeOp::verify() {
 //
 
 bool vpux::VPU::DynamicQuantizeOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t) {
+    if (getMin() == nullptr && getMax() == nullptr) {
+        const auto splitAxis = getSplitAxis(strategy);
+        return strategy == VPU::MultiClusterStrategy::Clustering ||
+               (splitAxis.has_value() && !isReductionAxis(*this, splitAxis.value()));
+    }
+
     if (!isScalarLike(getScale().getType()) || !isScalarLike(getZeroPoint().getType())) {
         return strategy == VPU::MultiClusterStrategy::Clustering;
     }
@@ -209,8 +349,15 @@ vpux::NDTypeInterface vpux::VPU::DynamicQuantizeOp::getDistributedTypeForOpResul
         return getDistributedOutputTensorType(clusteredOp, resultType, siblingsAnalysis, strategy,
                                               hasExplicitDistributedAttr);
     } else if (result == origOp.getScale() || result == origOp.getZeroPoint()) {
-        return getDistributedOutputTensorType(clusteredOp, resultType, siblingsAnalysis,
-                                              VPU::MultiClusterStrategy::Clustering, hasExplicitDistributedAttr);
+        auto parameterStrategy = VPU::MultiClusterStrategy::Clustering;
+        if (origOp.getMin() == nullptr && origOp.getMax() == nullptr) {
+            const auto splitAxis = getSplitAxis(strategy);
+            if (splitAxis.has_value() && !isReductionAxis(origOp, splitAxis.value())) {
+                parameterStrategy = strategy;
+            }
+        }
+        return getDistributedOutputTensorType(clusteredOp, resultType, siblingsAnalysis, parameterStrategy,
+                                              hasExplicitDistributedAttr);
     }
 
     VPUX_THROW("Failed to compute distributed type for op result {0}", clusteredOp->getLoc());
@@ -222,8 +369,10 @@ vpux::NDTypeInterface vpux::VPU::DynamicQuantizeOp::getDistributedTypeForOpResul
 //
 
 bool vpux::VPU::DynamicQuantizeOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {
-    VPUX_THROW_UNLESS(buffers.size() == 6,
-                      "DynamicQuantizeOp requires 3 input and 3 output, but the number of buffer is {0}",
+    // Explicit mode has 3 inputs (input, min, max); internal-reduction mode has only the input.
+    // Both modes produce 3 outputs (output, scale, zero-point).
+    VPUX_THROW_UNLESS(buffers.size() == 6 || buffers.size() == 4,
+                      "DynamicQuantizeOp requires 1 or 3 inputs and 3 outputs, but the number of buffer is {0}",
                       buffers.size());
 
     SmallVector<Byte> buffersSize;

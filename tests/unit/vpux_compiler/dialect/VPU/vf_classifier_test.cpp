@@ -36,7 +36,7 @@ protected:
     mlir::Value createBuffer(vpux::AddressType rawSize, vpux::AddressType rawAlign = 64) {
         const auto shape = SmallVector<int64_t>{static_cast<int64_t>(rawSize)};
         auto type = mlir::MemRefType::get(shape, _builder.getIntegerType(8));
-        auto alloc = _builder.create<mlir::memref::AllocOp>(_builder.getUnknownLoc(), type);
+        auto alloc = mlir::memref::AllocOp::create(_builder, _builder.getUnknownLoc(), type);
         if (rawAlign != 0) {
             alloc.setAlignment(rawAlign);
         }
@@ -344,10 +344,10 @@ TEST_F(MLIR_ClassifierVF, SmallMixedAlignmentPersistentFitUsesWorstPackedOrder) 
     const auto persistentCIdx = result.valueToRecord.lookup(persistentC);
     const auto temporaryIdx = result.valueToRecord.lookup(temporary0);
 
-    // Since persistentFitInitial is expected to be smaller than the original number
-    // of persistent classified buffers (persistentFitOrder size) at least buffer got downgraded
-    // to TEMPORARY, which is not supported until E#222690 is done
-    EXPECT_FALSE(result.classifierSupportedRegion);
+    // Persistent candidates that do not fit stay in persistentFitOrder but are absent
+    // from persistentFitInitial. The allocator downgrades them to TEMPORARY at
+    // scheduling time, so the region remains classifier-supported.
+    EXPECT_TRUE(result.classifierSupportedRegion);
 
     EXPECT_EQ(result.buffers[temporaryIdx].category, BufferCategory::TEMPORARY);
     EXPECT_EQ(result.temporaryPeakBytes, 61);
@@ -598,6 +598,7 @@ TEST_F(MLIR_ClassifierVF, PartialExternalInputMarksUnsupported) {
 
     EXPECT_TRUE(result.iterationIdentityHolds);
     EXPECT_FALSE(result.classifierSupportedRegion);
+    EXPECT_EQ(result.fallbackReason, ClassifierVFFallbackReason::PARTIAL_EXTERNAL_INPUT);
     // Early-return path skips persistent-fit ordering and memory-stats computation.
     EXPECT_TRUE(result.persistentFitOrder.empty());
     EXPECT_TRUE(result.persistentFitInitial.empty());
@@ -633,7 +634,115 @@ TEST_F(MLIR_ClassifierVF, PartialExternalOutputMarksUnsupported) {
 
     EXPECT_TRUE(result.iterationIdentityHolds);
     EXPECT_FALSE(result.classifierSupportedRegion);
+    EXPECT_EQ(result.fallbackReason, ClassifierVFFallbackReason::PARTIAL_EXTERNAL_OUTPUT);
     EXPECT_TRUE(result.persistentFitOrder.empty());
     EXPECT_EQ(result.persistentCandidateTotalBytes, 0u);
     EXPECT_EQ(result.peakBaselineBytes, 0u);
+}
+
+// ---------------------------------------------------------------------------
+// Partial-shared explicit external output must still be rejected.
+//
+// Here iteration0 produces externalBuf0 and iteration1 produces a distinct
+// SSA externalBuf1. Even if the schedule builder marks externalBuf0 as explicit
+// external, template replay cannot safely model this as one shared persistent
+// buffer across all iterations.
+// ---------------------------------------------------------------------------
+TEST_F(MLIR_ClassifierVF, ExplicitExternalPartialOutputMarksUnsupported) {
+    auto schedulingLoop = std::make_unique<SchedulingLoop>();
+    schedulingLoop->type = LoopType::VF;
+
+    // `weight` is a loop-invariant external input (no in-loop producer, consumed by every
+    // iteration's DATA_IN) → classified as PERSISTENT_CANDIDATE via externalConsumed.
+    // `intermediate` is produced by DATA_IN and consumed by COMPUTE → TEMPORARY (prefetchable).
+    // `externalBuf` is produced by COMPUTE and consumed by DATA_OUT in every iteration.
+    // Iteration-count heuristics alone would leave it as TEMPORARY, but the test
+    // pre-populates region.externalBuffers to simulate what
+    // createInnerLoopsFromIterations now does when it finds a non-loop consumer.
+    auto weight = createBuffer(256, /*rawAlign=*/64);
+    auto intermediate0 = createBuffer(128, /*rawAlign=*/64);
+    auto externalBuf0 = createBuffer(64, /*rawAlign=*/64);
+    auto intermediate1 = createBuffer(128, /*rawAlign=*/64);
+    auto externalBuf1 = createBuffer(64, /*rawAlign=*/64);
+
+    LoopBody iteration0;
+    iteration0.push_back(createOp(/*opIdx=*/0, AllocationType::DATA_IN, {weight}, {intermediate0}));
+    iteration0.push_back(createOp(/*opIdx=*/1, AllocationType::COMPUTE, {intermediate0}, {externalBuf0}));
+    iteration0.push_back(createOp(/*opIdx=*/2, AllocationType::DATA_OUT, {externalBuf0}, {}));
+
+    LoopBody iteration1;
+    iteration1.push_back(createOp(/*opIdx=*/3, AllocationType::DATA_IN, {weight}, {intermediate1}));
+    iteration1.push_back(createOp(/*opIdx=*/4, AllocationType::COMPUTE, {intermediate1}, {externalBuf1}));
+    iteration1.push_back(createOp(/*opIdx=*/5, AllocationType::DATA_OUT, {externalBuf1}, {}));
+
+    schedulingLoop->loopBodies = {std::move(iteration0), std::move(iteration1)};
+    ComputeRegion region(std::move(schedulingLoop));
+
+    // Pre-populate externalBuffers: this is what createInnerLoopsFromIterations
+    // now does when it finds that a non-loop consumer reads a loop-produced buffer.
+    region.externalBuffers.insert(externalBuf0);
+
+    const auto result = classifyVFRegion(region, /*memoryLimit=*/4096, Logger::global());
+
+    EXPECT_FALSE(result.classifierSupportedRegion);
+    EXPECT_EQ(result.fallbackReason, ClassifierVFFallbackReason::PARTIAL_EXTERNAL_OUTPUT);
+    EXPECT_TRUE(result.explicitExternalGroups.empty());
+    const auto externalBuf0Idx = result.valueToRecord.lookup(externalBuf0);
+    ASSERT_LT(externalBuf0Idx, result.explicitExternalTemplateBuffer.size());
+    EXPECT_FALSE(result.explicitExternalTemplateBuffer[externalBuf0Idx]);
+    ASSERT_LT(externalBuf0Idx, result.partialExplicitExternalTemplateBuffer.size());
+    EXPECT_TRUE(result.partialExplicitExternalTemplateBuffer[externalBuf0Idx]);
+    EXPECT_TRUE(result.persistentFitOrder.empty());
+    EXPECT_TRUE(result.persistentFitInitial.empty());
+    EXPECT_EQ(result.persistentCandidateTotalBytes, 0u);
+    EXPECT_EQ(result.peakBaselineBytes, 0u);
+    EXPECT_EQ(result.loopBodyNoSpillPeakBytes, 0u);
+}
+
+// ---------------------------------------------------------------------------
+// Fully-covered explicit external output across distinct per-iteration SSA values
+// is supported: classifier groups all iteration values under one template anchor.
+// ---------------------------------------------------------------------------
+TEST_F(MLIR_ClassifierVF, ExplicitExternalDistinctOutputsAcceptedAndGrouped) {
+    auto schedulingLoop = std::make_unique<SchedulingLoop>();
+    schedulingLoop->type = LoopType::VF;
+
+    auto weight = createBuffer(256, /*rawAlign=*/64);
+    auto intermediate0 = createBuffer(128, /*rawAlign=*/64);
+    auto externalBuf0 = createBuffer(64, /*rawAlign=*/64);
+    auto intermediate1 = createBuffer(128, /*rawAlign=*/64);
+    auto externalBuf1 = createBuffer(64, /*rawAlign=*/64);
+
+    LoopBody iteration0;
+    iteration0.push_back(createOp(/*opIdx=*/0, AllocationType::DATA_IN, {weight}, {intermediate0}));
+    iteration0.push_back(createOp(/*opIdx=*/1, AllocationType::COMPUTE, {intermediate0}, {externalBuf0}));
+    iteration0.push_back(createOp(/*opIdx=*/2, AllocationType::DATA_OUT, {externalBuf0}, {}));
+
+    LoopBody iteration1;
+    iteration1.push_back(createOp(/*opIdx=*/3, AllocationType::DATA_IN, {weight}, {intermediate1}));
+    iteration1.push_back(createOp(/*opIdx=*/4, AllocationType::COMPUTE, {intermediate1}, {externalBuf1}));
+    iteration1.push_back(createOp(/*opIdx=*/5, AllocationType::DATA_OUT, {externalBuf1}, {}));
+
+    schedulingLoop->loopBodies = {std::move(iteration0), std::move(iteration1)};
+    ComputeRegion region(std::move(schedulingLoop));
+
+    region.externalBuffers.insert(externalBuf0);
+    region.externalBuffers.insert(externalBuf1);
+
+    const auto result = classifyVFRegion(region, /*memoryLimit=*/4096, Logger::global());
+
+    ASSERT_TRUE(result.iterationIdentityHolds);
+    ASSERT_TRUE(result.classifierSupportedRegion);
+    EXPECT_EQ(result.fallbackReason, ClassifierVFFallbackReason::NONE);
+
+    const auto externalBuf0Idx = result.valueToRecord.lookup(externalBuf0);
+    ASSERT_LT(externalBuf0Idx, result.explicitExternalTemplateBuffer.size());
+    EXPECT_TRUE(result.explicitExternalTemplateBuffer[externalBuf0Idx]);
+
+    ASSERT_EQ(result.explicitExternalGroups.size(), 1u);
+    const auto& group = result.explicitExternalGroups.front();
+    EXPECT_EQ(group.templateBufferIdx, externalBuf0Idx);
+    ASSERT_EQ(group.iterationValues.size(), 2u);
+    EXPECT_EQ(group.iterationValues[0], externalBuf0);
+    EXPECT_EQ(group.iterationValues[1], externalBuf1);
 }

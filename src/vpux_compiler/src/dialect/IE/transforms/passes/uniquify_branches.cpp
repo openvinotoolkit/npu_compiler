@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
@@ -163,9 +163,9 @@ mlir::LogicalResult MoveLayerBeforeSlice<ConcreteOp>::matchAndRewrite(ConcreteOp
 
         auto currLayerOp = mlir::dyn_cast<ConcreteOp>(*sliceOp.getResult().getUsers().begin());
         auto newOffsets = getNewOffsets(sliceOp, sliceAxes, currLayerOp);
-        auto newSlice = rewriter.create<IE::SliceOp>(sliceOp->getLoc(), newLayerOp->getResult(0),
-                                                     getIntArrayAttr(newLayerOp->getContext(), newOffsets),
-                                                     getIntArrayAttr(newLayerOp->getContext(), newSizes));
+        auto newSlice = IE::SliceOp::create(rewriter, sliceOp->getLoc(), newLayerOp->getResult(0),
+                                            getIntArrayAttr(newLayerOp->getContext(), newOffsets),
+                                            getIntArrayAttr(newLayerOp->getContext(), newSizes));
         _log.trace("Create new Slice: {0}", newSlice);
 
         rewriter.replaceOp(currLayerOp, newSlice.getResult());
@@ -388,6 +388,8 @@ public:
     }
 
 public:
+    bool isLegalTransformation(IE::SliceOp sliceOp, IE::PermuteCastOp layerOp,
+                               ArrayRef<IE::PermuteCastOp> siblingLayerOps) const override;
     bool doesSliceAndLayerOpModifySameAxis(IE::SliceOp sliceOp, ArrayRef<uint64_t> sliceAxes,
                                            IE::PermuteCastOp layerOp) const override;
     bool sameAttributes(IE::PermuteCastOp layerOp, IE::PermuteCastOp currLayerOp) const override;
@@ -395,6 +397,21 @@ public:
     SmallVector<int64_t> getNewOffsets(IE::SliceOp sliceOp, ArrayRef<uint64_t> sliceAxes,
                                        IE::PermuteCastOp layerOp) const override;
 };
+
+bool MovePermuteCastBeforeSlice::isLegalTransformation(IE::SliceOp sliceOp, IE::PermuteCastOp layerOp,
+                                                       ArrayRef<IE::PermuteCastOp> siblingLayerOps) const {
+    if (!MoveLayerBeforeSlice::isLegalTransformation(sliceOp, layerOp, siblingLayerOps)) {
+        return false;
+    }
+
+    const auto srcMemShape = vpux::getMemShape(sliceOp.getSource());
+    if (!isTrivialPermute(srcMemShape, layerOp.getMemPerm())) {
+        _log.trace("PermuteCast is not trivial for the Slice source memory shape {0}", srcMemShape);
+        return false;
+    }
+
+    return true;
+}
 
 bool MovePermuteCastBeforeSlice::doesSliceAndLayerOpModifySameAxis(IE::SliceOp sliceOp, ArrayRef<uint64_t> sliceAxes,
                                                                    IE::PermuteCastOp layerOp) const {
@@ -629,8 +646,8 @@ mlir::Operation* MoveAffineReshapeBeforeSlice::createNewLayerOp(IE::AffineReshap
     newOutShape[sliceDim] = inShape.totalSize() / restSize;
 
     rewriter.setInsertionPointAfterValue(sliceOp.getSource());
-    return rewriter.create<IE::AffineReshapeOp>(layerOp.getLoc(), sliceOp.getSource(), layerOp.getDimMapping(),
-                                                vpux::getIntArrayAttr(rewriter, to_small_vector(newOutShape)));
+    return IE::AffineReshapeOp::create(rewriter, layerOp.getLoc(), sliceOp.getSource(), layerOp.getDimMapping(),
+                                       vpux::getIntArrayAttr(rewriter, to_small_vector(newOutShape)));
 }
 
 //
@@ -718,7 +735,7 @@ bool MoveQuantizeCastBeforeSlice::isBeneficialTransformation(IE::SliceOp, IE::Qu
     auto dstElemType = layerOp.getDstElemType();
     if (mlir::isa<mlir::quant::UniformQuantizedType, mlir::quant::UniformQuantizedPerAxisType>(dstElemType)) {
         const auto quantized = mlir::cast<mlir::quant::QuantizedType>(dstElemType);
-        if (mlir::isa<vpux::type::QuantileType>(quantized.getStorageType())) {
+        if (mlir::isa<mlir::quant::QuantileType>(quantized.getStorageType())) {
             return true;
         }
         return false;
@@ -781,11 +798,12 @@ mlir::LogicalResult MoveReorderBeforeSplit::matchAndRewrite(IE::ReorderOp layerO
 
     // Create new ReorderOp
     const auto dstOrderAttr = layerOp.getDstOrderAttr();
-    auto newReorder = rewriter.create<IE::ReorderOp>(maybeSplitOp->getLoc(), maybeSplitOp.getInput(), dstOrderAttr);
+    auto newReorder = IE::ReorderOp::create(rewriter, maybeSplitOp->getLoc(), maybeSplitOp.getInput(), dstOrderAttr);
 
     // Create new SplitOp
-    auto newSplit = rewriter.create<IE::SplitOp>(maybeSplitOp->getLoc(), newReorder.getOutput(), maybeSplitOp.getAxis(),
-                                                 maybeSplitOp.getNumSplitsAttr(), maybeSplitOp.getAxisValueAttr());
+    auto newSplit =
+            IE::SplitOp::create(rewriter, maybeSplitOp->getLoc(), newReorder.getOutput(), maybeSplitOp.getAxis(),
+                                maybeSplitOp.getNumSplitsAttr(), maybeSplitOp.getAxisValueAttr());
 
     for (const auto& res : maybeSplitOp.getOutputs()) {
         for (auto use : llvm::make_early_inc_range(res.getUsers())) {
@@ -895,7 +913,7 @@ mlir::LogicalResult MoveReorderBeforeEltwiseOp::matchAndRewrite(IE::ReorderOp la
 
     rewriter.setInsertionPointAfterValue(parentOp->getResult(0));
     auto newReorder =
-            rewriter.create<IE::ReorderOp>(layerOp->getLoc(), eltwiseOp->getOperand(0), layerOp.getDstOrderAttr());
+            IE::ReorderOp::create(rewriter, layerOp->getLoc(), eltwiseOp->getOperand(0), layerOp.getDstOrderAttr());
 
     for (auto p : eltwiseOps | indexed) {
         auto reorderOp = reorderOps[p.index()];
@@ -908,6 +926,145 @@ mlir::LogicalResult MoveReorderBeforeEltwiseOp::matchAndRewrite(IE::ReorderOp la
         rewriter.replaceOp(reorderOp, newOp->getResult(0));
     }
 
+    return mlir::success();
+}
+
+//
+// FuseChainedConvertsThroughSlices
+//
+// When the output of a ConvertOp is consumed by two or more branches where
+// every branch is either a direct ConvertOp or a SliceOp followed by a
+// ConvertOp, and all downstream ConvertOps share the same destination element
+// type, the two-level convert chain can be collapsed into a single ConvertOp
+// applied to the original input.
+//
+// Pattern:
+//   src → Convert(T1→T2) → ┬─ Convert(T2→T3)            → out0
+//                          ├─ Slice → Convert(T2→T3)    → out1
+//                          └─ ...
+// becomes:
+//   src → Convert(T1→T3) → ┬─ out0
+//                          ├─ Slice                     → out1
+//                          └─ ...
+//
+// Applied only when the fused convert does not process more elements than
+// the sum of all downstream converts (preventing cost regressions when the
+// intermediate output is much larger than all slice outputs combined).
+
+class FuseChainedConvertsThroughSlices final : public mlir::OpRewritePattern<IE::ConvertOp> {
+public:
+    FuseChainedConvertsThroughSlices(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ConvertOp>(ctx), _log(log) {
+        setDebugName("FuseChainedConvertsThroughSlices");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::ConvertOp midConvertOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult FuseChainedConvertsThroughSlices::matchAndRewrite(IE::ConvertOp midConvertOp,
+                                                                      mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got '{0}' at '{1}'", midConvertOp->getName(), midConvertOp->getLoc());
+
+    // Collect all branches; each is either a direct ConvertOp or SliceOp → ConvertOp.
+    // All downstream ConvertOps must share the same destination element type.
+    struct Branch {
+        IE::SliceOp sliceOp;  // null for direct convert branches
+        IE::ConvertOp convertOp;
+    };
+
+    SmallVector<Branch> branches;
+    mlir::Type commonDstType;
+
+    for (auto* user : midConvertOp.getOutput().getUsers()) {
+        if (auto directConvert = mlir::dyn_cast<IE::ConvertOp>(user)) {
+            auto dstType = directConvert.getDstElemType();
+            if (!commonDstType) {
+                commonDstType = dstType;
+            } else if (commonDstType != dstType) {
+                return mlir::failure();
+            }
+            branches.push_back({nullptr, directConvert});
+        } else if (auto sliceOp = mlir::dyn_cast<IE::SliceOp>(user)) {
+            if (!sliceOp.getResult().hasOneUse()) {
+                return mlir::failure();
+            }
+            auto sliceConvert = mlir::dyn_cast<IE::ConvertOp>(*sliceOp.getResult().getUsers().begin());
+            if (!sliceConvert) {
+                return mlir::failure();
+            }
+            auto dstType = sliceConvert.getDstElemType();
+            if (!commonDstType) {
+                commonDstType = dstType;
+            } else if (commonDstType != dstType) {
+                return mlir::failure();
+            }
+            branches.push_back({sliceOp, sliceConvert});
+        } else {
+            // Non-convert, non-slice user: cannot fold.
+            return mlir::failure();
+        }
+    }
+
+    // Require at least two branches; single-chain fusion is handled elsewhere.
+    if (branches.size() < 2 || !commonDstType) {
+        return mlir::failure();
+    }
+
+    // Profitability guard: compare convert IO traffic before vs after fusion.
+    // Old graph traffic:
+    //   1) midConvertOp input + output
+    //   2) every downstream Convert input + output
+    // New graph traffic:
+    //   1) fused Convert input + output
+    // Fusion is allowed only when new traffic does not increase.
+    auto midInType = mlir::cast<vpux::NDTypeInterface>(midConvertOp.getInput().getType());
+    auto midOutType = mlir::cast<vpux::NDTypeInterface>(midConvertOp.getOutput().getType());
+
+    const int64_t midInBytes = midInType.getTotalAllocSize().count();
+    const int64_t midOutBytes = midOutType.getTotalAllocSize().count();
+
+    int64_t oldConvertTrafficBytes = midInBytes + midOutBytes;
+    for (auto& branch : branches) {
+        auto oldBranchInType = mlir::cast<vpux::NDTypeInterface>(branch.convertOp.getInput().getType());
+        auto oldBranchOutType = mlir::cast<vpux::NDTypeInterface>(branch.convertOp.getOutput().getType());
+        oldConvertTrafficBytes += oldBranchInType.getTotalAllocSize().count();
+        oldConvertTrafficBytes += oldBranchOutType.getTotalAllocSize().count();
+    }
+
+    auto fusedOutType = midInType.changeElemType(commonDstType);
+    const int64_t fusedOutBytes = mlir::cast<vpux::NDTypeInterface>(fusedOutType).getTotalAllocSize().count();
+    const int64_t newConvertTrafficBytes = midInBytes + fusedOutBytes;
+
+    if (newConvertTrafficBytes > oldConvertTrafficBytes) {
+        return matchFailed(_log.nest(), rewriter, midConvertOp,
+                           "Not beneficial: fused convert increases convert IO traffic");
+    }
+
+    const auto loc = midConvertOp->getLoc();
+
+    // Create fused Convert directly on midConvertOp's source.
+    auto newConvert = IE::ConvertOp::create(rewriter, loc, midConvertOp.getInput(), commonDstType);
+
+    // Replace each branch with the fused result (or a slice of it).
+    for (auto& branch : branches) {
+        if (!branch.sliceOp) {
+            rewriter.replaceOp(branch.convertOp, newConvert.getOutput());
+        } else {
+            auto newSlice =
+                    IE::SliceOp::create(rewriter, branch.sliceOp->getLoc(), newConvert.getOutput(),
+                                        branch.sliceOp.getStaticOffsetsAttr(), branch.sliceOp.getStaticSizesAttr());
+            rewriter.replaceOp(branch.convertOp, newSlice.getResult());
+            rewriter.eraseOp(branch.sliceOp);
+        }
+    }
+
+    // midConvertOp now has no users; remove it.
+    rewriter.eraseOp(midConvertOp);
+
+    _log.trace("Successfully fused chained converts at '{0}'", loc);
     return mlir::success();
 }
 
@@ -943,6 +1100,7 @@ void UniquifyBranches::safeRunOnFunc() {
     patterns.add<MoveQuantizeCastBeforeSlice>(&ctx, _log);
     patterns.add<MoveReorderBeforeSplit>(&ctx, _log);
     patterns.add<MoveReorderBeforeEltwiseOp>(&ctx, _log);
+    patterns.add<FuseChainedConvertsThroughSlices>(&ctx, _log);
 
     if (mlir::failed(mlir::applyPatternsGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();

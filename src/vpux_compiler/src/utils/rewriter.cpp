@@ -135,11 +135,11 @@ mlir::LogicalResult vpux::updateModuleInfo(mlir::Operation* module, ArrayRef<mli
 
                 // Update the DataInfoOp with new type
                 mlir::OpBuilder builder(dataInfoOp);
-                builder.create<net::DataInfoOp>(dataInfoOp.getLoc(), dataInfoOp.getNameAttr(),
-                                                mlir::TypeAttr::get(newResultType),  // Update with new type
-                                                dataInfoOp.getOriginalShapeAttr(), dataInfoOp.getFriendlyNameAttr(),
-                                                dataInfoOp.getInputNameAttr(), dataInfoOp.getTensorNamesAttr(),
-                                                0  // Default profiling sections count
+                net::DataInfoOp::create(builder, dataInfoOp.getLoc(), dataInfoOp.getNameAttr(),
+                                        mlir::TypeAttr::get(newResultType),  // Update with new type
+                                        dataInfoOp.getOriginalShapeAttr(), dataInfoOp.getFriendlyNameAttr(),
+                                        dataInfoOp.getInputNameAttr(), dataInfoOp.getTensorNamesAttr(),
+                                        0  // Default profiling sections count
                 );
 
                 // Replace old DataInfoOp with new one
@@ -302,14 +302,14 @@ mlir::Value materializeToTensor(mlir::OpBuilder& builder, mlir::TensorType type,
                                 mlir::Location loc) {
     VPUX_THROW_UNLESS(inputs.size() == 1, "Expected only one input");
     VPUX_THROW_UNLESS(mlir::isa<mlir::BaseMemRefType>(inputs[0].getType()), "Expected input type is BaseMemRefType");
-    return builder.create<mlir::bufferization::ToTensorOp>(loc, type, inputs[0]);
+    return mlir::bufferization::ToTensorOp::create(builder, loc, type, inputs[0]);
 };
 
 mlir::Value materializeToMemref(mlir::OpBuilder& builder, mlir::BaseMemRefType type, mlir::ValueRange inputs,
                                 mlir::Location loc) {
     VPUX_THROW_UNLESS(inputs.size() == 1, "Expected only one input");
     VPUX_THROW_UNLESS(mlir::isa<mlir::TensorType>(inputs[0].getType()), "Expected input type is TensorType");
-    return builder.create<mlir::bufferization::ToBufferOp>(loc, type, inputs[0]);
+    return mlir::bufferization::ToBufferOp::create(builder, loc, type, inputs[0]);
 };
 
 }  // namespace
@@ -492,6 +492,24 @@ vpux::BufferizeOneShotTypeConverter::BufferizeOneShotTypeConverter() {
     addTargetMaterialization(materializeToMemref);
 }
 
+namespace {
+/// Returns a function operation inside of which this value is located.
+mlir::func::FuncOp getFunctionFromValue(mlir::Value value) {
+    auto owner = value.getDefiningOp();
+    if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
+        owner = blockArg.getOwner()->getParentOp();
+    }
+
+    // Note: Owner here could be either a function already, if value is a block
+    // argument of a function, or e.g. scf.for if value is located inside of a
+    // loop body.
+    if (auto funcOp = mlir::dyn_cast<mlir::func::FuncOp>(owner)) {
+        return funcOp;
+    }
+    return owner->getParentOfType<mlir::func::FuncOp>();
+}
+}  // namespace
+
 mlir::bufferization::OneShotBufferizationOptions vpux::getOneShotBufferizationOptions() {
     mlir::bufferization::OneShotBufferizationOptions options;
     options.bufferizeFunctionBoundaries = true;
@@ -544,6 +562,20 @@ mlir::bufferization::OneShotBufferizationOptions vpux::getOneShotBufferizationOp
             }
         }
         return mlir::cast<mlir::bufferization::BufferLikeType>(vpux::getBufferType(tensorLike));
+    };
+    options.castFn = [](mlir::OpBuilder& builder, mlir::Location loc, mlir::Type targetType,
+                        mlir::Value value) -> mlir::FailureOr<mlir::Value> {
+        auto funcOp = getFunctionFromValue(value);
+        if (config::isPureHostCompileFunc(funcOp)) {
+            // return memref.cast since host compile functions align with
+            // upstream MLIR bufferization.
+            assert(mlir::isa<mlir::BaseMemRefType>(targetType) && "expected BaseMemRefType");
+            assert(mlir::isa<mlir::BaseMemRefType>(value.getType()) && "expected BaseMemRefType");
+            assert(mlir::memref::CastOp::areCastCompatible(value.getType(), targetType) && "cast incompatible");
+            return mlir::memref::CastOp::create(builder, loc, targetType, value).getResult();
+        }
+        // NPU compilation can rely on reinterpret cast.
+        return Core::ReinterpretCastOp::create(builder, loc, targetType, value).getResult();
     };
     options.opFilter.allowDialect<mlir::bufferization::BufferizationDialect, mlir::memref::MemRefDialect,
                                   mlir::func::FuncDialect, VPU::VPUDialect, Const::ConstDialect, Shave::ShaveDialect,
@@ -662,7 +694,12 @@ void vpux::inferReturnTypes(mlir::Operation* op, InferShapedTypeMode mode) {
     for (auto p : zip(op->getResults(), newTypes)) {
         auto val = std::get<0>(p);
         auto newType = mlir::dyn_cast<vpux::NDTypeInterface>(std::get<1>(p));
-        VPUX_THROW_UNLESS(newType != nullptr, "newType has non vpux::NDTypeInterface type '{0}'", std::get<1>(p));
+        if (newType == nullptr) {
+            // Index-typed ops may implement InferTypeOpInterface, but they are not
+            // cast-able to NDTypeInterface. In this case, we just set the type to the inferred one.
+            val.setType(std::get<1>(p));
+            continue;
+        }
 
         if (!bitEnumContains(mode, InferShapedTypeMode::SHAPE)) {
             if (const auto oldType = mlir::dyn_cast<vpux::NDTypeInterface>(val.getType())) {

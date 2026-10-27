@@ -60,8 +60,8 @@ mlir::LogicalResult TimestampRewrite::matchAndRewrite(VPUIP::TimestampOp origOp,
         VPUX_THROW("Unsuported architecture for TimestampRewrite");
     }
 
-    auto bufferOp = rewriter.create<VPURT::DeclareBufferOp>(origOp->getLoc(), timerType, VPURT::BufferSection::Register,
-                                                            hwAddress);
+    auto bufferOp = VPURT::DeclareBufferOp::create(rewriter, origOp->getLoc(), timerType,
+                                                   VPURT::BufferSection::Register, hwAddress);
 
     rewriter.replaceOpWithNewOp<VPUIP::NNDMAOp>(origOp, bufferOp.getBuffer(), origOp.getOutputBuff());
 

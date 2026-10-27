@@ -29,6 +29,33 @@ func.func @AddFakeQuantizeFusionScalarConstLhs(%arg0: tensor<1x12x32x32xf32>) ->
 
 // -----
 
+// CHECK-LABEL: @AddFakeQuantizeFusionDynamicDequantizeScalarConstLhs
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x12x32x32xf32>
+func.func @AddFakeQuantizeFusionDynamicDequantizeScalarConstLhs(%arg0: tensor<1x12x32x32xf32>) -> tensor<1x12x32x32xf32> {
+    %cst = const.Declare tensor<1xsi8> = dense<5> : tensor<1xsi8>
+    %scale = const.Declare tensor<1xf32> = dense<2.0> : tensor<1xf32>
+    %zp = const.Declare tensor<1xsi8> = dense<1> : tensor<1xsi8>
+    %dyndeq = IE.DynamicDequantize(%cst, %scale, %zp) {dstElemType = f32} : tensor<1xsi8>, tensor<1xf32>, tensor<1xsi8> -> tensor<1xf32>
+    %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<2.00> : tensor<1x1x1x1xf32>
+    %cst_1 = const.Declare tensor<1x1x1x1xf32> = dense<12.00> : tensor<1x1x1x1xf32>
+    %0 = IE.Gelu(%arg0) : tensor<1x12x32x32xf32> -> tensor<1x12x32x32xf32>
+    %1 = IE.Add(%dyndeq, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1xf32>, tensor<1x12x32x32xf32>  -> tensor<1x12x32x32xf32>
+    %2 = IE.FakeQuantize(%1, %cst_0, %cst_1, %cst_0, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x12x32x32xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x12x32x32xf32>
+    return %2 : tensor<1x12x32x32xf32>
+
+    // Scalar DynamicDequantize input: (5 - 1) * 2.0 = 8.0, so newInLow = 2.0 - 8.0 = -6.0, newInHigh = 12.0 - 8.0 = 4.0
+    // CHECK-DAG:   [[OUT_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK-DAG:   [[OUT_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.200000e+01> : tensor<1x1x1x1xf32>
+    // CHECK:       [[GELU:%.+]] = IE.Gelu([[INPUT]]) : tensor<1x12x32x32xf32> -> tensor<1x12x32x32xf32>
+    // CHECK-DAG:   [[IN_LOW:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<-6.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK-DAG:   [[IN_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<4.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK-NOT:   IE.Add
+    // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[GELU]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x12x32x32xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x12x32x32xf32>
+    // CHECK:       return [[FQ]] : tensor<1x12x32x32xf32>
+}
+
+// -----
+
 // CHECK-LABEL: @SubtractFakeQuantizeFusionScalarConstLhs
 // CHECK-SAME:    [[INPUT:%.+]]: tensor<1x12x32x32xf32>
 func.func @SubtractFakeQuantizeFusionScalarConstLhs(%arg0: tensor<1x12x32x32xf32>) -> tensor<1x12x32x32xf32> {

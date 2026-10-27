@@ -20,22 +20,6 @@
 
 using namespace vpux;
 
-namespace {
-void updateSwProfilingMetadata(VPUIP::SwKernelOp newTask, VPUIP::SwProfilingMetadataAttr attr, size_t clusterId) {
-    if (attr == nullptr) {
-        return;
-    }
-    const size_t bufferId = attr.getBufferId().getInt();
-    const size_t bufferOffset = attr.getBufferOffset().getInt();
-    const size_t clusterSize = attr.getClusterSize().getInt();
-    const size_t dataIndex = attr.getDataIndex().getInt();
-    const size_t tileId = attr.getTileId().getInt();
-    auto profMeta = vpux::getSwProfilingMetaAttr(attr.getContext(), bufferId, bufferOffset, clusterSize, dataIndex,
-                                                 tileId, clusterId);
-    newTask.setProfilingMetadataAttr(profMeta);
-}
-};  // namespace
-
 //
 // ClusterSWRewriter
 //
@@ -44,7 +28,7 @@ void VPUIP::arch37xx::ClusterSWRewriter::matchAndRewrite(VPUIP::SwKernelOp swTas
     _log.trace("Process SW op: '{0}'", swTask);
 
     auto vpurtTask = swTask->getParentOfType<VPURT::TaskOp>();
-    VPUX_THROW_UNLESS(vpurtTask != nullptr, "Can't get VPURT task operation");
+    VPUX_THROW_WHEN(vpurtTask == nullptr, "Can't get VPURT task operation");
 
     builder.setInsertionPointAfter(vpurtTask);
 
@@ -312,7 +296,6 @@ void VPUIP::arch37xx::ClusterSWRewriter::matchAndRewrite(VPUIP::SwKernelOp swTas
                     outputBuffs[clusterId], profilingData, builtInFunction, getIntAttr(builder, clusterId),
                     swTask.getInputStridesAttr(), swTask.getOutputStridesAttr());
         }();
-        updateSwProfilingMetadata(newTask, swTask.getProfilingMetadataAttr(), clusterId);
         // update listIndex attribute
         if (swTask.getListIndex().has_value()) {
             newTask.setListIndexAttr(listIndexAttr);

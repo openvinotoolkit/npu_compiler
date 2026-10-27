@@ -89,8 +89,8 @@ func.func @NCEPermuteClustered(%arg0: !Input_DDR) -> !Output_CMX {
             expandedChannels = 4 : i64, minimumHardwareExecutionCost = 4294967195 : i64,
             ppe = #VPU.PPEStub<>
         } -> !Output_CMX {
-            VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 4, 112, 224] pad [0, 0, 0, 0]  <CUBOID_16x16> attributes {cluster_id = 0 : i64}
-            VPU.DPU.Workload outOffsets [0, 0, 112, 0] outSizes [1, 4, 112, 224] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 1 : i64}
+            VPU.DPU.Workload inOffsets [0, 0, 0, 0] inSizes [1, 3, 112, 224] outOffsets [0, 0, 0, 0] outSizes [1, 4, 112, 224] pad [0, 0, 0, 0]  <CUBOID_16x16> attributes {cluster_id = 0 : i64}
+            VPU.DPU.Workload inOffsets [0, 0, 112, 0] inSizes [1, 3, 112, 224] outOffsets [0, 0, 112, 0] outSizes [1, 4, 112, 224] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 1 : i64}
         }
 
     return %output : !Output_CMX
@@ -107,14 +107,146 @@ func.func @NCEPermuteClustered(%arg0: !Input_DDR) -> !Output_CMX {
     // CHECK-SAME:           uniform_distributed_segments}>
 
     // CHECK:       VPU.DPU.Workload
+    // CHECK-SAME:      inOffsets [0, 0, 0, 0] inSizes [1, 3, 112, 224]
     // CHECK-SAME:      outOffsets [0, 0, 0, 0] outSizes [1, 3, 112, 224]
     // CHECK-SAME:      pad [0, 0, 0, 0]
     // CHECK-SAME:      cluster_id = 0
 
     // CHECK:       VPU.DPU.Workload
+    // CHECK-SAME:      inOffsets [0, 0, 112, 0] inSizes [1, 3, 112, 224]
     // CHECK-SAME:      outOffsets [0, 0, 112, 0] outSizes [1, 3, 112, 224]
     // CHECK-SAME:      pad [0, 0, 0, 0]
     // CHECK-SAME:      cluster_id = 1
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!qElemType0 = !quant.uniform<u8:f16, 1.000000e+00>
+
+!Input_CMX = !VPU.DistributedTensor<
+    1x3x224x224xf16, #NCHW, @CMX_NN, {
+    mode = "OVERLAPPED",
+    num_tiles = [1, 1, 2, 1],
+    kernel = [1, 1],
+    pads = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
+    strides = [1, 1],
+    num_clusters = 2 : i64,
+    uniform_distributed_segments
+}>
+
+!Output_CMX = !VPU.DistributedTensor<
+    1x4x224x224x!qElemType0, #NHWC, @CMX_NN, {
+    mode = "OVERLAPPED",
+    num_tiles = [1, 1, 2, 1],
+    kernel = [7, 7],
+    pads = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
+    strides = [1, 1],
+    num_clusters = 2: i64,
+    uniform_distributed_segments
+}>
+
+!Input_DDR = tensor<1x3x224x224xf16, {order = #NCHW}>
+
+// CHECK-LABEL: @NCEPermuteClusteredLogicalChannels
+func.func @NCEPermuteClusteredLogicalChannels(%arg0: !Input_DDR) -> !Output_CMX {
+    %0 = VPU.Copy(%arg0) {out_mem_space = @CMX_NN} : !Input_DDR -> !Input_CMX
+
+    %output = VPU.NCE.Permute(%0) {
+            dstElemType = !qElemType0, dstOrder = #NHWC,
+            expandedChannels = 4 : i64, minimumHardwareExecutionCost = 4294967195 : i64,
+            ppe = #VPU.PPEStub<>
+        } -> !Output_CMX {
+            VPU.DPU.Workload inOffsets [0, 0, 0, 0] inSizes [1, 3, 112, 224] outOffsets [0, 0, 0, 0] outSizes [1, 3, 112, 224] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 0 : i64}
+            VPU.DPU.Workload inOffsets [0, 0, 112, 0] inSizes [1, 3, 112, 224] outOffsets [0, 0, 112, 0] outSizes [1, 3, 112, 224] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 1 : i64}
+        }
+
+    return %output : !Output_CMX
+
+    // CHECK:       VPU.DPU.Workload
+    // CHECK-SAME:      inOffsets [0, 0, 0, 0] inSizes [1, 3, 112, 224]
+    // CHECK-SAME:      outOffsets [0, 0, 0, 0] outSizes [1, 3, 112, 224]
+    // CHECK-SAME:      pad [0, 0, 0, 0]
+    // CHECK-SAME:      cluster_id = 0
+
+    // CHECK:       VPU.DPU.Workload
+    // CHECK-SAME:      inOffsets [0, 0, 112, 0] inSizes [1, 3, 112, 224]
+    // CHECK-SAME:      outOffsets [0, 0, 112, 0] outSizes [1, 3, 112, 224]
+    // CHECK-SAME:      pad [0, 0, 0, 0]
+    // CHECK-SAME:      cluster_id = 1
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!qElemType0 = !quant.uniform<u8:f16, 1.000000e+00>
+
+!Input_CMX = !VPU.DistributedTensor<
+    1x3x224x224xf16, #NCHW, @CMX_NN, {
+    mode = "OVERLAPPED",
+    num_tiles = [1, 1, 2, 1],
+    kernel = [1, 1],
+    pads = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
+    strides = [1, 1],
+    num_clusters = 2 : i64,
+    uniform_distributed_segments
+}>
+
+!Output_CMX = !VPU.DistributedTensor<
+    1x4x224x224x!qElemType0, #NHWC, @CMX_NN, {
+    mode = "OVERLAPPED",
+    num_tiles = [1, 1, 2, 1],
+    kernel = [7, 7],
+    pads = #VPU.Padding<left = 0 , right = 0, top = 0, bottom = 0>,
+    strides = [1, 1],
+    num_clusters = 2: i64,
+    uniform_distributed_segments
+}>
+
+!Input_DDR = tensor<1x3x224x224xf16, {order = #NCHW}>
+
+// Workloads generated for SCF-tiled operations are placed under a shape dispatch scf.if until the loop is unrolled.
+// Every alternative has to be corrected, because it is not known yet which one will be selected. The condition is a
+// runtime value here, so the dispatch cannot be folded away by this pass.
+
+// CHECK-LABEL: @NCEPermuteClusteredNestedWorkloads
+func.func @NCEPermuteClusteredNestedWorkloads(%arg0: !Input_DDR, %cond: i1) -> !Output_CMX {
+    %0 = VPU.Copy(%arg0) {out_mem_space = @CMX_NN} : !Input_DDR -> !Input_CMX
+
+    %output = VPU.NCE.Permute(%0) {
+            dstElemType = !qElemType0, dstOrder = #NHWC,
+            expandedChannels = 4 : i64, minimumHardwareExecutionCost = 4294967195 : i64,
+            ppe = #VPU.PPEStub<>
+        } -> !Output_CMX {
+            scf.if %cond {
+                VPU.DPU.Workload inOffsets [0, 0, 0, 0] inSizes [1, 3, 112, 224] outOffsets [0, 0, 0, 0] outSizes [1, 4, 112, 224] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 0 : i64}
+                VPU.DPU.Workload inOffsets [0, 0, 112, 0] inSizes [1, 3, 112, 224] outOffsets [0, 0, 112, 0] outSizes [1, 4, 112, 224] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 1 : i64}
+            } else {
+                VPU.DPU.Workload inOffsets [0, 0, 0, 0] inSizes [1, 3, 112, 224] outOffsets [0, 0, 0, 0] outSizes [1, 4, 112, 224] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 0 : i64}
+                VPU.DPU.Workload inOffsets [0, 0, 112, 0] inSizes [1, 3, 112, 224] outOffsets [0, 0, 112, 0] outSizes [1, 4, 112, 224] pad [0, 0, 0, 0] <CUBOID_16x16> attributes {cluster_id = 1 : i64}
+            }
+        }
+
+    return %output : !Output_CMX
+
+    // CHECK:       scf.if
+    // CHECK:           VPU.DPU.Workload
+    // CHECK-SAME:          outOffsets [0, 0, 0, 0] outSizes [1, 3, 112, 224]
+    // CHECK-SAME:          cluster_id = 0
+    // CHECK:           VPU.DPU.Workload
+    // CHECK-SAME:          outOffsets [0, 0, 112, 0] outSizes [1, 3, 112, 224]
+    // CHECK-SAME:          cluster_id = 1
+    // CHECK:       } else {
+    // CHECK:           VPU.DPU.Workload
+    // CHECK-SAME:          outOffsets [0, 0, 0, 0] outSizes [1, 3, 112, 224]
+    // CHECK-SAME:          cluster_id = 0
+    // CHECK:           VPU.DPU.Workload
+    // CHECK-SAME:          outOffsets [0, 0, 112, 0] outSizes [1, 3, 112, 224]
+    // CHECK-SAME:          cluster_id = 1
 }
 
 // -----

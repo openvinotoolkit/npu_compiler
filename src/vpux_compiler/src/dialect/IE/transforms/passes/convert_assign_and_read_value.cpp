@@ -61,8 +61,8 @@ mlir::LogicalResult AssignRewriter::matchAndRewrite(IE::AssignOp origOp, mlir::P
     auto builder = mlir::OpBuilder::atBlockBegin(&_topModule->getRegion(0).front(), &builderLog);
     auto outputsInfoBuilder = mlir::OpBuilder::atBlockEnd(&netInfo.getOutputsInfo().front(), builder.getListener());
     const auto outputName = std::string(intel_npu::ASSIGN_PREFIX) + origOp.getName().str();
-    outputsInfoBuilder.create<net::DataInfoOp>(takeOpLoc(origOp, "assign_{0}", origOp.getName()), outputName,
-                                               assignInputType);
+    net::DataInfoOp::create(outputsInfoBuilder, takeOpLoc(origOp, "assign_{0}", origOp.getName()), outputName,
+                            assignInputType);
 
     rewriter.replaceOp(origOp, origOp.getInput());
 
@@ -113,8 +113,8 @@ mlir::LogicalResult ReadValueRewriter::matchAndRewrite(IE::ReadValueOp origOp, m
     auto builder = mlir::OpBuilder::atBlockBegin(&_topModule->getRegion(0).front(), &builderLog);
     auto inputsInfoBuilder = mlir::OpBuilder::atBlockEnd(&netInfo.getInputsInfo().front(), builder.getListener());
     const auto inputName = std::string(intel_npu::READVALUE_PREFIX) + origOp.getName().str();
-    inputsInfoBuilder.create<net::DataInfoOp>(takeOpLoc(origOp, "read_{0}", origOp.getName()), inputName,
-                                              readValueInputType);
+    net::DataInfoOp::create(inputsInfoBuilder, takeOpLoc(origOp, "read_{0}", origOp.getName()), inputName,
+                            readValueInputType);
 
     rewriter.replaceOp(origOp, mainFunc.getArgument(newInputIndex));
 

@@ -128,14 +128,14 @@ static mlir::func::FuncOp outlineSwLayer(mlir::MLIRContext* ctx, mlir::ModuleOp 
 
     builder.setInsertionPointToEnd(capsuleBlock);
     auto loc = capsuleTerminator->getLoc();
-    builder.create<mlir::func::ReturnOp>(loc, capsuleTerminator->getOperands());
+    mlir::func::ReturnOp::create(builder, loc, capsuleTerminator->getOperands());
     capsuleTerminator->erase();
 
     // Actually create the function
     builder.setInsertionPointToStart(module.getBody());
     auto funcType = mlir::FunctionType::get(ctx, dpsInputs, outputTypes);
     auto funcName = printToString("generated_{0}", counter);
-    auto funcOp = builder.create<mlir::func::FuncOp>(loc, funcName, funcType);
+    auto funcOp = mlir::func::FuncOp::create(builder, loc, funcName, funcType);
     auto funcOpBody = funcOp.addEntryBlock();
     capsuleBlock->dropAllUses();
     capsuleBlock->moveBefore(funcOpBody);
@@ -146,8 +146,8 @@ static mlir::func::FuncOp outlineSwLayer(mlir::MLIRContext* ctx, mlir::ModuleOp 
 
 static VPU::GenericSwLayerOp createSwLayerOp(mlir::OpBuilder& builder, IE::CodeGenCapsuleOp op,
                                              mlir::SymbolRefAttr fullSymRef) {
-    return builder.create<VPU::GenericSwLayerOp>(op->getLoc(), op->getResultTypes(), fullSymRef, op->getOperands(),
-                                                 VPU::JITTilingAttr{}, mlir::ValueRange{}, mlir::ValueRange{});
+    return VPU::GenericSwLayerOp::create(builder, op->getLoc(), op->getResultTypes(), fullSymRef, op->getOperands(),
+                                         VPU::JITTilingAttr{}, mlir::ValueRange{}, mlir::ValueRange{});
 }
 
 //
@@ -260,7 +260,7 @@ static mlir::func::FuncOp outlineSliceInfoFunc(KernelCCInfo& ccInfo, mlir::Block
 
     const auto funcType = mlir::FunctionType::get(module.getContext(), inputTypes, returnTypes);
     auto funcName = printToString("generated_info_{0}", counter);
-    auto newFunc = builder.create<mlir::func::FuncOp>(loc, funcName, funcType);
+    auto newFunc = mlir::func::FuncOp::create(builder, loc, funcName, funcType);
 
     auto funcBuilder = mlir::OpBuilder::atBlockEnd(newFunc.addEntryBlock());
     mlir::IRMapping mapper;
@@ -316,7 +316,7 @@ static mlir::func::FuncOp outlineSliceInfoFunc(KernelCCInfo& ccInfo, mlir::Block
         returnedVals.push_back(mapper.contains(val) ? mapper.lookup(val) : val);
     }
 
-    funcBuilder.create<mlir::func::ReturnOp>(loc, returnedVals);
+    mlir::func::ReturnOp::create(funcBuilder, loc, returnedVals);
     return newFunc;
 }
 
@@ -338,7 +338,7 @@ static mlir::func::FuncOp outlineTiledBody(KernelCCInfo& ccInfo, mlir::Block* bo
     const auto funcType = mlir::FunctionType::get(module.getContext(), inputTypes, returnTypes);
     auto builder = mlir::OpBuilder(module.getBodyRegion());
     auto funcName = printToString("generated_{0}", counter);
-    auto newFunc = builder.create<mlir::func::FuncOp>(loc, funcName, funcType);
+    auto newFunc = mlir::func::FuncOp::create(builder, loc, funcName, funcType);
     auto funcBuilder = mlir::OpBuilder::atBlockEnd(newFunc.addEntryBlock());
 
     mlir::IRMapping mapper;
@@ -379,7 +379,7 @@ static mlir::func::FuncOp outlineTiledBody(KernelCCInfo& ccInfo, mlir::Block* bo
     for (auto operand : ccInfo.returnValues) {
         returnedValues.push_back(mapper.lookup(operand));
     }
-    funcBuilder.create<mlir::func::ReturnOp>(yield->getLoc(), returnedValues);
+    mlir::func::ReturnOp::create(funcBuilder, yield->getLoc(), returnedValues);
     return newFunc;
 }
 
@@ -404,8 +404,9 @@ static SmallVector<mlir::Value> inlineInputSliceInfoCall(mlir::func::FuncOp info
             for (auto [origResult, foldResult] : llvm::zip(op.getResults(), foldResults)) {
                 auto replacement = mlir::dyn_cast<mlir::Value>(foldResult);
                 if (!replacement) {
-                    replacement = rewriter.create<mlir::arith::ConstantOp>(
-                            clonedOp->getLoc(), mlir::cast<mlir::TypedAttr>(mlir::cast<mlir::Attribute>(foldResult)));
+                    replacement = mlir::arith::ConstantOp::create(
+                            rewriter, clonedOp->getLoc(),
+                            mlir::cast<mlir::TypedAttr>(mlir::cast<mlir::Attribute>(foldResult)));
                 }
                 inlineMapper.map(origResult, replacement);
             }
@@ -470,9 +471,8 @@ static mlir::FailureOr<mlir::Value> createSliceFromInlinedInfo(mlir::tensor::Ext
     }
     rewriter.eraseOp(newSlice.getDefiningOp());
     auto* ctx = rewriter.getContext();
-    return rewriter
-            .create<IE::SliceOp>(slice.getLoc(), slice.getSource(), getIntArrayAttr(ctx, staticOffsets),
-                                 getIntArrayAttr(ctx, staticSizes))
+    return IE::SliceOp::create(rewriter, slice.getLoc(), slice.getSource(), getIntArrayAttr(ctx, staticOffsets),
+                               getIntArrayAttr(ctx, staticSizes))
             .getResult();
 }
 
@@ -617,7 +617,7 @@ static mlir::FailureOr<VPU::GenericSwLayerOp> outlineLoop(IE::CodeGenCapsuleOp c
     for (auto size : tilableSizes) {
         infoCallValues.push_back(mlir::getValueOrCreateConstantIndexOp(rewriter, forOp.getLoc(), size));
     }
-    auto zeroIdx = rewriter.create<mlir::arith::ConstantIndexOp>(forOp.getLoc(), 0);
+    auto zeroIdx = mlir::arith::ConstantIndexOp::create(rewriter, forOp.getLoc(), 0);
     for (size_t i = 0; i < tilableSizes.size(); ++i) {
         infoCallValues.push_back(zeroIdx);
     }
@@ -658,10 +658,10 @@ static mlir::FailureOr<VPU::GenericSwLayerOp> outlineLoop(IE::CodeGenCapsuleOp c
     // since these get passed through the dynamic sizes and in the tiling attribute (offsets are all zeros).
     callValues.append(ccInfo.tensorOps.begin(), ccInfo.tensorOps.end());
     callValues.append(ccInfo.scalarOps.begin(), ccInfo.scalarOps.end());
-    auto swOp = rewriter.create<VPU::GenericSwLayerOp>(forOp.getLoc(), capsule.getResultTypes(), kernelFuncSymRef,
-                                                       callValues, tilingAttr, dynamicSizes, mlir::ValueRange{});
+    auto swOp = VPU::GenericSwLayerOp::create(rewriter, forOp.getLoc(), capsule.getResultTypes(), kernelFuncSymRef,
+                                              callValues, tilingAttr, dynamicSizes, mlir::ValueRange{});
     auto oldYieldOp = capsule.getBody()->getTerminator();
-    rewriter.create<IE::CGCYieldOp>(forOp.getLoc(), swOp.getResults());
+    IE::CGCYieldOp::create(rewriter, forOp.getLoc(), swOp.getResults());
     rewriter.eraseOp(oldYieldOp);
 
     // Ensure we don't have any dead ops in order to avoid cloning them further.
@@ -694,7 +694,7 @@ static void unrollTiledCapsule(mlir::scf::ForOp forOp, const SmallVector<int64_t
     }
 
     // Append the offset values (all zeros).
-    auto zeroIdx = rewriter.create<mlir::arith::ConstantIndexOp>(loc, 0);
+    auto zeroIdx = mlir::arith::ConstantIndexOp::create(rewriter, loc, 0);
     infoValues.append(tilablePositions.size(), zeroIdx);
 
     // Replace Shave::OutSliceInfoOp results with the full init tensor sizes.
@@ -705,7 +705,7 @@ static void unrollTiledCapsule(mlir::scf::ForOp forOp, const SmallVector<int64_t
     // Replace Shave::LoopTripCountOp with constant 1 and fully unroll the loop.
     auto tripCountOp = forOp.getUpperBound().getDefiningOp<Shave::LoopTripCountOp>();
     rewriter.setInsertionPoint(tripCountOp);
-    auto one = rewriter.create<mlir::arith::ConstantIndexOp>(loc, 1);
+    auto one = mlir::arith::ConstantIndexOp::create(rewriter, loc, 1);
     rewriter.replaceOp(tripCountOp, one.getResult());
 
     if (mlir::failed(forOp.promoteIfSingleIteration(rewriter))) {
@@ -729,7 +729,7 @@ static void inlineCapsuleBody(IE::CodeGenCapsuleOp op, mlir::PatternRewriter& re
                 auto identityOrder = DimsOrder::fromNumDims(order.numDims());
                 auto dstOrderMap = identityOrder.toAffineMap(ctx);
                 auto memPerm = identityOrder.toAffineMap(ctx);
-                val = rewriter.create<IE::PermuteCastOp>(op.getLoc(), val, dstOrderMap, memPerm);
+                val = IE::PermuteCastOp::create(rewriter, op.getLoc(), val, dstOrderMap, memPerm);
             }
         }
         mapper.map(capsuleBlock->getArguments()[operand.index()], val);
@@ -749,8 +749,8 @@ static void inlineCapsuleBody(IE::CodeGenCapsuleOp op, mlir::PatternRewriter& re
             const auto sliceSizes = parseIntArrayAttr<int64_t>(sliceOp.getStaticSizes());
             const auto outputTileType = mlir::cast<vpux::NDTypeInterface>(mappedInput.getType())
                                                 .extractDenseTile(ShapeRef(sliceOffsets), ShapeRef(sliceSizes));
-            auto newSlice = rewriter.create<IE::SliceOp>(sliceOp.getLoc(), outputTileType, mappedInput,
-                                                         sliceOp.getStaticOffsetsAttr(), sliceOp.getStaticSizesAttr());
+            auto newSlice = IE::SliceOp::create(rewriter, sliceOp.getLoc(), outputTileType, mappedInput,
+                                                sliceOp.getStaticOffsetsAttr(), sliceOp.getStaticSizesAttr());
             mapper.map(sliceOp.getOutput(), newSlice.getOutput());
             continue;
         }
@@ -848,9 +848,9 @@ struct FoldSwLayerOperands : mlir::OpRewritePattern<VPU::GenericSwLayerOp> {
             const auto outputTileType =
                     inputNdType.extractDenseTile(ShapeRef(permutedOffsets), ShapeRef(permutedSizes));
 
-            auto newSlice = rewriter.create<IE::SliceOp>(sliceOp.getLoc(), outputTileType, permuteCastInput,
-                                                         getIntArrayAttr(ctx, permutedOffsets),
-                                                         getIntArrayAttr(ctx, permutedSizes));
+            auto newSlice =
+                    IE::SliceOp::create(rewriter, sliceOp.getLoc(), outputTileType, permuteCastInput,
+                                        getIntArrayAttr(ctx, permutedOffsets), getIntArrayAttr(ctx, permutedSizes));
             newOperands[idx] = newSlice.getOutput();
             changed = true;
         }

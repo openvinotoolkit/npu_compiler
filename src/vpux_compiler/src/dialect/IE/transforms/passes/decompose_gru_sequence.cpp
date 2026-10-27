@@ -113,7 +113,8 @@ mlir::LogicalResult GRUSequenceOpConverter::matchAndRewrite(IE::GRUSequenceOp or
     mlir::Value newWeights = rewriter.createOrFold<IE::UnsqueezeOp>(appendLoc(loc, "weightsUnsqueeze"), weights,
                                                                     nullptr, axisZeroArrayAttr);
 
-    auto matMulInputOp = rewriter.create<IE::MatMulOp>(appendLoc(loc, "matMul"), newInputData, newWeights, false, true);
+    auto matMulInputOp =
+            IE::MatMulOp::create(rewriter, appendLoc(loc, "matMul"), newInputData, newWeights, false, true);
     mlir::Value newInputForGru = matMulInputOp.getOutput();
 
     mlir::Value biases = origOp.getBiases();
@@ -131,8 +132,8 @@ mlir::LogicalResult GRUSequenceOpConverter::matchAndRewrite(IE::GRUSequenceOp or
                                                     numpyBroadcastTypeAttr, nullptr, nullptr, nullptr, nullptr);
         newInputForGru = zrt;
     }
-    auto gruSequenceLastPartOp = rewriter.create<IE::GRUSequenceLastPartOp>(
-            takeOpLoc(origOp, "gru_last_part"), newInputForGru, origOp.getInitialHiddenState(),
+    auto gruSequenceLastPartOp = IE::GRUSequenceLastPartOp::create(
+            rewriter, takeOpLoc(origOp, "gru_last_part"), newInputForGru, origOp.getInitialHiddenState(),
             origOp.getRecurrenceWeights(), biases, origOp.getHiddenSizeAttr(), origOp.getSeqLengthAttr(),
             origOp.getDirectionAttr(), origOp.getShouldLinearBeforeResetAttr(), origOp.getClipAttr());
     _log.trace("At Decompose '{0}' produce '{1}'", origOp->getName(), gruSequenceLastPartOp);
@@ -182,16 +183,16 @@ mlir::Value UnrollGRUSequenceLastPartToGRUCellsRewriter::matchAndRewriteGRUCellC
 
     if (shouldLinearBeforeReset) {
         // hidenData = H * (R^T) -> [batch_size, 3 * hidden_size]
-        auto hr = rewriter.create<IE::MatMulOp>(appendLoc(loc, "hidden_matmul"), hiddenState, recurrenceWeights, false,
-                                                true);
-        auto gruGates = rewriter.create<IE::GRUGatesOp>(appendLoc(loc, "gates"), inputData, hiddenState, hr.getOutput(),
-                                                        biasses);
+        auto hr = IE::MatMulOp::create(rewriter, appendLoc(loc, "hidden_matmul"), hiddenState, recurrenceWeights, false,
+                                       true);
+        auto gruGates = IE::GRUGatesOp::create(rewriter, appendLoc(loc, "gates"), inputData, hiddenState,
+                                               hr.getOutput(), biasses);
         return gruGates.getOutputHiddenState();
     }
     auto xw = inputData;
 
     // hr = H * (R^T) -> [batch_size, 3 * hidden_size]
-    auto hr = rewriter.create<IE::MatMulOp>(appendLoc(loc, "hr_matmul"), hiddenState, recurrenceWeights, false, true);
+    auto hr = IE::MatMulOp::create(rewriter, appendLoc(loc, "hr_matmul"), hiddenState, recurrenceWeights, false, true);
 
     auto xwZrOffsets = getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0});
     auto xwZrSizes = getIntArrayAttr(ctx, SmallVector<int64_t>{batchSize, 2 * hiddenSize});
@@ -205,9 +206,9 @@ mlir::Value UnrollGRUSequenceLastPartToGRUCellsRewriter::matchAndRewriteGRUCellC
     mlir::Value zrt =
             rewriter.createOrFold<IE::AddOp>(appendLoc(loc, "zrt_add1"), xwZr, hrZr, noneOrExplicitBroadcastTypeAttr,
                                              nullptr, nullptr, nullptr, nullptr);
-    zrt = rewriter.create<IE::SigmoidOp>(appendLoc(loc, "zrt_sigmoid"), zrt);
-    auto zrtSplitOp = rewriter.create<IE::SplitOp>(appendLoc(loc, "zrt_split"), zrt, nullptr,
-                                                   /*numSplits=*/getIntAttr(ctx, 2), /*axisValue=*/getIntAttr(ctx, 1));
+    zrt = IE::SigmoidOp::create(rewriter, appendLoc(loc, "zrt_sigmoid"), zrt);
+    auto zrtSplitOp = IE::SplitOp::create(rewriter, appendLoc(loc, "zrt_split"), zrt, nullptr,
+                                          /*numSplits=*/getIntAttr(ctx, 2), /*axisValue=*/getIntAttr(ctx, 1));
     auto zt = zrtSplitOp.getResult(0);
     auto rt = zrtSplitOp.getResult(1);
 
@@ -222,25 +223,25 @@ mlir::Value UnrollGRUSequenceLastPartToGRUCellsRewriter::matchAndRewriteGRUCellC
     auto rH = rewriter.createOrFold<IE::SliceOp>(appendLoc(loc, "rh_slice"), recurrenceWeights, rHOffsets, rHSizes);
 
     // ht = tanh(xwH + (rt (.) H) * (Rh^T) + bH) -> [batch_size, hidden_size]
-    ht = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "ht_mul"), rt, hiddenState, noneOrExplicitBroadcastTypeAttr,
-                                         nullptr, nullptr, nullptr, nullptr);
-    ht = rewriter.create<IE::MatMulOp>(appendLoc(loc, "ht_matMul"), ht, rH, false, true);
+    ht = IE::MultiplyOp::create(rewriter, appendLoc(loc, "ht_mul"), rt, hiddenState, noneOrExplicitBroadcastTypeAttr,
+                                nullptr, nullptr, nullptr, nullptr);
+    ht = IE::MatMulOp::create(rewriter, appendLoc(loc, "ht_matMul"), ht, rH, false, true);
 
-    ht = rewriter.create<IE::AddOp>(appendLoc(loc, "ht_add1"), xwH, ht, noneOrExplicitBroadcastTypeAttr, nullptr,
-                                    nullptr, nullptr, nullptr);
-    ht = rewriter.create<IE::TanhOp>(appendLoc(loc, "ht_tanh"), ht);
+    ht = IE::AddOp::create(rewriter, appendLoc(loc, "ht_add1"), xwH, ht, noneOrExplicitBroadcastTypeAttr, nullptr,
+                           nullptr, nullptr, nullptr);
+    ht = IE::TanhOp::create(rewriter, appendLoc(loc, "ht_tanh"), ht);
 
     // Ht = (1 - zt) (.) ht + zt (.) H -> [batch_size, hidden_size]
     auto elemType = mlir::cast<vpux::NDTypeInterface>(zt.getType()).getElementType();
     auto one = Const::createConst(rewriter, loc, mlir::RankedTensorType::get({1}, elemType), ArrayRef({1.0f}));
     auto sub = rewriter.createOrFold<IE::SubtractOp>(appendLoc(loc, "sub"), one, zt, numpyBroadcastTypeAttr, nullptr,
                                                      nullptr, nullptr, nullptr);
-    auto mul1 = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "mul1"), zt, hiddenState,
-                                                noneOrExplicitBroadcastTypeAttr, nullptr, nullptr, nullptr, nullptr);
-    auto mul2 = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "mul2"), sub, ht, noneOrExplicitBroadcastTypeAttr,
-                                                nullptr, nullptr, nullptr, nullptr);
-    auto nextHiddenState = rewriter.create<IE::AddOp>(
-            appendLoc(loc, "add"), mul1, mul2, noneOrExplicitBroadcastTypeAttr, nullptr, nullptr, nullptr, nullptr);
+    auto mul1 = IE::MultiplyOp::create(rewriter, appendLoc(loc, "mul1"), zt, hiddenState,
+                                       noneOrExplicitBroadcastTypeAttr, nullptr, nullptr, nullptr, nullptr);
+    auto mul2 = IE::MultiplyOp::create(rewriter, appendLoc(loc, "mul2"), sub, ht, noneOrExplicitBroadcastTypeAttr,
+                                       nullptr, nullptr, nullptr, nullptr);
+    auto nextHiddenState = IE::AddOp::create(rewriter, appendLoc(loc, "add"), mul1, mul2,
+                                             noneOrExplicitBroadcastTypeAttr, nullptr, nullptr, nullptr, nullptr);
 
     return nextHiddenState.getOutput();
 }

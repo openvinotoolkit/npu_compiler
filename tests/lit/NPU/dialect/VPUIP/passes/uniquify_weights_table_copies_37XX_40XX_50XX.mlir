@@ -55,7 +55,7 @@ func.func @UniquifyWeightsTableCopies(%input1: memref<1x128x1x1xf16, {order = #N
     %wt1_alloc = VPURT.AllocDistributed -> !WeightTableDistType
     %wt1_cmx = VPUIP.Copy inputs(%wt : memref<1152x1x1x4xsi32>) outputs(%wt1_alloc : !WeightTableDistType) -> !WeightTableDistType
     %conv1_out = VPURT.AllocDistributed -> !OutDistType
-    %conv1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1029 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    %conv1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1029 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                                   kernel_size = [1, 1], kernel_strides = [1, 1],
                                   mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>}>
             input(%in1_cmx : !InDistType) weights(%weights1_cmx : !WeightsDistType)
@@ -84,7 +84,7 @@ func.func @UniquifyWeightsTableCopies(%input1: memref<1x128x1x1xf16, {order = #N
     %wt2_alloc = VPURT.AllocDistributed -> !WeightTableDistType
     %wt2_cmx = VPUIP.Copy inputs(%wt : memref<1152x1x1x4xsi32>) outputs(%wt2_alloc : !WeightTableDistType) -> !WeightTableDistType
     %conv2_out = VPURT.AllocDistributed -> !OutDistType
-    %conv2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1029 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    %conv2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1029 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                                   kernel_size = [1, 1], kernel_strides = [1, 1],
                                   mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>}>
             input(%in2_cmx : !InDistType) weights(%weights2_cmx : !WeightsDistType)
@@ -180,7 +180,7 @@ func.func @DoNotUniquifyWhenSiblingViewOp(%input1: memref<1x128x1x1xf16, {order 
     %wt1_alloc = memref.alloc() : !WeightTableDistType
     %wt1_cmx = VPUIP.Copy inputs(%wt : memref<1152x1x1x4xsi32>) outputs(%wt1_alloc : !WeightTableDistType) -> !WeightTableDistType
     %conv1_out = memref.alloc() : !OutDistType
-    %conv1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1029 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    %conv1 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1029 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                                   kernel_size = [1, 1], kernel_strides = [1, 1],
                                   mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>}>
             input(%in1_cmx : !InDistType) weights(%weights1_cmx : !WeightsDistType)
@@ -202,7 +202,7 @@ func.func @DoNotUniquifyWhenSiblingViewOp(%input1: memref<1x128x1x1xf16, {order 
     %wt2_alloc = memref.alloc() : !WeightTableDistType
     %wt2_cmx = VPUIP.Copy inputs(%reshape : memref<1152x1x1x4xsi32>) outputs(%wt2_alloc : !WeightTableDistType) -> !WeightTableDistType
     %conv2_out = memref.alloc() : !OutDistType
-    %conv2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1029 : i64, resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    %conv2 = VPUIP.NCEClusterTask {minimumHardwareExecutionCost = 1029 : i64} <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_zero_offset_weights_table, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                                   kernel_size = [1, 1], kernel_strides = [1, 1],
                                   mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>}>
             input(%in2_cmx : !InDistType) weights(%weights2_cmx : !WeightsDistType)

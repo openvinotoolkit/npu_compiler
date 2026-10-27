@@ -510,7 +510,7 @@ vpux::IndexedSymbolAttr MemRefNDTypeInterface::getMemSpace(mlir::Type type) cons
                 }
 
                 auto memSpace = mlir::dyn_cast<vpux::IndexedSymbolAttr>(memSpaceAttr);
-                VPUX_THROW_UNLESS(memSpace != nullptr, "Unsupported memory space attribute'{0}'", memSpaceAttr);
+                VPUX_THROW_WHEN(memSpace == nullptr, "Unsupported memory space attribute'{0}'", memSpaceAttr);
 
                 return memSpace;
             })
@@ -551,9 +551,15 @@ vpux::Strides MemRefNDTypeInterface::getStrides(mlir::Type type) const {
         }
     }
 
-    // Missing strides specification means compact strides.
+    // Missing strides specification means compact strides. Use the bounded shape: a dynamic
+    // memref has no well-defined compact strides from its raw (kDynamic) shape alone, but the
+    // bounds give the compile-time upper limit compact strides are computed against, matching
+    // StrideReqsRef::checkStrides's handling of dynamic shapes.
     const auto order = getDimsOrder(type);
-    const auto memStrides = StrideReqs::compact(order.numDims()).calcStrides(order, memref);
+    const auto boundedShape = vpux::getBoundedShape(type);
+    const auto elemSize = getElemTypeSize(type);
+    const auto memShape = order.toMemoryOrder(boundedShape);
+    const auto memStrides = StrideReqs::compact(order.numDims()).calcStrides(elemSize, memShape);
 
     return order.toLogicalOrder(memStrides);
 }

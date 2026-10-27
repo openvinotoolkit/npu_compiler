@@ -232,7 +232,7 @@ module @HaloCMXPartitioningForReorderingTest {
         %145546 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
         %145547 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
         VPURT.Task waits(%145546 : !VPURT.Barrier) updates(%145547 : !VPURT.Barrier) {
-          %254514 = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%145552 : memref<1x64x4x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) weights(%145548 :
+          %254514 = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>}> input(%145552 : memref<1x64x4x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) weights(%145548 :
      memref<1x64x4x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) parent_input(%145552 : memref<1x64x4x16xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}, [@CMX_NN, 0]>) parent_output(%8 : !VPUIP.ITIBuffer<
               1x64x4x17xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>}, [@CMX_NN, 0],
               inwardHaloRegions = [

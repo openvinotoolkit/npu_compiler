@@ -113,12 +113,12 @@ mlir::async::ExecuteOp createSpillDMAExecOp(mlir::OpBuilder& builder, mlir::Loca
                                             mlir::Value operand, mlir::Value targetBuffer) {
     // Create ExecOp body with a NNDMAOp and a YieldOp
     auto bodyBuilder = [&](mlir::OpBuilder& builder, mlir::Location odsLoc, mlir::ValueRange operands) {
-        auto dmaOp = builder.create<VPUIP::NNDMAOp>(odsLoc, operands[0], targetBuffer);
-        builder.create<mlir::async::YieldOp>(odsLoc, dmaOp->getResults());
+        auto dmaOp = VPUIP::NNDMAOp::create(builder, odsLoc, operands[0], targetBuffer);
+        mlir::async::YieldOp::create(builder, odsLoc, dmaOp->getResults());
     };
 
     // Create the execOp.
-    auto execOp = builder.create<mlir::async::ExecuteOp>(loc, targetBuffer.getType(), token, operand, bodyBuilder);
+    auto execOp = mlir::async::ExecuteOp::create(builder, loc, targetBuffer.getType(), token, operand, bodyBuilder);
 
     // Update executor attributes if available.
     if (!execOp.getBody()->empty()) {
@@ -167,9 +167,10 @@ mlir::async::ExecuteOp AsyncRegionOutliningSplitter::insertSpillWriteDmaOp(mlir:
         auto bufferToSpillDDR = bufferToSpillNDType.changeMemSpace(VPU::MemoryKind::DDR);
         auto swizzlingKeyAttr = getSwizzlingKeyAttr(bufferToSpillType);
         if (swizzlingKeyAttr != nullptr) {
-            return builder.create<VPURT::Alloc>(spillWriteNameLoc, bufferToSpillDDR, nullptr, swizzlingKeyAttr);
+            return VPURT::Alloc::create(builder, spillWriteNameLoc, bufferToSpillDDR, nullptr, swizzlingKeyAttr);
         }
-        return builder.create<mlir::memref::AllocOp>(spillWriteNameLoc, mlir::cast<mlir::MemRefType>(bufferToSpillDDR));
+        return mlir::memref::AllocOp::create(builder, spillWriteNameLoc,
+                                             mlir::cast<mlir::MemRefType>(bufferToSpillDDR));
     };
 
     mlir::OpBuilder builder(insertAfterExecOp);
@@ -204,15 +205,15 @@ mlir::async::ExecuteOp AsyncRegionOutliningSplitter::insertSpillReadDmaOp(mlir::
         auto bufferToSpillType = getAsyncValueType(bufferToSpill);
         auto swizzlingKeyAttr = getSwizzlingKeyAttr(bufferToSpillType);
         if (auto distributedBuffer = mlir::dyn_cast<VPUIP::DistributedBufferType>(bufferToSpillType)) {
-            newBufferOp = builder.create<VPURT::AllocDistributed>(spillReadNameLoc, bufferToSpillType, nullptr,
-                                                                  swizzlingKeyAttr);
+            newBufferOp = VPURT::AllocDistributed::create(builder, spillReadNameLoc, bufferToSpillType, nullptr,
+                                                          swizzlingKeyAttr);
         } else {
             if (swizzlingKeyAttr != nullptr) {
                 newBufferOp =
-                        builder.create<VPURT::Alloc>(spillReadNameLoc, bufferToSpillType, nullptr, swizzlingKeyAttr);
+                        VPURT::Alloc::create(builder, spillReadNameLoc, bufferToSpillType, nullptr, swizzlingKeyAttr);
             } else {
-                newBufferOp = builder.create<mlir::memref::AllocOp>(spillReadNameLoc,
-                                                                    mlir::cast<mlir::MemRefType>(bufferToSpillType));
+                newBufferOp = mlir::memref::AllocOp::create(builder, spillReadNameLoc,
+                                                            mlir::cast<mlir::MemRefType>(bufferToSpillType));
             }
         }
         return newBufferOp;
@@ -417,8 +418,8 @@ void AsyncRegionOutliningSplitter::insertDmaForNetResults(
         auto outputDmaNameLoc = appendLoc(execOp->getLoc(), "{0}", _depsInfo.getIndex(execOp));
 
         // Create new allocation operation
-        auto newAllocOp = builder.create<mlir::memref::AllocOp>(outputDmaNameLoc,
-                                                                mlir::cast<mlir::MemRefType>(funcArg.getType()));
+        auto newAllocOp = mlir::memref::AllocOp::create(builder, outputDmaNameLoc,
+                                                        mlir::cast<mlir::MemRefType>(funcArg.getType()));
         auto newBufferResult = newAllocOp->getResult(0);
         funcArg.replaceAllUsesWith(newBufferResult);
 

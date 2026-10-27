@@ -25,8 +25,7 @@ enum class ReduceOutputKind { None, MaxXY, MinXY, TensorMinMax };
 SmallVector<ReduceOutputKind> getReduceOutputKinds(mlir::Operation* op);
 
 /// Returns true when \p op has at least one active reduce extra output
-/// (i.e. the op is one of NCEConvolutionOp, NCEMatMulOp, NCEMaxPoolOp and at
-/// least one optional reduce result is active). Returns false for all other ops.
+/// (i.e. at least one optional reduce result is active). Returns false for all other ops.
 bool hasReduceOutputs(mlir::Operation* op);
 
 /// Returns the single logical \c Dim that is reduced to 1 in \c reduce_xy outputs.

@@ -42,7 +42,8 @@ using VFContainerPipelineStorage = VFContainer<size_t, VFPipelineContainer>;
 // it returns tiles for parent operations of the block and connection between them and block arguments
 // for each VF tile
 TilingStorage restoreTilingRegions(VPU::VerticalFusionOp vfOp, Logger log,
-                                   const TilingOperationStorage::UPtr& opStorage);
+                                   const TilingOperationStorage::UPtr& opStorage,
+                                   bool enableOutputTileAdjustmentForSW = false);
 
 // calculate recursively tiling regions for the block starting from last operation and known output tiles for it
 // function builds connection between block arguments and tiles
@@ -50,13 +51,16 @@ TilingStorage restoreTilingRegions(VPU::VerticalFusionOp vfOp, Logger log,
 // its input and output tiles
 mlir::FailureOr<TilingStorage> calculateTilingRegions(mlir::Operation* operation, const OutputTiling& tiles, Logger log,
                                                       const TilingOperationStorage::UPtr& opStorage,
-                                                      const llvm::SetVector<mlir::Operation*>& fusedOps = {});
+                                                      const llvm::SetVector<mlir::Operation*>& fusedOps = {},
+                                                      bool enableOutputTileAdjustmentForSW = false);
 
 mlir::FailureOr<TilingStorage> calculateTilingRegions(VPU::VerticalFusionOp vfOp, const OutputTiling& tiles, Logger log,
-                                                      const TilingOperationStorage::UPtr& opStorage);
+                                                      const TilingOperationStorage::UPtr& opStorage,
+                                                      bool enableOutputTileAdjustmentForSW = false);
 
 mlir::FailureOr<TilingStorage> calculateTilingRegions(VPU::VerticalFusionOp vfOp, ArrayRef<int64_t> tilingStrategy,
-                                                      Logger log, const TilingOperationStorage::UPtr& opStorage);
+                                                      Logger log, const TilingOperationStorage::UPtr& opStorage,
+                                                      bool enableOutputTileAdjustmentForSW = false);
 
 // calculate limit for number of tiles for set of operations
 int64_t getTilingLimit(Dim axis, ArrayRef<mlir::Operation*> operations, bool tilingOnHW = false);

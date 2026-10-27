@@ -11,11 +11,14 @@
 #include "vpux/utils/core/format.hpp"
 #include "vpux/utils/core/func_ref.hpp"
 #include "vpux/utils/core/small_vector.hpp"
+#include "vpux/utils/logger/logger.hpp"
 
 #include <mlir/IR/OpDefinition.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/IR/ValueRange.h>
 #include <mlir/Interfaces/InferTypeOpInterface.h>
+#include <functional>
+#include <optional>
 
 namespace vpux {
 namespace config {
@@ -147,7 +150,39 @@ mlir::LogicalResult inferTensorTypes(InferTypeComponentsCb componentsCb, mlir::M
 // LayerWithPostOpInterface
 //
 
+// Returns the post-op attribute equivalent of 'postOp' or nullptr if not post-op attribute
 PostOpAttr attributizePostOp(mlir::Operation* postOp);
+
+// NOTE: A PPE task evaluates the post-op (activation) first and applies the fused clamp afterwards.
+//       If activation function is monotonically non-decreasing then for the activation function 'f':
+//       f(clamp_[min, max](x)) == clamp_[f(min), f(max)](f(x)), because we guarantee f(min) <= f(max).
+//
+//       As a graph:
+//       ```
+//       Conv
+//        |
+//       Clamp [min, max]
+//        |
+//        f
+//       ```
+//
+//       is equivalent to the following graph:
+//
+//       ```
+//       Conv
+//        |
+//        f
+//        |
+//       Clamp [f(min), f(max)]
+//       ```
+using ActivationFunction = vpux::FuncRef<double(double)>;
+using ActivationFunctionCb = vpux::FuncRef<void(ActivationFunction)>;
+bool isMonotonicActivationFunctionNonDecreasing(mlir::Operation* postOp);
+bool isMonotonicActivationFunctionNonDecreasing(PostOpAttr postOpAttr);
+bool applyMonotonicActivationFunction(mlir::Operation* postOp, ActivationFunctionCb callback);
+bool applyMonotonicActivationFunction(PostOpAttr postOpAttr, ActivationFunctionCb callback);
+
+mlir::DictionaryAttr remapClampThroughActivation(mlir::DictionaryAttr clampAttr, PostOpAttr postOpAttr);
 
 class LayerWithPostOpInterface;
 
@@ -163,6 +198,36 @@ bool hasPPE(T op) {
     - max from both attributes: new_max = min(old_max, new_max)
 */
 void setClampOp(mlir::Operation* mainOp, mlir::Operation* clampOp);
+mlir::DictionaryAttr createClampAttr(mlir::MLIRContext* ctx, double min, double max);
+/* Computes the clamp resulting from merging the PPE of a producer and of its consumer into 'fusedOp'.
+
+   The original PPE order is: producer post-op -> producer clamp -> consumer post-op -> consumer clamp
+
+   The producer clamp is moved past the consumer post-op first:
+   if activation function 'f' is monotonically non-decreasing then:
+   f(clamp_[min, max](x)) == clamp_[f(min), f(max)](f(x)), because f(min) <= f(max) is guaranteed.
+
+   Afterwards the producer and consumer clamps are intersected.
+
+   Example:
+   ```
+   Conv {clamp = {max = 2.0, min = -1.0}}
+    |
+   Identity AvgPool {clamp = {max = 1.0, min = -0.5}, post_op = #IE.ReLU<>}
+   ```
+
+   becomes
+
+   ```
+   Conv {clamp = {max = 1.0, min = 0.0}, post_op = #IE.ReLU<>}
+   ```
+
+   Returns std::nullopt when the fused clamp cannot be represented by 'fusedOp'.
+   Returns nullptr if both producerClamp and consumerClamp are nullptr.
+*/
+std::optional<mlir::DictionaryAttr> getFusedClamp(const Logger& log, mlir::DictionaryAttr producerClamp,
+                                                  IE::PostOpAttr consumerPostOp, mlir::DictionaryAttr consumerClamp,
+                                                  IE::LayerWithPostOpInterface fusedOp, mlir::Type type);
 
 //
 // LayoutInfoOpInterface

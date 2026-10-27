@@ -87,10 +87,9 @@ mlir::LogicalResult SplitConcatRewriter::matchAndRewrite(IE::ConcatOp origOp, ml
         return mlir::failure();
     }
 
-    auto affineReshape =
-            rewriter.create<IE::AffineReshapeOp>(takeOpLoc(origOp, "reshape_in"), splitOp.getInput(),
-                                                 getIntArrayOfArray(getContext(), reassociationMap.value()),
-                                                 getIntArrayAttr(rewriter.getContext(), origOutputShape));
+    auto affineReshape = IE::AffineReshapeOp::create(rewriter, takeOpLoc(origOp, "reshape_in"), splitOp.getInput(),
+                                                     getIntArrayOfArray(getContext(), reassociationMap.value()),
+                                                     getIntArrayAttr(rewriter.getContext(), origOutputShape));
     rewriter.replaceOp(origOp, affineReshape.getOutput());
 
     _log.trace("[{0}] Replaced with 'IE::AffineReshapeOp'", getDebugName());

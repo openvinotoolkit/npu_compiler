@@ -906,112 +906,112 @@ module @EnableWeightDeqauntEnsuranceBeforeStrategy {
     // CHECK-SAME{LITERAL}:         {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 128, 64, 4]}
 
     // CHECK: [[COPY_W0:%.+]] = VPU.Copy([[WEIGHTS0]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ0:%.+]] = VPU.Dequantize([[COPY_W0]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64}
+    // CHECK: [[DEQ0:%.+]] = VPU.Dequantize([[COPY_W0]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 0>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 0 : i64}
     // CHECK: [[COPY_IN0:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T0:%.+]] = VPU.Copy([[WEIGHTS_TABLE0]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV0:%.+]] = VPU.NCE.Convolution([[COPY_IN0]], [[DEQ0]], [[COPY_T0]])
     // CHECK: [[OUT0:%.+]] = VPU.Copy([[CONV0]])
 
     // CHECK: [[COPY_W1:%.+]] = VPU.Copy([[WEIGHTS1]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ1:%.+]] = VPU.Dequantize([[COPY_W1]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64}
+    // CHECK: [[DEQ1:%.+]] = VPU.Dequantize([[COPY_W1]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 1>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 1 : i64}
     // CHECK: [[COPY_IN1:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T1:%.+]] = VPU.Copy([[WEIGHTS_TABLE1]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV1:%.+]] = VPU.NCE.Convolution([[COPY_IN1]], [[DEQ1]], [[COPY_T1]])
     // CHECK: [[OUT1:%.+]] = VPU.Copy([[CONV1]])
 
     // CHECK: [[COPY_W2:%.+]] = VPU.Copy([[WEIGHTS2]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ2:%.+]] = VPU.Dequantize([[COPY_W2]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 2 : i64}
+    // CHECK: [[DEQ2:%.+]] = VPU.Dequantize([[COPY_W2]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 2>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 2 : i64}
     // CHECK: [[COPY_IN2:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T2:%.+]] = VPU.Copy([[WEIGHTS_TABLE2]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV2:%.+]] = VPU.NCE.Convolution([[COPY_IN2]], [[DEQ2]], [[COPY_T2]])
     // CHECK: [[OUT2:%.+]] = VPU.Copy([[CONV2]])
 
     // CHECK: [[COPY_W3:%.+]] = VPU.Copy([[WEIGHTS3]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ3:%.+]] = VPU.Dequantize([[COPY_W3]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 3 : i64}
+    // CHECK: [[DEQ3:%.+]] = VPU.Dequantize([[COPY_W3]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 3>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 3 : i64}
     // CHECK: [[COPY_IN3:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T3:%.+]] = VPU.Copy([[WEIGHTS_TABLE3]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV3:%.+]] = VPU.NCE.Convolution([[COPY_IN3]], [[DEQ3]], [[COPY_T3]])
     // CHECK: [[OUT3:%.+]] = VPU.Copy([[CONV3]])
 
     // CHECK: [[COPY_W4:%.+]] = VPU.Copy([[WEIGHTS4]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ4:%.+]] = VPU.Dequantize([[COPY_W4]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 4 : i64}
+    // CHECK: [[DEQ4:%.+]] = VPU.Dequantize([[COPY_W4]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 4>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 4 : i64}
     // CHECK: [[COPY_IN4:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T4:%.+]] = VPU.Copy([[WEIGHTS_TABLE4]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV4:%.+]] = VPU.NCE.Convolution([[COPY_IN4]], [[DEQ4]], [[COPY_T4]])
     // CHECK: [[OUT4:%.+]] = VPU.Copy([[CONV4]])
 
     // CHECK: [[COPY_W5:%.+]] = VPU.Copy([[WEIGHTS5]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ5:%.+]] = VPU.Dequantize([[COPY_W5]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 5 : i64}
+    // CHECK: [[DEQ5:%.+]] = VPU.Dequantize([[COPY_W5]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 5>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 5 : i64}
     // CHECK: [[COPY_IN5:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T5:%.+]] = VPU.Copy([[WEIGHTS_TABLE5]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV5:%.+]] = VPU.NCE.Convolution([[COPY_IN5]], [[DEQ5]], [[COPY_T5]])
     // CHECK: [[OUT5:%.+]] = VPU.Copy([[CONV5]])
 
     // CHECK: [[COPY_W6:%.+]] = VPU.Copy([[WEIGHTS6]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ6:%.+]] = VPU.Dequantize([[COPY_W6]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 6 : i64}
+    // CHECK: [[DEQ6:%.+]] = VPU.Dequantize([[COPY_W6]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 6>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 6 : i64}
     // CHECK: [[COPY_IN6:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T6:%.+]] = VPU.Copy([[WEIGHTS_TABLE6]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV6:%.+]] = VPU.NCE.Convolution([[COPY_IN6]], [[DEQ6]], [[COPY_T6]])
     // CHECK: [[OUT6:%.+]] = VPU.Copy([[CONV6]])
 
     // CHECK: [[COPY_W7:%.+]] = VPU.Copy([[WEIGHTS7]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ7:%.+]] = VPU.Dequantize([[COPY_W7]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 7 : i64}
+    // CHECK: [[DEQ7:%.+]] = VPU.Dequantize([[COPY_W7]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 7>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 7 : i64}
     // CHECK: [[COPY_IN7:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T7:%.+]] = VPU.Copy([[WEIGHTS_TABLE7]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV7:%.+]] = VPU.NCE.Convolution([[COPY_IN7]], [[DEQ7]], [[COPY_T7]])
     // CHECK: [[OUT7:%.+]] = VPU.Copy([[CONV7]])
 
     // CHECK: [[COPY_W8:%.+]] = VPU.Copy([[WEIGHTS8]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ8:%.+]] = VPU.Dequantize([[COPY_W8]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 8 : i64}
+    // CHECK: [[DEQ8:%.+]] = VPU.Dequantize([[COPY_W8]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 8>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 8 : i64}
     // CHECK: [[COPY_IN8:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T8:%.+]] = VPU.Copy([[WEIGHTS_TABLE8]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV8:%.+]] = VPU.NCE.Convolution([[COPY_IN8]], [[DEQ8]], [[COPY_T8]])
     // CHECK: [[OUT8:%.+]] = VPU.Copy([[CONV8]])
 
     // CHECK: [[COPY_W9:%.+]] = VPU.Copy([[WEIGHTS9]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ9:%.+]] = VPU.Dequantize([[COPY_W9]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 9 : i64}
+    // CHECK: [[DEQ9:%.+]] = VPU.Dequantize([[COPY_W9]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 9>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 9 : i64}
     // CHECK: [[COPY_IN9:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T9:%.+]] = VPU.Copy([[WEIGHTS_TABLE9]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV9:%.+]] = VPU.NCE.Convolution([[COPY_IN9]], [[DEQ9]], [[COPY_T9]])
     // CHECK: [[OUT9:%.+]] = VPU.Copy([[CONV9]])
 
     // CHECK: [[COPY_W10:%.+]] = VPU.Copy([[WEIGHTS10]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ10:%.+]] = VPU.Dequantize([[COPY_W10]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 10 : i64}
+    // CHECK: [[DEQ10:%.+]] = VPU.Dequantize([[COPY_W10]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 10>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 10 : i64}
     // CHECK: [[COPY_IN10:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T10:%.+]] = VPU.Copy([[WEIGHTS_TABLE10]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV10:%.+]] = VPU.NCE.Convolution([[COPY_IN10]], [[DEQ10]], [[COPY_T10]])
     // CHECK: [[OUT10:%.+]] = VPU.Copy([[CONV10]])
 
     // CHECK: [[COPY_W11:%.+]] = VPU.Copy([[WEIGHTS11]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ11:%.+]] = VPU.Dequantize([[COPY_W11]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 11 : i64}
+    // CHECK: [[DEQ11:%.+]] = VPU.Dequantize([[COPY_W11]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 11>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 11 : i64}
     // CHECK: [[COPY_IN11:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T11:%.+]] = VPU.Copy([[WEIGHTS_TABLE11]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV11:%.+]] = VPU.NCE.Convolution([[COPY_IN11]], [[DEQ11]], [[COPY_T11]])
     // CHECK: [[OUT11:%.+]] = VPU.Copy([[CONV11]])
 
     // CHECK: [[COPY_W12:%.+]] = VPU.Copy([[WEIGHTS12]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ12:%.+]] = VPU.Dequantize([[COPY_W12]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 12 : i64}
+    // CHECK: [[DEQ12:%.+]] = VPU.Dequantize([[COPY_W12]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 12>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 12 : i64}
     // CHECK: [[COPY_IN12:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T12:%.+]] = VPU.Copy([[WEIGHTS_TABLE12]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV12:%.+]] = VPU.NCE.Convolution([[COPY_IN12]], [[DEQ12]], [[COPY_T12]])
     // CHECK: [[OUT12:%.+]] = VPU.Copy([[CONV12]])
 
     // CHECK: [[COPY_W13:%.+]] = VPU.Copy([[WEIGHTS13]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ13:%.+]] = VPU.Dequantize([[COPY_W13]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 13 : i64}
+    // CHECK: [[DEQ13:%.+]] = VPU.Dequantize([[COPY_W13]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 13>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 13 : i64}
     // CHECK: [[COPY_IN13:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T13:%.+]] = VPU.Copy([[WEIGHTS_TABLE13]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV13:%.+]] = VPU.NCE.Convolution([[COPY_IN13]], [[DEQ13]], [[COPY_T13]])
     // CHECK: [[OUT13:%.+]] = VPU.Copy([[CONV13]])
 
     // CHECK: [[COPY_W14:%.+]] = VPU.Copy([[WEIGHTS14]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ14:%.+]] = VPU.Dequantize([[COPY_W14]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 14 : i64}
+    // CHECK: [[DEQ14:%.+]] = VPU.Dequantize([[COPY_W14]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 14>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 14 : i64}
     // CHECK: [[COPY_IN14:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T14:%.+]] = VPU.Copy([[WEIGHTS_TABLE14]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV14:%.+]] = VPU.NCE.Convolution([[COPY_IN14]], [[DEQ14]], [[COPY_T14]])
     // CHECK: [[OUT14:%.+]] = VPU.Copy([[CONV14]])
 
     // CHECK: [[COPY_W15:%.+]] = VPU.Copy([[WEIGHTS15]]) {out_mem_space = @CMX_NN}
-    // CHECK: [[DEQ15:%.+]] = VPU.Dequantize([[COPY_W15]]) {dstElemType = f16, vf_loop_index = 0 : i64, vf_loop_tile_index = 15 : i64}
+    // CHECK: [[DEQ15:%.+]] = VPU.Dequantize([[COPY_W15]]) {dstElemType = f16, loop_tile_coord = {axes = array<i64: 0>, indices = array<i64: 15>}, vf_loop_index = 0 : i64, vf_loop_tile_index = 15 : i64}
     // CHECK: [[COPY_IN15:%.+]] = VPU.Copy([[RESHAPE]]) {out_mem_space = @CMX_NN}
     // CHECK: [[COPY_T15:%.+]] = VPU.Copy([[WEIGHTS_TABLE15]]) {out_mem_space = @CMX_NN}
     // CHECK: [[CONV15:%.+]] = VPU.NCE.Convolution([[COPY_IN15]], [[DEQ15]], [[COPY_T15]])
@@ -1021,4 +1021,58 @@ module @EnableWeightDeqauntEnsuranceBeforeStrategy {
     // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0, 0, 0], [0, 640, 0, 0], [0, 1280, 0, 0], [0, 1920, 0, 0], [0, 2560, 0, 0], [0, 3200, 0, 0], [0, 3840, 0, 0], [0, 4480, 0, 0], [0, 5120, 0, 0], [0, 5760, 0, 0], [0, 6400, 0, 0], [0, 7040, 0, 0], [0, 7680, 0, 0], [0, 8320, 0, 0], [0, 8960, 0, 0], [0, 9600, 0, 0]]}
     // CHECK: return [[CONCAT]]
 }
+}
+
+// -----
+
+// CHECK-LABEL: @GatherDMALowBitGetSOB
+module @GatherDMALowBitGetSOB {
+    net.NetworkInfo entryPoint : @main inputsInfo : {
+        DataInfo "input"   : tensor<16512x128xi8>
+        DataInfo "indices" : tensor<1x16512xsi32>
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x16512x128xi8>
+    }
+
+    config.Resources 3 of @NCE at 6.000000e+02 MHz
+
+    // CHECK: func.func @main([[ARG0:%.+]]: tensor<16512x128xi8>, [[ARG1:%.+]]: tensor<1x16512xsi32>)
+    func.func @main(%arg0: tensor<16512x128xi8>, %arg1: tensor<1x16512xsi32>) -> tensor<1x16512x128xi8> {
+        %0 = VPU.Gather(%arg0, %arg1) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 2 : i64} :
+                tensor<16512x128xi8>, tensor<1x16512xsi32> -> tensor<1x16512x128xi8>
+        return %0 : tensor<1x16512x128xi8>
+
+        // CHECK: [[IDX_RESHAPE0:%.+]] = VPU.ShapeCast {shape = [16512, 1]} inputs([[ARG1]] : tensor<1x16512xsi32>) -> tensor<16512x1xsi32>
+        // CHECK: [[IDX_RESHAPE1:%.+]] = VPU.AffineReshape([[IDX_RESHAPE0]])
+        // CHECK-SAME: shape_value = [1, 16512, 1, 1]
+        // CHECK-SAME: tensor<16512x1xsi32> -> tensor<1x16512x1x1xsi32>
+        // CHECK: [[IDX_CMX:%.+]] = VPU.Copy([[IDX_RESHAPE1]]) {out_mem_space = @CMX_NN}
+        // CHECK-SAME: !VPU.DistributedTensor<1x16512x1x1xsi32, #NCHW, @CMX_NN,
+        // CHECK-SAME: mode = "SEGMENTED", num_tiles = [1, 3, 1, 1], num_clusters = 3 : i64
+        // CHECK: [[IDX_I64_CMX:%.+]] = VPU.Convert([[IDX_CMX]]) {dstElemType = i64}
+        // CHECK: [[IDX_I64_DDR:%.+]] = VPU.Copy([[IDX_I64_CMX]])
+        // CHECK-SAME: -> tensor<1x16512x1x1xi64>
+        // CHECK: [[IN4D:%.+]] = VPU.AffineReshape([[ARG0]])
+        // CHECK-SAME: shape_value = [16512, 1, 128, 1]
+        // CHECK-SAME: tensor<16512x128xi8> -> tensor<16512x1x128x1xi8>
+        // CHECK: [[IDX4D_DDR:%.+]] = VPU.ShapeCast {shape = [16512, 1, 1, 1]} inputs([[IDX_I64_DDR]] : tensor<1x16512x1x1xi64>) -> tensor<16512x1x1x1xi64>
+        // CHECK: [[IDX4D_CMX:%.+]] = VPU.Copy([[IDX4D_DDR]]) {out_mem_space = @CMX_NN}
+        // CHECK-SAME: !VPU.DistributedTensor<16512x1x1x1xi64, #NCHW, @CMX_NN,
+        // CHECK-SAME: mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64
+        // CHECK-SAME{LITERAL}: compute_shapes = [[5504, 1, 1, 1], [5504, 1, 1, 1], [5504, 1, 1, 1]]
+        // CHECK-SAME{LITERAL}: compute_offsets = [[0, 0, 0, 0], [5504, 0, 0, 0], [11008, 0, 0, 0]]
+        // CHECK: [[GATHER_DMA:%.+]] = VPU.GatherDMA([[IN4D]], [[IDX4D_CMX]])
+        // CHECK-SAME: {axis_value = 0 : i64, batch_dims = 0 : i64}
+        // CHECK-SAME: tensor<16512x1x128x1xi8>
+        // CHECK-SAME: !VPU.DistributedTensor<16512x1x128x1xi8, #NCHW, @CMX_NN,
+        // CHECK-SAME: mode = "SEGMENTED", num_tiles = [3, 1, 1, 1], num_clusters = 3 : i64
+        // CHECK-SAME{LITERAL}: compute_shapes = [[5504, 1, 128, 1], [5504, 1, 128, 1], [5504, 1, 128, 1]]
+        // CHECK-SAME{LITERAL}: compute_offsets = [[0, 0, 0, 0], [5504, 0, 0, 0], [11008, 0, 0, 0]]
+        // CHECK: [[OUT_DDR:%.+]] = VPU.Copy([[GATHER_DMA]])
+        // CHECK-SAME: -> tensor<16512x1x128x1xi8>
+        // CHECK: [[OUT_RESHAPE:%.+]] = VPU.AffineReshape([[OUT_DDR]])
+        // CHECK-SAME: shape_value = [1, 16512, 128]
+        // CHECK-SAME: tensor<16512x1x128x1xi8> -> tensor<1x16512x128xi8>
+        // CHECK: return [[OUT_RESHAPE]] : tensor<1x16512x128xi8>
+    }
 }

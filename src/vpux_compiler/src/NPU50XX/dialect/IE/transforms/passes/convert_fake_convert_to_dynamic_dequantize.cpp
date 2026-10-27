@@ -141,15 +141,15 @@ mlir::LogicalResult rewriteWeightsAsDynamicDequantize(IE::FakeConvertOp origOp, 
     const auto rawWeightsType = mlir::cast<mlir::RankedTensorType>(inputType.changeElemType(origOp.getDstType()));
     auto rawWeightsContent =
             Const::createFloatContentAttr(rewriter, takeOpLoc(origOp, "ddq_weights"), rawWeightsType, quantizedValues);
-    auto rawWeights = rewriter.create<Const::DeclareOp>(takeOpLoc(origOp, "ddq_weights"), rawWeightsType,
-                                                        std::move(rawWeightsContent));
+    auto rawWeights = Const::DeclareOp::create(rewriter, takeOpLoc(origOp, "ddq_weights"), rawWeightsType,
+                                               std::move(rawWeightsContent));
 
     const auto inverseScaleType = mlir::RankedTensorType::get(scaleShape, f32Type);
     auto inverseScale =
             Const::createFloatConst(rewriter, takeOpLoc(origOp, "ddq_scale"), inverseScaleType, inverseScaleValues);
     mlir::Value zp = nullptr;
     if (zpContentAttr != nullptr) {
-        zp = rewriter.create<Const::DeclareOp>(takeOpLoc(origOp, "ddq_zp"), zpType, std::move(zpContentAttr));
+        zp = Const::DeclareOp::create(rewriter, takeOpLoc(origOp, "ddq_zp"), zpType, std::move(zpContentAttr));
     }
 
     auto dynamicDequantize =

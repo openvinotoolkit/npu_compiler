@@ -550,3 +550,171 @@ func.func @DoNotConvert3DReduceSumBatchAxisUnalignedW(%arg0: tensor<8x1024x100xf
   // CHECK:       [[RESHAPE_IN:%.+]] = IE.Reshape([[INPUT]]) {shape_value = [1, 1, 8, 102400]} : tensor<8x1024x100xf16> -> tensor<1x1x8x102400xf16>
   // CHECK:       [[AVG_POOL:%.+]] = IE.AvgPool([[RESHAPE_IN]]) {exclude_pads, kernel_size = [8, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x1x8x102400xf16> -> tensor<1x1x1x102400xf16>
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @DoNotConvertBoundedReduceMeanToPooling
+// CHECK-SAME:      ([[INPUT:%.+]]: tensor<1x1x1x?xf16
+func.func @DoNotConvertBoundedReduceMeanToPooling(
+        %input: tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 50]> : tensor<4xsi64>, order = #NCHW}>)
+        -> tensor<1x1x1x1xf16> {
+  %mean = IE.ReduceMean(%input) {axes_value = [3], keep_dims}
+      : tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 50]> : tensor<4xsi64>, order = #NCHW}>
+      -> tensor<1x1x1x1xf16>
+  return %mean : tensor<1x1x1x1xf16>
+
+  // CHECK-NOT:   IE.AvgPool
+  // CHECK-NOT:   IE.Reshape
+  // CHECK:       [[MEAN:%.+]] = IE.ReduceMean([[INPUT]]) {axes_value = [3], keep_dims}
+  // CHECK-SAME:      -> tensor<1x1x1x1xf16>
+  // CHECK:       return [[MEAN]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @DoNotConvertBoundedReduceSumToPooling
+// CHECK-SAME:      ([[INPUT:%.+]]: tensor<1x1x1x?xf16
+func.func @DoNotConvertBoundedReduceSumToPooling(
+        %input: tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 50]> : tensor<4xsi64>, order = #NCHW}>)
+        -> tensor<1x1x1x1xf16> {
+  %sum = IE.ReduceSum(%input) {axes_value = [3], keep_dims}
+      : tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 50]> : tensor<4xsi64>, order = #NCHW}>
+      -> tensor<1x1x1x1xf16>
+  return %sum : tensor<1x1x1x1xf16>
+
+  // CHECK-NOT:   IE.AvgPool
+  // CHECK-NOT:   IE.Reshape
+  // CHECK:       [[SUM:%.+]] = IE.ReduceSum([[INPUT]]) {axes_value = [3], keep_dims}
+  // CHECK-SAME:      -> tensor<1x1x1x1xf16>
+  // CHECK:       return [[SUM]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// ReduceMin must skip the size checks, which reject dynamic shapes.
+
+// CHECK-LABEL: @DoNotConvertBoundedReduceMinToPooling
+// CHECK-SAME:      ([[INPUT:%.+]]: tensor<1x1x1x?xf16
+func.func @DoNotConvertBoundedReduceMinToPooling(
+        %input: tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 50]> : tensor<4xsi64>, order = #NCHW}>)
+        -> tensor<1x1x1x1xf16> {
+  %min = IE.ReduceMin(%input) {axes_value = [3], keep_dims}
+      : tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 50]> : tensor<4xsi64>, order = #NCHW}>
+      -> tensor<1x1x1x1xf16>
+  return %min : tensor<1x1x1x1xf16>
+
+  // CHECK-NOT:   IE.AvgPool
+  // CHECK-NOT:   IE.Reshape
+  // CHECK:       [[MIN:%.+]] = IE.ReduceMin([[INPUT]]) {axes_value = [3], keep_dims}
+  // CHECK-SAME:      -> tensor<1x1x1x1xf16>
+  // CHECK:       return [[MIN]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @DoNotConvertBoundedReduceMaxToPooling
+// CHECK-SAME:      ([[INPUT:%.+]]: tensor<1x1x1x?xf16
+func.func @DoNotConvertBoundedReduceMaxToPooling(
+        %input: tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 50]> : tensor<4xsi64>, order = #NCHW}>)
+        -> tensor<1x1x1x1xf16> {
+  %max = IE.ReduceMax(%input) {axes_value = [3], keep_dims}
+      : tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 50]> : tensor<4xsi64>, order = #NCHW}>
+      -> tensor<1x1x1x1xf16>
+  return %max : tensor<1x1x1x1xf16>
+
+  // CHECK-NOT:   IE.AvgPool
+  // CHECK-NOT:   IE.Reshape
+  // CHECK:       [[MAX:%.+]] = IE.ReduceMax([[INPUT]]) {axes_value = [3], keep_dims}
+  // CHECK-SAME:      -> tensor<1x1x1x1xf16>
+  // CHECK:       return [[MAX]]
+}
+
+// -----
+
+
+// CHECK-LABEL: @DoNotConvertUnboundedDynamicReduceMeanToPooling
+// CHECK-SAME:      ([[INPUT:%.+]]: tensor<1x1x1x?xf16>)
+func.func @DoNotConvertUnboundedDynamicReduceMeanToPooling(%input: tensor<1x1x1x?xf16>) -> tensor<1x1x1x1xf16> {
+  %mean = IE.ReduceMean(%input) {axes_value = [3], keep_dims} : tensor<1x1x1x?xf16> -> tensor<1x1x1x1xf16>
+  return %mean : tensor<1x1x1x1xf16>
+
+  // CHECK-NOT:   IE.AvgPool
+  // CHECK-NOT:   IE.Reshape
+  // CHECK:       [[MEAN:%.+]] = IE.ReduceMean([[INPUT]]) {axes_value = [3], keep_dims}
+  // CHECK-SAME:      -> tensor<1x1x1x1xf16>
+  // CHECK:       return [[MEAN]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NC = affine_map<(d0, d1) -> (d0, d1)>
+
+// Removing axis 1 would require a reshape with a dynamic output dimension.
+
+// CHECK-LABEL: @DoNotSimplifyAxesForBoundedReduceMean
+// CHECK-SAME:      ([[INPUT:%.+]]: tensor<1x1x?x64xf16
+func.func @DoNotSimplifyAxesForBoundedReduceMean(
+        %input: tensor<1x1x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 3136, 64]> : tensor<4xsi64>, order = #NCHW}>)
+        -> tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3136]> : tensor<2xsi64>, order = #NC}> {
+  %mean = IE.ReduceMean(%input) {axes_value = [1, 3]}
+      : tensor<1x1x?x64xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 3136, 64]> : tensor<4xsi64>, order = #NCHW}>
+      -> tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3136]> : tensor<2xsi64>, order = #NC}>
+  return %mean : tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3136]> : tensor<2xsi64>, order = #NC}>
+
+  // CHECK-NOT:   IE.AvgPool
+  // CHECK-NOT:   IE.Reshape
+  // CHECK:       [[MEAN:%.+]] = IE.ReduceMean([[INPUT]]) {axes_value = [1, 3]}
+  // CHECK:       return [[MEAN]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// Swapping batch and channel would require a reshape with a dynamic input dimension.
+
+// CHECK-LABEL: @DoNotSwapBatchToChannelForBoundedReduceSum
+// CHECK-SAME:      ([[INPUT:%.+]]: tensor<4x1x?x8xf16
+func.func @DoNotSwapBatchToChannelForBoundedReduceSum(
+        %input: tensor<4x1x?x8xf16, {bounds = #const.OpaqueI64Elements<[4, 1, 16, 8]> : tensor<4xsi64>, order = #NCHW}>)
+        -> tensor<1x1x?x8xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 16, 8]> : tensor<4xsi64>, order = #NCHW}> {
+  %sum = IE.ReduceSum(%input) {axes_value = [0], keep_dims}
+      : tensor<4x1x?x8xf16, {bounds = #const.OpaqueI64Elements<[4, 1, 16, 8]> : tensor<4xsi64>, order = #NCHW}>
+      -> tensor<1x1x?x8xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 16, 8]> : tensor<4xsi64>, order = #NCHW}>
+  return %sum : tensor<1x1x?x8xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 16, 8]> : tensor<4xsi64>, order = #NCHW}>
+
+  // CHECK-NOT:   IE.Reshape
+  // CHECK:       [[SUM:%.+]] = IE.ReduceSum([[INPUT]]) {axes_value = [0], keep_dims}
+  // CHECK:       return [[SUM]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// IE::ReshapeOp rejects this static input because its type has bounds.
+
+// CHECK-LABEL: @DoNotConvertStaticReduceMeanCarryingBounds
+// CHECK-SAME:      ([[INPUT:%.+]]: tensor<1x1x1x50xf16
+func.func @DoNotConvertStaticReduceMeanCarryingBounds(
+        %input: tensor<1x1x1x50xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 50]> : tensor<4xsi64>, order = #NCHW}>)
+        -> tensor<1x1x1x1xf16> {
+  %mean = IE.ReduceMean(%input) {axes_value = [3], keep_dims}
+      : tensor<1x1x1x50xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 50]> : tensor<4xsi64>, order = #NCHW}>
+      -> tensor<1x1x1x1xf16>
+  return %mean : tensor<1x1x1x1xf16>
+
+  // CHECK-NOT:   IE.AvgPool
+  // CHECK-NOT:   IE.Reshape
+  // CHECK:       [[MEAN:%.+]] = IE.ReduceMean([[INPUT]]) {axes_value = [3], keep_dims}
+  // CHECK:       return [[MEAN]]
+}

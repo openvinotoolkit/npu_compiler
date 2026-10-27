@@ -57,7 +57,7 @@ private:
 void OptimizeConcat::initialize(mlir::func::FuncOp funcOp) {
     auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>();
     auto tileOp = config::getTileExecutor(moduleOp);
-    VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE_Cluster information");
+    VPUX_THROW_WHEN(tileOp == nullptr, "Failed to get NCE_Cluster information");
     _dpuCount = tileOp.getCount();
 }
 
@@ -172,15 +172,15 @@ mlir::LogicalResult OptimizeConcat::matchAndRewrite(IE::ConcatOp origOp, mlir::P
     _log.trace("Process concat op at {0}", origOp->getLoc());
 
     for (auto input : concatInputs) {
-        auto newInReshape = rewriter.create<IE::ReshapeOp>(appendLoc(input.getLoc(), "reshape"), input,
-                                                           getIntArrayAttr(ctx, reshapeOutShape.raw()));
+        auto newInReshape = IE::ReshapeOp::create(rewriter, appendLoc(input.getLoc(), "reshape"), input,
+                                                  getIntArrayAttr(ctx, reshapeOutShape.raw()));
         auto permuteCastOp =
-                rewriter.create<IE::PermuteCastOp>(appendLoc(newInReshape.getLoc(), "permute_cast"), newInReshape,
-                                                   DimsOrder::NHWC.toAffineMap(ctx), maybeMemPerm.value());
+                IE::PermuteCastOp::create(rewriter, appendLoc(newInReshape.getLoc(), "permute_cast"), newInReshape,
+                                          DimsOrder::NHWC.toAffineMap(ctx), maybeMemPerm.value());
         inputs.push_back(permuteCastOp);
     }
     auto newConcat =
-            rewriter.create<IE::ConcatOp>(appendLoc(origOp.getLoc(), "input_concat"), inputs, concatAxis.value());
+            IE::ConcatOp::create(rewriter, appendLoc(origOp.getLoc(), "input_concat"), inputs, concatAxis.value());
 
     // create conv to do the permute
 
@@ -218,7 +218,7 @@ mlir::LogicalResult OptimizeConcat::matchAndRewrite(IE::ConcatOp origOp, mlir::P
             IE::composeWeightsExpressedType(newConcat.getResult().getType().getElementType());
     const auto weightExpressedType = mlir::RankedTensorType::get(weightsShape.raw(), weightExpressedElemType);
     auto targetContentAttr = weightContentAttr.transform().castElemType(weightExpressedElemType).get();
-    auto weightsConst = rewriter.create<Const::DeclareOp>(declLoc, weightExpressedType, std::move(targetContentAttr));
+    auto weightsConst = Const::DeclareOp::create(rewriter, declLoc, weightExpressedType, std::move(targetContentAttr));
 
     const auto reorderLoc = appendLoc(weightsConst.getLoc(), "reorder_weights_for_DPU_concat");
     const auto weightTypeNCHW = mlir::cast<vpux::NDTypeInterface>(weightsConst.getOutput().getType());
@@ -229,20 +229,20 @@ mlir::LogicalResult OptimizeConcat::matchAndRewrite(IE::ConcatOp origOp, mlir::P
 
     const SmallVector<int64_t> neutralPadBeginEnd(2, 0);
     const SmallVector<int64_t> neutralStridesDilations(2, 1);
-    auto newConv = rewriter.create<IE::ConvolutionOp>(
-            origOp.getLoc(), newConcat, weightsReorder, getIntArrayAttr(ctx, neutralStridesDilations),
+    auto newConv = IE::ConvolutionOp::create(
+            rewriter, origOp.getLoc(), newConcat, weightsReorder, getIntArrayAttr(ctx, neutralStridesDilations),
             getIntArrayAttr(ctx, neutralPadBeginEnd), getIntArrayAttr(ctx, neutralPadBeginEnd),
             getIntArrayAttr(ctx, neutralStridesDilations));
     _log.trace("Create new conv.");
 
     const auto outMemPerm = mlir::inversePermutation(maybeMemPerm.value());
     auto newOutPermuteCast =
-            rewriter.create<IE::PermuteCastOp>(appendLoc(newConv.getLoc(), "perm_cast_"), newConv.getOutput(),
-                                               DimsOrder::NCHW.toAffineMap(ctx), outMemPerm);
+            IE::PermuteCastOp::create(rewriter, appendLoc(newConv.getLoc(), "perm_cast_"), newConv.getOutput(),
+                                      DimsOrder::NCHW.toAffineMap(ctx), outMemPerm);
 
     auto concatOutShape = getShape(origOp);
-    auto newOutReshape = rewriter.create<IE::ReshapeOp>(appendLoc(newOutPermuteCast.getLoc(), "reshape_"),
-                                                        newOutPermuteCast, getIntArrayAttr(ctx, concatOutShape.raw()));
+    auto newOutReshape = IE::ReshapeOp::create(rewriter, appendLoc(newOutPermuteCast.getLoc(), "reshape_"),
+                                               newOutPermuteCast, getIntArrayAttr(ctx, concatOutShape.raw()));
     rewriter.replaceAllUsesWith(origOp, newOutReshape);
     _log.trace("Successfully replaced concat with conv.");
     return mlir::success();
@@ -329,8 +329,8 @@ mlir::LogicalResult OptimizeConcatWithConvAndAdd::matchAndRewrite(IE::ConcatOp c
         const Shape weightsShape = {totalOutChannels, currentInChannels, 1, 1};
         const DimsOrder weightOrder = DimsOrder::OYXI;
 
-        VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(currentInput.getType()),
-                          "{0} doesn't support dynamic shapes", IE::ConvolutionOp::getOperationName());
+        VPUX_THROW_WHEN(mlir::isa<Core::BoundedTensorType>(currentInput.getType()),
+                        "{0} doesn't support dynamic shapes", IE::ConvolutionOp::getOperationName());
         const auto weightType = mlir::RankedTensorType::get(
                 weightsShape.raw(), mlir::cast<NDTypeInterface>(currentInput.getType()).getElementType(),
                 getTensorAttr(rewriter.getContext(), weightOrder, nullptr));
@@ -342,17 +342,17 @@ mlir::LogicalResult OptimizeConcatWithConvAndAdd::matchAndRewrite(IE::ConcatOp c
         const auto dilations = getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
 
         const auto convLoc = takeOpLoc(concatOp, "convolution_for_concat_{0}", i);
-        auto newConv = rewriter.create<IE::ConvolutionOp>(convLoc, currentInput, weight, strides, kernelPadsBegin,
-                                                          kernelPadsEnd, dilations);
+        auto newConv = IE::ConvolutionOp::create(rewriter, convLoc, currentInput, weight, strides, kernelPadsBegin,
+                                                 kernelPadsEnd, dilations);
         convResults.push_back(newConv.getOutput());
     }
 
     IE::AddOp addOp;
     for (size_t i = 1; i < convResults.size(); ++i) {
         const auto declLoc = takeOpLoc(concatOp, "add_for_concat_{0}", i);
-        addOp = rewriter.create<IE::AddOp>(declLoc, convResults[0], convResults[i],
-                                           IE::AutoBroadcastTypeAttr::get(getContext(), IE::AutoBroadcastType::NUMPY),
-                                           nullptr, nullptr, nullptr, nullptr);
+        addOp = IE::AddOp::create(rewriter, declLoc, convResults[0], convResults[i],
+                                  IE::AutoBroadcastTypeAttr::get(getContext(), IE::AutoBroadcastType::NUMPY), nullptr,
+                                  nullptr, nullptr, nullptr);
         convResults[0] = addOp.getOutput();
     }
 

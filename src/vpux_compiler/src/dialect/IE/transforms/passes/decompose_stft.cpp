@@ -115,8 +115,8 @@ mlir::LogicalResult STFTOpConverter::matchAndRewrite(IE::STFTOp origOp, mlir::Pa
     const auto inputConvType = mlir::RankedTensorType::get(inputConvShape, elemType);
     const auto inputConvShapeAttr = getIntArrayAttr(ctx, inputConvShape);
 
-    auto inputReshaped = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "input_reshape_for_conv"), inputConvType, signal,
-                                                        inputConvShapeAttr);
+    auto inputReshaped = IE::ReshapeOp::create(rewriter, appendLoc(loc, "input_reshape_for_conv"), inputConvType,
+                                               signal, inputConvShapeAttr);
     _log.trace("Reshaped input to {0} for convolution", inputConvShape);
 
     // Create identity convolution weights [frameSizeVal, 1, frameSizeVal]
@@ -153,21 +153,21 @@ mlir::LogicalResult STFTOpConverter::matchAndRewrite(IE::STFTOp origOp, mlir::Pa
     // Output shape: [batch, frameSizeVal, numFrames]
     SmallVector<int64_t> convOutputShape = {batchSize, frameSizeVal, numFrames, 1};
 
-    auto convOp = rewriter.create<IE::ConvolutionOp>(appendLoc(loc, "frame_extraction_conv"),
-                                                     inputReshaped.getOutput(),   // input
-                                                     weightsConstOp,              // filter
-                                                     /*bias=*/nullptr,            // bias
-                                                     /*scale=*/nullptr,           // scale
-                                                     /*zero_points=*/nullptr,     // zero_points
-                                                     stridesAttr,                 // strides
-                                                     padsBeginAttr,               // pads_begin
-                                                     padsEndAttr,                 // pads_end
-                                                     dilationsAttr,               // dilations
-                                                     /*post_op=*/nullptr,         // post_op
-                                                     /*clamp=*/nullptr,           // clamp
-                                                     /*static_scale=*/nullptr,    // static_scale
-                                                     /*output_padding=*/nullptr,  // output_padding
-                                                     /*input_padding=*/nullptr    // input_padding
+    auto convOp = IE::ConvolutionOp::create(rewriter, appendLoc(loc, "frame_extraction_conv"),
+                                            inputReshaped.getOutput(),   // input
+                                            weightsConstOp,              // filter
+                                            /*bias=*/nullptr,            // bias
+                                            /*scale=*/nullptr,           // scale
+                                            /*zero_points=*/nullptr,     // zero_points
+                                            stridesAttr,                 // strides
+                                            padsBeginAttr,               // pads_begin
+                                            padsEndAttr,                 // pads_end
+                                            dilationsAttr,               // dilations
+                                            /*post_op=*/nullptr,         // post_op
+                                            /*clamp=*/nullptr,           // clamp
+                                            /*static_scale=*/nullptr,    // static_scale
+                                            /*output_padding=*/nullptr,  // output_padding
+                                            /*input_padding=*/nullptr    // input_padding
     );
 
     _log.trace("Performed convolution for frame extraction, output shape: {0}\n", convOutputShape);
@@ -177,8 +177,8 @@ mlir::LogicalResult STFTOpConverter::matchAndRewrite(IE::STFTOp origOp, mlir::Pa
     const auto convReshaped3DType = mlir::RankedTensorType::get(convReshaped3DShape, elemType);
     const auto convReshaped3DShapeAttr = getIntArrayAttr(ctx, convReshaped3DShape);
 
-    auto convReshaped = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "conv_output_reshape"), convReshaped3DType,
-                                                       convOp.getOutput(), convReshaped3DShapeAttr);
+    auto convReshaped = IE::ReshapeOp::create(rewriter, appendLoc(loc, "conv_output_reshape"), convReshaped3DType,
+                                              convOp.getOutput(), convReshaped3DShapeAttr);
     _log.trace("Reshaped conv output from 4D to 3D: {0}\n", convReshaped3DShape);
 
     // Transpose to [batch, numFrames, frameSizeVal]
@@ -188,8 +188,8 @@ mlir::LogicalResult STFTOpConverter::matchAndRewrite(IE::STFTOp origOp, mlir::Pa
     const auto permutationMap = mlir::AffineMap::getPermutationMap(transposeOrder, ctx);
     const auto permutationMapAttr = mlir::AffineMapAttr::get(permutationMap);
 
-    auto framesTransposed = rewriter.create<IE::TransposeOp>(appendLoc(loc, "frames_transpose"), framesType,
-                                                             convReshaped.getOutput(), nullptr, permutationMapAttr);
+    auto framesTransposed = IE::TransposeOp::create(rewriter, appendLoc(loc, "frames_transpose"), framesType,
+                                                    convReshaped.getOutput(), nullptr, permutationMapAttr);
     _log.trace("Transposed frames to shape {0}", framesShape);
 
     // Continue with windowing and RDFT
@@ -211,10 +211,10 @@ mlir::LogicalResult STFTOpConverter::matchAndRewrite(IE::STFTOp origOp, mlir::Pa
             const auto newWindowType = mlir::RankedTensorType::get(newWindowShape, windowType.getElementType());
             auto newWindowShapeAttr = getIntArrayAttr(ctx, newWindowShape);
 
-            windowForMultiply = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "window_reshape_for_broadcast"),
-                                                               newWindowType, window,
-                                                               newWindowShapeAttr  // shape_value
-                                                               )
+            windowForMultiply = IE::ReshapeOp::create(rewriter, appendLoc(loc, "window_reshape_for_broadcast"),
+                                                      newWindowType, window,
+                                                      newWindowShapeAttr  // shape_value
+                                                      )
                                         .getOutput();
 
             _log.trace("Reshaped window from {0} to {1} for broadcast-compatible windowing", windowShape,
@@ -223,10 +223,10 @@ mlir::LogicalResult STFTOpConverter::matchAndRewrite(IE::STFTOp origOp, mlir::Pa
 
         auto autoBroadcastAttr = IE::AutoBroadcastTypeAttr::get(ctx, IE::AutoBroadcastType::NUMPY);
 
-        windowedFrames = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "windowing_multiply"),
-                                                         framesTransposed.getOutput(), windowForMultiply,
-                                                         autoBroadcastAttr, nullptr, nullptr, nullptr, nullptr)
-                                 .getOutput();
+        windowedFrames =
+                IE::MultiplyOp::create(rewriter, appendLoc(loc, "windowing_multiply"), framesTransposed.getOutput(),
+                                       windowForMultiply, autoBroadcastAttr, nullptr, nullptr, nullptr, nullptr)
+                        .getOutput();
         _log.trace("Applied windowing function with reshaped window shape: {0}",
                    mlir::cast<vpux::NDTypeInterface>(windowForMultiply.getType()).getShape());
     }
@@ -244,8 +244,8 @@ mlir::LogicalResult STFTOpConverter::matchAndRewrite(IE::STFTOp origOp, mlir::Pa
     SmallVector<int64_t> rdftOutputShape = {batchSize, numFrames, frameSizeVal / 2 + 1, 2};
     const auto rdftOutputType = mlir::RankedTensorType::get(rdftOutputShape, elemType);
 
-    auto rdftOp = rewriter.create<IE::RDFTOp>(appendLoc(loc, "rdft"), rdftOutputType, windowedFrames, nullptr, nullptr,
-                                              rdftAxesAttr, rdftSignalSizeAttr);
+    auto rdftOp = IE::RDFTOp::create(rewriter, appendLoc(loc, "rdft"), rdftOutputType, windowedFrames, nullptr, nullptr,
+                                     rdftAxesAttr, rdftSignalSizeAttr);
     _log.trace("Applied RDFT, output shape: {0}", rdftOutputShape);
 
     auto rdftOutput = rdftOp.getResult();
@@ -259,8 +259,8 @@ mlir::LogicalResult STFTOpConverter::matchAndRewrite(IE::STFTOp origOp, mlir::Pa
         const auto permutationMap = mlir::AffineMap::getPermutationMap(transposeOrder, ctx);
         const auto permutationMapAttr = mlir::AffineMapAttr::get(permutationMap);
 
-        finalOutput = rewriter.create<IE::TransposeOp>(appendLoc(loc, "transpose"), transposedType, rdftOutput, nullptr,
-                                                       permutationMapAttr)
+        finalOutput = IE::TransposeOp::create(rewriter, appendLoc(loc, "transpose"), transposedType, rdftOutput,
+                                              nullptr, permutationMapAttr)
                               .getOutput();
         _log.trace("Applied transpose, final shape: {0}", transposedShape);
     }
@@ -277,8 +277,8 @@ mlir::LogicalResult STFTOpConverter::matchAndRewrite(IE::STFTOp origOp, mlir::Pa
         const auto squeezedType = mlir::RankedTensorType::get(squeezedShape, elemType);
         const auto squeezedShapeAttr = getIntArrayAttr(ctx, squeezedShape);
 
-        finalOutput = rewriter.create<IE::ReshapeOp>(appendLoc(loc, "output_squeeze"), squeezedType, finalOutput,
-                                                     squeezedShapeAttr)
+        finalOutput = IE::ReshapeOp::create(rewriter, appendLoc(loc, "output_squeeze"), squeezedType, finalOutput,
+                                            squeezedShapeAttr)
                               .getOutput();
         _log.trace("Squeezed output to shape: {0}", squeezedShape);
     }

@@ -49,7 +49,8 @@ func.func @GQAPrefillThreeBlocks(
 
   // Running-state constants are sized from the un-folded Q shape [1,32,1024,128].
   // CHECK-DAG: [[INIT_OUT:%.+]] = const.Declare tensor<1x32x1024x128xf16> = dense<0.000000e+00>
-  // CHECK-DAG: [[INIT_MAX:%.+]] = const.Declare tensor<1x32x1024xf16> = dense<0xFC00>
+  // The running max seed is fp16 lowest, not -Inf (see convert_block_cache_attention_to_flash_sdpa.cpp).
+  // CHECK-DAG: [[INIT_MAX:%.+]] = const.Declare tensor<1x32x1024xf16> = dense<-6.550400e+04>
   // CHECK-DAG: [[INIT_SUM:%.+]] = const.Declare tensor<1x32x1024xf32> = dense<0.000000e+00>
   // Q is un-folded from [8,4,1024,128] to [1,32,1024,128].
   // CHECK: [[Q_UF:%.+]] = IE.Reshape([[ARG_Q]]) {shape_value = [1, 32, 1024, 128]} : tensor<8x4x1024x128xf16> -> tensor<1x32x1024x128xf16>
@@ -143,7 +144,7 @@ func.func @GQADecodeTenBlocks(
   // Q un-folded [8,4,1,128] -> [1,32,1,128]; running states sized from un-folded Q.
   // CHECK-DAG: [[CST_SCALE:%.+]] = const.Declare tensor<1x1x1x1xf16>
   // CHECK-DAG: [[INIT_OUT:%.+]] = const.Declare tensor<1x32x1x128xf16> = dense<0.000000e+00>
-  // CHECK-DAG: [[INIT_MAX:%.+]] = const.Declare tensor<1x32x1xf16> = dense<0xFC00>
+  // CHECK-DAG: [[INIT_MAX:%.+]] = const.Declare tensor<1x32x1xf16> = dense<-6.550400e+04>
   // CHECK-DAG: [[INIT_SUM:%.+]] = const.Declare tensor<1x32x1xf32> = dense<0.000000e+00>
   // CHECK: [[Q_UF:%.+]] = IE.Reshape([[ARG_Q]]) {shape_value = [1, 32, 1, 128]} : tensor<8x4x1x128xf16> -> tensor<1x32x1x128xf16>
   // CHECK: [[Q_SC:%.+]] = IE.Multiply([[Q_UF]], [[CST_SCALE]])
@@ -271,6 +272,85 @@ func.func @GQAUnalignedSSL_NotConverted(
 
 // -----
 
+// CHECK-LABEL: @DecodeGQALowQHeads_NotConverted
+func.func @DecodeGQALowQHeads_NotConverted(
+        %arg0:  tensor<1x8x1x128xf16>,
+        %arg1:  tensor<1x1x1024x128xf16>,
+        %arg2:  tensor<1x1x1024x128xf16>,
+        %arg3:  tensor<1x1x1024x128xf16>,
+        %arg4:  tensor<1x1x1024x128xf16>,
+        %arg5:  tensor<1x1x1024x128xf16>,
+        %arg6:  tensor<1x1x1024x128xf16>,
+        %arg7:  tensor<1x1x1024x128xf16>,
+        %arg8:  tensor<1x1x1024x128xf16>,
+        %arg9:  tensor<1x1x1024x128xf16>,
+        %arg10: tensor<1x1x1024x128xf16>,
+        %arg11: tensor<1x1x1024x128xf16>,
+        %arg12: tensor<1x1x1024x128xf16>,
+        %arg13: tensor<1x1x1024x128xf16>,
+        %arg14: tensor<1x1x1024x128xf16>,
+        %arg15: tensor<1x1x1024x128xf16>,
+        %arg16: tensor<1x1x1024x128xf16>,
+        %arg17: tensor<1x1x127x128xf16>,
+        %arg18: tensor<1x1x1x128xf16>,
+        %arg19: tensor<1x1x128x1024xf16>,
+        %arg20: tensor<1x1x128x1024xf16>,
+        %arg21: tensor<1x1x128x1024xf16>,
+        %arg22: tensor<1x1x128x1024xf16>,
+        %arg23: tensor<1x1x128x1024xf16>,
+        %arg24: tensor<1x1x128x1024xf16>,
+        %arg25: tensor<1x1x128x1024xf16>,
+        %arg26: tensor<1x1x128x1024xf16>,
+        %arg27: tensor<1x1x128x1024xf16>,
+        %arg28: tensor<1x1x128x1024xf16>,
+        %arg29: tensor<1x1x128x1024xf16>,
+        %arg30: tensor<1x1x128x1024xf16>,
+        %arg31: tensor<1x1x128x1024xf16>,
+        %arg32: tensor<1x1x128x1024xf16>,
+        %arg33: tensor<1x1x128x1024xf16>,
+        %arg34: tensor<1x1x128x1024xf16>,
+        %arg35: tensor<1x1x128x127xf16>,
+        %arg36: tensor<1x1x128x1xf16>) -> tensor<1x8x1x128xf16> {
+  %k_cat = IE.Concat(%arg1, %arg2, %arg3, %arg4, %arg5, %arg6, %arg7, %arg8,
+                     %arg9, %arg10, %arg11, %arg12, %arg13, %arg14, %arg15, %arg16,
+                     %arg17, %arg18) {
+      static_offsets = [[0, 0,     0, 0], [0, 0,  1024, 0], [0, 0,  2048, 0], [0, 0,  3072, 0],
+                        [0, 0,  4096, 0], [0, 0,  5120, 0], [0, 0,  6144, 0], [0, 0,  7168, 0],
+                        [0, 0,  8192, 0], [0, 0,  9216, 0], [0, 0, 10240, 0], [0, 0, 11264, 0],
+                        [0, 0, 12288, 0], [0, 0, 13312, 0], [0, 0, 14336, 0], [0, 0, 15360, 0],
+                        [0, 0, 16384, 0], [0, 0, 16511, 0]]} :
+      tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>,
+      tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>,
+      tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>,
+      tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>,
+      tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>, tensor<1x1x1024x128xf16>,
+      tensor<1x1x1024x128xf16>, tensor<1x1x127x128xf16>,  tensor<1x1x1x128xf16>
+      -> tensor<1x1x16512x128xf16>
+  %v_cat = IE.Concat(%arg19, %arg20, %arg21, %arg22, %arg23, %arg24, %arg25, %arg26,
+                     %arg27, %arg28, %arg29, %arg30, %arg31, %arg32, %arg33, %arg34,
+                     %arg35, %arg36) {
+      static_offsets = [[0, 0, 0,     0], [0, 0, 0,  1024], [0, 0, 0,  2048], [0, 0, 0,  3072],
+                        [0, 0, 0,  4096], [0, 0, 0,  5120], [0, 0, 0,  6144], [0, 0, 0,  7168],
+                        [0, 0, 0,  8192], [0, 0, 0,  9216], [0, 0, 0, 10240], [0, 0, 0, 11264],
+                        [0, 0, 0, 12288], [0, 0, 0, 13312], [0, 0, 0, 14336], [0, 0, 0, 15360],
+                        [0, 0, 0, 16384], [0, 0, 0, 16511]]} :
+      tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>,
+      tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>,
+      tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>,
+      tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>,
+      tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>, tensor<1x1x128x1024xf16>,
+      tensor<1x1x128x1024xf16>, tensor<1x1x128x127xf16>,  tensor<1x1x128x1xf16>
+      -> tensor<1x1x128x16512xf16>
+  %out = IE.Attention(%arg0, %k_cat, %v_cat) {
+      operandSegmentSizes = array<i32: 1, 1, 1, 0, 0, 0, 0>} :
+      tensor<1x8x1x128xf16>, tensor<1x1x16512x128xf16>, tensor<1x1x128x16512xf16>
+      -> tensor<1x8x1x128xf16>
+  return %out : tensor<1x8x1x128xf16>
+  // CHECK-NOT: IE.FlashSDPA
+  // CHECK: IE.Attention
+}
+
+// -----
 // Prefill, sSL = 7168 + 1024 = 8192, 8192 % 16 == 0, >= 2048 (prefill threshold).
 // Conversion skipped because the Concat has only 2 inputs: this is not a paged/block
 // attention pattern (which requires >= 3 inputs).

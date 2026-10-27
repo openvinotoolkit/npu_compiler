@@ -53,7 +53,7 @@ mlir::LogicalResult QuantizeCastRewriter::matchAndRewrite(IE::QuantizeCastOp ori
     _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
     const auto* typeConverter = this->getTypeConverter();
-    VPUX_THROW_UNLESS(typeConverter != nullptr, "TypeConverter was not set");
+    VPUX_THROW_WHEN(typeConverter == nullptr, "TypeConverter was not set");
 
     auto resultType = origOp->getResult(0).getType();
     const auto dstElemType = mlir::cast<vpux::NDTypeInterface>(typeConverter->convertType(resultType)).getElementType();
@@ -95,7 +95,7 @@ mlir::LogicalResult LayerRewriter::matchAndRewrite(IE::LayerOpInterface origOp, 
     }
 
     const auto* typeConverter = this->getTypeConverter();
-    VPUX_THROW_UNLESS(typeConverter != nullptr, "TypeConverter was not set");
+    VPUX_THROW_WHEN(typeConverter == nullptr, "TypeConverter was not set");
 
     const auto origOperands = origOp->getOperands();
     VPUX_THROW_UNLESS(origOperands.size() == newOperands.size(), "Wrong operands size : {0}", newOperands.size());
@@ -217,7 +217,7 @@ mlir::LogicalResult ConstRewriter::matchAndRewrite(Const::DeclareOp origOp, OpAd
     _log.trace("Process Operation '{0}' at '{1}", origOp->getName(), origOp->getLoc());
 
     const auto* typeConverter = this->getTypeConverter();
-    VPUX_THROW_UNLESS(typeConverter != nullptr, "TypeConverter was not set");
+    VPUX_THROW_WHEN(typeConverter == nullptr, "TypeConverter was not set");
 
     const auto origQuantType = mlir::cast<mlir::quant::QuantizedType>(
             mlir::cast<vpux::NDTypeInterface>(origOp.getType()).getElementType());
@@ -243,7 +243,7 @@ mlir::LogicalResult ConstRewriter::matchAndRewrite(Const::DeclareOp origOp, OpAd
         return keepIntTypeQuantization(user) && user->getNumOperands() > 1 && user->getOperand(1) == constTensor;
     });
     if (mixedPrecisionUsers > 0) {
-        auto i8ConstOp = rewriter.create<Const::DeclareOp>(origOp.getLoc(), origOp.getType(), origOp.getContentAttr());
+        auto i8ConstOp = Const::DeclareOp::create(rewriter, origOp.getLoc(), origOp.getType(), origOp.getContentAttr());
         for (auto* user : llvm::make_early_inc_range(constUsers)) {
             if (keepIntTypeQuantization(user)) {
                 // If user is Dequantize set operand 0 with I8 constant else set directly operand 1 of the

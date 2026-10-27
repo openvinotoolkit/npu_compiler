@@ -6,9 +6,11 @@
 #include "vpux/compiler/NPU50XX/dialect/IE/impl/expand_activation_channels_strategy.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes/expand_activation_channels.hpp"
 
+#include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 
 // For ReduceRewriter
@@ -52,9 +54,9 @@ mlir::LogicalResult ReduceRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp origO
         auto [inputPaddingAttr, outputPaddingAttr] =
                 getPaddingAttributes(origOp, expandedInput, inChanPadEnd, outPadAfter);
 
-        return rewriter.create<ConcreteOp>(origOp.getLoc(), newOutputType, expandedInput,
-                                           /*axes_value*/ origOp.getAxesValueAttr(), /*keep_dims*/ true,
-                                           outputPaddingAttr, inputPaddingAttr);
+        return ConcreteOp::create(rewriter, origOp.getLoc(), newOutputType, expandedInput,
+                                  /*axes_value*/ origOp.getAxesValueAttr(), /*keep_dims*/ true, outputPaddingAttr,
+                                  inputPaddingAttr);
     };
 
     return IE::generalRewrite(origOp, rewriter, opCreator, IE::extractMeaningfulOutput, _log.nest());
@@ -66,6 +68,13 @@ namespace vpux::IE::arch50xx {
 
 void ExpandActivationChannelsStrategy::addTargets(mlir::ConversionTarget& target) {
     const auto isLegal = [&](mlir::Operation* op) {
+        // channel expansion is not applicable it would call ndType.pad() on a dynamic type causing kDynamic+N overflow
+        if (auto padOp = mlir::dyn_cast<IE::PadOp>(op)) {
+            if (IE::hasDynamicShape(padOp.getOutput())) {
+                return true;
+            }
+        }
+
         // It's sometimes beneficial to align Interpolate even when it's running on Shave
         if (!_seOpsEnabled) {
             if (auto seOp = mlir::dyn_cast<IE::SEOpInterface>(op);

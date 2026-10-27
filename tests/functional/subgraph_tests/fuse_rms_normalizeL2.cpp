@@ -134,11 +134,13 @@ TEST_P(FuseNormalizeL2RMSTest, NPU5020_HW) {
 
 namespace {
 const std::vector<ov::element::Type> l2_input_precisions = {ov::element::f32};
-const std::vector<ov::op::EpsMode> eps_modes = {ov::op::EpsMode::ADD};
+const std::vector<ov::op::EpsMode> eps_modes = {ov::op::EpsMode::ADD, ov::op::EpsMode::MAX};
 
 const IODescriptions<ov::Shape> l2_input_shapes_basic = {IODescription<ov::Shape>{{1, 1, 1, 256}, {"NCHW"}}};
-const IODescriptions<ov::Shape> l2_input_shapes = {
-        {{32}, {"C"}}, {{3, 32}, {"HW"}}, {{1, 32, 16}, {}}, {{1, 4, 16, 16}, {}}, {{1, 77, 4096}, {}}};
+const IODescriptions<ov::Shape> l2_input_shapes = {{{64}, {"C"}},        {{128}, {"C"}},     {{256}, {"C"}},
+                                                   {{3, 64}, {"HW"}},    {{3, 128}, {"HW"}}, {{3, 256}, {"HW"}},
+                                                   {{1, 32, 64}, {}},    {{1, 32, 128}, {}}, {{1, 32, 256}, {}},
+                                                   {{1, 4, 16, 16}, {}}, {{1, 77, 4096}, {}}};
 
 INSTANTIATE_TEST_SUITE_P(precommit_FuseNormalizeL2RMS, FuseNormalizeL2RMSTest,
                          ::testing::Combine(::testing::ValuesIn(l2_input_shapes_basic),

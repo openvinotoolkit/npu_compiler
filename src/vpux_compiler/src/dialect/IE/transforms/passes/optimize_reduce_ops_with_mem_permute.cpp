@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -95,7 +96,7 @@ mlir::LogicalResult InsertMemPermuteBeforeAndAfterReduceOp<ConcreteOp>::matchAnd
         _log.trace("{0}", msg.str());
     };
     if (config::isReduceOpSupportedOnNCE(reduceOp) && VPU::isNCEReduceSupported(reduceOp, logCb)) {
-        return matchFailed(rewriter, reduceOp, "Reduce op has been supported on NCE");
+        return matchFailed(_log, rewriter, reduceOp, "Reduce op has been supported on NCE");
     }
 
     const auto ctx = rewriter.getContext();
@@ -103,17 +104,17 @@ mlir::LogicalResult InsertMemPermuteBeforeAndAfterReduceOp<ConcreteOp>::matchAnd
     const auto origLoc = reduceOp->getLoc();
     const auto axes = parseIntArrayAttr<int64_t>(reduceOp.getAxesValue());
     if (_channelReductionChecker->isChannelAxisReductionWithDPUParent(reduceOp, axes, _log)) {
-        return matchFailed(rewriter, reduceOp,
+        return matchFailed(_log, rewriter, reduceOp,
                            "Reduce op has a DPU parent on channel axis; preserving fusion opportunity");
     }
     if (axes.size() != 1) {
-        return matchFailed(rewriter, reduceOp, "Only support Reduce op with one dimension");
+        return matchFailed(_log, rewriter, reduceOp, "Only support Reduce op with one dimension");
     }
     const auto reduceAxis = axes[0];
 
     // Check the Reduce axis is already on the inner most memory dimension
     if (isReduceAxisOnInnerMostMemDim(reduceOp, reduceAxis)) {
-        return matchFailed(rewriter, reduceOp, "The Reduce axis is already on the inner most memory dim");
+        return matchFailed(_log, rewriter, reduceOp, "The Reduce axis is already on the inner most memory dim");
     }
 
     mlir::DenseSet<mlir::Operation*> nonMemPermuteUser;
@@ -123,32 +124,79 @@ mlir::LogicalResult InsertMemPermuteBeforeAndAfterReduceOp<ConcreteOp>::matchAnd
         }
     }
     if (nonMemPermuteUser.size() > 1) {
-        return matchFailed(rewriter, reduceOp, "The Reduce has more than one non mempermute user");
+        return matchFailed(_log, rewriter, reduceOp, "The Reduce has more than one non mempermute user");
     }
 
     // Create input MemPermute
     const auto optimalDstOrder = calculateOptimalOrderMapForReduce(inOrder, reduceAxis, ctx);
     const auto permMapOfInputMemPermute = getPermutationFromOrders(inOrder, optimalDstOrder, ctx);
     const auto optimalDstOrderMap = optimalDstOrder.toAffineMap(ctx);
-    auto inputMemPermuteOp = rewriter.createOrFold<IE::MemPermuteOp>(
-            appendLoc(origLoc, "input_reorder"), reduceOp.getInput(), optimalDstOrderMap, permMapOfInputMemPermute);
+
+    // If the reduce input comes from a ConvertOp (e.g. FP16->FP32 for high precision),
+    // insert MemPermute before the Convert so it operates on the smaller type and can
+    // potentially be lowered to DPU (NCE.Permute) instead of expensive PermuteDMA.
+    auto inputConvertOp = reduceOp.getInput().template getDefiningOp<IE::ConvertOp>();
+    mlir::Value permuteInput = reduceOp.getInput();
+    IE::ConvertOp newInputConvert = nullptr;
+    const bool inputConvertIncreasesElemSize =
+            inputConvertOp &&
+            getElemTypeSize(inputConvertOp.getInput().getType()) < getElemTypeSize(inputConvertOp.getDstElemType());
+    if (inputConvertOp && inputConvertOp->hasOneUse() && inputConvertIncreasesElemSize) {
+        // Insert MemPermute before Convert: MemPermute(FP16) -> Convert(FP16->FP32) -> ReduceOp
+        auto inputMemPermuteOp =
+                rewriter.createOrFold<IE::MemPermuteOp>(appendLoc(origLoc, "input_reorder"), inputConvertOp.getInput(),
+                                                        optimalDstOrderMap, permMapOfInputMemPermute);
+        newInputConvert = IE::ConvertOp::create(rewriter, inputConvertOp.getLoc(), inputMemPermuteOp,
+                                                inputConvertOp.getDstElemTypeAttr());
+        permuteInput = newInputConvert.getOutput();
+    } else {
+        auto inputMemPermuteOp = rewriter.createOrFold<IE::MemPermuteOp>(
+                appendLoc(origLoc, "input_reorder"), reduceOp.getInput(), optimalDstOrderMap, permMapOfInputMemPermute);
+        permuteInput = inputMemPermuteOp;
+    }
 
     // Create new reduce operation
     const auto optimalAxis = optimalDstOrder.toDim(MemDim(optimalDstOrder.numDims() - 1)).ind();
     const auto newAxesAttr = getIntArrayAttr(ctx, SmallVector<int64_t>{optimalAxis});
     auto newReduceOp =
-            rewriter.createOrFold<ConcreteOp>(origLoc, inputMemPermuteOp, newAxesAttr, reduceOp.getKeepDimsAttr());
+            rewriter.createOrFold<ConcreteOp>(origLoc, permuteInput, newAxesAttr, reduceOp.getKeepDimsAttr());
     rewriter.modifyOpInPlace(newReduceOp.getDefiningOp(), [&] {
         changeDimsOrder(newReduceOp, optimalDstOrder, _log.nest());
     });
 
-    // Create output MemPermute
+    // Create output MemPermute - similarly move it after output Convert if present
     auto permMapOfOutputMemPermute = mlir::inversePermutation(permMapOfInputMemPermute);
-    auto outputMemPermuteOp = rewriter.replaceOpWithNewOp<IE::MemPermuteOp>(
-            reduceOp, newReduceOp, inOrder.toAffineMap(ctx), permMapOfOutputMemPermute);
-    rewriter.modifyOpInPlace(outputMemPermuteOp, [&] {
-        outputMemPermuteOp->setLoc(appendLoc(origLoc, "output_reorder"));
-    });
+
+    // Check if the sole non-mempermute user is a ConvertOp (e.g. FP32->FP16)
+    IE::ConvertOp outputConvertOp = nullptr;
+    if (nonMemPermuteUser.size() == 1) {
+        outputConvertOp = mlir::dyn_cast<IE::ConvertOp>(*nonMemPermuteUser.begin());
+    }
+
+    const bool outputConvertDecreasesElemSize =
+            outputConvertOp &&
+            getElemTypeSize(outputConvertOp.getDstElemType()) < getElemTypeSize(outputConvertOp.getInput().getType());
+    if (outputConvertOp && reduceOp->hasOneUse() && outputConvertOp->hasOneUse() && outputConvertDecreasesElemSize) {
+        // ReduceOp(FP32) -> Convert(FP32->FP16) -> MemPermute(FP16)
+        auto newOutputConvert = IE::ConvertOp::create(rewriter, outputConvertOp.getLoc(), newReduceOp,
+                                                      outputConvertOp.getDstElemTypeAttr());
+        auto outputMemPermuteOp =
+                IE::MemPermuteOp::create(rewriter, appendLoc(origLoc, "output_reorder"), newOutputConvert.getOutput(),
+                                         inOrder.toAffineMap(ctx), permMapOfOutputMemPermute);
+        rewriter.replaceOp(outputConvertOp, outputMemPermuteOp.getOutput());
+        rewriter.eraseOp(reduceOp);
+    } else {
+        auto outputMemPermuteOp = rewriter.replaceOpWithNewOp<IE::MemPermuteOp>(
+                reduceOp, newReduceOp, inOrder.toAffineMap(ctx), permMapOfOutputMemPermute);
+        rewriter.modifyOpInPlace(outputMemPermuteOp, [&] {
+            outputMemPermuteOp->setLoc(appendLoc(origLoc, "output_reorder"));
+        });
+    }
+
+    // Clean up original input convert if we bypassed it
+    if (inputConvertOp && newInputConvert) {
+        rewriter.eraseOp(inputConvertOp);
+    }
 
     return mlir::success();
 }

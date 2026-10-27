@@ -126,8 +126,8 @@ public:
             offsets = remapDimsThroughPermuteCast(offsets, inType, outType, origOp.getMemPerm());
         }
 
-        auto newConcat = rewriter.create<IE::ConcatOp>(concatOp.getLoc(), newConcatInputs, nullptr,
-                                                       getIntArrayOfArray(rewriter.getContext(), staticOffsetsAttr));
+        auto newConcat = IE::ConcatOp::create(rewriter, concatOp.getLoc(), newConcatInputs, nullptr,
+                                              getIntArrayOfArray(rewriter.getContext(), staticOffsetsAttr));
         rewriter.replaceOp(origOp, newConcat.getResult());
         _log.nest().trace("Propagated PermuteCast through ConcatOp at '{0}'", concatOp->getLoc());
         return mlir::success();
@@ -203,9 +203,9 @@ public:
 
         auto newPermuteCast = rewriter.createOrFold<IE::PermuteCastOp>(origOp.getLoc(), sliceOp.getInput(),
                                                                        origOp.getDstOrder(), memPerm);
-        auto newSlice = rewriter.create<IE::SliceOp>(sliceOp->getLoc(), newPermuteCast,
-                                                     getIntArrayAttr(rewriter.getContext(), newOffsets),
-                                                     getIntArrayAttr(rewriter.getContext(), newSizes));
+        auto newSlice = IE::SliceOp::create(rewriter, sliceOp->getLoc(), newPermuteCast,
+                                            getIntArrayAttr(rewriter.getContext(), newOffsets),
+                                            getIntArrayAttr(rewriter.getContext(), newSizes));
         rewriter.replaceOp(origOp, newSlice.getResult());
         _log.nest().trace("Propagated PermuteCast through SliceOp at '{0}'", sliceOp->getLoc());
         return mlir::success();
@@ -329,10 +329,11 @@ mlir::LogicalResult PropagateThroughSwish::matchAndRewrite(IE::PermuteCastOp ori
     } else {
         rewriter.replaceOp(origOp, newSwishRaw->getResult(0));
     }
+    const auto swishLoc = swishOp->getLoc();
     rewriter.eraseOp(swishOp);
 
     _log.nest().trace("Propagated PermuteCast{0}through SwishOp at '{1}'", arOp != nullptr ? "+AffineReshape " : " ",
-                      swishOp->getLoc());
+                      swishLoc);
     return mlir::success();
 }
 

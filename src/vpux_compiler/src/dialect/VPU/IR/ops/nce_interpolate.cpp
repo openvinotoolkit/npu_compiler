@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
@@ -118,9 +119,7 @@ SmallVector<mlir::OpFoldResult> vpux::VPU::NCEInterpolateOp::getMixedRawFilterSh
  * Return the constant raw filter shape by extracting the constant values from the mixed raw filter shape.
  */
 SmallVector<int64_t> vpux::VPU::NCEInterpolateOp::getConstRawFilterShape() {
-    auto vals = mlir::getConstantIntValues(getMixedRawFilterShape());
-    VPUX_THROW_WHEN(!vals.has_value(), "Cannot get constant raw filter shape from NCEInterpolateOp '{0}'", getLoc());
-    return vals.value();
+    return VPU::getConstRawFilterShape(getMixedRawFilterShape(), getLoc());
 }
 
 mlir::LogicalResult vpux::VPU::NCEInterpolateOp::verifyKernel(IE::InterpolateOp origOp, Logger log) {

@@ -260,23 +260,18 @@ def IE_EmbeddingSegmentsSumOp :
         AnyRankedTensor:$emb_table,
         Optional<1DTensorOf<[SI64, SI32]>>:$indices,
         Optional<1DTensorOf<[SI64, SI32]>>:$segment_ids,
-        Optional<RankedTensorOf<[SI64, SI32]>>:$num_segments,
-        Optional<RankedTensorOf<[SI64, SI32]>>:$default_index,
         Optional<1DTensorOf<[AnyInteger, AnyFloat]>>:$per_sample_weights,
 
         OptionalAttr<I64ArrayAttr>:$indices_value,
         OptionalAttr<I64ArrayAttr>:$segment_ids_value,
-        OptionalAttr<IntAttr>:$num_segments_value,
-        OptionalAttr<IntAttr>:$default_index_value,
+        IntAttr:$num_segments_value,
+        IntAttr:$default_index_value,
         OptionalAttr<F64ArrayAttr>:$per_sample_weights_value
     );
 
     let results = (outs
         AnyRankedTensor:$output
     );
-
-    let hasVerifier = 1;
-    let hasCanonicalizer = 1;
 }
 
 def IE_EyeOp :
@@ -395,16 +390,14 @@ def IE_NonMaxSuppressionOp :
         3DTensorOf<[F16, F32, F64]>:$in_box_coords,
         3DTensorOf<[F16, F32, F64]>:$in_box_scores,
         Optional<1DTensorOf<[SI32, SI64]>>:$max_output_boxes_per_class,
-        Optional<1DTensorOf<[F16, F32, F64]>>:$iou_threshold,
-        Optional<1DTensorOf<[F16, F32, F64]>>:$score_threshold,
+        1DTensorOf<[F16, F32, F64]>:$iou_threshold,
+        1DTensorOf<[F16, F32, F64]>:$score_threshold,
         Optional<1DTensorOf<[F16, F32, F64]>>:$soft_nms_sigma,
 
         IE_BoxEncodingTypeAttr:$box_encoding,
         UnitAttr:$sort_result_descending,
 
         OptionalAttr<IntAttr>:$max_output_boxes_per_class_value,
-        OptionalAttr<F64Attr>:$iou_threshold_value,
-        OptionalAttr<F64Attr>:$score_threshold_value,
         OptionalAttr<F64Attr>:$soft_nms_sigma_value
     );
 
@@ -805,15 +798,19 @@ def IE_AttentionDMAOp :
 
     let arguments = (ins
         RankedTensorOf<[F16, F32]>:$inputQ,
-        RankedTensorOf<[F16, F32]>:$inputK,
-        RankedTensorOf<[F16, F32]>:$inputV,
+        RankedTensorOf<[F16, F32, SI8]>:$inputK,
+        RankedTensorOf<[F16, F32, SI8]>:$inputV,
         Optional<RankedTensorOf<[F16, F32, Bool8]>>:$inputMask,
         Optional<RankedTensorOf<[F16, F32]>>:$inputScale,
         Optional<RankedTensorOf<[F16, F32]>>:$inputSink,
         Optional<RankedTensorOf<[F16, F32]>>:$inputBias,
         Optional<RankedTensorOf<[SI32]>>:$seqLenK,
+        Optional<RankedTensorOf<[F16, F32]>>:$k_scale,
+        Optional<RankedTensorOf<[F16, F32]>>:$v_scale,
 
-        OptionalAttr<IntAttr>:$padSizeS
+        OptionalAttr<IntAttr>:$padSizeS,
+        OptionalAttr<IntAttr>:$localWindowSize,
+        UnitAttr:$smoothSoftmax
      );
    let results = (outs
         RankedTensorOf<[F16, F32, F64]>:$output
@@ -1040,6 +1037,49 @@ def IE_ISTFTOp :
 
     let results = (outs
         RankedTensorOf<[F16, F32, F64]>:$output
+    );
+
+    let hasVerifier = 1;
+}
+
+def IE_GroupQuantCorrectionOp :
+        IE_LayerOp<
+            "GroupQuantCorrection"
+        > {
+    let summary = "GroupQuantCorrection applies per-group quantization correction to MatMul";
+
+    let description = [{
+        MatMul computes the product using fp16 activations and ui2 weights, and applies neither scale
+        nor zero-point correction. This kernel applies the remaining correction:
+
+            output = scale[g] * (act_out[g] - reduce_sum(act_in[g]) * zp[g])
+
+        where reduce_sum(act_in[g]) is the sum of activation elements within group g.
+
+        Limitations:
+        - Supports only UI2 zero point and weights
+        - Supports both FP16 & FP32 scales
+
+        Operands:
+        - `act_out` : stacked per-group MatMul outputs; [G, OC, 1, 1]
+        - `act_in`  : original fp16 activation (before MatMul); [G, 1, 1, GS]
+        - `scales`  : per-group per-channel scale factors; [G, OC, 1, 1]
+        - `zp`      : per-group per-channel zero points; [G, OC, 1, 1]
+            where G = number of groups, GS = group size, OC = output channels
+
+        Result:
+        - `output` : corrected result; [G, OC, 1, 1]
+    }];
+
+    let arguments = (ins
+        4DTensorOf<[F16, F32, F64]>:$act_out,
+        4DTensorOf<[F16, F32, F64]>:$act_in,
+        4DTensorOf<[F16, F32, F64]>:$scales,
+        4DTensorOf<[UI2]>:$zp
+    );
+
+    let results = (outs
+        4DTensorOf<[F16, F32, F64]>:$output
     );
 
     let hasVerifier = 1;

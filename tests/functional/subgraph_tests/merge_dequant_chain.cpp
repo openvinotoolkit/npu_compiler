@@ -83,6 +83,7 @@ TEST_P(MergeDequantChainTestCommon, NPU5010_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU5010);
 }
+
 TEST_P(MergeDequantChainTestCommon, NPU5020_HW) {
     rel_threshold = 0.5f;
     setDefaultHardwareMode();

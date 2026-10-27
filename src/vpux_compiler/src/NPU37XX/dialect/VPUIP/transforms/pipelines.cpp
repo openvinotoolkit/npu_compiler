@@ -50,6 +50,10 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     if (options.enableOpsAsDMA) {
         pm.addPass(VPUIP::createWrapWithPermuteAsNNDMAPass(log));
     }
+
+    pm.addPass(VPUIP::createUngroupBoundedBuffersPass(log));
+    pm.addPass(mlir::createCanonicalizerPass(grc));
+
     pm.addPass(VPUIP::createOptimizeExpandSubviewPass(log));
     pm.addPass(VPUIP::createConvertExpandPass(options.deferExpandToExpandDMA, log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
@@ -73,8 +77,6 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(VPUIP::createUngroupBufferSectionRewriterExecutorPass(options.enableSEPtrsOperations ||
                                                                          options.enableExperimentalSEPtrsOperations));
     }
-
-    pm.addPass(VPUIP::createUngroupBoundedBuffersPass(log));
 
     VPUIP::buildOptimizeCopiesPipeline(pm, VPUIP::OptimizeCopiesOptionsBase(options), log);
 
@@ -107,14 +109,6 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
     pm.addPass(VPUIP::createConvertTransferOpsToDMAsPass(log));
-
-    if (options.enableProfiling && options.enableDPUProfiling) {
-        pm.addPass(VPUIP::createDPUProfilingPass(log));
-    }
-
-    if (options.enableProfiling && options.enableSWProfiling) {
-        pm.addPass(VPUIP::createActShaveProfilingPass(log));
-    }
 
     VPUIP::buildAsyncSchedulingPipeline(pm, log);
 
@@ -157,6 +151,16 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     // TODO: E#118869 For now put the pass before barrier scheduling
     pm.addPass(VPUIP::createDispatchedInlinerPass(log));
 
+    pm.addPass(VPUIP::createSplitLargeInvariantsPass(log));
+
+    if (options.enableProfiling && options.enableDPUProfiling) {
+        pm.addPass(VPUIP::createDPUProfilingPass(log));
+    }
+
+    if (options.enableProfiling && options.enableSWProfiling) {
+        pm.addPass(VPUIP::createActShaveProfilingPass(log));
+    }
+
     pm.addPass(VPURT::createSplitControlGraphPass(options.controlGraphSplitBlockSize, log));
 
     if (!options.linearizeSchedule) {
@@ -164,7 +168,6 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     }
 
     pm.addPass(VPURT::createSimplifySchedulePass(options.reduceParallelControlFlows, std::nullopt, log));
-    pm.addPass(VPUIP::createSplitLargeInvariantsPass(log));
 
     pm.addPass(VPURT::createAddFinalBarrierPass(options.workloadManagementMode, log));
 
@@ -225,10 +228,6 @@ void vpux::VPUIP::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPUIP::createCopyOpTilingPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
-    if (options.enableProfiling && options.enableSWProfiling) {
-        pm.addPass(VPUIP::createActShaveProfilingPass(log));
-    }
-
     pm.addPass(VPUIP::createUngroupBoundedBuffersPass(log));
 
     pm.addPass(VPUIP::createConvertTransferOpsToDMAsPass(log));
@@ -243,6 +242,10 @@ void vpux::VPUIP::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPUIP::createAddSwKernelCacheHandlingOpsPass(log));
 
     VPUIP::buildHardwareAdaptationPipeline(pm, log);
+
+    if (options.enableProfiling && options.enableSWProfiling) {
+        pm.addPass(VPUIP::createActShaveProfilingPass(log));
+    }
 
     pm.addPass(VPURT::createAddFinalBarrierPass(options.workloadManagementMode, log));
 

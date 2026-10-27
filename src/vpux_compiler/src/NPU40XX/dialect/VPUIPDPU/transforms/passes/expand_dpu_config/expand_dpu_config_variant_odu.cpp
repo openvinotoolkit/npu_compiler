@@ -19,7 +19,7 @@ mlir::LogicalResult buildODUOutSubtensor(mlir::OpBuilder& builder, const mlir::L
         return mlir::failure();
     }
 
-    builder.create<ODUOutSubtensorOp>(loc, start[0], start[1], start[2], end[0], end[1], end[2]);
+    ODUOutSubtensorOp::create(builder, loc, start[0], start[1], start[2], end[0], end[1], end[2]);
 
     return mlir::success();
 }
@@ -29,7 +29,7 @@ mlir::LogicalResult buildODUHaloRegionOp(mlir::OpBuilder& builder, const mlir::L
     if (!haloRegions.empty()) {
         builder.setInsertionPointToEnd(varBlock);
 
-        auto haloCfgOp = builder.create<ODUHaloCfgOp>(loc);
+        auto haloCfgOp = ODUHaloCfgOp::create(builder, loc);
         auto& region = haloCfgOp.getOperation()->getRegion(0);
         auto entryBlock = builder.createBlock(&region);
 
@@ -62,10 +62,9 @@ mlir::LogicalResult buildODUHaloRegionOp(mlir::OpBuilder& builder, const mlir::L
             log.error("Incorrect target clusters configuration in DPUHaloRegion: {0}", tileMask);
             return mlir::failure();
         }
-        builder.create<ODUHaloRegionOp>(loc, haloRegion.getXStart(), haloRegion.getYStart(), haloRegion.getXEnd(),
-                                        haloRegion.getYEnd(), haloRegion.getTargetOffset(),
-                                        haloRegion.getSparsityOffset(), haloRegion.getTargetWidth(),
-                                        DPUTilesAttr::get(builder.getContext(), dpuTiles.value()));
+        ODUHaloRegionOp::create(builder, loc, haloRegion.getXStart(), haloRegion.getYStart(), haloRegion.getXEnd(),
+                                haloRegion.getYEnd(), haloRegion.getTargetOffset(), haloRegion.getSparsityOffset(),
+                                haloRegion.getTargetWidth(), DPUTilesAttr::get(builder.getContext(), dpuTiles.value()));
     }
 
     return mlir::success();

@@ -121,7 +121,7 @@ mlir::LogicalResult SplitConvToMultiConvWithAddConverter::matchAndRewrite(IE::Co
     _log.trace("Got target Convolution Op at '{0}' can be converted", origOp->getLoc());
 
     auto createSliceOp = [&](mlir::Value input, ShapeRef outShape, ShapeRef offsets, StringRef suffix) -> mlir::Value {
-        return rewriter.create<IE::SliceOp>(takeOpLoc(origOp, suffix), input, offsets, outShape).getResult();
+        return IE::SliceOp::create(rewriter, takeOpLoc(origOp, suffix), input, offsets, outShape).getResult();
     };
 
     auto cloneOpAndReplaceInputs = [&](mlir::Operation* op, SmallVector<mlir::Value> origInputs,
@@ -138,9 +138,8 @@ mlir::LogicalResult SplitConvToMultiConvWithAddConverter::matchAndRewrite(IE::Co
     auto createAddOp = [&](mlir::Value input1, mlir::Value input2, StringRef suffix) -> mlir::Value {
         const auto broadcastType =
                 vpux::IE::AutoBroadcastTypeAttr::get(getContext(), IE::AutoBroadcastType::NONE_OR_EXPLICIT);
-        return rewriter
-                .create<IE::AddOp>(takeOpLoc(origOp, suffix), input1, input2, broadcastType, nullptr, nullptr, nullptr,
-                                   nullptr)
+        return IE::AddOp::create(rewriter, takeOpLoc(origOp, suffix), input1, input2, broadcastType, nullptr, nullptr,
+                                 nullptr, nullptr)
                 .getResult();
     };
 

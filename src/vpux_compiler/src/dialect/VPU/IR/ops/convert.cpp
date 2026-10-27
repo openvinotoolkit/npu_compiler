@@ -64,7 +64,10 @@ bool vpux::VPU::ConvertOp::checkStrategyCompatibility(vpux::VPU::MultiClusterStr
     case VPU::MultiClusterStrategy::Clustering:
         isStrategyCompatible = true;
         break;
-
+    case VPU::MultiClusterStrategy::SplitOverWidth:
+        // Width-alignment and size checks are handled in isOperationSplitOverWidthCompatible.
+        isStrategyCompatible = !supportSwOpLoweringAsDMA(*this);
+        break;
     case VPU::MultiClusterStrategy::SplitOverHeight:
     case VPU::MultiClusterStrategy::SplitOverHeightOverlapped:
         isStrategyCompatible = inputShape[Dims4D::Act::H] >= MIN_DIM_SIZE_FOR_TILING;
@@ -124,6 +127,37 @@ bool vpux::VPU::ConvertOp::isOperationSplitOverKernelCompatible(ShapeRef outputS
                                                  /*outputType=*/outputType);
     const auto alignmentOnClusteringDim = alignment.has_value() ? alignment.value()[Dims4D::Act::C.ind()] : 1;
     return VPU::isEltwiseSWOpSplitOverKernelCompatible(getOperation(), outputShape, alignmentOnClusteringDim);
+}
+
+bool vpux::VPU::ConvertOp::isOperationSplitOverWidthCompatible(ShapeRef outputShape, ShapeRef offset,
+                                                               ShapeRef /*axis*/) {
+    const auto numTiles = config::getNumOfTiles(getOperation());
+
+    auto inputType = mlir::cast<NDTypeInterface>(getInput().getType());
+    auto outputType = mlir::cast<NDTypeInterface>(getOutput().getType());
+    if (!outputShape.empty()) {
+        const auto zeroOffsets = Shape(outputShape.size(), 0);
+        const auto& validOffsets = offset.empty() ? zeroOffsets : offset;
+        outputType = outputType.extractDenseTile(validOffsets, outputShape);
+        // Convert op has 1:1 mapping between input and output, so we can use the output tile to extract the input tile
+        inputType = inputType.extractDenseTile(validOffsets, outputShape);
+    }
+
+    if (getBoundedShape(outputType)[Dims4D::Act::W] < numTiles) {
+        return false;
+    }
+
+    const auto numDivisors = Shape{1, 1, 1, numTiles};
+    const auto alignment = VPU::getSWOpAlignment(getOperation(), numDivisors, /*inputType=*/inputType,
+                                                 /*outputType=*/outputType);
+    const auto alignmentOnClusteringDim = alignment.has_value() ? alignment.value()[Dims4D::Act::W.ind()] : 1;
+
+    // Use a larger threshold than the generic eltwise default (128) because ConvertOp has no
+    // cycle-cost model and tile sizes may shrink during tiling, leading to workloads too small
+    // to benefit from multi-cluster execution.
+    constexpr int64_t MIN_TOTAL_SIZE_FOR_SOW = 2048;
+    return VPU::isEltwiseSWOpSplitOverWidthCompatible(getOperation(), outputShape, alignmentOnClusteringDim,
+                                                      MIN_TOTAL_SIZE_FOR_SOW);
 }
 
 vpux::VPU::DistributionInfo vpux::VPU::ConvertOp::getExplicitDistributionInfoAttr(

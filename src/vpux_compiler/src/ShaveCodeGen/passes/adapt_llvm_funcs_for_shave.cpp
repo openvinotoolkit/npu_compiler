@@ -100,9 +100,9 @@ void AdaptLLVMFuncsForShavePass::adaptFuncForShave(mlir::SymbolRefAttr funcSym) 
     auto entryFunTy = mlir::LLVM::LLVMFunctionType::get(mlir::LLVM::LLVMVoidType::get(&getContext()), {ptrType});
 
     auto entryFun =
-            builder.create<mlir::LLVM::LLVMFuncOp>(funcOp.getLoc(), symName, entryFunTy, mlir::LLVM::Linkage::External,
-                                                   /*dsoLocal=*/true, mlir::LLVM::CConv::C,
-                                                   /*comdat=*/nullptr, attributes);
+            mlir::LLVM::LLVMFuncOp::create(builder, funcOp.getLoc(), symName, entryFunTy, mlir::LLVM::Linkage::External,
+                                           /*dsoLocal=*/true, mlir::LLVM::CConv::C,
+                                           /*comdat=*/nullptr, attributes);
     builder.setInsertionPointToStart(entryFun.addEntryBlock(builder));
 
     auto fullyEncompassingPtrArg = entryFun.getBlocks().front().getArgument(0);
@@ -115,18 +115,18 @@ void AdaptLLVMFuncsForShavePass::adaptFuncForShave(mlir::SymbolRefAttr funcSym) 
     // of the arguments.
     SmallVector<mlir::Value> callArgs;
     for (auto funcArg : funcOp.getArguments() | indexed) {
-        auto offsetConstantOp = builder.create<mlir::LLVM::ConstantOp>(funcOp.getLoc(), int32Type,
-                                                                       paramToByteOffsetMap[funcArg.value()]);
-        auto elementGep = builder.create<mlir::LLVM::GEPOp>(funcOp.getLoc(), ptrType, int8Type, fullyEncompassingPtrArg,
-                                                            offsetConstantOp.getRes());
+        auto offsetConstantOp = mlir::LLVM::ConstantOp::create(builder, funcOp.getLoc(), int32Type,
+                                                               paramToByteOffsetMap[funcArg.value()]);
+        auto elementGep = mlir::LLVM::GEPOp::create(builder, funcOp.getLoc(), ptrType, int8Type,
+                                                    fullyEncompassingPtrArg, offsetConstantOp.getRes());
         auto elementLoad =
-                builder.create<mlir::LLVM::LoadOp>(funcOp.getLoc(), funcArg.value().getType(), elementGep.getRes());
+                mlir::LLVM::LoadOp::create(builder, funcOp.getLoc(), funcArg.value().getType(), elementGep.getRes());
         callArgs.push_back(elementLoad);
     }
 
     // Add a call to our function.
-    builder.create<mlir::LLVM::CallOp>(funcOp.getLoc(), mlir::cast<mlir::LLVM::LLVMFuncOp>(funcOp), callArgs);
-    builder.create<mlir::LLVM::ReturnOp>(funcOp.getLoc(), mlir::ValueRange{});
+    mlir::LLVM::CallOp::create(builder, funcOp.getLoc(), mlir::cast<mlir::LLVM::LLVMFuncOp>(funcOp), callArgs);
+    mlir::LLVM::ReturnOp::create(builder, funcOp.getLoc(), mlir::ValueRange{});
 
     // The initial function should not be referenced from anywhere outside the SW module.
     // We therefore make it internal to enable inlining.

@@ -43,8 +43,8 @@ mlir::Value createPadding(mlir::PatternRewriter& rewriter, mlir::Location loc, m
     offsets[axis.ind()] = inputShape[axis] - 1;
     sizes[axis.ind()] = 1;
 
-    auto subSlice = rewriter.create<IE::SliceOp>(appendLoc(loc, "subslice"), input, getIntArrayAttr(ctx, offsets),
-                                                 getIntArrayAttr(ctx, sizes))
+    auto subSlice = IE::SliceOp::create(rewriter, appendLoc(loc, "subslice"), input, getIntArrayAttr(ctx, offsets),
+                                        getIntArrayAttr(ctx, sizes))
                             .getResult();
     if (inputFQ != nullptr) {
         subSlice = vpux::IE::createFQ(rewriter, subSlice, inputFQ, takeOpLoc(inputFQ, "fq_in")).getOutput();
@@ -53,7 +53,7 @@ mlir::Value createPadding(mlir::PatternRewriter& rewriter, mlir::Location loc, m
     SmallVector<mlir::Value> subSlices;
     subSlices.push_back(input);
     subSlices.insert(subSlices.end(), nums, subSlice);
-    auto concatOp = rewriter.create<IE::ConcatOp>(appendLoc(loc, "slices_concat"), subSlices, axis).getOutput();
+    auto concatOp = IE::ConcatOp::create(rewriter, appendLoc(loc, "slices_concat"), subSlices, axis).getOutput();
     if (inputFQ != nullptr) {
         concatOp = vpux::IE::createFQ(rewriter, concatOp, inputFQ, takeOpLoc(inputFQ, "fq_out")).getOutput();
     }

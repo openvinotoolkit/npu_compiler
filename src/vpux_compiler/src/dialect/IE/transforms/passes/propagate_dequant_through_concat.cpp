@@ -117,11 +117,10 @@ mlir::LogicalResult PropagateDequantThroughConcat::ConcatOpConverter::matchAndRe
         }
     }
 
-    auto newConcatOp =
-            rewriter.create<IE::ConcatOp>(origConcatOp->getLoc(), newConcatInputs, origConcatOp.getPerAxisAttr(),
-                                          origConcatOp.getStaticOffsetsAttr());
-    auto newDequantOp =
-            rewriter.create<IE::DequantizeOp>(dequantOp->getLoc(), newConcatOp.getOutput(), dequantOp.getDstElemType());
+    auto newConcatOp = IE::ConcatOp::create(rewriter, origConcatOp->getLoc(), newConcatInputs,
+                                            origConcatOp.getPerAxisAttr(), origConcatOp.getStaticOffsetsAttr());
+    auto newDequantOp = IE::DequantizeOp::create(rewriter, dequantOp->getLoc(), newConcatOp.getOutput(),
+                                                 dequantOp.getDstElemType());
     rewriter.replaceOp(origConcatOp, newDequantOp.getOutput());
     _log.nest().trace("ConcatOp conversion done");
 

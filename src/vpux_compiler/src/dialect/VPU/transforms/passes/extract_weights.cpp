@@ -83,7 +83,7 @@ static mlir::Value transformToStorageType(mlir::OpBuilder& builder, mlir::Locati
     }
     auto constAttr = constOp.transformContentAttr().castElemType(info.storageType).get();
     auto resultType = Const::inferFinalType(constAttr.getBaseContent().getType(), constAttr.getTransformations());
-    auto newConstOp = builder.create<Const::DeclareOp>(loc, resultType, constAttr);
+    auto newConstOp = Const::DeclareOp::create(builder, loc, resultType, constAttr);
     constOp->replaceAllUsesWith(newConstOp);
     constOp->erase();
     return newConstOp;
@@ -105,8 +105,8 @@ ExtractedWeightsResults ExtractWeightsPass::buildWeightsInMainFunction(mlir::OpB
 
         auto resultAttr = Const::ContentAttr::get(contentAttr.getBaseContent(), transformations);
         auto resultType = Const::inferFinalType(contentAttr.getBaseContent().getType(), transformations);
-        auto constOp =
-                moduleBuilder.create<Const::DeclareOp>(appendLoc(split.getLoc(), "_extracted"), resultType, resultAttr);
+        auto constOp = Const::DeclareOp::create(moduleBuilder, appendLoc(split.getLoc(), "_extracted"), resultType,
+                                                resultAttr);
 
         auto resultValue = ioAdaptor.wrapOutput(moduleBuilder, appendLoc(split.getLoc(), "dequant"), constOp,
                                                 split.getIoTypeInfo());
@@ -184,7 +184,7 @@ class KernelFuncsUpdater final : public MainFunctionUpdater {
             }
 
             callerBuilder.setInsertionPoint(oldCall);
-            auto newCall = callerBuilder.create<mlir::func::CallOp>(oldCall.getLoc(), calleeOp, newCallArguments);
+            auto newCall = mlir::func::CallOp::create(callerBuilder, oldCall.getLoc(), calleeOp, newCallArguments);
             oldCall.replaceAllUsesWith(newCall.getResults());
             oldCall->erase();
         } else {

@@ -103,8 +103,13 @@ mlir::LogicalResult OptimizeShapeCastDistributedCopies::matchAndRewrite(VPU::Sha
             mlir::cast<VPU::DistributedTensorType>(*nextUTOpOutputDistTypeInterface.getDistributedTypes().begin());
 
     // Get updated distribution based on the distribution after the shape cast, using the shape before the shape cast
-    auto updatedDistAttr = VPUIP::getDistributedAttrAfterShapeCast<VPU::DistributedTensorType>(
-            nextUTOpOutputDistTypeInterface, prevUTOpInputDistTensorType.getShape(), config::getArch(origOp));
+    auto maybeUpdatedDistAttr = VPUIP::tryInferNewDistInfoAfterShapeChange<VPU::DistributedTensorType>(
+            nextUTOpOutputDistTensorType, prevUTOpInputDistTensorType.getShape(),
+            nextUTOpOutputDistTensorType.getDimsOrder(), config::getArch(origOp));
+    if (mlir::failed(maybeUpdatedDistAttr)) {
+        return matchFailed(_log, rewriter, origOp, "Failed to get updated distribution after shape cast");
+    }
+    auto updatedDistAttr = maybeUpdatedDistAttr.value();
 
     _log.trace("[{0}] Updating output type of: {1}\n\tOld Distribution: {2}\n\tNew Distribution: {3}", getDebugName(),
                prevUTOp.getInput(), prevUTOpInputDistTensorType.getDistribution(), updatedDistAttr);
@@ -121,16 +126,16 @@ mlir::LogicalResult OptimizeShapeCastDistributedCopies::matchAndRewrite(VPU::Sha
     prevUTOp.getInput().setType(newDistType);
 
     rewriter.setInsertionPoint(origOp);
-    auto distInputCopyOp = rewriter.create<VPU::UnrolledTypeOp>(takeOpLoc(origOp, "shapecast_copy_in"), newDistType,
-                                                                origOp.getSource());
+    auto distInputCopyOp = VPU::UnrolledTypeOp::create(rewriter, takeOpLoc(origOp, "shapecast_copy_in"), newDistType,
+                                                       origOp.getSource());
 
     // Clone the original "ShapeCastOp" and update its input and output types
     auto* newOp = rewriter.clone(*origOp);
     newOp->setOperand(0, distInputCopyOp.getResult());
     newOp->getResult(0).setType(nextUTOpOutputDistType);
 
-    auto distOutputCopyOp = rewriter.create<VPU::UnrolledTypeOp>(takeOpLoc(newOp, "shapecast_copy_out"),
-                                                                 nextUTOp.getInput().getType(), newOp->getResult(0));
+    auto distOutputCopyOp = VPU::UnrolledTypeOp::create(rewriter, takeOpLoc(newOp, "shapecast_copy_out"),
+                                                        nextUTOp.getInput().getType(), newOp->getResult(0));
 
     rewriter.replaceOp(origOp, distOutputCopyOp);
 
@@ -273,9 +278,9 @@ void MakeDistributedCopiesPass::safeRunOnFunc() {
             return true;
         }
 
-        if (!VPUIP::isDistributedCompatibleAfterShapeChangeForViewOps<VPU::DistributedTensorType>(
+        if (mlir::failed(VPUIP::tryInferNewDistInfoAfterShapeChange<VPU::DistributedTensorType>(
                     nextUTOpOutputDistTensorType, prevUTOpInputDistTensorType.getShape(),
-                    nextUTOpOutputDistTensorType.getDimsOrder(), config::getArch(shapeCast))) {
+                    nextUTOpOutputDistTensorType.getDimsOrder(), config::getArch(shapeCast)))) {
             return true;
         }
 

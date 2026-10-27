@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
@@ -76,7 +76,7 @@ mlir::LogicalResult ConvertToQuantizedOpsPass::ConvertToDequantize::matchAndRewr
     }
 
     auto inputElemType = convertOp.getInput().getType().getElementType();
-    auto quantileType = mlir::dyn_cast<vpux::type::QuantileType>(inputElemType);
+    auto quantileType = mlir::dyn_cast<mlir::quant::QuantileType>(inputElemType);
     if (!inputElemType.isInteger() && quantileType == nullptr) {
         return mlir::failure();
     }
@@ -122,8 +122,9 @@ mlir::LogicalResult ConvertToQuantizedOpsPass::ConvertToDequantize::matchAndRewr
                 mlir::quant::QuantizationFlags::Signed, integerType, mlir::Float16Type::get(ctx), /*scale=*/1,
                 /*zero_point=*/0, -1 * (1 << (inputElemTypeSize - 1)), (1 << (inputElemTypeSize - 1)) - 1);
     } else if (quantileType != nullptr) {
-        const auto newQuantileStorageType = vpux::type::QuantileType::get(
-                ctx, quantileType.getStorageType(), quantileType.getQuantileType(), quantileType.getQuantiles());
+        const auto newQuantileStorageType = mlir::quant::QuantileType::get(
+                ctx, quantileType.getStorageType(), quantileType.getQuantileType(), quantileType.getQuantiles(),
+                quantileType.getStorageMin(), quantileType.getStorageMax());
 
         outQuantizeElemType =
                 mlir::quant::UniformQuantizedType::get(0, newQuantileStorageType, mlir::Float16Type::get(ctx),
@@ -139,7 +140,7 @@ mlir::LogicalResult ConvertToQuantizedOpsPass::ConvertToDequantize::matchAndRewr
     }
 
     auto quantizeCastOp =
-            rewriter.create<IE::QuantizeCastOp>(convertOp.getLoc(), convertOp.getInput(), outQuantizeElemType);
+            IE::QuantizeCastOp::create(rewriter, convertOp.getLoc(), convertOp.getInput(), outQuantizeElemType);
 
     rewriter.replaceOpWithNewOp<IE::DequantizeOp>(convertOp, quantizeCastOp.getResult(), outputElemType);
 
@@ -276,9 +277,9 @@ mlir::LogicalResult ConvertToQuantizedOpsPass::ConvertToQuantize::matchAndRewrit
                                                                      expectedMin, expectedMax);
     }
 
-    auto quantizeOp = rewriter.create<IE::QuantizeOp>(convertOp.getLoc(), patternInput, outQuantizeElemType);
+    auto quantizeOp = IE::QuantizeOp::create(rewriter, convertOp.getLoc(), patternInput, outQuantizeElemType);
     auto quantizeCastOp =
-            rewriter.create<IE::QuantizeCastOp>(convertOp.getLoc(), quantizeOp.getResult(), outputElemType);
+            IE::QuantizeCastOp::create(rewriter, convertOp.getLoc(), quantizeOp.getResult(), outputElemType);
 
     rewriter.replaceOp(convertOp, quantizeCastOp.getResult());
 

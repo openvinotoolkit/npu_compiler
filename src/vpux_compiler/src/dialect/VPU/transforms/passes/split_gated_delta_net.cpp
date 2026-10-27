@@ -186,9 +186,8 @@ void SplitGatedDeltaNet::splitOverSeq(VPU::GatedDeltaNetOp op, mlir::PatternRewr
         auto sizes = to_small_vector(inShape.raw());
         offsets[SEQ_DIM] = start;
         sizes[SEQ_DIM] = len;
-        return rewriter
-                .create<VPU::SliceOp>(appendLoc(loc, "gdn_split_slice_{0}", sliceCnt++), in,
-                                      getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes))
+        return VPU::SliceOp::create(rewriter, appendLoc(loc, "gdn_split_slice_{0}", sliceCnt++), in,
+                                    getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, sizes))
                 .getResult();
     };
 
@@ -201,8 +200,8 @@ void SplitGatedDeltaNet::splitOverSeq(VPU::GatedDeltaNetOp op, mlir::PatternRewr
     for (int64_t c = 0; c < numSplits; ++c) {
         const int64_t len = (c < remainder) ? (splitSize + 1) : splitSize;
 
-        auto chunk = rewriter.create<VPU::GatedDeltaNetOp>(
-                appendLoc(loc, "gdn_split_chunk_{0}", c), sliceSeq(op.getQuery(), start, len),
+        auto chunk = VPU::GatedDeltaNetOp::create(
+                rewriter, appendLoc(loc, "gdn_split_chunk_{0}", c), sliceSeq(op.getQuery(), start, len),
                 sliceSeq(op.getKey(), start, len), sliceSeq(op.getValue(), start, len), state,
                 sliceSeq(op.getGate(), start, len), sliceSeq(op.getBeta(), start, len), op.getFuseQkL2normAttr(),
                 op.getQL2NormEpsAttr(), op.getKL2NormEpsAttr());
@@ -215,7 +214,7 @@ void SplitGatedDeltaNet::splitOverSeq(VPU::GatedDeltaNetOp op, mlir::PatternRewr
         start += len;
     }
 
-    auto concat = rewriter.create<VPU::ConcatOp>(appendLoc(loc, "gdn_split_concat"), outputs, Dim(SEQ_DIM));
+    auto concat = VPU::ConcatOp::create(rewriter, appendLoc(loc, "gdn_split_concat"), outputs, Dim(SEQ_DIM));
     rewriter.replaceOp(op, {concat.getOutput(), state});
 }
 

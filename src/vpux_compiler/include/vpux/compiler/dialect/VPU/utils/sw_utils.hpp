@@ -47,6 +47,8 @@ VPU::DistributionMode getSWInputTensorDistributionMode(VPU::LSTMSequenceOp lstmS
                                                        VPU::MultiClusterStrategy strategy, mlir::Value operand);
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::GatedDeltaNetOp gdnOp, VPU::MultiClusterStrategy strategy,
                                                        mlir::Value operand);
+VPU::DistributionMode getSWInputTensorDistributionMode(VPU::GroupQuantCorrectionOp gqcOp,
+                                                       VPU::MultiClusterStrategy strategy, mlir::Value operand);
 int64_t getGatedDeltaNetHeadGroupSize(VPU::GatedDeltaNetOp gdnOp);
 int64_t getGatedDeltaNetHeadAxis(VPU::GatedDeltaNetOp gdnOp, mlir::Value value);
 SmallVector<int64_t> getGatedDeltaNetHeadAlignment(VPU::GatedDeltaNetOp gdnOp, mlir::Value value);
@@ -81,6 +83,8 @@ VPU::DistributionMode getSWInputTensorDistributionMode(VPU::ReverseSequenceOp op
                                                        mlir::Value operand);
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::CumSumOp op, VPU::MultiClusterStrategy strategy);
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::TopKOp op, VPU::MultiClusterStrategy strategy,
+                                                       mlir::Value operand);
+VPU::DistributionMode getSWInputTensorDistributionMode(VPU::TopKDmaOp op, VPU::MultiClusterStrategy strategy,
                                                        mlir::Value operand);
 VPU::DistributionMode getSWInputTensorDistributionMode(VPU::RandomUniformOp randomUniformOp,
                                                        VPU::MultiClusterStrategy strategy);
@@ -170,6 +174,8 @@ SmallVector<int64_t> getSWInputTensorNumTiles(VPU::CumSumOp op, int64_t numClust
                                               VPU::MultiClusterStrategy strategy, vpux::NDTypeInterface inputType);
 SmallVector<int64_t> getSWInputTensorNumTiles(VPU::TopKOp op, int64_t numClustersAvailableForCompilation,
                                               VPU::MultiClusterStrategy strategy, mlir::Value operand);
+SmallVector<int64_t> getSWInputTensorNumTiles(VPU::TopKDmaOp op, int64_t numClustersAvailableForCompilation,
+                                              VPU::MultiClusterStrategy strategy, mlir::Value operand);
 SmallVector<int64_t> getSWInputTensorNumTiles(VPU::RandomUniformOp randomUniformOp,
                                               int64_t numClustersAvailableForCompilation,
                                               VPU::MultiClusterStrategy strategy);
@@ -188,6 +194,9 @@ SmallVector<int64_t> getSWInputTensorNumTiles(VPU::ReduceSquareOp op, int64_t nu
                                               VPU::MultiClusterStrategy strategy, mlir::Value operand,
                                               vpux::NDTypeInterface inputType);
 SmallVector<int64_t> getSWInputTensorNumTiles(VPU::ScatterElementsUpdateOp op,
+                                              int64_t numClustersAvailableForCompilation,
+                                              VPU::MultiClusterStrategy strategy, mlir::Value operand);
+SmallVector<int64_t> getSWInputTensorNumTiles(VPU::GroupQuantCorrectionOp gqcOp,
                                               int64_t numClustersAvailableForCompilation,
                                               VPU::MultiClusterStrategy strategy, mlir::Value operand);
 
@@ -209,8 +218,9 @@ bool satisfiesOptimizedDepthToSpace(VPU::DepthToSpaceOp d2sOp, config::ArchKind 
 // Check if Convert operation should use multi-shaves
 // Returns true if:
 //   1. Input element type is int64/uint64, OR
-//   2. Input shape total size >= threshold
-bool shouldConvertUseMultiShaves(vpux::NDTypeInterface inputType);
+//   2. Output element type is int64/uint64 and input shape total size >= a lower threshold, OR
+//   3. Input shape total size >= the default threshold
+bool shouldConvertUseMultiShaves(vpux::NDTypeInterface inputType, vpux::NDTypeInterface outputType);
 
 }  // namespace VPU
 }  // namespace vpux

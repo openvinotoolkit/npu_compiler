@@ -106,7 +106,7 @@ struct BoundedDim {
         return lhs.isDynamic() ? BoundedDim{-1, lhs.bound * rhs} : BoundedDim(lhs.bound * rhs);
     }
     friend BoundedDim operator/(const BoundedDim& lhs, int rhs) {
-        VPUX_THROW_UNLESS(rhs != 0, "Division by zero in BoundedDim");
+        VPUX_THROW_WHEN(rhs == 0, "Division by zero in BoundedDim");
         return lhs.isDynamic() ? BoundedDim{-1, lhs.bound / rhs} : BoundedDim(lhs.bound / rhs);
     }
 

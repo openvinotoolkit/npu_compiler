@@ -31,11 +31,12 @@ using namespace vpux;
 
 namespace {
 
-constexpr size_t BUFFER_CREATE_BASE_OPERAND_COUNT = 3;   // dst, elem_type, rank
-constexpr size_t BUFFER_SUBVIEW_BASE_OPERAND_COUNT = 3;  // dst, src, rank
-constexpr size_t BUFFER_VIEW_BASE_OPERAND_COUNT = 5;     // dst, src, byte_offset, elem_type, rank
-constexpr size_t BUFFER_STORE_BASE_OPERAND_COUNT = 3;    // buffer, value, rank
-constexpr size_t BUFFER_LOAD_BASE_OPERAND_COUNT = 3;     // dst, buffer, rank
+constexpr size_t BUFFER_CREATE_BASE_OPERAND_COUNT = 3;      // dst, elem_type, rank
+constexpr size_t BUFFER_FROM_CONST_BASE_OPERAND_COUNT = 4;  // dst, constant, elem_type, rank
+constexpr size_t BUFFER_SUBVIEW_BASE_OPERAND_COUNT = 3;     // dst, src, rank
+constexpr size_t BUFFER_VIEW_BASE_OPERAND_COUNT = 5;        // dst, src, byte_offset, elem_type, rank
+constexpr size_t BUFFER_STORE_BASE_OPERAND_COUNT = 3;       // buffer, value, rank
+constexpr size_t BUFFER_LOAD_BASE_OPERAND_COUNT = 3;        // dst, buffer, rank
 void appendRegisterOperands(SmallVector<int16_t>& dst, mlir::ValueRange operands) {
     for (auto operand : operands) {
         dst.push_back(bytecode::getRegisterNumber(operand));
@@ -75,7 +76,7 @@ void bytecode::BufferCreateOp::serialize(vpux::bytecode::BytecodeWriter& writer)
     const auto typeIndexMap = bytecode::buildTypeIndexMap(*typeSectionOps.begin());
     const auto elemTypeName = getElemTypeAttr().getLeafReference().getValue();
     auto it = typeIndexMap.find(elemTypeName);
-    VPUX_THROW_UNLESS(it != typeIndexMap.end(), "Element type '@{0}' not found in type section", elemTypeName);
+    VPUX_THROW_WHEN(it == typeIndexMap.end(), "Element type '@{0}' not found in type section", elemTypeName);
     const auto elemTypeIdx = it->second;
     VPUX_THROW_UNLESS(elemTypeIdx <= static_cast<uint64_t>(std::numeric_limits<int16_t>::max()),
                       "Element type index {0} exceeds int16_t range", elemTypeIdx);
@@ -101,6 +102,63 @@ mlir::LogicalResult bytecode::BufferCreateOp::verifySymbolUses(mlir::SymbolTable
     }
     if (!mlir::isa<bytecode::TypeOp>(resolved)) {
         return emitOpError() << "symbol " << elemTypeAttr << " does not reference a bytecode.type op";
+    }
+    return mlir::success();
+}
+
+mlir::LogicalResult bytecode::BufferFromConstOp::verify() {
+    if (getShape().size() != getStrides().size()) {
+        return emitOpError("expected shape and strides to have the same number of registers, got ")
+               << getShape().size() << " and " << getStrides().size();
+    }
+    return verifyEncodedRank(getOperation(), getShape().size());
+}
+
+size_t bytecode::BufferFromConstOp::getBinarySize() {
+    const auto numOperands = BUFFER_FROM_CONST_BASE_OPERAND_COUNT + getShape().size() + getStrides().size();
+    return intel_npu::vm::OPCODE_SIZE + numOperands * intel_npu::vm::OPERAND_SIZE;
+}
+
+void bytecode::BufferFromConstOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
+    auto module = getOperation()->getParentOfType<mlir::ModuleOp>();
+    const auto constantIndex =
+            bytecode::getIndex<bytecode::ConstantSectionOp, bytecode::ConstantOp>(getConstantRefAttr(), module);
+    VPUX_THROW_UNLESS(constantIndex.has_value(), "Constant reference '{0}' cannot be resolved", getConstantRef());
+    VPUX_THROW_UNLESS(*constantIndex <= static_cast<uint64_t>(std::numeric_limits<int16_t>::max()),
+                      "Constant index {0} exceeds int16_t range", *constantIndex);
+
+    auto typeSectionOps = module.getOps<bytecode::TypeSectionOp>();
+    VPUX_THROW_UNLESS(std::distance(typeSectionOps.begin(), typeSectionOps.end()) == 1,
+                      "Expected exactly one TypeSectionOp in the module");
+    const auto typeIndexMap = bytecode::buildTypeIndexMap(*typeSectionOps.begin());
+    const auto elemTypeName = getElemTypeAttr().getLeafReference().getValue();
+    const auto typeIt = typeIndexMap.find(elemTypeName);
+    VPUX_THROW_WHEN(typeIt == typeIndexMap.end(), "Element type '@{0}' not found in type section", elemTypeName);
+    VPUX_THROW_UNLESS(typeIt->second <= static_cast<uint64_t>(std::numeric_limits<int16_t>::max()),
+                      "Element type index {0} exceeds int16_t range", typeIt->second);
+
+    SmallVector<int16_t> operands;
+    operands.push_back(getRegisterNumber(getDst()));
+    operands.push_back(static_cast<int16_t>(*constantIndex));
+    operands.push_back(static_cast<int16_t>(typeIt->second));
+    operands.push_back(checked_cast<int16_t>(getShape().size()));
+    appendRegisterOperands(operands, getShape());
+    appendRegisterOperands(operands, getStrides());
+    writer.appendInstruction(static_cast<uint16_t>(getOpcode()), operands);
+}
+
+mlir::LogicalResult bytecode::BufferFromConstOp::verifySymbolUses(mlir::SymbolTableCollection& symbolTables) {
+    auto module = getOperation()->getParentOfType<mlir::ModuleOp>();
+    if (!module) {
+        return emitOpError("expected to be inside a module");
+    }
+    auto* constant = symbolTables.lookupSymbolIn(module, getConstantRefAttr());
+    if (!mlir::isa_and_nonnull<bytecode::ConstantOp>(constant)) {
+        return emitOpError() << "constant reference " << getConstantRef() << " does not resolve to bytecode.constant";
+    }
+    auto* elementType = symbolTables.lookupSymbolIn(module, getElemTypeAttr());
+    if (!mlir::isa_and_nonnull<bytecode::TypeOp>(elementType)) {
+        return emitOpError() << "element type reference " << getElemType() << " does not resolve to bytecode.type";
     }
     return mlir::success();
 }
@@ -160,7 +218,7 @@ void bytecode::BufferViewOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     const auto typeIndexMap = bytecode::buildTypeIndexMap(*typeSectionOps.begin());
     const auto elemTypeName = getElemTypeAttr().getLeafReference().getValue();
     auto it = typeIndexMap.find(elemTypeName);
-    VPUX_THROW_UNLESS(it != typeIndexMap.end(), "Element type '@{0}' not found in type section", elemTypeName);
+    VPUX_THROW_WHEN(it == typeIndexMap.end(), "Element type '@{0}' not found in type section", elemTypeName);
     const auto elemTypeIdx = it->second;
     VPUX_THROW_UNLESS(elemTypeIdx <= static_cast<uint64_t>(std::numeric_limits<int16_t>::max()),
                       "Element type index {0} exceeds int16_t range", elemTypeIdx);
@@ -228,4 +286,9 @@ void bytecode::BufferLoadOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
     appendRegisterOperands(operands, getIndices());
 
     writer.appendInstruction(static_cast<uint16_t>(getOpcode()), operands);
+}
+
+void bytecode::BufferCopyOp::serialize(vpux::bytecode::BytecodeWriter& writer) {
+    writer.appendInstruction(static_cast<uint16_t>(getOpcode()),
+                             SmallVector<int16_t>{getRegisterNumber(getDst()), getRegisterNumber(getSrc())});
 }

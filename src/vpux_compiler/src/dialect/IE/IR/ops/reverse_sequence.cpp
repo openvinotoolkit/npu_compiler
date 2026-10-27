@@ -104,11 +104,11 @@ mlir::LogicalResult ConvertIntToFP16::matchAndRewrite(IE::ReverseSequenceOp rsOp
     const auto dataType = mlir::cast<mlir::ShapedType>(rsOp.getData().getType());
 
     if (dataType.getElementType().isInteger(8)) {
-        auto convertOpBefore = rewriter.create<IE::ConvertOp>(appendLoc(rsOp.getLoc(), "cvt_in"), rsOp.getData(),
-                                                              mlir::Float16Type::get(getContext()));
+        auto convertOpBefore = IE::ConvertOp::create(rewriter, appendLoc(rsOp.getLoc(), "cvt_in"), rsOp.getData(),
+                                                     mlir::Float16Type::get(getContext()));
         auto reverseSequenceOp =
-                rewriter.create<IE::ReverseSequenceOp>(rsOp.getLoc(), convertOpBefore.getOutput(), rsOp.getSeqLength(),
-                                                       rsOp.getSeqAxis(), rsOp.getBatchAxis());
+                IE::ReverseSequenceOp::create(rewriter, rsOp.getLoc(), convertOpBefore.getOutput(), rsOp.getSeqLength(),
+                                              rsOp.getSeqAxis(), rsOp.getBatchAxis());
 
         auto getInputTypeAttr = [&]() -> mlir::TypeAttr {
             auto elementType = mlir::cast<mlir::IntegerType>(dataType.getElementType());

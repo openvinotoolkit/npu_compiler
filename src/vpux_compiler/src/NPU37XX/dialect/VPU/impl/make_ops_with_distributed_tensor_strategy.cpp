@@ -46,8 +46,7 @@ mlir::LogicalResult NCEPermuteRewriter::matchAndRewrite(VPU::NCEPermuteOp origOp
     }
 
     auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(origOp.getOperation());
-    VPUX_THROW_UNLESS(clusteredOp != nullptr, "Operation '{0}' cannot be converted to VPU::ClusteredOpInterface",
-                      origOp);
+    VPUX_THROW_WHEN(clusteredOp == nullptr, "Operation '{0}' cannot be converted to VPU::ClusteredOpInterface", origOp);
 
     const auto nextConv = getNextCompressConv(origOp);
     const auto strategy = nextConv == nullptr ? VPU::MultiClusterStrategy::SplitOverHeight
@@ -92,7 +91,7 @@ mlir::LogicalResult NCEPermuteRewriter::matchAndRewrite(VPU::NCEPermuteOp origOp
         newOp->removeAttr(vpux::VPU::multiClusterStrategy);
     }
     auto outputCopyOp =
-            rewriter.create<VPU::UnrolledTypeOp>(newOp->getLoc(), origOp->getResult(0).getType(), newOp->getResult(0));
+            VPU::UnrolledTypeOp::create(rewriter, newOp->getLoc(), origOp->getResult(0).getType(), newOp->getResult(0));
 
     rewriter.replaceOp(origOp, outputCopyOp);
 
@@ -103,7 +102,7 @@ vpux::VPU::UnrolledTypeOp NCEPermuteRewriter::buildInputUnrolledType(mlir::Patte
                                                                      VPU::ClusteredOpInterface clusteredOp,
                                                                      mlir::Value input, mlir::Type distType) const {
     rewriter.setInsertionPoint(clusteredOp);
-    auto distributedInputCopyOp = rewriter.create<VPU::UnrolledTypeOp>(clusteredOp.getLoc(), distType, input);
+    auto distributedInputCopyOp = VPU::UnrolledTypeOp::create(rewriter, clusteredOp.getLoc(), distType, input);
 
     return distributedInputCopyOp;
 }

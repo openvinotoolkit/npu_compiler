@@ -226,11 +226,11 @@ func.func @StaticShiftUI4Dequantization(%input: tensor<1x4x28x28xf16>, %weights:
 
 // -----
 
-!quantileType = !QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
+!quantileType = !quant.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
 
 // CHECK-LABEL: @StaticScaleShiftNF4Dequantization
 // CHECK-SAME:      [[INPUT:%.+]]:  tensor<1x4x28x28xf32>
-// CHECK-SAME:      [[WEIGHTS:%.+]]: tensor<4x4x3x3x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
+// CHECK-SAME:      [[WEIGHTS:%.+]]: tensor<4x4x3x3x!quantileType>
 // CHECK-SAME: -> tensor<1x4x28x28xf32>
 func.func @StaticScaleShiftNF4Dequantization(%input: tensor<1x4x28x28xf32>, %weights: tensor<4x4x3x3x!quantileType>) -> tensor<1x4x28x28xf32> {
   %scale = const.Declare tensor<1x1x1x1xf32> = dense<0.5> : tensor<1x1x1x1xf32>
@@ -245,7 +245,7 @@ func.func @StaticScaleShiftNF4Dequantization(%input: tensor<1x4x28x28xf32>, %wei
 
   // CHECK-DAG:  [[ZP:%.+]] = const.Declare tensor<1x1x1x1xui4> = dense<4>
   // CHECK-DAG:  [[SCALE:%.+]] = const.Declare
-  // CHECK:  [[DEQUANT:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE]], [[ZP]]) {dstElemType = f32, vpux.synthetic_dyn_dequant} : tensor<4x4x3x3x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui4> -> tensor<4x4x3x3xf32>
+  // CHECK:  [[DEQUANT:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE]], [[ZP]]) {dstElemType = f32, vpux.synthetic_dyn_dequant} : tensor<4x4x3x3x!quantileType>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui4> -> tensor<4x4x3x3xf32>
   // CHECK:  [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x4x28x28xf32>, tensor<4x4x3x3xf32> -> tensor<1x4x28x28xf32>
 
   // CHECK: return [[CONV]]
@@ -253,7 +253,7 @@ func.func @StaticScaleShiftNF4Dequantization(%input: tensor<1x4x28x28xf32>, %wei
 
 // -----
 
-!quantileType = !QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
+!quantileType = !quant.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
 
 
 // CHECK-LABEL: @StaticScaleDequantizationForFP16ActNF4WeightsWithQuantCast
@@ -280,15 +280,15 @@ func.func @StaticScaleDequantizationForFP16ActNF4WeightsWithQuantCast(%input: te
     return %conv : tensor<1x16x16x16xf16>
 
     // CHECK-DAG: [[SCALE:%.+]] = const.Declare
-    // CHECK: [[QUANTCAST_1:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>} : tensor<16x16x1x1xui4> -> tensor<16x16x1x1x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>
-    // CHECK: [[DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST_1]], [[SCALE]]) {dstElemType = f16, vpux.synthetic_dyn_dequant} : tensor<16x16x1x1x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
+    // CHECK: [[QUANTCAST_1:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !quantileType} : tensor<16x16x1x1xui4> -> tensor<16x16x1x1x!quantileType>
+    // CHECK: [[DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST_1]], [[SCALE]]) {dstElemType = f16, vpux.synthetic_dyn_dequant} : tensor<16x16x1x1x!quantileType>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
     // CHECK: [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
     // CHECK: return [[CONV]]
 }
 
 // -----
 
-!quantileType = !QuantileType.quantile<ui4:f8E4M3FN, {-1.000000e+00,-6.875000e-01,-5.625000e-01,-4.062500e-01,-2.812500e-01,-1.718750e-01,-8.593750e-02,0.000000e+00,7.812500e-02,1.562500e-01,2.500000e-01,3.125000e-01,4.375000e-01,5.625000e-01,6.875000e-01,1.000000e+00}>
+!quantileType = !quant.quantile<ui4:f8E4M3FN, {-1.000000e+00,-6.875000e-01,-5.625000e-01,-4.062500e-01,-2.812500e-01,-1.718750e-01,-8.593750e-02,0.000000e+00,7.812500e-02,1.562500e-01,2.500000e-01,3.125000e-01,4.375000e-01,5.625000e-01,6.875000e-01,1.000000e+00}>
 
 // CHECK-LABEL: @StaticScaleDequantizationForF8E4M3FNActNF4WeightsWithQuantCast
 // CHECK-SAME:     [[INPUT:%.+]]: tensor<1x16x16x16xf16>,
@@ -314,15 +314,15 @@ func.func @StaticScaleDequantizationForF8E4M3FNActNF4WeightsWithQuantCast(%input
     return %conv : tensor<1x16x16x16xf16>
 
     // CHECK-DAG: [[SCALE:%.+]] = const.Declare
-    // CHECK: [[QUANTCAST_1:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !QuantileType.quantile<ui4:f8E4M3FN, {-1.000000e+00,-6.875000e-01,-5.625000e-01,-4.062500e-01,-2.812500e-01,-1.718750e-01,-8.593750e-02,0.000000e+00,7.812500e-02,1.562500e-01,2.500000e-01,3.125000e-01,4.375000e-01,5.625000e-01,6.875000e-01,1.000000e+00}>} : tensor<16x16x1x1xui4> -> tensor<16x16x1x1x!QuantileType.quantile<ui4:f8E4M3FN, {-1.000000e+00,-6.875000e-01,-5.625000e-01,-4.062500e-01,-2.812500e-01,-1.718750e-01,-8.593750e-02,0.000000e+00,7.812500e-02,1.562500e-01,2.500000e-01,3.125000e-01,4.375000e-01,5.625000e-01,6.875000e-01,1.000000e+00}>>
-    // CHECK: [[DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST_1]], [[SCALE]]) {dstElemType = f16, vpux.synthetic_dyn_dequant} : tensor<16x16x1x1x!QuantileType.quantile<ui4:f8E4M3FN, {-1.000000e+00,-6.875000e-01,-5.625000e-01,-4.062500e-01,-2.812500e-01,-1.718750e-01,-8.593750e-02,0.000000e+00,7.812500e-02,1.562500e-01,2.500000e-01,3.125000e-01,4.375000e-01,5.625000e-01,6.875000e-01,1.000000e+00}>>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
+    // CHECK: [[QUANTCAST_1:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !quantileType} : tensor<16x16x1x1xui4> -> tensor<16x16x1x1x!quantileType>
+    // CHECK: [[DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST_1]], [[SCALE]]) {dstElemType = f16, vpux.synthetic_dyn_dequant} : tensor<16x16x1x1x!quantileType>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
     // CHECK: [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
     // CHECK: return [[CONV]]
 }
 
 // -----
 
-!quantileType = !QuantileType.quantile<ui4:f8E5M2, {-5.000000e-01,-2.187500e-01,-1.562500e-01,-7.812500e-02,-3.906250e-02,-0.013671875,-0.00341796875,0.000000e+00,0.0029296875,0.01171875,3.125000e-02,4.687500e-02,9.375000e-02,1.562500e-01,2.187500e-01,5.000000e-01}>
+!quantileType = !quant.quantile<ui4:f8E5M2, {-5.000000e-01,-2.187500e-01,-1.562500e-01,-7.812500e-02,-3.906250e-02,-0.013671875,-0.00341796875,0.000000e+00,0.0029296875,0.01171875,3.125000e-02,4.687500e-02,9.375000e-02,1.562500e-01,2.187500e-01,5.000000e-01}>
 
 
 // CHECK-LABEL: @StaticScaleDequantizationForF8E5M2ActNF4WeightsWithQuantCast
@@ -349,20 +349,20 @@ func.func @StaticScaleDequantizationForF8E5M2ActNF4WeightsWithQuantCast(%input: 
     return %conv : tensor<1x16x16x16xf16>
 
     // CHECK-DAG: [[SCALE:%.+]] = const.Declare
-    // CHECK: [[QUANTCAST_1:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !QuantileType.quantile<ui4:f8E5M2, {-5.000000e-01,-2.187500e-01,-1.562500e-01,-7.812500e-02,-3.906250e-02,-0.013671875,-0.00341796875,0.000000e+00,0.0029296875,0.01171875,3.125000e-02,4.687500e-02,9.375000e-02,1.562500e-01,2.187500e-01,5.000000e-01}>} : tensor<16x16x1x1xui4> -> tensor<16x16x1x1x!QuantileType.quantile<ui4:f8E5M2, {-5.000000e-01,-2.187500e-01,-1.562500e-01,-7.812500e-02,-3.906250e-02,-0.013671875,-0.00341796875,0.000000e+00,0.0029296875,0.01171875,3.125000e-02,4.687500e-02,9.375000e-02,1.562500e-01,2.187500e-01,5.000000e-01}>>
-    // CHECK: [[DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST_1]], [[SCALE]]) {dstElemType = f16, vpux.synthetic_dyn_dequant} : tensor<16x16x1x1x!QuantileType.quantile<ui4:f8E5M2, {-5.000000e-01,-2.187500e-01,-1.562500e-01,-7.812500e-02,-3.906250e-02,-0.013671875,-0.00341796875,0.000000e+00,0.0029296875,0.01171875,3.125000e-02,4.687500e-02,9.375000e-02,1.562500e-01,2.187500e-01,5.000000e-01}>>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
+    // CHECK: [[QUANTCAST_1:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !quantileType} : tensor<16x16x1x1xui4> -> tensor<16x16x1x1x!quantileType>
+    // CHECK: [[DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST_1]], [[SCALE]]) {dstElemType = f16, vpux.synthetic_dyn_dequant} : tensor<16x16x1x1x!quantileType>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
     // CHECK: [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
     // CHECK: return [[CONV]]
 }
 
 // -----
 
-!quantileType = !QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
+!quantileType = !quant.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
 
 
 // CHECK-LABEL: @StaticMultiScaleShiftNF4Dequantization
 // CHECK-SAME:      [[INPUT:%.+]]:  tensor<1x4x28x28xf32>
-// CHECK-SAME:      [[WEIGHTS:%.+]]: tensor<4x4x3x3x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
+// CHECK-SAME:      [[WEIGHTS:%.+]]: tensor<4x4x3x3x!quantileType
 // CHECK-SAME: -> tensor<1x4x28x28xf32>
 func.func @StaticMultiScaleShiftNF4Dequantization(%input: tensor<1x4x28x28xf32>, %weights: tensor<4x4x3x3x!quantileType>) -> tensor<1x4x28x28xf32> {
   %scale = const.Declare tensor<4x1x1x1xf32> = dense<[0.2, 0.3, 0.4, 0.5]> : tensor<4xf32>, [#const.Reshape<[4, 1, 1, 1]>]
@@ -377,7 +377,7 @@ func.func @StaticMultiScaleShiftNF4Dequantization(%input: tensor<1x4x28x28xf32>,
 
   // CHECK-DAG:  [[ZP:%.+]] = const.Declare tensor<1x1x1x1xui4> = dense<4>
   // CHECK-DAG:  [[SCALE:%.+]] = const.Declare
-  // CHECK:  [[DEQUANT:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE]], [[ZP]]) {dstElemType = f32, vpux.synthetic_dyn_dequant} : tensor<4x4x3x3x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>, tensor<4x1x1x1xf32>, tensor<1x1x1x1xui4> -> tensor<4x4x3x3xf32>
+  // CHECK:  [[DEQUANT:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE]], [[ZP]]) {dstElemType = f32, vpux.synthetic_dyn_dequant} : tensor<4x4x3x3x!quantileType>, tensor<4x1x1x1xf32>, tensor<1x1x1x1xui4> -> tensor<4x4x3x3xf32>
   // CHECK:  [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x4x28x28xf32>, tensor<4x4x3x3xf32> -> tensor<1x4x28x28xf32>
 
   // CHECK: return [[CONV]]
@@ -762,11 +762,11 @@ func.func @DynamicScaleDequantizationForINT8Weights(%weights: tensor<73440x1536x
 
 // -----
 
-!quantileType = !QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
+!quantileType = !quant.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
 
 // CHECK-LABEL: @DynamicScaleDequantizationForNF4Weights
 // CHECK-SAME:     [[INPUT:%.+]]: tensor<1x16x16x16xf16>,
-// CHECK-SAME:     [[WEIGHTS:%.+]]: tensor<16x16x1x1x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>,
+// CHECK-SAME:     [[WEIGHTS:%.+]]: tensor<16x16x1x1x!quantileType>,
 // CHECK-SAME:     [[SCALE:%.+]]: tensor<1x16x1x1xf16>
 func.func @DynamicScaleDequantizationForNF4Weights(%input: tensor<1x16x16x16xf16>, %weights: tensor<16x16x1x1x!quantileType>, %scale: tensor<1x16x1x1xf16>) -> tensor<1x16x16x16xf16> {
     %weights_f16 = IE.Convert(%weights) { dstElemType = f16 } : tensor<16x16x1x1x!quantileType> -> tensor<16x16x1x1xf16>
@@ -784,7 +784,7 @@ func.func @DynamicScaleDequantizationForNF4Weights(%input: tensor<1x16x16x16xf16
     return %conv : tensor<1x16x16x16xf16>
 
     // CHECK:  [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE]]) {dstElemType = f16}
-    // CHECK-SAME:     : tensor<16x16x1x1x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
+    // CHECK-SAME:     : tensor<16x16x1x1x!quantileType>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
 
     // CHECK:  [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DYN_DEQUANT]])
     // CHECK-SAME:     {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
@@ -795,7 +795,7 @@ func.func @DynamicScaleDequantizationForNF4Weights(%input: tensor<1x16x16x16xf16
 
 // -----
 
-!quantileType = !QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
+!quantileType = !quant.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
 
 // CHECK-LABEL: @DynamicScaleDequantizationForFP16ActNF4WeightsWithQuantCast
 // CHECK-SAME:     [[INPUT:%.+]]: tensor<1x16x16x16xf16>,
@@ -819,15 +819,15 @@ func.func @DynamicScaleDequantizationForFP16ActNF4WeightsWithQuantCast(%input: t
 
     return %conv : tensor<1x16x16x16xf16>
 
-    // CHECK: [[QUANTCAST_1:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>} : tensor<16x16x1x1xui4> -> tensor<16x16x1x1x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>
-    // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST_1]], [[SCALE]]) {dstElemType = f16} : tensor<16x16x1x1x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
+    // CHECK: [[QUANTCAST_1:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !quantileType} : tensor<16x16x1x1xui4> -> tensor<16x16x1x1x!quantileType>
+    // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST_1]], [[SCALE]]) {dstElemType = f16} : tensor<16x16x1x1x!quantileType>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
     // CHECK: [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DYN_DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
     // CHECK: return [[CONV]]
 }
 
 // -----
 
-!quantileType = !QuantileType.quantile<ui4:f8E4M3FN, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
+!quantileType = !quant.quantile<ui4:f8E4M3FN, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
 
 // CHECK-LABEL: @DynamicScaleDequantizationForF8E4M3FNActNF4WeightsWithQuantCast
 // CHECK-SAME:     [[INPUT:%.+]]: tensor<1x16x16x16xf16>,
@@ -851,15 +851,15 @@ func.func @DynamicScaleDequantizationForF8E4M3FNActNF4WeightsWithQuantCast(%inpu
 
     return %conv : tensor<1x16x16x16xf16>
 
-    // CHECK: [[QUANTCAST_1:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !QuantileType.quantile<ui4:f8E4M3FN, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>} : tensor<16x16x1x1xui4> -> tensor<16x16x1x1x!QuantileType.quantile<ui4:f8E4M3FN, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>
-    // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST_1]], [[SCALE]]) {dstElemType = f16} : tensor<16x16x1x1x!QuantileType.quantile<ui4:f8E4M3FN, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
+    // CHECK: [[QUANTCAST_1:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !quantileType} : tensor<16x16x1x1xui4> -> tensor<16x16x1x1x!quantileType>
+    // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST_1]], [[SCALE]]) {dstElemType = f16} : tensor<16x16x1x1x!quantileType>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
     // CHECK: [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DYN_DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
     // CHECK: return [[CONV]]
 }
 
 // -----
 
-!quantileType = !QuantileType.quantile<ui4:f8E5M2, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
+!quantileType = !quant.quantile<ui4:f8E5M2, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
 
 // CHECK-LABEL: @DynamicScaleDequantizationForF8E5M2ActNF4WeightsWithQuantCast
 // CHECK-SAME:     [[INPUT:%.+]]: tensor<1x16x16x16xf16>,
@@ -883,8 +883,8 @@ func.func @DynamicScaleDequantizationForF8E5M2ActNF4WeightsWithQuantCast(%input:
 
     return %conv : tensor<1x16x16x16xf16>
 
-    // CHECK: [[QUANTCAST_1:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !QuantileType.quantile<ui4:f8E5M2, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>} : tensor<16x16x1x1xui4> -> tensor<16x16x1x1x!QuantileType.quantile<ui4:f8E5M2, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>
-    // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST_1]], [[SCALE]]) {dstElemType = f16} : tensor<16x16x1x1x!QuantileType.quantile<ui4:f8E5M2, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
+    // CHECK: [[QUANTCAST_1:%.+]] = IE.QuantizeCast([[WEIGHTS]]) {dstElemType = !quantileType} : tensor<16x16x1x1xui4> -> tensor<16x16x1x1x!quantileType>
+    // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[QUANTCAST_1]], [[SCALE]]) {dstElemType = f16} : tensor<16x16x1x1x!quantileType>, tensor<1x16x1x1xf16> -> tensor<16x16x1x1xf16>
     // CHECK: [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DYN_DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
     // CHECK: return [[CONV]]
 }
@@ -1039,6 +1039,30 @@ func.func @DynamicScaleShiftU2Dequantization(%input: tensor<1x4x28x28xf16>, %wei
   // CHECK:  [[DEQUANT:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE]], [[SHIFT]]) {dstElemType = f16} : tensor<4x4x3x3xui2>, tensor<4x1x1x1xf16>, tensor<4x1x1x1xui2> -> tensor<4x4x3x3xf16>
   // CHECK:  [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x4x28x28xf16>, tensor<4x4x3x3xf16> -> tensor<1x4x28x28xf16>
   // CHECK:  return [[CONV]]
+}
+
+// -----
+
+// CHECK-LABEL: @DynamicScaleU2DequantizationWithAffineReshapeAndConvert
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x4x28x28xf32>
+// CHECK-SAME:      [[WEIGHTS:%.+]]: tensor<4x4x3x3xui2>
+// CHECK-SAME:      [[SCALE:%.+]]: tensor<4xf16>
+func.func @DynamicScaleU2DequantizationWithAffineReshapeAndConvert(%input: tensor<1x4x28x28xf32>,
+                                                                    %weights: tensor<4x4x3x3xui2>,
+                                                                    %scale: tensor<4xf16>) -> tensor<1x4x28x28xf32> {
+  %weightsF32 = IE.Convert(%weights) {dstElemType = f32} : tensor<4x4x3x3xui2> -> tensor<4x4x3x3xf32>
+  %scaleReshape = IE.AffineReshape(%scale) {dim_mapping = [[0, 1, 2, 3]], shape_value = [4, 1, 1, 1]} : tensor<4xf16> -> tensor<4x1x1x1xf16>
+  %scaleF32 = IE.Convert(%scaleReshape) {dstElemType = f32} : tensor<4x1x1x1xf16> -> tensor<4x1x1x1xf32>
+  %multiply = IE.Multiply(%weightsF32, %scaleF32) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x4x3x3xf32>, tensor<4x1x1x1xf32> -> tensor<4x4x3x3xf32>
+  %conv = IE.Convolution(%input, %multiply) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x4x28x28xf32>, tensor<4x4x3x3xf32> -> tensor<1x4x28x28xf32>
+
+  return %conv : tensor<1x4x28x28xf32>
+
+  // CHECK: [[SCALE_RESHAPE:%.+]] = IE.AffineReshape([[SCALE]]) {{.*}} shape_value = [4, 1, 1, 1]{{.*}} : tensor<4xf16> -> tensor<4x1x1x1xf16>
+  // CHECK: [[SCALE_F32:%.+]] = IE.Convert([[SCALE_RESHAPE]]) {dstElemType = f32} : tensor<4x1x1x1xf16> -> tensor<4x1x1x1xf32>
+  // CHECK: [[DEQUANT:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE_F32]]) {dstElemType = f32} : tensor<4x4x3x3xui2>, tensor<4x1x1x1xf32> -> tensor<4x4x3x3xf32>
+  // CHECK: [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x4x28x28xf32>, tensor<4x4x3x3xf32> -> tensor<1x4x28x28xf32>
+  // CHECK: return [[CONV]] : tensor<1x4x28x28xf32>
 }
 
 // -----
@@ -1322,17 +1346,17 @@ func.func @DynamicScaleDequantizationWithTranspose(%input: tensor<16384x2048xsi4
 
 // -----
 
-!qElemType = !QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
+!quantileType = !quant.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>
 
 // CHECK-LABEL: @DynamicDequantantizeWithGather
-// CHECK-SAME:     [[INPUT:%.+]]: tensor<184320x2880x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>
+// CHECK-SAME:     [[INPUT:%.+]]: tensor<184320x2880x!quantileType>
 // CHECK-SAME:     [[SCALE:%.+]]: tensor<32x5760x1xf16>
-func.func @DynamicDequantantizeWithGather(%input: tensor<184320x2880x!qElemType>, %scale: tensor<32x5760x1xf16>) -> tensor<4x5760x2880xf16> {
+func.func @DynamicDequantantizeWithGather(%input: tensor<184320x2880x!quantileType>, %scale: tensor<32x5760x1xf16>) -> tensor<4x5760x2880xf16> {
   %indices = const.Declare tensor<23040xsi64> = dense<1> : tensor<23040xsi64>
 
-  %gather = IE.Gather(%input, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} : tensor<184320x2880x!qElemType>, tensor<23040xsi64> -> tensor<23040x2880x!qElemType>
-  %reshape = IE.AffineReshape(%gather) {dim_mapping = [[0, 1], [2]], shape_value = [4, 5760, 2880]} : tensor<23040x2880x!qElemType> -> tensor<4x5760x2880x!qElemType>
-  %convert = IE.Convert(%reshape) {dstElemType = f16} : tensor<4x5760x2880x!qElemType> -> tensor<4x5760x2880xf16>
+  %gather = IE.Gather(%input, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} : tensor<184320x2880x!quantileType>, tensor<23040xsi64> -> tensor<23040x2880x!quantileType>
+  %reshape = IE.AffineReshape(%gather) {dim_mapping = [[0, 1], [2]], shape_value = [4, 5760, 2880]} : tensor<23040x2880x!quantileType> -> tensor<4x5760x2880x!quantileType>
+  %convert = IE.Convert(%reshape) {dstElemType = f16} : tensor<4x5760x2880x!quantileType> -> tensor<4x5760x2880xf16>
 
   %indices_scale = const.Declare tensor<4xsi64> = dense<1> : tensor<4xsi64>
   %gather_scale = IE.Gather(%scale, %indices_scale) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} : tensor<32x5760x1xf16>, tensor<4xsi64> -> tensor<4x5760x1xf16>
@@ -1345,15 +1369,15 @@ func.func @DynamicDequantantizeWithGather(%input: tensor<184320x2880x!qElemType>
   // CHECK-DAG: [[INDICES_SCALE:%.+]] = const.Declare tensor<4xsi64> = dense<1> : tensor<4xsi64>
 
   // CHECK: [[GATHER:%.+]] = IE.Gather([[INPUT]], [[INDICES]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
-  // CHECK-SAME:        : tensor<184320x2880x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>, tensor<23040xsi64> -> tensor<23040x2880x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>
+  // CHECK-SAME:        : tensor<184320x2880x!quantileType>, tensor<23040xsi64> -> tensor<23040x2880x!quantileType>
 
   // CHECK: [[RESHAPE:%.+]] = IE.AffineReshape([[GATHER]])
   // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2]], shape_value = [4, 5760, 2880]}
-  // CHECK-SAME:        : tensor<23040x2880x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>> -> tensor<4x5760x2880x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>
+  // CHECK-SAME:        : tensor<23040x2880x!quantileType> -> tensor<4x5760x2880x!quantileType>
 
   // CHECK: [[GATHER_SCALE:%.+]] = IE.Gather([[SCALE]], [[INDICES_SCALE]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} : tensor<32x5760x1xf16>, tensor<4xsi64> -> tensor<4x5760x1xf16>
 
-  // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[RESHAPE]], [[GATHER_SCALE]]) {dstElemType = f16} : tensor<4x5760x2880x!QuantileType.quantile<ui4:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}>>, tensor<4x5760x1xf16> -> tensor<4x5760x2880xf16>
+  // CHECK: [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[RESHAPE]], [[GATHER_SCALE]]) {dstElemType = f16} : tensor<4x5760x2880x!quantileType>, tensor<4x5760x1xf16> -> tensor<4x5760x2880xf16>
 
   // CHECK: return [[DYN_DEQUANT]] : tensor<4x5760x2880xf16>
 }
@@ -1669,4 +1693,34 @@ func.func @DynamicScaleDequantizationWithStaticZpAndTransposePrefill(%input: ten
     // CHECK: [[RESHAPE:%.+]] = IE.AffineReshape([[TRANSPOSE]]) {dim_mapping = {{.*}}, shape_value = [4, 16]} : tensor<4x2x8xf32> -> tensor<4x16xf32>
     // CHECK: [[FC:%.+]] = IE.FullyConnected([[INPUT]], [[RESHAPE]]) : tensor<4x16xf32>, tensor<4x16xf32> -> tensor<4x4xf32>
     // CHECK: return [[FC]] : tensor<4x4xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @ConstScaleTableGatheredWeightsAlsoGatheredI8
+// CHECK-SAME:      [[INPUT:%.+]]:          tensor<1x4x28x28xf32>
+// CHECK-SAME:      [[WEIGHT_INDICES:%.+]]: tensor<1xsi32>,
+// CHECK-SAME:      [[SCALE_INDICES:%.+]]:  tensor<1xsi32>
+// CHECK-SAME: -> tensor<1x4x28x28xf32>
+func.func @ConstScaleTableGatheredWeightsAlsoGatheredI8(%input: tensor<1x4x28x28xf32>, %weight_indices: tensor<1xsi32>, %scale_indices: tensor<1xsi32>) -> tensor<1x4x28x28xf32> {
+  %weight_table = const.Declare tensor<2x4x4x3x3xsi8> = dense<1> : tensor<2x4x4x3x3xsi8>
+  %weights = IE.Gather(%weight_table, %weight_indices) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<2x4x4x3x3xsi8>, tensor<1xsi32> -> tensor<4x4x3x3xsi8>
+
+  %scale_table = const.Declare tensor<2x1x1x1xf32> = dense<0.5> : tensor<2x1x1x1xf32>
+  %scale = IE.Gather(%scale_table, %scale_indices) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} : tensor<2x1x1x1xf32>, tensor<1xsi32> -> tensor<1x1x1x1xf32>
+
+  %convert = IE.Convert(%weights) {dstElemType = f32} : tensor<4x4x3x3xsi8> -> tensor<4x4x3x3xf32>
+  %multiply = IE.Multiply(%convert, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x4x3x3xf32>, tensor<1x1x1x1xf32> -> tensor<4x4x3x3xf32>
+  %conv = IE.Convolution(%input, %multiply) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x4x28x28xf32>, tensor<4x4x3x3xf32> -> tensor<1x4x28x28xf32>
+
+  return %conv : tensor<1x4x28x28xf32>
+
+  // CHECK-DAG:  [[SCALE_TABLE:%.+]] = const.Declare tensor<2x1x1x1xf32> = dense<5.000000e-01> : tensor<2x1x1x1xf32>
+  // CHECK-DAG:  [[WEIGHT_TABLE:%.+]] = const.Declare tensor<2x4x4x3x3xsi8> = dense<1> : tensor<2x4x4x3x3xsi8>
+  // CHECK:  [[WEIGHTS:%.+]] = IE.Gather([[WEIGHT_TABLE]], [[WEIGHT_INDICES]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 0 : i64} : tensor<2x4x4x3x3xsi8>, tensor<1xsi32> -> tensor<4x4x3x3xsi8>
+  // CHECK:  [[SCALE:%.+]] = IE.Gather([[SCALE_TABLE]], [[SCALE_INDICES]]) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} : tensor<2x1x1x1xf32>, tensor<1xsi32> -> tensor<1x1x1x1xf32>
+  // CHECK:  [[DEQUANT:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE]]) {dstElemType = f32} : tensor<4x4x3x3xsi8>, tensor<1x1x1x1xf32> -> tensor<4x4x3x3xf32>
+  // CHECK:  [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x4x28x28xf32>, tensor<4x4x3x3xf32> -> tensor<1x4x28x28xf32>
+
+  // CHECK: return [[CONV]]
 }

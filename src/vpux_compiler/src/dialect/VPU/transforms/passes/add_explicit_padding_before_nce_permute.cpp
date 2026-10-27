@@ -108,12 +108,12 @@ void insertExplicitPad(Logger& log, VPU::NCEPermuteOp origOp) {
     const auto padType = mlir::RankedTensorType::get(padShape, elemType);
     // create zero const for padding
     auto padData = Const::createZerosConst(builder, origOp.getLoc(), padType);
-    auto concat = builder.create<VPU::ConcatOp>(origOp.getLoc(), mlir::ValueRange{origOp.getInput(), padData},
-                                                Dims4D::Act::C);
-    auto newPermuteOp = builder.create<VPU::NCEPermuteOp>(
-            origOp->getLoc(), origOp.getOutput().getType(), concat.getOutput(), origOp.getExpandedChannelsAttr(),
-            origOp.getDstElemTypeAttr(), origOp.getDstOrderAttr(), origOp.getPpeAttr(), origOp.getMpeEngineAttr(),
-            origOp.getMultiClusterStrategyAttr());
+    auto concat = VPU::ConcatOp::create(builder, origOp.getLoc(), mlir::ValueRange{origOp.getInput(), padData},
+                                        Dims4D::Act::C);
+    auto newPermuteOp = VPU::NCEPermuteOp::create(
+            builder, origOp->getLoc(), origOp.getOutput().getType(), concat.getOutput(),
+            origOp.getExpandedChannelsAttr(), origOp.getDstElemTypeAttr(), origOp.getDstOrderAttr(),
+            origOp.getPpeAttr(), origOp.getMpeEngineAttr(), origOp.getMultiClusterStrategyAttr());
 
     origOp.replaceAllUsesWith(newPermuteOp.getOperation());
     origOp->erase();

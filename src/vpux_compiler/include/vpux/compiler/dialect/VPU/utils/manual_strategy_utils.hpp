@@ -7,9 +7,11 @@
 
 #include "vpux/utils/core/string_ref.hpp"
 
+#include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
+#include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/Support/LLVM.h>
 
@@ -39,6 +41,8 @@ void collectAllComputeOps(mlir::func::FuncOp func, llvm::MapVector<mlir::Locatio
 /// in question and are then propagated along the pipeline to the FeasibleAllocation pass.
 /// Identifies the tiling region
 constexpr StringLiteral TILING_LOOP_INDEX_ATTR_NAME = "tiling_loop_index";
+/// Identifies the tile coordinate within a tiling region
+constexpr StringLiteral LOOP_TILE_COORD = "loop_tile_coord";
 /// Identifies the vertical fusion region
 constexpr StringLiteral VF_LOOP_INDEX_ATTR_NAME = "vf_loop_index";
 /// Identifies the tile index within vertical fusion region
@@ -68,16 +72,31 @@ public:
 };
 
 using TilingLoopIndexAttr = I64Attr;
+using TileCoordinateAttr = mlir::DictionaryAttr;
 using VFLoopIndexAttr = I64Attr;
 using VFLoopTileIndexAttr = I64Attr;
 
+/// Serializes tiled logical dimensions and their zero-based tile ordinals.
+/// `axes` is in ascending logical Dim order, independent of physical layout and unroll order.
+/// For a 4D [N, C, H, W] activation with tilingStrategy = [1, 4, 2, 1], `axes = [1, 2]` identifies
+/// the C and H axes. `indices = [2, 1]` identifies the third C tile and second H tile (zero-based).
+/// Channel-first unrolling emits [0, 0], [0, 1], [1, 0], ...;
+/// spatial-first unrolling emits [0, 0], [1, 0], [2, 0], ...; both retain `axes = [1, 2]`.
+/// For a 5D grouped activation [G, N, C, H, W] with tilingStrategy = [2, 1, 4, 1, 3],
+/// `axes = [0, 2, 4], indices = [1, 2, 1]` identifies the second G tile, third C tile, and second W tile.
+TileCoordinateAttr getTileCoordinateAttr(mlir::MLIRContext* context, const TileCoordinate& coordinate);
+
 struct LoopAttributes {
-    LoopAttributes(TilingLoopIndexAttr tilingLoopIndex, VFLoopIndexAttr vfLoopIndex,
+    LoopAttributes(TilingLoopIndexAttr tilingLoopIndex, TileCoordinateAttr loopTileCoord, VFLoopIndexAttr vfLoopIndex,
                    VFLoopTileIndexAttr vfLoopTileIndex)
-            : tilingLoopIndex(tilingLoopIndex), vfLoopIndex(vfLoopIndex), vfLoopTileIndex(vfLoopTileIndex) {
+            : tilingLoopIndex(tilingLoopIndex),
+              loopTileCoord(loopTileCoord),
+              vfLoopIndex(vfLoopIndex),
+              vfLoopTileIndex(vfLoopTileIndex) {
     }
 
     TilingLoopIndexAttr tilingLoopIndex;
+    TileCoordinateAttr loopTileCoord;
     VFLoopIndexAttr vfLoopIndex;
     VFLoopTileIndexAttr vfLoopTileIndex;
 };
@@ -85,5 +104,9 @@ struct LoopAttributes {
 LoopAttributes getLoopAttributes(mlir::Operation* op);
 /// Copies loop attributes from srcOp to dstOp.
 void copyLoopAttributes(mlir::Operation* srcOp, mlir::Operation* dstOp);
+/// Thread-safely returns a module-wide unused tiling loop index.
+int64_t getNextTilingLoopIndex(mlir::ModuleOp module);
+/// Thread-safely returns a module-wide unused VF loop index.
+int64_t getNextVFLoopIndex(mlir::ModuleOp module);
 
 }  // namespace vpux

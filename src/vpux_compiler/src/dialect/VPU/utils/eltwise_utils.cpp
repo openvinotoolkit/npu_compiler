@@ -8,7 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
-#include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/strategies.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
@@ -61,7 +61,9 @@ bool vpux::VPU::isNCEEltwiseSupported(mlir::Operation* op, vpux::NDTypeInterface
             logCb(formatv("Per-axis quantized eltwise is only supported for ADD, got '{0}'", op->getName()));
             return false;
         }
-        if (!VPU::MPEEngineConfig::useNewWeightTableFormat(op, /*isCompressConv=*/false)) {
+        if (!VPU::getVPUStrategyFactory(op->getContext())
+                     ->useNewWeightTableFormat(op,
+                                               /*isCompressConv=*/false)) {
             logCb(formatv("Per-axis quantized eltwise requires the new WT format"));
             return false;
         }

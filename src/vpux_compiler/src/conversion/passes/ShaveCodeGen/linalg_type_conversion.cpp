@@ -129,7 +129,7 @@ mlir::Value removePadding(mlir::Value operand, mlir::Value typeConvertedOperand,
         sizes[i] = rewriter.getIndexAttr(memUnpaddedShape.raw()[i]);
     }
 
-    return rewriter.create<mlir::tensor::ExtractSliceOp>(loc, typeConvertedOperand, offsets, sizes, strides);
+    return mlir::tensor::ExtractSliceOp::create(rewriter, loc, typeConvertedOperand, offsets, sizes, strides);
 }
 
 std::tuple<mlir::Value, mlir::Value> emitTensorSlice(mlir::Location loc, SmallVectorImpl<int64_t>& sliceShape,
@@ -140,14 +140,14 @@ std::tuple<mlir::Value, mlir::Value> emitTensorSlice(mlir::Location loc, SmallVe
     mlir::Value zero = nullptr;
 
     if (mlir::isa<mlir::FloatType>(outElemTy)) {
-        zero = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(outElemTy, 0.));
+        zero = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getFloatAttr(outElemTy, 0.));
     } else {
-        zero = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getIntegerAttr(outElemTy, 0));
+        zero = mlir::arith::ConstantOp::create(rewriter, loc, rewriter.getIntegerAttr(outElemTy, 0));
     }
 
-    auto outputEmptyTensor = rewriter.create<mlir::tensor::EmptyOp>(loc, allocType.getShape(), outElemTy).getResult();
+    auto outputEmptyTensor = mlir::tensor::EmptyOp::create(rewriter, loc, allocType.getShape(), outElemTy).getResult();
     auto fillOp =
-            rewriter.create<mlir::linalg::FillOp>(loc, mlir::ValueRange{zero}, mlir::ValueRange{outputEmptyTensor})
+            mlir::linalg::FillOp::create(rewriter, loc, mlir::ValueRange{zero}, mlir::ValueRange{outputEmptyTensor})
                     .result();
 
     SmallVector<mlir::OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
@@ -157,7 +157,7 @@ std::tuple<mlir::Value, mlir::Value> emitTensorSlice(mlir::Location loc, SmallVe
     }
     SmallVector<mlir::OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
 
-    auto extractOp = rewriter.create<mlir::tensor::ExtractSliceOp>(loc, fillOp, offsets, sizes, strides);
+    auto extractOp = mlir::tensor::ExtractSliceOp::create(rewriter, loc, fillOp, offsets, sizes, strides);
 
     return {extractOp, fillOp};
 }

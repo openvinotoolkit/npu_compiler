@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/permute_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
@@ -213,7 +214,22 @@ bool isSupportedOrdinaryPermuteCastType(VPUIP::PermuteCastOp op, vpux::NDTypeInt
         return false;
     }
 
-    const auto outputDistribution = outputDistType.getDistribution();
+    auto outputDistribution = outputDistType.getDistribution();
+    if (outputDistribution == expectedOutputDistribution.value()) {
+        return true;
+    }
+
+    // Legalize the output distribution in the same way as the input distribution in
+    // `applyPermutationOnDistributionInfoAttr`
+    auto outputDistributionNative = VPU::DistributionInfo::getClassFromAttr(outputDistribution);
+    if (VPU::isSegmentedLikeDistributionMode(outputNDType, outputDistributionNative)) {
+        auto legalizedOutputDistribution = VPU::legalizeCastedDistribution(outputDistributionNative);
+        if (mlir::succeeded(legalizedOutputDistribution)) {
+            outputDistribution =
+                    VPU::DistributionInfo::getAttrFromClass(op.getContext(), legalizedOutputDistribution.value());
+        }
+    }
+
     if (outputDistribution != expectedOutputDistribution.value()) {
         logCb(formatv("PermuteCast input and output distributions are incompatible: in = {0}, out = {1},"
                       "expected = {2}",

@@ -104,15 +104,15 @@ mlir::LogicalResult SwapTransposeWithFQ::TransposeOpConverter::matchAndRewrite(I
 
     const auto transposeIn = origOp.getInput();
     if (auto origQuantOp = transposeIn.getDefiningOp<IE::QuantizeOp>()) {
-        auto transposeOp = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"), origQuantOp.getInput(),
-                                                            nullptr, origOp.getOrderValueAttr());
+        auto transposeOp = IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_in"), origQuantOp.getInput(),
+                                                   nullptr, origOp.getOrderValueAttr());
 
         auto newOp = rewriter.replaceOpWithNewOp<IE::QuantizeOp>(origOp, transposeOp.getOutput(),
                                                                  origQuantOp.getDstElemType());
         extendOpLoc(newOp, "as_quant");
     } else if (auto origFqOp = transposeIn.getDefiningOp<IE::FakeQuantizeOp>()) {
-        auto transposeOp = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"), origFqOp.getInput(),
-                                                            nullptr, origOp.getOrderValueAttr());
+        auto transposeOp = IE::TransposeOp::create(rewriter, takeOpLoc(origOp, "transpose_in"), origFqOp.getInput(),
+                                                   nullptr, origOp.getOrderValueAttr());
 
         auto newOp = rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(
                 origOp, transposeOp.getOutput(), origFqOp.getInputLow(), origFqOp.getInputHigh(),

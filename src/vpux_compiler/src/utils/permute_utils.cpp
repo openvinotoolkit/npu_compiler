@@ -90,6 +90,33 @@ SmallVector<int64_t> vpux::getPermutateDims(MemShapeRef inShape, mlir::AffineMap
     return permutateDims;
 }
 
+// Check if a PermuteCast op can be safely moved before a Copy.
+// When in/out logical shapes are equal, verifies the reorder is trivial.
+// Otherwise, verifies in/out memory shapes are consistent (ignoring size-1 dims).
+bool vpux::isPermuteCastCompatible(NDTypeInterface inType, NDTypeInterface outType, const DimsOrder& dstOrder) {
+    const auto inShape = inType.getShape();
+    const auto outShape = outType.getShape();
+
+    if (inShape == outShape) {
+        // If op is non-trivial reorder, do not move this op
+        const auto inOrder = inType.getDimsOrder();
+        return isTrivialReorder(inOrder, dstOrder, inShape);
+    }
+
+    // Currently, VPUIP.PermuteCast can be converted from VPU.PermuteCast or VPU.LayoutCast.
+    // So, it needs to check if in and out MemShape are consistent.
+    auto inMemShape = inType.getMemShape();
+    auto outMemShape = outType.getMemShape();
+    const auto dimIsOne = [](int64_t dim) {
+        return dim == 1;
+    };
+    inMemShape.raw().erase(std::remove_if(inMemShape.raw().begin(), inMemShape.raw().end(), dimIsOne),
+                           inMemShape.raw().end());
+    outMemShape.raw().erase(std::remove_if(outMemShape.raw().begin(), outMemShape.raw().end(), dimIsOne),
+                            outMemShape.raw().end());
+    return inMemShape == outMemShape;
+}
+
 bool vpux::isTrivialReorder(const DimsOrder& inOrder, const DimsOrder& outOrder, ShapeRef shape) {
     auto inPerm = inOrder.toPermutation();
     auto outPerm = outOrder.toPermutation();

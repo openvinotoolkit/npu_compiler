@@ -49,12 +49,12 @@ module @demo attributes {config.compilationMode = #config.compilation_mode<HostC
 
 // Entry-block constants (C1, C0, C342) are materialised once and reused in all blocks.
 // C2 first appears in the loop body (the entry-block arith.constant 2 is dead and eliminated).
-// CHECK:         {{%.+}} = bytecode.virtual_general_register
-// CHECK:         [[C1:%.+]] = bytecode.virtual_general_register
+// CHECK:         {{%.+}} = bytecode.virtual_value_register
+// CHECK:         [[C1:%.+]] = bytecode.virtual_value_register
 // CHECK-NEXT:    bytecode.set_imm [[C1]], 1
-// CHECK:         [[C0:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[C0:%.+]] = bytecode.virtual_value_register
 // CHECK-NEXT:    bytecode.set_imm [[C0]], 0
-// CHECK:         [[C342:%.+]] = bytecode.virtual_general_register
+// CHECK:         [[C342:%.+]] = bytecode.virtual_value_register
 // CHECK-NEXT:    bytecode.set_imm [[C342]], 342
 
 // CHECK:       ^bb1:
@@ -63,7 +63,7 @@ module @demo attributes {config.compilationMode = #config.compilation_mode<HostC
 
 // C2 is first used in the loop body; C1 and C342 are reused from entry block (no new set_imm).
 // CHECK:       ^bb4:
-// CHECK-NEXT:    [[C2:%.+]] = bytecode.virtual_general_register
+// CHECK-NEXT:    [[C2:%.+]] = bytecode.virtual_value_register
 // CHECK-NEXT:    bytecode.set_imm [[C2]], 2
 // CHECK:         bytecode.mul.i64 {{%.+}}, {{%.+}}, [[C2]]
 // CHECK:         bytecode.add.i64 {{%.+}}, {{%.+}}, [[C1]]

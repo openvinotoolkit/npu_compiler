@@ -31,6 +31,7 @@
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Quant/IR/Quant.h>
+#include <mlir/Dialect/Quant/IR/QuantTypes.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/TensorEncoding.h>
 
@@ -69,6 +70,11 @@ IEAsmHooks::AliasResult IEAsmHooks::getAlias(mlir::Attribute attr, llvm::raw_ost
 }
 
 IEAsmHooks::AliasResult IEAsmHooks::getAlias(mlir::Type type, llvm::raw_ostream& os) const {
+    if (mlir::isa<mlir::quant::QuantileType>(type)) {
+        os << "quantileType";
+        return AliasResult::OverridableAlias;
+    }
+
     if (mlir::isa<mlir::quant::QuantizedType>(type)) {
         os << "qElemType";
         return AliasResult::OverridableAlias;
@@ -175,7 +181,7 @@ mlir::Operation* vpux::IE::IEDialect::materializeConstant(mlir::OpBuilder& build
         return nullptr;
     }
 
-    return builder.create<Const::DeclareOp>(loc, type, mlir::cast<Const::ContentAttr>(value));
+    return Const::DeclareOp::create(builder, loc, type, mlir::cast<Const::ContentAttr>(value));
 }
 
 //

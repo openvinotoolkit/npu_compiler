@@ -840,7 +840,7 @@ TEST_F(MLIR_EdgeCollector, NceWeightTableReadOperand_TreatedAsComputeBoundary) {
                 inputs(%weight_table_src : memref<16x1x1x4xsi32, @DDR>)
                 outputs(%weight_table_cmx : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
                 -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
-            %conv = VPUIP.NCEClusterTask {resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>} <{
+            %conv = VPUIP.NCEClusterTask <{resultSegmentSizes = array<i32: 1, 0, 0, 0, 0, 0>,
                     kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                     kernel_size = [1, 1],
                     kernel_strides = [1, 1],

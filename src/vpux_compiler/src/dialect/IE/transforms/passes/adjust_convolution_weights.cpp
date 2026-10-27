@@ -233,7 +233,7 @@ mlir::LogicalResult AdjustConvWeights::matchAndRewrite(IE::ExpandOp expandOp, ml
         return mlir::failure();
     }
 
-    auto newConcatOp = rewriter.create<IE::ConcatOp>(takeOpLoc(concatOp, "concat_in"), concatInputs, concatAxisVal);
+    auto newConcatOp = IE::ConcatOp::create(rewriter, takeOpLoc(concatOp, "concat_in"), concatInputs, concatAxisVal);
 
     auto paddedFilter = createNewWeights(convOp, convOp.getFilter(), getShape(expandOp.getInput())[Dims4D::Act::C],
                                          concatOp, rewriter);

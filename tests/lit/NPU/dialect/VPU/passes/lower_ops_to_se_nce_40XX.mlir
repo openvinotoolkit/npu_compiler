@@ -273,3 +273,46 @@ func.func @InterpolateBilinearAlignCornersWithLargeChannels(%input: tensor<1x144
     // CHECK:       return [[OUTPUT]]
 
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK: func.func @LowerPadOpWith32ICToNCE([[INPUT_DATA:%.+]]: tensor<1x32x262x262xf16, {order = #NHWC}>) -> tensor<1x32x264x264xf16, {order = #NHWC}> {
+func.func @LowerPadOpWith32ICToNCE(%input: tensor<1x32x262x262xf16, {order = #NHWC}>) -> tensor<1x32x264x264xf16, {order = #NHWC}> {
+    %0 = VPU.Pad(%input) {
+            mode = #IE.pad_mode<REFLECT>,
+            pad_value_attr = 0.000000e+00 : f64,
+            pads_begin_attr = [0, 0, 1, 1],
+            pads_end_attr = [0, 0, 1, 1]
+        } : tensor<1x32x262x262xf16, {order = #NHWC}> -> tensor<1x32x264x264xf16, {order = #NHWC}>
+
+    return %0 : tensor<1x32x264x264xf16, {order = #NHWC}>
+
+    // CHECK-NOT:   VPU.Pad
+
+    // CHECK:       [[INPUT_SE:%.+]] = VPU.StorageElementTable {dataElemType = f16, dataShape = [1, 32, 262, 262],
+    // CHECK-SAME:          seAttr = #VPU.SEPadding<mode = <REFLECT>, padding = [1, 1, 1, 1]>,
+    // CHECK-SAME:          seDepth = 1 : i64, seSize = [32]
+    // CHECK-SAME:      } -> tensor<1x1x264x264xi32, {order = #NHWC}>
+    // CHECK:       [[INPUT_SM:%.+]] = const.Declare tensor<1x32x264x264xi1, {order = #NHWC}> =
+    // CHECK-SAME:      dense<1> : tensor<1x32x264x264xi8>, [#const.Reorder<#NHWC>, #const.CastElemType<i1>]
+    // CHECK:       [[INPUT_SPARSE:%.+]] = VPU.GroupSparseTensor([[INPUT_DATA]], [[INPUT_SM]], [[INPUT_SE]])
+    // CHECK-SAME:          seAttr = #VPU.SEPadding<mode = <REFLECT>, padding = [1, 1, 1, 1]>
+    // CHECK-SAME:      } -> !VPU.SparseTensor<data=tensor<1x32x262x262xf16, {order = #NHWC}>,
+    // CHECK-SAME:                         sparsity_map=tensor<1x32x264x264xi1, {order = #NHWC}>,
+    // CHECK-SAME:                         storage_element_table=tensor<1x1x264x264xi32, {order = #NHWC}>,
+    // CHECK-SAME:                         #VPU.SEPadding<mode = <REFLECT>, padding = [1, 1, 1, 1]>
+
+    // CHECK-DAG:   [[WEIGHTS:%.+]] = const.Declare tensor<32x32x1x1xf16, {order = #NHWC}> =
+    // CHECK-SAME:      : tensor<32x32x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    // CHECK-DAG:   [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<32x1x1x4xsi32>
+
+    // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) rawFilterShape [32, 32, 1, 1] {
+    // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    // CHECK-SAME:      strides = [1, 1]
+    // CHECK-SAME:  }
+    // CHECK-SAME:  -> tensor<1x32x264x264xf16, {order = #NHWC}>
+
+    // CHECK:       return [[OUTPUT]] : tensor<1x32x264x264xf16, {order = #NHWC}>
+}

@@ -669,9 +669,9 @@ static TilingInfo getGlobalTileInfo(VPU::GenericSwLayerOp op, SmallVector<int64_
                         ->getParentOfType<mlir::ModuleOp>()
                         .lookupSymbol<mlir::func::FuncOp>(kernelInfo.getTilingInfoFunc());
     assert(func && "GenericSwLayerOp: cannot find tilingInfoFunc referenced in KernelInfo");
-    VPUX_THROW_UNLESS(!func.getBody().empty(),
-                      "GenericSwLayerOp: tilingInfoFunc '{0}' has no body; cannot evaluate tiling",
-                      kernelInfo.getTilingInfoFunc());
+    VPUX_THROW_WHEN(func.getBody().empty(),
+                    "GenericSwLayerOp: tilingInfoFunc '{0}' has no body; cannot evaluate tiling",
+                    kernelInfo.getTilingInfoFunc());
     auto terminator = mlir::dyn_cast<mlir::func::ReturnOp>(func.getBody().front().getTerminator());
     VPUX_THROW_UNLESS(terminator, "GenericSwLayerOp: tilingInfoFunc '{0}' entry block does not end with func.return",
                       kernelInfo.getTilingInfoFunc());
@@ -696,7 +696,7 @@ static TilingInfo getGlobalTileInfo(VPU::GenericSwLayerOp op, SmallVector<int64_
             return;
         }
         auto processor = registry->getProcessor(op);
-        VPUX_THROW_UNLESS(processor != nullptr, "No dialect processor registered for operation '{0}'", op->getName());
+        VPUX_THROW_WHEN(processor == nullptr, "No dialect processor registered for operation '{0}'", op->getName());
         if (!processor->processOperation(op, valueMap)) {
             VPUX_THROW("Dialect processor '{0}' failed to process operation '{1}'", processor->getDialectName(),
                        op->getName());
@@ -729,10 +729,10 @@ static TilingInfo getGlobalTileInfo(VPU::GenericSwLayerOp op, SmallVector<int64_
         SmallVector<int64_t, 4> axis;
         const auto getMappedValueOrThrow = [&](mlir::Value key, llvm::StringRef kind, int64_t dimIdx) -> int64_t {
             const auto it = valueMap.find(key);
-            VPUX_THROW_UNLESS(it != valueMap.end(),
-                              "Missing {0} value for GenericSwLayerOp tiling at operand {1}, dim {2}. "
-                              "The dialect processor did not produce a required mapping",
-                              kind, operand.index(), dimIdx);
+            VPUX_THROW_WHEN(it == valueMap.end(),
+                            "Missing {0} value for GenericSwLayerOp tiling at operand {1}, dim {2}. "
+                            "The dialect processor did not produce a required mapping",
+                            kind, operand.index(), dimIdx);
             return it->second;
         };
         for (int64_t i = 0; i < rank; ++i) {

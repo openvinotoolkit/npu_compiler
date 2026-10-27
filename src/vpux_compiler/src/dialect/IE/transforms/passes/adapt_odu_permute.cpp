@@ -129,8 +129,8 @@ mlir::LogicalResult AdaptODUPermuteRewriter::matchAndRewrite(IE::LayerWithPermut
 
         auto denseAttr = mlir::DenseElementsAttr::get(newOutputShapeType, apVals);
         Const::ContentAttr newOutputShapeContentAttr = Const::ContentAttr::get(denseAttr);
-        auto newOutputShapeOp = rewriter.create<Const::DeclareOp>(transConvOp.getLoc(), newOutputShapeType,
-                                                                  std::move(newOutputShapeContentAttr));
+        auto newOutputShapeOp = Const::DeclareOp::create(rewriter, transConvOp.getLoc(), newOutputShapeType,
+                                                         std::move(newOutputShapeContentAttr));
         return newOutputShapeOp.getOutput();
     };
 

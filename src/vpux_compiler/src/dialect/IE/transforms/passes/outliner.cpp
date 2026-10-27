@@ -89,7 +89,7 @@ private:
             const auto funcType = mlir::FunctionType::get(ctx, ArrayRef(funcsInfo[targetIdx][sliceIdx].inputTypes),
                                                           ArrayRef(funcsInfo[targetIdx][sliceIdx].outputTypes));
             const auto funcLoc = appendLoc(netFunc.getLoc(), "{0}{1}", _prefix, targetIdx + 1);
-            auto func = builder.create<mlir::func::FuncOp>(funcLoc, funcsInfo[targetIdx][sliceIdx].funcName, funcType);
+            auto func = mlir::func::FuncOp::create(builder, funcLoc, funcsInfo[targetIdx][sliceIdx].funcName, funcType);
             func.setNested();
 
             OpBuilderLogger builderLog(getLogger().nest());
@@ -144,7 +144,7 @@ private:
                 funcOutputFromSlices.push_back(oldToNewMap[output]);
             }
             const auto returnLoc = appendLoc(netFunc.getLoc(), "{0}{1}_return", _prefix, targetIdx + 1);
-            builder.create<mlir::func::ReturnOp>(returnLoc, funcOutputFromSlices);
+            mlir::func::ReturnOp::create(builder, returnLoc, funcOutputFromSlices);
         }
     }
 
@@ -178,8 +178,8 @@ private:
                 }
 
                 const auto callLoc = appendLoc(netFunc.getLoc(), "{0}_{1}_call_{2}", _prefix, targetIdx + 1, sliceIdx);
-                auto newCall = builder.create<mlir::func::CallOp>(callLoc, funcsInfo[targetIdx].front().funcName,
-                                                                  funcsInfo[targetIdx].front().outputTypes, newInputs);
+                auto newCall = mlir::func::CallOp::create(builder, callLoc, funcsInfo[targetIdx].front().funcName,
+                                                          funcsInfo[targetIdx].front().outputTypes, newInputs);
                 for (const auto& res : newCall.getResults()) {
                     size_t idx = res.getResultNumber();
                     oldToNewArgMap[slice.outputs[idx]] = res;
@@ -238,7 +238,7 @@ private:
             const auto funcLoc = appendLoc(netFunc.getLoc(), "fn{0}_block{1}", targetIdx + 1, sliceIdx + 1);
             const auto funcType = mlir::FunctionType::get(ctx, ArrayRef(funcsInfo[targetIdx][sliceIdx].inputTypes),
                                                           ArrayRef(funcsInfo[targetIdx][sliceIdx].outputTypes));
-            auto func = builder.create<mlir::func::FuncOp>(funcLoc, funcsInfo[targetIdx][sliceIdx].funcName, funcType);
+            auto func = mlir::func::FuncOp::create(builder, funcLoc, funcsInfo[targetIdx][sliceIdx].funcName, funcType);
             func.setNested();
 
             OpBuilderLogger builderLog(getLogger().nest());
@@ -266,7 +266,7 @@ private:
                 funcOutputFromSlices.push_back(oldToNewMap[output]);
             }
             const auto returnLoc = appendLoc(netFunc.getLoc(), "fn_{0}_block_{1}_return", targetIdx + 1, sliceIdx + 1);
-            builder.create<mlir::func::ReturnOp>(returnLoc, funcOutputFromSlices);
+            mlir::func::ReturnOp::create(builder, returnLoc, funcOutputFromSlices);
         }
     }
 
@@ -300,9 +300,8 @@ private:
                 }
 
                 const auto callLoc = appendLoc(netFunc.getLoc(), "fn_{0}_call_{1}", targetIdx + 1, sliceIdx);
-                auto newCall =
-                        builder.create<mlir::func::CallOp>(callLoc, funcsInfo[targetIdx][sliceIdx].funcName,
-                                                           funcsInfo[targetIdx][sliceIdx].outputTypes, newInputs);
+                auto newCall = mlir::func::CallOp::create(builder, callLoc, funcsInfo[targetIdx][sliceIdx].funcName,
+                                                          funcsInfo[targetIdx][sliceIdx].outputTypes, newInputs);
                 for (const auto& res : newCall.getResults()) {
                     size_t idx = res.getResultNumber();
                     oldToNewArgMap[slice.outputs[idx]] = res;

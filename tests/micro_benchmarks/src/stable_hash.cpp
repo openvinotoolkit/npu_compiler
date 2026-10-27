@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/utils/stable_hash.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/dialect/const/attr_interfaces.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
@@ -40,7 +40,7 @@ mlir::Type getSomeQuantilePerAxisType(mlir::MLIRContext* ctx) {
     std::vector<int64_t> zeroPoints(100, 127);
     zeroPoints[13] = 130;
     const auto newQuantileStorage =
-            vpux::type::QuantileType::get(ctx, vpux::getUInt8Type(ctx), mlir::Float32Type::get(ctx), quantiles);
+            mlir::quant::QuantileType::get(ctx, vpux::getUInt8Type(ctx), mlir::Float32Type::get(ctx), quantiles);
     return mlir::quant::UniformQuantizedPerAxisType::get(0, newQuantileStorage, mlir::Float32Type::get(ctx), scales,
                                                          zeroPoints, 0, 0, 255);
 }

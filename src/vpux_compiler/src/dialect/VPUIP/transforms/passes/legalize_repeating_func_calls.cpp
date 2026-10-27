@@ -216,7 +216,7 @@ private:
         const auto type = mlir::dyn_cast<mlir::MemRefType>(funcOp.getArgument(i).getType());
         VPUX_THROW_WHEN(type == nullptr, "Function {0} has non-memref type argument at index {1}",
                         funcOp.getOperationName(), i);
-        return _builder.create<mlir::memref::AllocOp>(loc, type).getResult();
+        return mlir::memref::AllocOp::create(_builder, loc, type).getResult();
     }
 
     /// Populates internal structure that keeps a mapping from a call-site
@@ -340,7 +340,7 @@ private:
         _builder.setInsertionPoint(callOp);
         auto loc = appendLoc(callOp.getLoc(), "repeating_call_input");
 
-        auto copy = _builder.create<VPUIP::CopyOp>(loc, src, dst).getResult();
+        auto copy = VPUIP::CopyOp::create(_builder, loc, src, dst).getResult();
         src.replaceUsesWithIf(copy, [&](mlir::OpOperand& use) {
             return isCurrentCallSite(callOp, use) && use.getOperandNumber() == inputIndex;
         });
@@ -366,7 +366,7 @@ private:
         // is always an allocation (not a result of some other operation) -
         // important for in-place functions.
         const auto srcRoot = getRootForChangedOperand(src);
-        auto copy = _builder.create<VPUIP::CopyOp>(loc, result, srcRoot).getResult();
+        auto copy = VPUIP::CopyOp::create(_builder, loc, result, srcRoot).getResult();
         result.replaceUsesWithIf(copy, [&](mlir::OpOperand& use) {
             const bool currentCopy = use.getOwner() == copy.getDefiningOp();
 

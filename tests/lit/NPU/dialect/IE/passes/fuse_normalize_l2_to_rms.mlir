@@ -22,6 +22,22 @@ func.func @FuseNormalizeL2PlusMultiplyToRMS(%arg0: tensor<1x1x3072xf32>) -> tens
 
 // -----
 
+// CHECK-LABEL: @FuseNormalizeL2PlusMultiplyToRMSWithMaxEpsMode
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x3072xf32>)
+func.func @FuseNormalizeL2PlusMultiplyToRMSWithMaxEpsMode(%arg0: tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32> {
+    %cst = const.Declare tensor<1x1x3072xf32> = dense<2.0> : tensor<1x1x3072xf32>
+    %0 = IE.NormalizeL2(%arg0) {axes_value = [2], eps = 1.000000e-05 : f64, eps_mode = #IE.eps_mode<MAX>} : tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
+    %1 = IE.Multiply(%0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x3072xf32>, tensor<1x1x3072xf32> -> tensor<1x1x3072xf32>
+    return %1 : tensor<1x1x3072xf32>
+
+    // CHECK-NOT: IE.NormalizeL2
+    // CHECK-DAG: [[GAMMA:%.+]] = const.Declare tensor<3072xf32>
+    // CHECK: [[RMS:%.+]] = IE.RMS([[ARG0]], [[GAMMA]]) {eps = {{.+}} : f64, eps_mode = #IE.eps_mode<MAX>} : tensor<1x1x3072xf32>, tensor<3072xf32> -> tensor<1x1x3072xf32>
+    // CHECK: return [[RMS]]
+}
+
+// -----
+
 // CHECK-LABEL: @FuseNormalizeL2PlusMultiplyToRMSWithNegativeAxis
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x3072xf32>)
 func.func @FuseNormalizeL2PlusMultiplyToRMSWithNegativeAxis(%arg0: tensor<1x1x3072xf32>) -> tensor<1x1x3072xf32> {

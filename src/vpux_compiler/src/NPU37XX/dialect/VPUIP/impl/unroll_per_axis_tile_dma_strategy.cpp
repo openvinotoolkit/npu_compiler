@@ -46,7 +46,7 @@ mlir::LogicalResult SingleClusterPerAxisTileDMARewriter::unroll(VPUIP::PerAxisTi
     auto ctx = getContext();
 
     auto vpurtTask = perAxisTileDMAOp->getParentOfType<VPURT::TaskOp>();
-    VPUX_THROW_UNLESS(vpurtTask != nullptr, "Can't get VPURT task operation");
+    VPUX_THROW_WHEN(vpurtTask == nullptr, "Can't get VPURT task operation");
     rewriter.setInsertionPointAfter(vpurtTask);
 
     auto inType = mlir::cast<vpux::NDTypeInterface>(perAxisTileDMAOp.getInput().getType());

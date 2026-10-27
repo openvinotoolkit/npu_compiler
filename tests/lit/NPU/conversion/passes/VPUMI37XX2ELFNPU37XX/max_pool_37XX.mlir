@@ -16,7 +16,7 @@ module @mainModule {
   } outputsInfo : {
     DataInfo "output_0" : tensor<1x64x9x8xf16>
   }
-  func.func nested @maxpool_f16_f16(%arg0: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x64x9x8xf16, {order = #NHWC}, @DDR>) -> memref<1x64x9x8xf16, {order = #NHWC}, @DDR> {
+  func.func @maxpool_f16_f16(%arg0: memref<1x64x16x16xf16, {order = #NHWC}, @DDR>, %arg1: memref<1x64x9x8xf16, {order = #NHWC}, @DDR>) -> memref<1x64x9x8xf16, {order = #NHWC}, @DDR> {
     %0 = VPURT.DeclareBuffer <CMX_NN> [0] <9216> -> memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %1 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x64x9x8xf16, {order = #NHWC}, [@CMX_NN, 0]>
     %2 = VPURT.DeclareBuffer <CMX_NN> [0] <9216> -> memref<1x64x16x16xf16, {order = #NHWC}, [@CMX_NN, 0]>
@@ -34,7 +34,7 @@ module @mainModule {
   }
 }
 
-// CHECK: func.func nested @maxpool_f16_f16
+// CHECK: func.func @maxpool_f16_f16
 
 // CHECK: [[VAL11:%.+]] = VPUMI37XX.DPUInvariant
 // CHECK: [[VAL12:%.+]] = "VPUMI37XX.DPUVariant"

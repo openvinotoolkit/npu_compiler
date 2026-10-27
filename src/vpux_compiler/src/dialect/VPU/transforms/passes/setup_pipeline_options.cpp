@@ -79,7 +79,7 @@ void SetupPipelineOptionsPass::safeRunOnModule() {
 
     auto optionsBuilder = mlir::OpBuilder::atBlockBegin(moduleOp.getBody());
     auto pipelineOptionsOp =
-            optionsBuilder.create<config::PipelineOptionsOp>(mlir::UnknownLoc::get(&ctx), config::PIPELINE_OPTIONS);
+            config::PipelineOptionsOp::create(optionsBuilder, mlir::UnknownLoc::get(&ctx), config::PIPELINE_OPTIONS);
     pipelineOptionsOp.getOptions().emplaceBlock();
 }
 

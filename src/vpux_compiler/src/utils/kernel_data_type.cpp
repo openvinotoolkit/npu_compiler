@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/utils/kernel_data_type.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
+#include "vpux/compiler/core/types/quantile_types/types.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 
 #include <mlir/Dialect/Quant/IR/QuantTypes.h>
@@ -12,7 +12,7 @@
 namespace vpux {
 
 sw_params::DataType getDataTypeFromMlirType(mlir::Type type) {
-    if (auto quantileType = mlir::dyn_cast<vpux::type::QuantileType>(type)) {
+    if (auto quantileType = mlir::dyn_cast<mlir::quant::QuantileType>(type)) {
         if (quantileType.getStorageWidth() == 4 &&
             (quantileType.getQuantiles() == vpux::type::NF4Type::getSpecQuantiles())) {
             return sw_params::DataType::NN_NF4;
@@ -112,9 +112,9 @@ sw_params::DataType getDataTypeFromMlirType(mlir::Type type) {
     } else if (auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(type)) {
         const auto isSigned = qType.isSigned();
         auto storageType = qType.getStorageType();
-        auto isQuantileType = mlir::isa<vpux::type::QuantileType>(storageType);
+        auto isQuantileType = mlir::isa<mlir::quant::QuantileType>(storageType);
         // Unwrap QuantileType to get the actual integer storage type for bitwidth
-        if (const auto quantileStorageType = mlir::dyn_cast<vpux::type::QuantileType>(storageType)) {
+        if (const auto quantileStorageType = mlir::dyn_cast<mlir::quant::QuantileType>(storageType)) {
             storageType = quantileStorageType.getStorageType();
         }
         auto bitWidth = storageType.getIntOrFloatBitWidth();

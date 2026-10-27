@@ -75,7 +75,7 @@ mlir::LogicalResult MinMaxConverter<ConcreteOp>::matchAndRewrite(ConcreteOp orig
         static_assert(always_false<ConcreteOp>, "Unsupported operation");
     }
 
-    auto newClampOp = rewriter.create<IE::ClampOp>(origOp->getLoc(), nonScalarOperand, clampMin, clampMax);
+    auto newClampOp = IE::ClampOp::create(rewriter, origOp->getLoc(), nonScalarOperand, clampMin, clampMax);
     rewriter.replaceOp(origOp, newClampOp.getOutput());
 
     return mlir::success();

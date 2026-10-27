@@ -92,8 +92,7 @@ TEST_P(MaxMinLayerTestCommon, NPU5010_SW) {
     run(Platform::NPU5010);
 }
 
-// Tracking number [E#197711]
-TEST_P(MaxMinLayerTestDynamic, DISABLED_NPU5010_SW) {
+TEST_P(MaxMinLayerTestDynamic, NPU5010_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU5010);
 }

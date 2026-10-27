@@ -47,9 +47,9 @@ mlir::Value alignInputChannels(mlir::PatternRewriter& rewriter, mlir::Location l
     auto padBegin = mlir::SmallVector<int64_t>(inputShape.size(), 0);
     auto padEnd = mlir::SmallVector<int64_t>(inputShape.size(), 0);
     padEnd[vpux::Dims4D::Act::C.ind()] = alignedInputC - inputShape[Dims4D::Act::C.ind()];
-    auto inputExpandOp = rewriter.create<IE::ExpandOp>(appendLoc(loc, "expand"), input,
-                                                       getIntArrayAttr(rewriter, ArrayRef(padBegin)),
-                                                       getIntArrayAttr(rewriter, ArrayRef(padEnd)));
+    auto inputExpandOp = IE::ExpandOp::create(rewriter, appendLoc(loc, "expand"), input,
+                                              getIntArrayAttr(rewriter, ArrayRef(padBegin)),
+                                              getIntArrayAttr(rewriter, ArrayRef(padEnd)));
     return inputExpandOp.getOutput();
 }
 
@@ -83,9 +83,10 @@ mlir::Value createGenericGroupConv(mlir::PatternRewriter& rewriter, mlir::Locati
 
     auto weights = createGroupConvWeightsForBilinearInterp(rewriter, loc, input, bilinearCoeffs, index, weightShape,
                                                            outputSize);
-    auto groupConvOp = rewriter.create<IE::GroupConvolutionOp>(
-            loc, input, weights, /*bias=*/nullptr, stridesAttr, padBeginAttr, padEndAttr, dilationsAttr, groupAttr,
-            /*post_opAttr=*/nullptr, /*clampAttr*/ nullptr, /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
+    auto groupConvOp = IE::GroupConvolutionOp::create(rewriter, loc, input, weights, /*bias=*/nullptr, stridesAttr,
+                                                      padBeginAttr, padEndAttr, dilationsAttr, groupAttr,
+                                                      /*post_opAttr=*/nullptr, /*clampAttr*/ nullptr,
+                                                      /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
     auto oldOutType = mlir::cast<vpux::NDTypeInterface>(groupConvOp.getOutput().getType());
     VPUX_THROW_WHEN(oldOutType == nullptr, "Expected NDTypeInterface");
     auto newOutType = oldOutType.changeElemType(outType.getElementType());
@@ -128,9 +129,10 @@ mlir::Value IE::MapBilinearInterpolateOnDPUBaseRewriter::createIdentityPooling(m
     const SmallVector<int64_t> pads = {0, 0};
     const auto padsAttr = getIntArrayAttr(rewriter, pads);
 
-    auto avgPoolOp = rewriter.create<IE::AvgPoolOp>(
-            loc, input, nullptr, getIntArrayAttr(rewriter, poolKernels), getIntArrayAttr(rewriter, poolStrides),
-            padsAttr, padsAttr, vpux::IE::RoundingTypeAttr::get(rewriter.getContext(), vpux::IE::RoundingType::FLOOR),
+    auto avgPoolOp = IE::AvgPoolOp::create(
+            rewriter, loc, input, nullptr, getIntArrayAttr(rewriter, poolKernels),
+            getIntArrayAttr(rewriter, poolStrides), padsAttr, padsAttr,
+            vpux::IE::RoundingTypeAttr::get(rewriter.getContext(), vpux::IE::RoundingType::FLOOR),
             mlir::UnitAttr::get(rewriter.getContext()), nullptr, nullptr, nullptr, nullptr, nullptr);
     auto oldOutType = mlir::cast<vpux::NDTypeInterface>(avgPoolOp.getOutput().getType());
     VPUX_THROW_WHEN(oldOutType == nullptr, "Expected NDTypeInterface");
@@ -206,8 +208,8 @@ mlir::Value IE::MapBilinearInterpolateOnDPUBaseRewriter::scaleOnAxis(mlir::Patte
         // Create Slice op with first line/column
         auto newLoc = appendLoc(loc, "begin_{0}_{1}", staticOffsets, staticSizes);
         auto beginSliceOp =
-                rewriter.create<IE::SliceOp>(newLoc, input, getIntArrayAttr(rewriter, ArrayRef(staticOffsets)),
-                                             getIntArrayAttr(rewriter, ArrayRef(staticSizes)));
+                IE::SliceOp::create(rewriter, newLoc, input, getIntArrayAttr(rewriter, ArrayRef(staticOffsets)),
+                                    getIntArrayAttr(rewriter, ArrayRef(staticSizes)));
         while (outputSliceIndex < checked_cast<size_t>(outputSize) && allInputSlicesOffsets[outputSliceIndex] < 0) {
             // In order to benefit from some further optimizations it is needed that all the concat inputs to be NCE
             // operations. So some identity pooling operations are artificially inserted in order to make this
@@ -234,8 +236,8 @@ mlir::Value IE::MapBilinearInterpolateOnDPUBaseRewriter::scaleOnAxis(mlir::Patte
         // Create Slice op with two consecutive lines/columns
         auto newLoc = appendLoc(loc, "middle_{0}_{1}", staticOffsets, staticSizes);
         auto middleSliceOp =
-                rewriter.create<IE::SliceOp>(newLoc, input, getIntArrayAttr(rewriter, ArrayRef(staticOffsets)),
-                                             getIntArrayAttr(rewriter, ArrayRef(staticSizes)));
+                IE::SliceOp::create(rewriter, newLoc, input, getIntArrayAttr(rewriter, ArrayRef(staticOffsets)),
+                                    getIntArrayAttr(rewriter, ArrayRef(staticSizes)));
         const auto currentOffset = allInputSlicesOffsets[outputSliceIndex];
         // Create all GroupConv that uses the uses the current slice
         while (outputSliceIndex < checked_cast<size_t>(outputSize) &&
@@ -261,8 +263,8 @@ mlir::Value IE::MapBilinearInterpolateOnDPUBaseRewriter::scaleOnAxis(mlir::Patte
         // Create Slice op with last line/column
         auto newLoc = appendLoc(loc, "end_{0}_{1}", staticOffsets, staticSizes);
         auto endSliceOp =
-                rewriter.create<IE::SliceOp>(newLoc, input, getIntArrayAttr(rewriter, ArrayRef(staticOffsets)),
-                                             getIntArrayAttr(rewriter, ArrayRef(staticSizes)));
+                IE::SliceOp::create(rewriter, newLoc, input, getIntArrayAttr(rewriter, ArrayRef(staticOffsets)),
+                                    getIntArrayAttr(rewriter, ArrayRef(staticSizes)));
         while (outputSliceIndex < checked_cast<size_t>(outputSize)) {
             // In order to benefit from some further optimizations implemented for Concat->Slice optimizations
             // it is needed that all the concat inputs to be NCE operations
@@ -277,7 +279,7 @@ mlir::Value IE::MapBilinearInterpolateOnDPUBaseRewriter::scaleOnAxis(mlir::Patte
     //
     // Final Concat of all operations that do the scale
     //
-    auto outputConcatOp = rewriter.create<IE::ConcatOp>(appendLoc(loc, "output_concat"), gatheredConcatInputs, axis);
+    auto outputConcatOp = IE::ConcatOp::create(rewriter, appendLoc(loc, "output_concat"), gatheredConcatInputs, axis);
     return outputConcatOp.getOutput();
 }
 

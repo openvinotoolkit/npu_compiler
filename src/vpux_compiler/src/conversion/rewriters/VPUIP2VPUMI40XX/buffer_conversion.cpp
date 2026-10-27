@@ -29,10 +29,10 @@ mlir::Value convertITIBuffer(mlir::OpBuilder builder, mlir::Value buffer) {
     auto memType = mlir::MemRefType::get(itiBufferType.getShape().raw(), itiBufferType.getElementType(),
                                          itiBufferType.getLayout(), memSpace);
     if (swizzlingKey.has_value()) {
-        res = builder.create<VPURT::DeclareBufferOp>(buffer.getLoc(), memType, buffSec, tileIndex, byteOffset,
-                                                     swizzlingKey.value());
+        res = VPURT::DeclareBufferOp::create(builder, buffer.getLoc(), memType, buffSec, tileIndex, byteOffset,
+                                             swizzlingKey.value());
     } else {
-        res = builder.create<VPURT::DeclareBufferOp>(buffer.getLoc(), memType, buffSec, tileIndex, byteOffset);
+        res = VPURT::DeclareBufferOp::create(builder, buffer.getLoc(), memType, buffSec, tileIndex, byteOffset);
     }
 
     return res.getResult();
@@ -80,10 +80,10 @@ mlir::Value extractFromDistributedBuffer(mlir::OpBuilder builder, mlir::Value bu
         auto memType = mlir::cast<mlir::MemRefType>(
                 mlir::cast<vpux::NDTypeInterface>(compactType).changeMemSpace(newMemSpace));
         if (swizzlingKey.has_value()) {
-            res = builder.create<VPURT::DeclareBufferOp>(buffer.getLoc(), memType, buffSec, tileIndex, byteOffset,
-                                                         swizzlingKey.value());
+            res = VPURT::DeclareBufferOp::create(builder, buffer.getLoc(), memType, buffSec, tileIndex, byteOffset,
+                                                 swizzlingKey.value());
         } else {
-            res = builder.create<VPURT::DeclareBufferOp>(buffer.getLoc(), memType, buffSec, tileIndex, byteOffset);
+            res = VPURT::DeclareBufferOp::create(builder, buffer.getLoc(), memType, buffSec, tileIndex, byteOffset);
         }
 
         value = res.getResult();

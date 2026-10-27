@@ -38,12 +38,12 @@ module {
   // CHECK:      [[C1:%.+]] = bytecode.imm_register 1
   // CHECK:      [[C2:%.+]] = bytecode.imm_register 2
   // CHECK-NOT:  bytecode.imm_register -1
-  // CHECK:      [[DIM:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[DIM:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.buffer.get_dim [[DIM]], [[INPUT]], [[C1]]
-  // CHECK:      [[DIV:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[DIV:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.div.i64 [[DIV]], [[DIM]], [[C2]]
   // CHECK-NOT:  bytecode.mul.i64
-  // CHECK:      [[SUB:%.+]] = bytecode.virtual_general_register
+  // CHECK:      [[SUB:%.+]] = bytecode.virtual_value_register
   // CHECK:      bytecode.sub.i64 [[SUB]], [[C2]], [[DIV]]
   // CHECK:      bytecode.buffer.store [[SHAPE]], [[SUB]]
   // CHECK:      bytecode.retv
@@ -66,8 +66,8 @@ module {
 // CHECK:      [[PARAM1:%.+]] = bytecode.virtual_parameter_register 1
 // CHECK-NOT:  bytecode.set_imm {{.+}}, -1
 // CHECK-NOT:  bytecode.mul.i64
-// CHECK:      [[SUB0:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[SUB0:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.sub.i64 [[SUB0]], [[PARAM1]], [[PARAM0]]
-// CHECK:      [[SUB1:%.+]] = bytecode.virtual_general_register
+// CHECK:      [[SUB1:%.+]] = bytecode.virtual_value_register
 // CHECK:      bytecode.sub.i64 [[SUB1]], [[PARAM0]], [[PARAM1]]
 // CHECK:      bytecode.retv

@@ -238,7 +238,7 @@ mlir::LogicalResult EliminateCopyPairs::matchAndRewrite(VPU::CopyOp origOp, mlir
         }
 
         const auto distributedCastOp =
-                rewriter.create<VPU::DistributedCastOp>(origOp.getLoc(), output.getType(), producerInput);
+                VPU::DistributedCastOp::create(rewriter, origOp.getLoc(), output.getType(), producerInput);
 
         rewriter.replaceOp(origOp, distributedCastOp->getResult(0));
         return mlir::success();

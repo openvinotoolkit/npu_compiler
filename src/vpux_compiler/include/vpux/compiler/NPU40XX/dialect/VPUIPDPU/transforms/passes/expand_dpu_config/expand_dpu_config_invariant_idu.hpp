@@ -85,7 +85,7 @@ PPETask evalPPETasks(mlir::Region& ppeRegion, std::optional<VPUIP::NCETaskType> 
 mlir::LogicalResult configureIDU(const Logger& log, IDUConfig& config, const vpux::NDTypeInterface& inActType,
                                  mlir::Type weightsElementType, VPUIP::NCETaskType taskType,
                                  std::optional<int64_t> spPattern, std::optional<bool> inChannelsCompression,
-                                 std::optional<bool> smallKernelOptimization, bool inActSparse, bool weightsSparse,
+                                 bool smallKernelOptimization, bool inActSparse, bool weightsSparse,
                                  std::optional<mlir::ArrayAttr> kernelSize,
                                  std::optional<mlir::ArrayAttr> kernelStrides, std::optional<int64_t> seSize,
                                  const PPETask& ppeTask);
@@ -98,7 +98,7 @@ mlir::LogicalResult configureEltwiseCfg(const Logger& log, IDUConfig::EltWiseCfg
                                         config::ArchKind arch);
 
 mlir::LogicalResult configureDepthWiseCfg(const Logger& log, IDUConfig::DepthWiseCfg& config,
-                                          VPUIP::NCETaskType taskType, std::optional<bool> smallKernelOptimization);
+                                          VPUIP::NCETaskType taskType, bool smallKernelOptimization);
 
 mlir::LogicalResult configureWorkload(const Logger& log, IDUConfig::WorkloadCfg& config, VPUIP::NCETaskType taskType,
                                       int64_t kernelX, int64_t kernelY);

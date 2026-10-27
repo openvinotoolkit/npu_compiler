@@ -74,19 +74,6 @@ Example:
         </filters>
     </skip_config>
 
-    <!-- E#170866 -->
-    <skip_config>
-        <message>LSTM Sequence accuracy fails</message>
-        <enable_rules>
-        </enable_rules>
-        <filters>
-            <filter>.*smoke_precommit_LSTMSequencePt/LSTMSequenceLayerTestCommon.*</filter>
-            <filter>.*smoke_precommit_LSTMSequencePtConst/LSTMSequenceLayerTestCommon.*</filter>
-            <filter>.*smoke_precommit_LSTMSequenceAccuracy/LSTMSequenceLayerTestCommon.*</filter>
-            <filter>.*smoke_precommit_LSTMSequenceCommonZeroClip/LSTMSequenceLayerTestCommon.*</filter>
-        </filters>
-    </skip_config>
-
     <!-- E#185858 -->
     <skip_config>
         <message>LSTM Sequence scenario with PARAM input 'sequence_lengths' should not be supported on this platform, because it is not decomposed into LSTMCells. This platform should support only decomposed cases.</message>
@@ -191,6 +178,14 @@ Example:
         <message>Interpreter does not support shape prediction.</message>
         <filters>
             <filter>.*interpreter_runtime/NPUVMRuntimeCAPITest.PredictShape.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#233527-->
+    <skip_config>
+        <message>Convolution compilation with single tile should be skipped for now</message>
+        <filters>
+            <filter>.*smoke_DynamicShapes/ConvolutionLayerTest_HostCompile_TileAgnostic.*</filter>
         </filters>
     </skip_config>
 

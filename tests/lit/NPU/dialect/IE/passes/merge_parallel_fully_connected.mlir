@@ -7,10 +7,9 @@
 // RUN: vpux-opt --split-input-file --init-compiler="platform=%platform%" --merge-parallel-fully-connected %s | FileCheck %s
 // REQUIRES: platform-NPU3720 || platform-NPU4000 || platform-NPU5010
 
-
-// CHECK-LABEL: @MergeParallelFCWithReshapeTransposeOrderInput
+// CHECK-LABEL: @NotMergeFQWeightsReshapeTransposeOrder
 // CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x6xf32>
-func.func @MergeParallelFCWithReshapeTransposeOrderInput(%arg0: tensor<1x6xf32>) -> (tensor<1x2xf32>, tensor<1x3xf32>) {
+func.func @NotMergeFQWeightsReshapeTransposeOrder(%arg0: tensor<1x6xf32>) -> (tensor<1x2xf32>, tensor<1x3xf32>) {
     %cst0_in = const.Declare tensor<2x3x2xf32> = dense<[[[1.0, 2.0], [1.0, 2.0], [2.0, 3.0]], [[3.0, 4.0], [1.0, 3.0], [2.0, 3.0]]]> : tensor<2x3x2xf32>
     %cst0_inlow = const.Declare tensor<1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1xf32>
     %cst0_inhigh = const.Declare tensor<1x1x1xf32> = dense<1.500000e+01> : tensor<1x1x1xf32>
@@ -37,37 +36,26 @@ func.func @MergeParallelFCWithReshapeTransposeOrderInput(%arg0: tensor<1x6xf32>)
 
     return  %3, %7 : tensor<1x2xf32>, tensor<1x3xf32>
 
-    // CHECK-DAG:   [[CST_INLOW:%.+]]  = const.Declare tensor<1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1xf32>
-    // CHECK-DAG:   [[CST_INHIGH:%.+]]  = const.Declare tensor<1x1x1xf32> = dense<1.500000e+01> : tensor<1x1x1xf32>
-    // CHECK-DAG:   [[CST_IN:%.+]]  = const.Declare tensor<2x3x5xf32>
-    // CHECK-SAME:      #const.Concat
-    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00, 3.000000e+00], [1.000000e+00, 2.000000e+00, 1.000000e+00], [2.000000e+00, 3.000000e+00, 2.000000e+00]], [[3.000000e+00, 4.000000e+00, 2.000000e+00], [1.000000e+00, 3.000000e+00, 2.000000e+00], [2.000000e+00, 3.000000e+00, 4.000000e+00]]]>
-    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00], [1.000000e+00, 2.000000e+00], [2.000000e+00, 3.000000e+00]], [[3.000000e+00, 4.000000e+00], [1.000000e+00, 3.000000e+00], [2.000000e+00, 3.000000e+00]]]>
-    // CHECK-DAG:   [[CST_OUTLOW:%.+]]  = const.Declare tensor<2x1x5xf32>
-    // CHECK-SAME:      #const.Concat
-    // CHECK-SAME{LITERAL}:      dense<[[[-1.000000e+00, -2.000000e+00, -3.000000e+00]], [[-3.000000e+00, -4.000000e+00, -1.000000e+00]]]>
-    // CHECK-SAME{LITERAL}:      dense<[[[-1.000000e+00, -2.000000e+00]], [[-3.000000e+00, -4.000000e+00]]]>
-    // CHECK-DAG:   [[CST_OUTHIGH:%.+]]  = const.Declare tensor<2x1x5xf32>
-    // CHECK-SAME:      #const.Concat
-    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00, 3.000000e+00]], [[3.000000e+00, 4.000000e+00, 1.000000e+00]]]>
-    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00]], [[3.000000e+00, 4.000000e+00]]]>
-    // CHECK-DAG:   [[FQ:%.+]]  = IE.FakeQuantize([[CST_IN:%.+]], [[CST_INLOW:%.+]], [[CST_INHIGH:%.+]], [[CST_OUTLOW:%.+]], [[CST_OUTHIGH:%.+]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<2x3x5xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<2x1x5xf32>, tensor<2x1x5xf32> -> tensor<2x3x5xf32>
-    // CHECK:       [[AFFINERESHAPE:%.+]]  = IE.AffineReshape([[FQ]])
-    // CHECK-SAME{LITERAL}:         {dim_mapping = [[0], [0], [1]], shape_value = [6, 5]} : tensor<2x3x5xf32> -> tensor<6x5xf32>
-    // CHECK:       [[TRANSPOSE:%.+]] = IE.Transpose([[AFFINERESHAPE]]) {order_value = #CN} : tensor<6x5xf32> -> tensor<5x6xf32>
-    // CHECK:       [[FULLYCONNECTED:%.+]] = IE.FullyConnected([[INPUT0]], [[TRANSPOSE]]) : tensor<1x6xf32>, tensor<5x6xf32> -> tensor<1x5xf32>
-    // CHECK:       [[SLICE0:%.+]] = IE.Slice [[FULLYCONNECTED]] [0, 0] [1, 3] : tensor<1x5xf32> to tensor<1x3xf32>
-    // CHECK:       [[SLICE1:%.+]] = IE.Slice [[FULLYCONNECTED]] [0, 3] [1, 2] : tensor<1x5xf32> to tensor<1x2xf32>
-    // CHECK:       return [[SLICE1]], [[SLICE0]]
+    // CHECK:       [[FQ0:%.+]] = IE.FakeQuantize([[CST0_IN:%.+]], [[CST0_INLOW:%.+]], [[CST0_INHIGH:%.+]], [[CST0_OUTLOW:%.+]], [[CST0_OUTHIGH:%.+]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<2x3x2xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<2x1x2xf32>, tensor<2x1x2xf32> -> tensor<2x3x2xf32>
+    // CHECK:       [[RESHAPE0:%.+]] = IE.AffineReshape([[FQ0]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [1]], shape_value = [6, 2]} : tensor<2x3x2xf32> -> tensor<6x2xf32>
+    // CHECK:       [[TRANSPOSE0:%.+]] = IE.Transpose([[RESHAPE0]]) {order_value = #CN} : tensor<6x2xf32> -> tensor<2x6xf32>
+    // CHECK:       [[FC0:%.+]] = IE.FullyConnected([[INPUT0]], [[TRANSPOSE0]]) : tensor<1x6xf32>, tensor<2x6xf32> -> tensor<1x2xf32>
+    // CHECK:       [[FQ1:%.+]] = IE.FakeQuantize([[CST1_IN:%.+]], [[CST1_INLOW:%.+]], [[CST1_INHIGH:%.+]], [[CST1_OUTLOW:%.+]], [[CST1_OUTHIGH:%.+]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<2x3x3xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<2x1x3xf32>, tensor<2x1x3xf32> -> tensor<2x3x3xf32>
+    // CHECK:       [[RESHAPE1:%.+]] = IE.AffineReshape([[FQ1]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [1]], shape_value = [6, 3]} : tensor<2x3x3xf32> -> tensor<6x3xf32>
+    // CHECK:       [[TRANSPOSE1:%.+]] = IE.Transpose([[RESHAPE1]]) {order_value = #CN} : tensor<6x3xf32> -> tensor<3x6xf32>
+    // CHECK:       [[FC1:%.+]] = IE.FullyConnected([[INPUT0]], [[TRANSPOSE1]]) : tensor<1x6xf32>, tensor<3x6xf32> -> tensor<1x3xf32>
+    // CHECK:       return [[FC0]], [[FC1]] : tensor<1x2xf32>, tensor<1x3xf32>
 }
 
 // -----
 
 #map = affine_map<(d0, d1, d2) -> (d2, d0, d1)>
 
-// CHECK-LABEL: @MergeParallelFCWithTransposeReshapeOrderInput
+// CHECK-LABEL: @NotMergeFQWeightsTransposeReshapeOrder
 // CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x6xf32>
-func.func @MergeParallelFCWithTransposeReshapeOrderInput(%arg0: tensor<1x6xf32>) -> (tensor<1x2xf32>, tensor<1x3xf32>) {
+func.func @NotMergeFQWeightsTransposeReshapeOrder(%arg0: tensor<1x6xf32>) -> (tensor<1x2xf32>, tensor<1x3xf32>) {
     %cst0_in = const.Declare tensor<2x3x2xf32> = dense<[[[1.0, 2.0], [1.0, 2.0], [2.0, 3.0]], [[3.0, 4.0], [1.0, 3.0], [2.0, 3.0]]]> : tensor<2x3x2xf32>
     %cst0_inlow = const.Declare tensor<1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1xf32>
     %cst0_inhigh = const.Declare tensor<1x1x1xf32> = dense<1.500000e+01> : tensor<1x1x1xf32>
@@ -94,28 +82,17 @@ func.func @MergeParallelFCWithTransposeReshapeOrderInput(%arg0: tensor<1x6xf32>)
 
     return  %3, %7 : tensor<1x2xf32>, tensor<1x3xf32>
 
-    // CHECK-DAG:   [[CST_INLOW:%.+]]  = const.Declare tensor<1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1xf32>
-    // CHECK-DAG:   [[CST_INHIGH:%.+]]  = const.Declare tensor<1x1x1xf32> = dense<1.500000e+01> : tensor<1x1x1xf32>
-    // CHECK-DAG:   [[CST_IN:%.+]]  = const.Declare tensor<2x3x5xf32>
-    // CHECK-SAME:      #const.Concat
-    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00, 3.000000e+00], [1.000000e+00, 2.000000e+00, 1.000000e+00], [2.000000e+00, 3.000000e+00, 2.000000e+00]], [[3.000000e+00, 4.000000e+00, 2.000000e+00], [1.000000e+00, 3.000000e+00, 2.000000e+00], [2.000000e+00, 3.000000e+00, 4.000000e+00]]]>
-    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00], [1.000000e+00, 2.000000e+00], [2.000000e+00, 3.000000e+00]], [[3.000000e+00, 4.000000e+00], [1.000000e+00, 3.000000e+00], [2.000000e+00, 3.000000e+00]]]>
-    // CHECK-DAG:   [[CST_OUTLOW:%.+]]  = const.Declare tensor<2x1x5xf32>
-    // CHECK-SAME:      #const.Concat
-    // CHECK-SAME{LITERAL}:      dense<[[[-1.000000e+00, -2.000000e+00, -3.000000e+00]], [[-3.000000e+00, -4.000000e+00, -1.000000e+00]]]>
-    // CHECK-SAME{LITERAL}:      dense<[[[-1.000000e+00, -2.000000e+00]], [[-3.000000e+00, -4.000000e+00]]]>
-    // CHECK-DAG:   [[CST_OUTHIGH:%.+]]  = const.Declare tensor<2x1x5xf32>
-    // CHECK-SAME:      #const.Concat
-    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00, 3.000000e+00]], [[3.000000e+00, 4.000000e+00, 1.000000e+00]]]>
-    // CHECK-SAME{LITERAL}:      dense<[[[1.000000e+00, 2.000000e+00]], [[3.000000e+00, 4.000000e+00]]]>
-    // CHECK-DAG:   [[FQ:%.+]]  = IE.FakeQuantize([[CST_IN:%.+]], [[CST_INLOW:%.+]], [[CST_INHIGH:%.+]], [[CST_OUTLOW:%.+]], [[CST_OUTHIGH:%.+]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<2x3x5xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<2x1x5xf32>, tensor<2x1x5xf32> -> tensor<2x3x5xf32>
-    // CHECK:       [[TRANSPOSE:%.+]] = IE.Transpose([[FQ]]) {order_value = #map} : tensor<2x3x5xf32> -> tensor<5x2x3xf32>
-    // CHECK:       [[AFFINERESHAPE:%.+]]  = IE.AffineReshape([[TRANSPOSE]])
-    // CHECK-SAME{LITERAL}:         {dim_mapping = [[0], [1], [1]], shape_value = [5, 6]} : tensor<5x2x3xf32> -> tensor<5x6xf32>
-    // CHECK:       [[FULLYCONNECTED:%.+]] = IE.FullyConnected([[INPUT0]], [[AFFINERESHAPE]]) : tensor<1x6xf32>, tensor<5x6xf32> -> tensor<1x5xf32>
-    // CHECK:       [[SLICE0:%.+]] = IE.Slice [[FULLYCONNECTED]] [0, 0] [1, 3] : tensor<1x5xf32> to tensor<1x3xf32>
-    // CHECK:       [[SLICE1:%.+]] = IE.Slice [[FULLYCONNECTED]] [0, 3] [1, 2] : tensor<1x5xf32> to tensor<1x2xf32>
-    // CHECK:       return [[SLICE1]], [[SLICE0]]
+        // CHECK:       [[FQ0:%.+]] = IE.FakeQuantize([[CST0_IN:%.+]], [[CST0_INLOW:%.+]], [[CST0_INHIGH:%.+]], [[CST0_OUTLOW:%.+]], [[CST0_OUTHIGH:%.+]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<2x3x2xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<2x1x2xf32>, tensor<2x1x2xf32> -> tensor<2x3x2xf32>
+        // CHECK:       [[TRANSPOSE0:%.+]] = IE.Transpose([[FQ0]]) {order_value = #map} : tensor<2x3x2xf32> -> tensor<2x2x3xf32>
+        // CHECK:       [[RESHAPE0:%.+]] = IE.AffineReshape([[TRANSPOSE0]])
+        // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [1]], shape_value = [2, 6]} : tensor<2x2x3xf32> -> tensor<2x6xf32>
+        // CHECK:       [[FC0:%.+]] = IE.FullyConnected([[INPUT0]], [[RESHAPE0]]) : tensor<1x6xf32>, tensor<2x6xf32> -> tensor<1x2xf32>
+        // CHECK:       [[FQ1:%.+]] = IE.FakeQuantize([[CST1_IN:%.+]], [[CST1_INLOW:%.+]], [[CST1_INHIGH:%.+]], [[CST1_OUTLOW:%.+]], [[CST1_OUTHIGH:%.+]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 16 : i64} : tensor<2x3x3xf32>, tensor<1x1x1xf32>, tensor<1x1x1xf32>, tensor<2x1x3xf32>, tensor<2x1x3xf32> -> tensor<2x3x3xf32>
+        // CHECK:       [[TRANSPOSE1:%.+]] = IE.Transpose([[FQ1]]) {order_value = #map} : tensor<2x3x3xf32> -> tensor<3x2x3xf32>
+        // CHECK:       [[RESHAPE1:%.+]] = IE.AffineReshape([[TRANSPOSE1]])
+        // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [1], [1]], shape_value = [3, 6]} : tensor<3x2x3xf32> -> tensor<3x6xf32>
+        // CHECK:       [[FC1:%.+]] = IE.FullyConnected([[INPUT0]], [[RESHAPE1]]) : tensor<1x6xf32>, tensor<3x6xf32> -> tensor<1x3xf32>
+        // CHECK:       return [[FC0]], [[FC1]] : tensor<1x2xf32>, tensor<1x3xf32>
 }
 
 // -----
@@ -335,8 +312,8 @@ func.func @MergeParallelFCWithDynamicDequantizeReshapeOrderInput(%input: tensor<
     %cst_2 = const.Declare tensor<3072x128x64x!qElemType> = dense<1> : tensor<3072x128x64xui2>, [#const.CastElemType<!qElemType>]
     %cst_3 = const.Declare tensor<3072x128x64x!qElemType> = dense<1> : tensor<3072x128x64xui2>, [#const.CastElemType<!qElemType>]
     %cst_4 = const.Declare tensor<3072x128x1xf16> = dense<1.0> : tensor<3072x128x1xf32>, [#const.CastElemType<f16>]
-    %0 = IE.DynamicDequantize(%cst_3, %cst_4) {dstElemType = f16} : tensor<3072x128x64x!qElemType>, tensor<3072x128x1xf16> -> tensor<3072x128x64xf16>
-    %1 = IE.DynamicDequantize(%cst_2, %cst) {dstElemType = f16} : tensor<3072x128x64x!qElemType>, tensor<3072x128x1xf16> -> tensor<3072x128x64xf16>
+        %0 = IE.DynamicDequantize(%cst_3, %cst_4) {dstElemType = f16, vpux.weights_import_dyn_dequant} : tensor<3072x128x64x!qElemType>, tensor<3072x128x1xf16> -> tensor<3072x128x64xf16>
+        %1 = IE.DynamicDequantize(%cst_2, %cst) {dstElemType = f16, vpux.weights_import_dyn_dequant} : tensor<3072x128x64x!qElemType>, tensor<3072x128x1xf16> -> tensor<3072x128x64xf16>
     %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [1]], shape_value = [3072, 8192]} : tensor<3072x128x64xf16> -> tensor<3072x8192xf16>
     %3 = IE.AffineReshape(%input) {dim_mapping = [[0], [0], [1]], shape_value = [1, 8192]} : tensor<1x1x8192xf16> -> tensor<1x8192xf16>
     %4 = IE.FullyConnected(%3, %2) : tensor<1x8192xf16>, tensor<3072x8192xf16> -> tensor<1x3072xf16>
@@ -361,7 +338,8 @@ func.func @MergeParallelFCWithDynamicDequantizeReshapeOrderInput(%input: tensor<
 
     // CHECK:    [[AFFINE_RESHAPE0:%.+]] = IE.AffineReshape([[INPUT]])
     // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [0], [1]], shape_value = [1, 8192]} : tensor<1x1x8192xf16> -> tensor<1x8192xf16>
-    // CHECK:    [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[CST_WEIGHTS]], [[CST_SCALE]])
+        // CHECK:    [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[CST_WEIGHTS]], [[CST_SCALE]])
+        // CHECK-SAME: {dstElemType = f16, vpux.weights_import_dyn_dequant}
     // CHECK:    [[AFFINE_RESHAPE1:%.+]] = IE.AffineReshape([[DYN_DEQUANT]])
     // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [1], [1]], shape_value = [6144, 8192]} : tensor<6144x128x64xf16> -> tensor<6144x8192xf16>
 
@@ -385,6 +363,218 @@ func.func @MergeParallelFCWithDynamicDequantizeReshapeOrderInput(%input: tensor<
     // CHECK:    [[CONVERT1:%.+]] = IE.Convert([[AFFINE_RESHAPE3]])
 
     // CHECK:    return [[CONVERT0]], [[CONVERT1]] : tensor<1x1x3072xf32>, tensor<1x1x3072xf32>
+}
+
+// -----
+
+!genericQElemType = !quant.uniform<si8:f32, 1.000000e+00>
+#CN = affine_map<(d0, d1) -> (d1, d0)>
+
+// CHECK-LABEL: @MergeGenericDynamicDequantizeReshapeTranspose
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x6xf32>
+func.func @MergeGenericDynamicDequantizeReshapeTranspose(%input: tensor<1x6xf32>)
+        -> (tensor<1x2xf32>, tensor<1x3xf32>) {
+    %weights0 = const.Declare tensor<2x3x2x!genericQElemType> = dense<1> : tensor<2x3x2xsi8>, [#const.CastElemType<!genericQElemType>]
+    %weights1 = const.Declare tensor<2x3x3x!genericQElemType> = dense<2> : tensor<2x3x3xsi8>, [#const.CastElemType<!genericQElemType>]
+    %scale0 = const.Declare tensor<1x1xf32> = dense<1.0> : tensor<1x1xf32>
+    %scale1 = const.Declare tensor<1x1xf32> = dense<1.0> : tensor<1x1xf32>
+    %dequant0 = IE.DynamicDequantize(%weights0, %scale0) {dstElemType = f32}
+            : tensor<2x3x2x!genericQElemType>, tensor<1x1xf32> -> tensor<2x3x2xf32>
+    %dequant1 = IE.DynamicDequantize(%weights1, %scale1) {dstElemType = f32}
+            : tensor<2x3x3x!genericQElemType>, tensor<1x1xf32> -> tensor<2x3x3xf32>
+    %reshape0 = IE.AffineReshape(%dequant0) {dim_mapping = [[0], [0], [1]], shape_value = [6, 2]}
+            : tensor<2x3x2xf32> -> tensor<6x2xf32>
+    %transpose0 = IE.Transpose(%reshape0) {order_value = #CN}
+            : tensor<6x2xf32> -> tensor<2x6xf32>
+    %fc0 = IE.FullyConnected(%input, %transpose0)
+            : tensor<1x6xf32>, tensor<2x6xf32> -> tensor<1x2xf32>
+    %reshape1 = IE.AffineReshape(%dequant1) {dim_mapping = [[0], [0], [1]], shape_value = [6, 3]}
+            : tensor<2x3x3xf32> -> tensor<6x3xf32>
+    %transpose1 = IE.Transpose(%reshape1) {order_value = #CN}
+            : tensor<6x3xf32> -> tensor<3x6xf32>
+    %fc1 = IE.FullyConnected(%input, %transpose1)
+            : tensor<1x6xf32>, tensor<3x6xf32> -> tensor<1x3xf32>
+    return %fc0, %fc1 : tensor<1x2xf32>, tensor<1x3xf32>
+
+        // CHECK:    [[SCALE:%.+]] = const.Declare tensor<1x1xf32>
+        // CHECK:    [[WEIGHTS:%.+]] = const.Declare tensor<2x3x5x{{!.+}}>
+    // CHECK:    [[DYN_DEQUANT:%.+]] = IE.DynamicDequantize([[WEIGHTS]], [[SCALE]])
+    // CHECK:    [[RESHAPE:%.+]] = IE.AffineReshape([[DYN_DEQUANT]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [1]], shape_value = [6, 5]} : tensor<2x3x5xf32> -> tensor<6x5xf32>
+    // CHECK:    [[TRANSPOSE:%.+]] = IE.Transpose([[RESHAPE]]) {order_value = #CN}
+    // CHECK:    [[FC:%.+]] = IE.FullyConnected([[INPUT]], [[TRANSPOSE]]) : tensor<1x6xf32>, tensor<5x6xf32> -> tensor<1x5xf32>
+        // CHECK:    [[SLICE0:%.+]] = IE.Slice [[FC]] [0, 0] [1, 3] : tensor<1x5xf32> to tensor<1x3xf32>
+        // CHECK:    [[SLICE1:%.+]] = IE.Slice [[FC]] [0, 3] [1, 2] : tensor<1x5xf32> to tensor<1x2xf32>
+        // CHECK:    return [[SLICE1]], [[SLICE0]] : tensor<1x2xf32>, tensor<1x3xf32>
+}
+
+// -----
+
+!genericQElemType = !quant.uniform<si8:f32, 1.000000e+00>
+#CN = affine_map<(d0, d1) -> (d1, d0)>
+
+// Splat scales differ between the two DynamicDequantize ops (1.0 vs 2.0); createDynamicDequantize
+// must reject the merge instead of silently picking one value.
+//
+// CHECK-LABEL: @NotMergeDynDQMismatchedSplatScale
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x6xf32>
+func.func @NotMergeDynDQMismatchedSplatScale(%input: tensor<1x6xf32>)
+        -> (tensor<1x2xf32>, tensor<1x3xf32>) {
+    %weights0 = const.Declare tensor<2x3x2x!genericQElemType> = dense<1> : tensor<2x3x2xsi8>, [#const.CastElemType<!genericQElemType>]
+    %weights1 = const.Declare tensor<2x3x3x!genericQElemType> = dense<2> : tensor<2x3x3xsi8>, [#const.CastElemType<!genericQElemType>]
+    %scale0 = const.Declare tensor<1x1xf32> = dense<1.0> : tensor<1x1xf32>
+    %scale1 = const.Declare tensor<1x1xf32> = dense<2.0> : tensor<1x1xf32>
+    %dequant0 = IE.DynamicDequantize(%weights0, %scale0) {dstElemType = f32}
+            : tensor<2x3x2x!genericQElemType>, tensor<1x1xf32> -> tensor<2x3x2xf32>
+    %dequant1 = IE.DynamicDequantize(%weights1, %scale1) {dstElemType = f32}
+            : tensor<2x3x3x!genericQElemType>, tensor<1x1xf32> -> tensor<2x3x3xf32>
+    %reshape0 = IE.AffineReshape(%dequant0) {dim_mapping = [[0], [0], [1]], shape_value = [6, 2]}
+            : tensor<2x3x2xf32> -> tensor<6x2xf32>
+    %transpose0 = IE.Transpose(%reshape0) {order_value = #CN}
+            : tensor<6x2xf32> -> tensor<2x6xf32>
+    %fc0 = IE.FullyConnected(%input, %transpose0)
+            : tensor<1x6xf32>, tensor<2x6xf32> -> tensor<1x2xf32>
+    %reshape1 = IE.AffineReshape(%dequant1) {dim_mapping = [[0], [0], [1]], shape_value = [6, 3]}
+            : tensor<2x3x3xf32> -> tensor<6x3xf32>
+    %transpose1 = IE.Transpose(%reshape1) {order_value = #CN}
+            : tensor<6x3xf32> -> tensor<3x6xf32>
+    %fc1 = IE.FullyConnected(%input, %transpose1)
+            : tensor<1x6xf32>, tensor<3x6xf32> -> tensor<1x3xf32>
+    return %fc0, %fc1 : tensor<1x2xf32>, tensor<1x3xf32>
+
+    // CHECK-NOT: concat_
+    // CHECK:     [[DEQUANT0:%.+]] = IE.DynamicDequantize
+    // CHECK:     [[DEQUANT1:%.+]] = IE.DynamicDequantize
+    // CHECK:     [[FC0:%.+]] = IE.FullyConnected
+    // CHECK:     [[FC1:%.+]] = IE.FullyConnected
+    // CHECK:     return [[FC0]], [[FC1]]
+}
+
+// -----
+
+#CN = affine_map<(d0, d1) -> (d1, d0)>
+
+// Splat zero-points differ between the two DynamicDequantize ops (1 vs 2); createDynamicDequantize
+// must reject the merge instead of silently picking one value.
+//
+// CHECK-LABEL: @NotMergeDynDQMismatchedSplatZeroPoint
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x6xf32>
+func.func @NotMergeDynDQMismatchedSplatZeroPoint(%input: tensor<1x6xf32>)
+        -> (tensor<1x2xf32>, tensor<1x3xf32>) {
+    %weights0 = const.Declare tensor<2x3x2xsi8> = dense<1> : tensor<2x3x2xsi8>
+    %weights1 = const.Declare tensor<2x3x3xsi8> = dense<2> : tensor<2x3x3xsi8>
+    %scale0 = const.Declare tensor<1x1xf32> = dense<1.0> : tensor<1x1xf32>
+    %scale1 = const.Declare tensor<1x1xf32> = dense<1.0> : tensor<1x1xf32>
+    %zp0 = const.Declare tensor<1x1x1xsi8> = dense<1> : tensor<1x1x1xsi8>
+    %zp1 = const.Declare tensor<1x1x1xsi8> = dense<2> : tensor<1x1x1xsi8>
+    %dequant0 = IE.DynamicDequantize(%weights0, %scale0, %zp0) {dstElemType = f32}
+            : tensor<2x3x2xsi8>, tensor<1x1xf32>, tensor<1x1x1xsi8> -> tensor<2x3x2xf32>
+    %dequant1 = IE.DynamicDequantize(%weights1, %scale1, %zp1) {dstElemType = f32}
+            : tensor<2x3x3xsi8>, tensor<1x1xf32>, tensor<1x1x1xsi8> -> tensor<2x3x3xf32>
+    %reshape0 = IE.AffineReshape(%dequant0) {dim_mapping = [[0], [0], [1]], shape_value = [6, 2]}
+            : tensor<2x3x2xf32> -> tensor<6x2xf32>
+    %transpose0 = IE.Transpose(%reshape0) {order_value = #CN}
+            : tensor<6x2xf32> -> tensor<2x6xf32>
+    %fc0 = IE.FullyConnected(%input, %transpose0)
+            : tensor<1x6xf32>, tensor<2x6xf32> -> tensor<1x2xf32>
+    %reshape1 = IE.AffineReshape(%dequant1) {dim_mapping = [[0], [0], [1]], shape_value = [6, 3]}
+            : tensor<2x3x3xf32> -> tensor<6x3xf32>
+    %transpose1 = IE.Transpose(%reshape1) {order_value = #CN}
+            : tensor<6x3xf32> -> tensor<3x6xf32>
+    %fc1 = IE.FullyConnected(%input, %transpose1)
+            : tensor<1x6xf32>, tensor<3x6xf32> -> tensor<1x3xf32>
+    return %fc0, %fc1 : tensor<1x2xf32>, tensor<1x3xf32>
+
+    // CHECK-NOT: concat_
+    // CHECK:     [[DEQUANT0:%.+]] = IE.DynamicDequantize
+    // CHECK:     [[DEQUANT1:%.+]] = IE.DynamicDequantize
+    // CHECK:     [[FC0:%.+]] = IE.FullyConnected
+    // CHECK:     [[FC1:%.+]] = IE.FullyConnected
+    // CHECK:     return [[FC0]], [[FC1]]
+}
+
+// -----
+
+#CN = affine_map<(d0, d1) -> (d1, d0)>
+
+// Input element types differ between the two DynamicDequantize ops (si8 vs ui8); merging them would
+// force the second operand's raw bytes to be reinterpreted under the first operand's type.
+//
+// CHECK-LABEL: @NotMergeDynDQMismatchedInputElemType
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x6xf32>
+func.func @NotMergeDynDQMismatchedInputElemType(%input: tensor<1x6xf32>)
+        -> (tensor<1x2xf32>, tensor<1x3xf32>) {
+    %weights0 = const.Declare tensor<2x3x2xsi8> = dense<1> : tensor<2x3x2xsi8>
+    %weights1 = const.Declare tensor<2x3x3xui8> = dense<2> : tensor<2x3x3xui8>
+    %scale0 = const.Declare tensor<1x1xf32> = dense<1.0> : tensor<1x1xf32>
+    %scale1 = const.Declare tensor<1x1xf32> = dense<1.0> : tensor<1x1xf32>
+    %dequant0 = IE.DynamicDequantize(%weights0, %scale0) {dstElemType = f32}
+            : tensor<2x3x2xsi8>, tensor<1x1xf32> -> tensor<2x3x2xf32>
+    %dequant1 = IE.DynamicDequantize(%weights1, %scale1) {dstElemType = f32}
+            : tensor<2x3x3xui8>, tensor<1x1xf32> -> tensor<2x3x3xf32>
+    %reshape0 = IE.AffineReshape(%dequant0) {dim_mapping = [[0], [0], [1]], shape_value = [6, 2]}
+            : tensor<2x3x2xf32> -> tensor<6x2xf32>
+    %transpose0 = IE.Transpose(%reshape0) {order_value = #CN}
+            : tensor<6x2xf32> -> tensor<2x6xf32>
+    %fc0 = IE.FullyConnected(%input, %transpose0)
+            : tensor<1x6xf32>, tensor<2x6xf32> -> tensor<1x2xf32>
+    %reshape1 = IE.AffineReshape(%dequant1) {dim_mapping = [[0], [0], [1]], shape_value = [6, 3]}
+            : tensor<2x3x3xf32> -> tensor<6x3xf32>
+    %transpose1 = IE.Transpose(%reshape1) {order_value = #CN}
+            : tensor<6x3xf32> -> tensor<3x6xf32>
+    %fc1 = IE.FullyConnected(%input, %transpose1)
+            : tensor<1x6xf32>, tensor<3x6xf32> -> tensor<1x3xf32>
+    return %fc0, %fc1 : tensor<1x2xf32>, tensor<1x3xf32>
+
+    // CHECK-NOT: concat_
+    // CHECK:     [[DEQUANT0:%.+]] = IE.DynamicDequantize
+    // CHECK:     [[DEQUANT1:%.+]] = IE.DynamicDequantize
+    // CHECK:     [[FC0:%.+]] = IE.FullyConnected
+    // CHECK:     [[FC1:%.+]] = IE.FullyConnected
+    // CHECK:     return [[FC0]], [[FC1]]
+}
+
+// -----
+
+!qElemType0 = !quant.uniform<si8:f32, 1.000000e+00>
+!qElemType1 = !quant.uniform<si8:f32, 2.000000e+00>
+#CN = affine_map<(d0, d1) -> (d1, d0)>
+
+// Same storage type (si8) but different !quant.uniform scale baked into the input element type;
+// merging must be rejected instead of silently discarding the second branch's real type.
+//
+// CHECK-LABEL: @NotMergeDynDQMismatchedQuantUniformScale
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x6xf32>
+func.func @NotMergeDynDQMismatchedQuantUniformScale(%input: tensor<1x6xf32>)
+        -> (tensor<1x2xf32>, tensor<1x3xf32>) {
+    %weights0 = const.Declare tensor<2x3x2x!qElemType0> = dense<1> : tensor<2x3x2xsi8>, [#const.CastElemType<!qElemType0>]
+    %weights1 = const.Declare tensor<2x3x3x!qElemType1> = dense<2> : tensor<2x3x3xsi8>, [#const.CastElemType<!qElemType1>]
+    %scale0 = const.Declare tensor<1x1xf32> = dense<1.0> : tensor<1x1xf32>
+    %scale1 = const.Declare tensor<1x1xf32> = dense<1.0> : tensor<1x1xf32>
+    %dequant0 = IE.DynamicDequantize(%weights0, %scale0) {dstElemType = f32}
+            : tensor<2x3x2x!qElemType0>, tensor<1x1xf32> -> tensor<2x3x2xf32>
+    %dequant1 = IE.DynamicDequantize(%weights1, %scale1) {dstElemType = f32}
+            : tensor<2x3x3x!qElemType1>, tensor<1x1xf32> -> tensor<2x3x3xf32>
+    %reshape0 = IE.AffineReshape(%dequant0) {dim_mapping = [[0], [0], [1]], shape_value = [6, 2]}
+            : tensor<2x3x2xf32> -> tensor<6x2xf32>
+    %transpose0 = IE.Transpose(%reshape0) {order_value = #CN}
+            : tensor<6x2xf32> -> tensor<2x6xf32>
+    %fc0 = IE.FullyConnected(%input, %transpose0)
+            : tensor<1x6xf32>, tensor<2x6xf32> -> tensor<1x2xf32>
+    %reshape1 = IE.AffineReshape(%dequant1) {dim_mapping = [[0], [0], [1]], shape_value = [6, 3]}
+            : tensor<2x3x3xf32> -> tensor<6x3xf32>
+    %transpose1 = IE.Transpose(%reshape1) {order_value = #CN}
+            : tensor<6x3xf32> -> tensor<3x6xf32>
+    %fc1 = IE.FullyConnected(%input, %transpose1)
+            : tensor<1x6xf32>, tensor<3x6xf32> -> tensor<1x3xf32>
+    return %fc0, %fc1 : tensor<1x2xf32>, tensor<1x3xf32>
+
+    // CHECK-NOT: concat_
+    // CHECK:     [[DEQUANT0:%.+]] = IE.DynamicDequantize
+    // CHECK:     [[DEQUANT1:%.+]] = IE.DynamicDequantize
+    // CHECK:     [[FC0:%.+]] = IE.FullyConnected
+    // CHECK:     [[FC1:%.+]] = IE.FullyConnected
+    // CHECK:     return [[FC0]], [[FC1]]
 }
 
 // -----
@@ -456,7 +646,7 @@ func.func @NotMergeParallelFCWithDynamicDequantizeNonConstInput(%input: tensor<1
 // -----
 
 // Parallel FC ops with direct constant weights whose outputs are stacked via
-// AffineReshape → Concat. The Concat is eliminated and replaced by a Reshape.
+// AffineReshape -> Concat. The Concat is eliminated and replaced by a Reshape.
 //
 // CHECK-LABEL: @MergeDirectConstWeightsWithConcatElim
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x4xf16>)
@@ -473,12 +663,12 @@ func.func @MergeDirectConstWeightsWithConcatElim(%x: tensor<1x4xf16>) -> tensor<
             : tensor<1x1x3xf16>, tensor<1x1x3xf16> -> tensor<2x1x3xf16>
     return %4 : tensor<2x1x3xf16>
 
-    // CHECK:     [[MERGED_W:%.+]] = const.Declare tensor<6x4xf16>
-    // CHECK:     [[FC:%.+]] = IE.FullyConnected([[ARG0]], [[MERGED_W]]) : tensor<1x4xf16>, tensor<6x4xf16> -> tensor<1x6xf16>
+    // CHECK:     [[CST:%.+]] = const.Declare tensor<6x4xf16>
+    // CHECK:     [[FC:%.+]] = IE.FullyConnected([[ARG0]], [[CST]])
+    // CHECK:     [[RESHAPE:%.+]] = IE.Reshape([[FC]]) {shape_value = [2, 1, 3]}
     // CHECK-NOT: IE.Slice
     // CHECK-NOT: IE.Concat
-    // CHECK:     [[RESHAPED:%.+]] = IE.Reshape([[FC]]) {shape_value = [2, 1, 3]} : tensor<1x6xf16> -> tensor<2x1x3xf16>
-    // CHECK:     return [[RESHAPED]] : tensor<2x1x3xf16>
+    // CHECK:     return [[RESHAPE]] : tensor<2x1x3xf16>
 }
 
 // -----

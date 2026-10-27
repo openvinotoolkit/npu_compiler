@@ -43,8 +43,8 @@ void AddCompilerHashPass::safeRunOnFunc() {
     std::unordered_map<ELF::SectionSignature, ELF::ElfSectionInterface> sectionMap;
     auto builder = mlir::OpBuilder::atBlockEnd(elfMain.getBody());
     const auto compilerCommit = isDeveloperBuild() ? "0" : vpux::ELF::NPU_COMPILER_GIT_COMMIT_HASH;
-    auto compilerHashOp = builder.create<VPUASM::CompilerHashOp>(
-            elfMain.getLoc(), builder.getStringAttr("CompilerHash"), builder.getStringAttr(compilerCommit));
+    auto compilerHashOp = VPUASM::CompilerHashOp::create(
+            builder, elfMain.getLoc(), builder.getStringAttr("CompilerHash"), builder.getStringAttr(compilerCommit));
     moveOpToSection(compilerHashOp.getOperation(), sectionMap, builder);
 }
 

@@ -16,7 +16,7 @@ mlir::LogicalResult vpux::VPUIPDPU::arch50xx::buildDPUVariantPPE(
     }
 
     if (origVarOp.getSprLutRead()) {
-        builder.create<PPEsprLUTReadOp>(origVarOp.getLoc());
+        PPEsprLUTReadOp::create(builder, origVarOp.getLoc());
     }
 
     return mlir::success();

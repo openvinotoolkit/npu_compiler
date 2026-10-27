@@ -587,3 +587,19 @@ func.func @MatMulPerDimBatchMismatchSameProduct(%arg0: tensor<2x1x4x16xf16>, %ar
 
     // CHECK: return [[MATMUL]] : tensor<2x2x4x8xf16>
 }
+
+// -----
+
+!qElemType = !quant.uniform<u2:f16, 1.000000e+00>
+// CHECK: !qElemType = !quant.uniform<u2:f16, 1.000000e+00>
+
+// Regression test for per-group CMX usage not using the actual weight element size
+// CHECK-LABEL: @GroupedMatMulU2WeightsNotUnrolledOnBatch
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x80x1x64xf16>, [[ARG1:%.+]]: tensor<1x80x17920x64x!qElemType>)
+func.func @GroupedMatMulU2WeightsNotUnrolledOnBatch(%arg0: tensor<1x80x1x64xf16>, %arg1: tensor<1x80x17920x64x!qElemType>) -> tensor<1x80x1x17920xf16> {
+    %0 = IE.MatMul(%arg0, %arg1) {transpose_b} : tensor<1x80x1x64xf16>, tensor<1x80x17920x64x!qElemType> -> tensor<1x80x1x17920xf16>
+    return %0 : tensor<1x80x1x17920xf16>
+
+    // CHECK: [[MATMUL:%.+]] = IE.MatMul([[ARG0]], [[ARG1]]) {transpose_b} : tensor<1x80x1x64xf16>, tensor<1x80x17920x64x!qElemType> -> tensor<1x80x1x17920xf16>
+    // CHECK: return [[MATMUL]] : tensor<1x80x1x17920xf16>
+}
